@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Porsche Web 博客示例</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-logo">P</div>
+          <div class="brand-text">
+            <div class="brand-title">Porsche Web Blog</div>
+            <div class="brand-subtitle">轻量级前端博客示例</div>
+          </div>
+        </div>
+        <button id="new-post-btn" class="primary-btn">+ 新建文章</button>
+      </header>
+
+      <main class="app-main">
+        <section class="sidebar">
+          <div class="sidebar-header">
+            <h2>文章列表</h2>
+            <input
+              id="search-input"
+              type="search"
+              placeholder="搜索标题或内容..."
+            />
+          </div>
+          <ul id="post-list" class="post-list"></ul>
+          <div class="empty-state" id="empty-state">
+            还没有文章，点击右上角「新建文章」开始创作。
+          </div>
+        </section>
+
+        <section class="content">
+          <article id="post-detail" class="post-detail hidden">
+            <header class="post-detail-header">
+              <h1 id="detail-title"></h1>
+              <div class="post-meta">
+                <span id="detail-date"></span>
+              </div>
+            </header>
+            <div id="detail-body" class="post-body"></div>
+            <div class="post-detail-actions">
+              <button id="edit-post-btn" class="ghost-btn">编辑</button>
+              <button id="delete-post-btn" class="danger-btn">删除</button>
+            </div>
+          </article>
+
+          <section id="welcome-panel" class="welcome-panel">
+            <h1>欢迎使用 Porsche Web 博客示例</h1>
+            <p>在左侧创建或选择一篇文章，在这里查看和编辑内容。</p>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <!-- 新建/编辑文章弹窗 -->
+    <div id="post-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <header class="modal-header">
+          <h2 id="modal-title">新建文章</h2>
+        </header>
+        <div class="modal-body">
+          <label class="field">
+            <span>标题</span>
+            <input id="form-title" type="text" placeholder="请输入文章标题" />
+          </label>
+          <label class="field">
+            <span>内容</span>
+            <textarea
+              id="form-body"
+              rows="8"
+              placeholder="在这里输入你的内容，支持换行。"
+            ></textarea>
+          </label>
+        </div>
+        <footer class="modal-footer">
+          <button id="cancel-btn" class="ghost-btn">取消</button>
+          <button id="save-btn" class="primary-btn">保存</button>
+        </footer>
+      </div>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+
