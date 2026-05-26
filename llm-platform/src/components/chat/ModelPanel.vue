@@ -5,7 +5,16 @@
       模型选择
     </div>
 
+    <div v-if="settings.models.length === 1" class="model-single">
+      <span class="model-icon">{{ settings.models[0].icon }}</span>
+      <div class="model-single-info">
+        <span class="model-name">{{ settings.models[0].name }}</span>
+        <span class="model-vendor">{{ settings.models[0].vendor }}</span>
+      </div>
+      <el-tag v-if="settings.models[0].multimodal" size="small" type="info">多模态</el-tag>
+    </div>
     <el-radio-group
+      v-else
       :model-value="settings.selectedModelId"
       class="model-grid"
       :disabled="settings.compareMode"
@@ -63,6 +72,7 @@
 
     <el-divider />
 
+    <template v-if="settings.models.length > 1">
     <div class="compare-row">
       <span>模型对比</span>
       <el-switch
@@ -82,6 +92,7 @@
         </el-checkbox>
       </el-checkbox-group>
     </template>
+    </template>
   </div>
 </template>
 
@@ -94,8 +105,15 @@ import { useChatStore } from '@/stores/chat'
 const settings = useSettingsStore()
 const chatStore = useChatStore()
 
-onMounted(() => {
-  if (!settings.modelsLoaded) settings.loadModels()
+onMounted(async () => {
+  if (!settings.modelsLoaded) await settings.loadModels()
+  if (settings.models.length === 1) {
+    settings.setModel(settings.models[0].id)
+    if (settings.compareMode) {
+      settings.toggleCompare(false)
+      chatStore.clearCompare()
+    }
+  }
 })
 
 function onCompareToggle(val) {
@@ -160,6 +178,34 @@ function onCompareToggle(val) {
 .model-name {
   flex: 1;
   font-size: 13px;
+}
+
+.model-single {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.model-single-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+
+  .model-name {
+    font-weight: 600;
+    font-size: 14px;
+  }
+}
+
+.model-vendor {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .param-item {

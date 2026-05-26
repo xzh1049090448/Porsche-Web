@@ -6,7 +6,7 @@
           <span class="logo-icon">AI</span>
           <div>
             <div class="logo-title">国内大模型聚合平台</div>
-            <div class="logo-sub">跨境电商专属 · 一键切换主流模型</div>
+            <div class="logo-sub">跨境电商专属 · 智谱 GLM-5.1</div>
           </div>
         </div>
       </div>

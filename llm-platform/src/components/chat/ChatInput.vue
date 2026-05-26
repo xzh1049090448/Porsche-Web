@@ -48,7 +48,6 @@ import { Picture, Promotion, Close, InfoFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
-import { MODELS } from '@/constants/models'
 /** 后端暂未提供独立上传接口，多模态图片以本地预览展示 */
 
 const emit = defineEmits(['send'])
@@ -58,10 +57,7 @@ const settings = useSettingsStore()
 const text = ref('')
 const pendingImages = ref([])
 
-const canMultimodal = computed(() => {
-  const m = MODELS.find((x) => x.id === settings.selectedModelId)
-  return m?.multimodal
-})
+const canMultimodal = computed(() => settings.currentModel()?.multimodal)
 
 const canSend = computed(
   () => (text.value.trim() || pendingImages.value.length) && !chatStore.streaming

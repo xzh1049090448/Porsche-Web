@@ -89,13 +89,18 @@ export function mapDataset(raw) {
   }
 }
 
+const MODEL_DISPLAY_NAMES = {
+  'glm-5.1': 'GLM-5.1',
+}
+
 export function mapModel(raw) {
+  const id = raw.id
   return {
-    id: raw.id,
-    name: raw.id,
-    vendor: raw.provider || '',
-    icon: (raw.id || '?').slice(0, 1).toUpperCase(),
-    multimodal: false,
-    upstreamModel: raw.upstream_model,
+    id,
+    name: raw.name || MODEL_DISPLAY_NAMES[id] || id,
+    vendor: raw.provider || '智谱',
+    icon: (id || '?').slice(0, 1).toUpperCase(),
+    multimodal: raw.multimodal ?? id?.startsWith('glm'),
+    upstreamModel: raw.upstream_model || id,
   }
 }

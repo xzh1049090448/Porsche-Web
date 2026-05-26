@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getItem, setItem } from '@/utils/storage'
-import { DEFAULT_MODEL_PARAMS, MODELS } from '@/constants/models'
+import { DEFAULT_MODEL_ID, DEFAULT_MODEL_PARAMS, MODELS } from '@/constants/models'
 import { listModels } from '@/api/platform'
 import { listDatasets } from '@/api/datasets'
 
@@ -11,22 +11,21 @@ export const useSettingsStore = defineStore('settings', () => {
   const modelsLoaded = ref(false)
   const datasetsLoaded = ref(false)
 
-  const selectedModelId = ref(getItem('selectedModel', 'qwen-turbo'))
+  const selectedModelId = ref(getItem('selectedModel', DEFAULT_MODEL_ID))
   const modelParams = ref(getItem('modelParams', { ...DEFAULT_MODEL_PARAMS }))
   const useDataset = ref(getItem('useDataset', true))
   const selectedDatasetIds = ref(getItem('selectedDatasets', []))
   const compareMode = ref(false)
-  const compareModelIds = ref(getItem('compareModels', ['qwen-turbo', 'deepseek-chat']))
+  const compareModelIds = ref(getItem('compareModels', [DEFAULT_MODEL_ID]))
 
   async function loadModels() {
     try {
       const list = await listModels()
-      if (list.length) {
-        models.value = list
-        if (!list.some((m) => m.id === selectedModelId.value)) {
-          selectedModelId.value = list[0].id
-          setItem('selectedModel', list[0].id)
-        }
+      const glmOnly = list.filter((m) => m.id === DEFAULT_MODEL_ID)
+      models.value = glmOnly.length ? glmOnly : [...MODELS]
+      if (!models.value.some((m) => m.id === selectedModelId.value)) {
+        selectedModelId.value = DEFAULT_MODEL_ID
+        setItem('selectedModel', DEFAULT_MODEL_ID)
       }
     } finally {
       modelsLoaded.value = true
