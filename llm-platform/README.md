@@ -17,8 +17,16 @@
 
 ```bash
 # 在本目录下执行（需 Node.js 18+）
-npm install
+npm install          # 必须先执行，且不要加 --omit=dev / --production
 npm run dev
+npm run build        # 产物在 dist/
+```
+
+若出现 `vite: not found`，说明未安装开发依赖，请重新执行：
+
+```bash
+rm -rf node_modules package-lock.json
+npm install
 npm run build
 ```
 

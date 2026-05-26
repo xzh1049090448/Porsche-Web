@@ -68,20 +68,27 @@
         :closable="false"
         show-icon
         class="demo-tip"
-        title="演示环境"
-        description="对接 ai-gateway：验证码见接口返回 dev_code；Mock 模式（VITE_USE_MOCK=true）下验证码为 123456，密码 demo123"
+        title="登录说明"
+        :description="loginTip"
       />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Iphone, Message, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { sendSmsCode } from '@/api/auth'
+import { USE_MOCK } from '@/api/request'
+
+const loginTip = computed(() =>
+  USE_MOCK
+    ? '本地 Mock：任意 11 位手机号，验证码 123456；密码登录密码 demo123。'
+    : '已对接 ai-gateway：先点「获取验证码」，弹窗或接口会返回 dev_code（需后端 SMS_DEV_MODE=true）；密码登录须先注册账号。'
+)
 
 const router = useRouter()
 const route = useRoute()
