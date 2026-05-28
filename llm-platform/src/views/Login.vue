@@ -66,8 +66,8 @@ const loading = ref(false)
 const pwdFormRef = ref()
 
 const pwdForm = reactive({
-  phone: FIXED_LOGIN_PHONE,
-  password: FIXED_LOGIN_PASSWORD,
+  phone: '',
+  password: '',
 })
 
 const pwdRules = {
