@@ -74,6 +74,10 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const conv = await getConversation(activeId.value)
       const idx = conversations.value.findIndex((c) => c.id === conv.id)
+      const local = idx >= 0 ? conversations.value[idx] : null
+      if (local?.messages?.length && (!conv.messages || conv.messages.length < local.messages.length)) {
+        conv.messages = local.messages
+      }
       if (idx >= 0) conversations.value[idx] = conv
       else conversations.value.unshift(conv)
     } catch {
@@ -120,7 +124,10 @@ export const useChatStore = defineStore('chat', () => {
       role: m.role,
       content: m.content,
     }))
-    history.push({ role: 'user', content: userContent })
+    const last = history[history.length - 1]
+    if (!(last?.role === 'user' && last.content === userContent)) {
+      history.push({ role: 'user', content: userContent })
+    }
     return history
   }
 
@@ -159,7 +166,8 @@ export const useChatStore = defineStore('chat', () => {
     conv.messages.push(assistantMsg)
     streaming.value = true
 
-    const conversationId = typeof conv.id === 'number' ? conv.id : null
+    let conversationId = typeof conv.id === 'number' ? conv.id : null
+    let streamFailed = false
 
     try {
       await streamPlatformChat(
@@ -175,6 +183,13 @@ export const useChatStore = defineStore('chat', () => {
         },
         {
           onMeta(meta) {
+            if (meta.conversationId != null) {
+              conversationId = meta.conversationId
+              if (conv.id !== meta.conversationId) {
+                conv.id = meta.conversationId
+                activeId.value = meta.conversationId
+              }
+            }
             assistantMsg.datasetUsed = meta.datasetUsed
             assistantMsg.datasetBadge = meta.datasetBadge || DATASET_BADGE_TEXT
           },
@@ -188,11 +203,12 @@ export const useChatStore = defineStore('chat', () => {
             }
           },
           onError(msg) {
+            streamFailed = true
             assistantMsg.content += `\n\n[错误] ${msg}`
           },
         }
       )
-      if (!USE_MOCK && conversationId) {
+      if (!USE_MOCK && conversationId && !streamFailed) {
         await refreshActiveConversation()
       }
     } finally {

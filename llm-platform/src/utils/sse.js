@@ -41,6 +41,7 @@ export async function readPlatformChatStream(response, { onMeta, onChunk, onDone
           const json = JSON.parse(data)
           if (json.type === 'meta') {
             meta = {
+              conversationId: json.conversation_id,
               datasetUsed: json.dataset_used,
               datasetBadge: json.dataset_attribution,
             }
