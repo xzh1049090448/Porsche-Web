@@ -18,31 +18,46 @@ export const useSettingsStore = defineStore('settings', () => {
   const compareMode = ref(false)
   const compareModelIds = ref(getItem('compareModels', [DEFAULT_MODEL_ID]))
 
+  let modelsLoadPromise = null
+  let datasetsLoadPromise = null
+
   async function loadModels() {
-    try {
-      const list = await listModels()
-      const glmOnly = list.filter((m) => m.id === DEFAULT_MODEL_ID)
-      models.value = glmOnly.length ? glmOnly : [...MODELS]
-      if (!models.value.some((m) => m.id === selectedModelId.value)) {
-        selectedModelId.value = DEFAULT_MODEL_ID
-        setItem('selectedModel', DEFAULT_MODEL_ID)
+    if (modelsLoaded.value) return
+    if (modelsLoadPromise) return modelsLoadPromise
+    modelsLoadPromise = (async () => {
+      try {
+        const list = await listModels()
+        const glmOnly = list.filter((m) => m.id === DEFAULT_MODEL_ID)
+        models.value = glmOnly.length ? glmOnly : [...MODELS]
+        if (!models.value.some((m) => m.id === selectedModelId.value)) {
+          selectedModelId.value = DEFAULT_MODEL_ID
+          setItem('selectedModel', DEFAULT_MODEL_ID)
+        }
+      } finally {
+        modelsLoaded.value = true
+        modelsLoadPromise = null
       }
-    } finally {
-      modelsLoaded.value = true
-    }
+    })()
+    return modelsLoadPromise
   }
 
   async function loadDatasets() {
-    try {
-      const list = await listDatasets()
-      datasets.value = list
-      if (list.length && (!selectedDatasetIds.value || !selectedDatasetIds.value.length)) {
-        selectedDatasetIds.value = list.map((d) => d.id)
-        setItem('selectedDatasets', selectedDatasetIds.value)
+    if (datasetsLoaded.value) return
+    if (datasetsLoadPromise) return datasetsLoadPromise
+    datasetsLoadPromise = (async () => {
+      try {
+        const list = await listDatasets()
+        datasets.value = list
+        if (list.length && (!selectedDatasetIds.value || !selectedDatasetIds.value.length)) {
+          selectedDatasetIds.value = list.map((d) => d.id)
+          setItem('selectedDatasets', selectedDatasetIds.value)
+        }
+      } finally {
+        datasetsLoaded.value = true
+        datasetsLoadPromise = null
       }
-    } finally {
-      datasetsLoaded.value = true
-    }
+    })()
+    return datasetsLoadPromise
   }
 
   function setModel(id) {

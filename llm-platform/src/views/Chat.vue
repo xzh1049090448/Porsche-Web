@@ -32,7 +32,6 @@ const inputRef = ref()
 
 onMounted(async () => {
   await Promise.all([settingsStore.loadModels(), settingsStore.loadDatasets()])
-  await chatStore.fetchConversations()
   await chatStore.ensureActive()
 })
 

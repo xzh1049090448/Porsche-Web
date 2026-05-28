@@ -48,16 +48,11 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
 import { Collection } from '@element-plus/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
 import { DATASET_BADGE_TEXT } from '@/constants/datasets'
 
 const settings = useSettingsStore()
-
-onMounted(() => {
-  settings.loadDatasets()
-})
 </script>
 
 <style scoped lang="scss">

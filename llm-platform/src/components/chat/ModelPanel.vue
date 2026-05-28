@@ -97,7 +97,7 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { Cpu } from '@element-plus/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useChatStore } from '@/stores/chat'
@@ -105,8 +105,7 @@ import { useChatStore } from '@/stores/chat'
 const settings = useSettingsStore()
 const chatStore = useChatStore()
 
-onMounted(async () => {
-  if (!settings.modelsLoaded) await settings.loadModels()
+function applySingleModelDefaults() {
   if (settings.models.length === 1) {
     settings.setModel(settings.models[0].id)
     if (settings.compareMode) {
@@ -114,7 +113,18 @@ onMounted(async () => {
       chatStore.clearCompare()
     }
   }
+}
+
+onMounted(() => {
+  if (settings.modelsLoaded) applySingleModelDefaults()
 })
+
+watch(
+  () => settings.modelsLoaded,
+  (loaded) => {
+    if (loaded) applySingleModelDefaults()
+  }
+)
 
 function onCompareToggle(val) {
   settings.toggleCompare(val)

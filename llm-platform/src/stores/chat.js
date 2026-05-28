@@ -35,17 +35,24 @@ export const useChatStore = defineStore('chat', () => {
     return conversations.value.find((c) => c.id === activeId.value) || null
   }
 
+  let conversationsLoadPromise = null
+
   async function fetchConversations() {
+    if (conversationsLoadPromise) return conversationsLoadPromise
     loading.value = true
-    try {
-      const { items } = await listConversations({ limit: 100 })
-      conversations.value = items
-      if (!activeId.value && items.length) {
-        activeId.value = items[0].id
+    conversationsLoadPromise = (async () => {
+      try {
+        const { items } = await listConversations({ limit: 100 })
+        conversations.value = items
+        if (!activeId.value && items.length) {
+          activeId.value = items[0].id
+        }
+      } finally {
+        loading.value = false
+        conversationsLoadPromise = null
       }
-    } finally {
-      loading.value = false
-    }
+    })()
+    return conversationsLoadPromise
   }
 
   async function createConversation(title = '新对话') {
