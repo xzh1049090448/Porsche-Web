@@ -3,6 +3,7 @@ import { getItem, setItem } from '@/utils/storage'
 import { MODELS } from '@/constants/models'
 import { DATASETS, DATASET_BADGE_TEXT } from '@/constants/datasets'
 import { PLANS } from '@/constants/plans'
+import { FIXED_LOGIN_PHONE, FIXED_LOGIN_PASSWORD } from '@/constants/auth'
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -40,8 +41,8 @@ export const mockApi = {
 
   async loginPassword({ account, password }) {
     await delay(600)
-    if (!account || password !== 'demo123') {
-      throw new Error('账号或密码错误（演示：手机号 + 密码 demo123）')
+    if (account !== FIXED_LOGIN_PHONE || password !== FIXED_LOGIN_PASSWORD) {
+      throw new Error(`账号或密码错误（演示：${FIXED_LOGIN_PHONE} / ${FIXED_LOGIN_PASSWORD}）`)
     }
     const token = 'mock_token_' + genId()
     setItem('user', {
