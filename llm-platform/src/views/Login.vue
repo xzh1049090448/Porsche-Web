@@ -123,6 +123,7 @@ async function sendCode() {
   await smsFormRef.value?.validateField('phone')
   const res = await sendSmsCode(smsForm.phone)
   if (res?.dev_code) {
+    smsForm.code = String(res.dev_code)
     ElMessage.success(`验证码已发送（开发环境：${res.dev_code}）`)
   } else {
     ElMessage.success(res?.message || '验证码已发送')
