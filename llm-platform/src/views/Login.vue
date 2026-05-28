@@ -30,33 +30,16 @@
           登录
         </el-button>
       </el-form>
-
-      <el-alert
-        type="info"
-        :closable="false"
-        show-icon
-        class="demo-tip"
-        title="登录说明"
-        :description="loginTip"
-      />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Iphone, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
-import { USE_MOCK } from '@/api/request'
-import { FIXED_LOGIN_PHONE, FIXED_LOGIN_PASSWORD } from '@/constants/auth'
-
-const loginTip = computed(() =>
-  USE_MOCK
-    ? `测试账号：${FIXED_LOGIN_PHONE} / ${FIXED_LOGIN_PASSWORD}`
-    : `请使用固定测试账号登录：${FIXED_LOGIN_PHONE} / ${FIXED_LOGIN_PASSWORD}`,
-)
 
 const router = useRouter()
 const route = useRoute()
@@ -141,9 +124,5 @@ async function submitPwd() {
 .submit-btn {
   width: 100%;
   margin-top: 8px;
-}
-
-.demo-tip {
-  margin-top: 20px;
 }
 </style>
