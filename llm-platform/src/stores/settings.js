@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getItem, setItem } from '@/utils/storage'
-import { DEFAULT_MODEL_ID, DEFAULT_MODEL_PARAMS, MODELS } from '@/constants/models'
+import { DEFAULT_MODEL_ID, DEFAULT_SCENARIO_ID, MODELS } from '@/constants/models'
+import { SCENARIO_PRESETS, getScenarioPreset } from '@/constants/scenario-presets'
 import { listModels } from '@/api/platform'
 import { listDatasets } from '@/api/datasets'
 
@@ -11,8 +12,15 @@ export const useSettingsStore = defineStore('settings', () => {
   const modelsLoaded = ref(false)
   const datasetsLoaded = ref(false)
 
+  const storedScenario = getItem('selectedScenario', DEFAULT_SCENARIO_ID)
+  const initialScenarioId = SCENARIO_PRESETS.some((s) => s.id === storedScenario)
+    ? storedScenario
+    : DEFAULT_SCENARIO_ID
+  const initialPreset = getScenarioPreset(initialScenarioId)
+
   const selectedModelId = ref(getItem('selectedModel', DEFAULT_MODEL_ID))
-  const modelParams = ref(getItem('modelParams', { ...DEFAULT_MODEL_PARAMS }))
+  const selectedScenarioId = ref(initialScenarioId)
+  const modelParams = ref({ ...initialPreset.params })
   const useDataset = ref(getItem('useDataset', true))
   const selectedDatasetIds = ref(getItem('selectedDatasets', []))
   const compareMode = ref(false)
@@ -70,6 +78,17 @@ export const useSettingsStore = defineStore('settings', () => {
     setItem('modelParams', modelParams.value)
   }
 
+  function setScenario(id) {
+    const preset = getScenarioPreset(id)
+    selectedScenarioId.value = preset.id
+    modelParams.value = { ...preset.params }
+    setItem('selectedScenario', preset.id)
+    setItem('modelParams', modelParams.value)
+  }
+
+  setItem('selectedScenario', initialScenarioId)
+  setItem('modelParams', initialPreset.params)
+
   function setUseDataset(val) {
     useDataset.value = val
     setItem('useDataset', val)
@@ -97,6 +116,7 @@ export const useSettingsStore = defineStore('settings', () => {
     modelsLoaded,
     datasetsLoaded,
     selectedModelId,
+    selectedScenarioId,
     modelParams,
     useDataset,
     selectedDatasetIds,
@@ -105,6 +125,7 @@ export const useSettingsStore = defineStore('settings', () => {
     loadModels,
     loadDatasets,
     setModel,
+    setScenario,
     setModelParams,
     setUseDataset,
     setDatasetIds,

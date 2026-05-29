@@ -1,4 +1,6 @@
 /** 平台可用模型（当前仅接入智谱 GLM-5.1） */
+import { DEFAULT_SCENARIO_ID, getScenarioPreset } from './scenario-presets'
+
 export const DEFAULT_MODEL_ID = 'glm-5.1'
 
 export const MODELS = [
@@ -12,8 +14,5 @@ export const MODELS = [
   },
 ]
 
-export const DEFAULT_MODEL_PARAMS = {
-  temperature: 0.7,
-  maxTokens: 2048,
-  contextWindow: 10,
-}
+export { DEFAULT_SCENARIO_ID }
+export const DEFAULT_MODEL_PARAMS = { ...getScenarioPreset(DEFAULT_SCENARIO_ID).params }

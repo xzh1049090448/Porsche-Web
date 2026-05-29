@@ -35,39 +35,19 @@
 
     <el-divider />
 
-    <div class="panel-subtitle">参数调整</div>
-    <div class="param-item">
-      <span>温度 Temperature</span>
-      <el-slider
-        :model-value="settings.modelParams.temperature"
-        :min="0"
-        :max="1"
-        :step="0.1"
-        show-input
-        :show-input-controls="false"
-        @update:model-value="(v) => settings.setModelParams({ temperature: v })"
-      />
-    </div>
-    <div class="param-item">
-      <span>最大输出 Token</span>
-      <el-input-number
-        :model-value="settings.modelParams.maxTokens"
-        :min="256"
-        :max="8192"
-        :step="256"
-        size="small"
-        @update:model-value="(v) => settings.setModelParams({ maxTokens: v })"
-      />
-    </div>
-    <div class="param-item">
-      <span>上下文轮数</span>
-      <el-input-number
-        :model-value="settings.modelParams.contextWindow"
-        :min="1"
-        :max="50"
-        size="small"
-        @update:model-value="(v) => settings.setModelParams({ contextWindow: v })"
-      />
+    <div class="panel-subtitle">使用场景</div>
+    <div class="scenario-list">
+      <button
+        v-for="s in SCENARIO_PRESETS"
+        :key="s.id"
+        type="button"
+        class="scenario-btn"
+        :class="{ active: settings.selectedScenarioId === s.id }"
+        @click="settings.setScenario(s.id)"
+      >
+        <span class="scenario-name">{{ s.name }}</span>
+        <span class="scenario-desc">{{ s.desc }}</span>
+      </button>
     </div>
 
     <el-divider />
@@ -101,6 +81,7 @@ import { onMounted, watch } from 'vue'
 import { Cpu } from '@element-plus/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useChatStore } from '@/stores/chat'
+import { SCENARIO_PRESETS } from '@/constants/scenario-presets'
 
 const settings = useSettingsStore()
 const chatStore = useChatStore()
@@ -218,15 +199,48 @@ function onCompareToggle(val) {
   color: var(--text-secondary);
 }
 
-.param-item {
-  margin-bottom: 12px;
+.scenario-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 
-  > span {
-    display: block;
-    font-size: 12px;
-    color: var(--text-secondary);
-    margin-bottom: 4px;
+.scenario-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+
+  &:hover {
+    border-color: #c6e2ff;
+    background: #f5f9ff;
   }
+
+  &.active {
+    border-color: var(--accent);
+    background: #ecf5ff;
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+}
+
+.scenario-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.scenario-desc {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
 }
 
 .compare-row {
