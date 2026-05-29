@@ -30,7 +30,7 @@
     <template v-else>
       <div v-if="!messages.length" class="welcome">
         <h2>开始对话</h2>
-        <p>已接入智谱 GLM-4 系列，选择模型与数据集后输入跨境电商相关问题</p>
+        <p>已接入智谱 GLM-4.7 Flash / GLM-4 / GLM-5.1，选择模型与数据集后输入跨境电商相关问题</p>
         <div class="quick-tags">
           <el-tag
             v-for="q in quickQuestions"

@@ -6,6 +6,17 @@ import { SCENARIO_PRESETS, getScenarioPreset } from '@/constants/scenario-preset
 import { listModels } from '@/api/platform'
 import { listDatasets } from '@/api/datasets'
 
+/** 以后端返回为准合并本地展示配置，保证 ALLOWED_MODEL_IDS 中的模型都会展示 */
+function mergePlatformModels(remoteList) {
+  const byId = new Map(remoteList.map((m) => [m.id, m]))
+  return ALLOWED_MODEL_IDS.map((id) => {
+    const local = MODELS.find((m) => m.id === id)
+    if (!local) return null
+    const remote = byId.get(id)
+    return remote ? { ...local, ...remote, name: local.name } : { ...local }
+  }).filter(Boolean)
+}
+
 export const useSettingsStore = defineStore('settings', () => {
   const models = ref([...MODELS])
   const datasets = ref([])
@@ -45,9 +56,7 @@ export const useSettingsStore = defineStore('settings', () => {
     modelsLoadPromise = (async () => {
       try {
         const list = await listModels()
-        const allowed = new Set(ALLOWED_MODEL_IDS)
-        const filtered = list.filter((m) => allowed.has(m.id))
-        models.value = filtered.length ? filtered : [...MODELS]
+        models.value = mergePlatformModels(list)
         if (!models.value.some((m) => m.id === selectedModelId.value)) {
           selectedModelId.value = DEFAULT_MODEL_ID
           setItem('selectedModel', DEFAULT_MODEL_ID)
