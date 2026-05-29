@@ -1,9 +1,9 @@
 <template>
-  <div class="chat-input">
+  <div class="chat-input" :class="{ 'is-mobile': mobile }">
     <div v-if="pendingImages.length" class="preview-row">
       <div v-for="(img, i) in pendingImages" :key="i" class="preview-item">
-        <el-image :src="img.url" fit="cover" class="preview-img" />
-        <el-icon class="remove" @click="removeImage(i)"><Close /></el-icon>
+        <el-image :src="img.url" fit="cover" class="preview-img" lazy />
+        <el-icon class="remove touch-target" @click="removeImage(i)"><Close /></el-icon>
       </div>
     </div>
     <div class="input-row">
@@ -14,25 +14,26 @@
         :auto-upload="false"
         :on-change="onImageSelect"
       >
-        <el-button :icon="Picture" circle />
+        <el-button class="touch-target" :icon="Picture" circle />
       </el-upload>
       <el-input
         v-model="text"
         type="textarea"
-        :rows="2"
-        placeholder="输入问题，Enter 发送，Shift+Enter 换行"
+        :rows="mobile ? 1 : 2"
+        :placeholder="placeholder"
         resize="none"
         :disabled="chatStore.streaming"
         @keydown="onKeydown"
       />
       <el-button
         type="primary"
+        class="send-btn touch-target"
         :icon="Promotion"
         :loading="chatStore.streaming"
         :disabled="!canSend"
         @click="send"
       >
-        发送
+        <span v-if="!mobile">发送</span>
       </el-button>
     </div>
     <div v-if="settings.useDataset" class="input-hint">
@@ -48,7 +49,10 @@ import { Picture, Promotion, Close, InfoFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
-/** 后端暂未提供独立上传接口，多模态图片以本地预览展示 */
+
+const props = defineProps({
+  mobile: { type: Boolean, default: false },
+})
 
 const emit = defineEmits(['send'])
 
@@ -56,6 +60,10 @@ const chatStore = useChatStore()
 const settings = useSettingsStore()
 const text = ref('')
 const pendingImages = ref([])
+
+const placeholder = computed(() =>
+  props.mobile ? '输入问题…' : '输入问题，Enter 发送，Shift+Enter 换行'
+)
 
 const canMultimodal = computed(
   () => !settings.compareMode && settings.currentModel()?.multimodal
@@ -109,6 +117,14 @@ defineExpose({
   border-top: 1px solid var(--border);
 }
 
+.chat-input.is-mobile {
+  padding: 10px 12px 12px;
+  position: sticky;
+  bottom: 0;
+  z-index: 100;
+  background: var(--panel-bg);
+}
+
 .preview-row {
   display: flex;
   gap: 8px;
@@ -143,6 +159,24 @@ defineExpose({
   .el-textarea {
     flex: 1;
   }
+
+  :deep(.el-textarea__inner) {
+    padding: 10px 12px;
+    max-height: 120px;
+    line-height: 1.5;
+  }
+}
+
+.is-mobile .input-row {
+  :deep(.el-textarea__inner) {
+    font-size: 16px;
+  }
+
+  .send-btn {
+    min-width: 44px;
+    height: 44px;
+    padding: 0 14px;
+  }
 }
 
 .input-hint {
@@ -152,5 +186,11 @@ defineExpose({
   font-size: 12px;
   color: var(--accent-green);
   margin-top: 8px;
+}
+
+@media (max-width: 768px) {
+  .input-hint {
+    font-size: 11px;
+  }
 }
 </style>

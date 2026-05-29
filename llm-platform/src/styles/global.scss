@@ -10,6 +10,7 @@
   --header-h: 60px;
   --sidebar-w: 240px;
   --config-w: 280px;
+  --vh: 1vh;
 }
 
 *,
@@ -23,6 +24,7 @@ body,
 #app {
   margin: 0;
   height: 100%;
+  height: calc(var(--vh, 1vh) * 100);
   font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color: var(--text-primary);
   background: var(--app-bg);
@@ -39,6 +41,26 @@ a {
   font-weight: 600;
 }
 
+.page-container {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  overflow-y: auto;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: 16px 12px 24px;
+  }
+
+  .page-title {
+    font-size: 18px;
+    margin-bottom: 12px;
+  }
+}
+
 .dataset-badge {
   display: inline-flex;
   align-items: center;
@@ -53,7 +75,6 @@ a {
 
 @media (max-width: 992px) {
   :root {
-    --config-w: 100%;
-    --sidebar-w: 100%;
+    --header-h: 52px;
   }
 }

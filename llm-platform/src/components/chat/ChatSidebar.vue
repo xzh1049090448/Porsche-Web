@@ -1,5 +1,5 @@
 <template>
-  <aside class="chat-sidebar">
+  <aside class="chat-sidebar" :class="{ 'is-embedded': embedded }">
     <el-button type="primary" class="new-btn" :icon="Plus" @click="onNew">新建对话</el-button>
     <el-input
       v-model="keyword"
@@ -14,7 +14,7 @@
         :key="c.id"
         class="conv-item"
         :class="{ active: c.id === chatStore.activeId }"
-        @click="chatStore.selectConversation(c.id)"
+        @click="selectConversation(c.id)"
       >
         <div class="conv-title">📋 {{ c.title }}</div>
         <div class="conv-meta">{{ formatTime(c.updatedAt) }}</div>
@@ -52,6 +52,12 @@ import { useChatStore } from '@/stores/chat'
 import { exportToPdf, downloadFile } from '@/utils/export'
 import { exportConversationMarkdown } from '@/api/conversations'
 
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+})
+
+const emit = defineEmits(['navigated'])
+
 const chatStore = useChatStore()
 const keyword = ref('')
 
@@ -69,8 +75,14 @@ function formatTime(ts) {
   })
 }
 
+function selectConversation(id) {
+  chatStore.selectConversation(id)
+  emit('navigated')
+}
+
 function onNew() {
   chatStore.createConversation()
+  emit('navigated')
 }
 
 async function rename(c) {
@@ -133,6 +145,11 @@ function exportPdf(c) {
   border-right: 1px solid var(--border);
 }
 
+.chat-sidebar.is-embedded {
+  border-right: none;
+  height: 100%;
+}
+
 .new-btn {
   width: 100%;
   margin-bottom: 10px;
@@ -149,8 +166,9 @@ function exportPdf(c) {
 
 .conv-item {
   position: relative;
-  padding: 10px 52px 10px 10px;
+  padding: 12px 52px 12px 12px;
   margin-bottom: 4px;
+  min-height: 56px;
   border-radius: 8px;
   cursor: pointer;
   transition: background 0.15s;
@@ -159,15 +177,19 @@ function exportPdf(c) {
     background: #f5f7fa;
   }
 
+  &:active {
+    background: #e5e7eb;
+  }
+
   &.active {
     background: #ecf5ff;
     border-left: 3px solid var(--accent);
-    padding-left: 7px;
+    padding-left: 9px;
   }
 }
 
 .conv-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -175,7 +197,7 @@ function exportPdf(c) {
 }
 
 .conv-meta {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
   margin-top: 4px;
 }
@@ -185,7 +207,10 @@ function exportPdf(c) {
   right: 28px;
   top: 50%;
   transform: translateY(-50%);
+  padding: 8px;
+  font-size: 18px;
   opacity: 0;
+
   .conv-item:hover & {
     opacity: 1;
   }
@@ -196,7 +221,8 @@ function exportPdf(c) {
   right: 8px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 14px;
+  padding: 8px;
+  font-size: 18px;
   color: var(--text-secondary);
   opacity: 0;
   transition: color 0.15s, opacity 0.15s;
@@ -207,6 +233,17 @@ function exportPdf(c) {
 
   .conv-item:hover & {
     opacity: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .conv-more,
+  .conv-delete {
+    opacity: 1;
+  }
+
+  .new-btn {
+    min-height: 44px;
   }
 }
 </style>

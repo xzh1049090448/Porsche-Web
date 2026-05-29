@@ -1,0 +1,124 @@
+/* 移动端全局样式（< 992px 对话布局、< 768px 触控与弹窗） */
+
+.desktop-only {
+  display: block;
+}
+
+.mobile-only {
+  display: none !important;
+}
+
+@media (max-width: 992px) {
+  .desktop-only {
+    display: none !important;
+  }
+
+  .mobile-only {
+    display: flex !important;
+  }
+
+  .mobile-only.block {
+    display: block !important;
+  }
+
+  .app-main {
+    height: calc(var(--vh, 1vh) * 100 - var(--header-h));
+  }
+}
+
+@media (max-width: 768px) {
+  .app-header {
+    padding: 0 12px;
+    gap: 8px;
+  }
+
+  .logo-sub,
+  .user-name {
+    display: none;
+  }
+
+  .header-menu {
+    display: none !important;
+  }
+
+  .logo-title {
+    font-size: 14px;
+  }
+
+  .logo-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 12px;
+  }
+
+  .mobile-menu-btn {
+    display: inline-flex !important;
+  }
+
+  .header-back-btn {
+    display: inline-flex !important;
+  }
+
+  .plan-tag-mobile-hide {
+    display: none;
+  }
+
+  .el-dropdown-menu {
+    min-width: 160px;
+    max-width: 90vw;
+  }
+
+  .el-message-box {
+    width: 90vw !important;
+    max-width: 400px;
+  }
+
+  .el-dialog {
+    width: 95vw !important;
+    margin: 5vh auto !important;
+  }
+
+  .el-dialog__body {
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  /* 触控友好：主要可点击控件 */
+  .touch-target,
+  .mobile-menu-btn,
+  .header-back-btn,
+  .mobile-bar .el-button,
+  .conv-item,
+  .conv-more,
+  .conv-delete,
+  .close-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .el-input__inner,
+  .el-textarea__inner {
+    min-width: auto;
+    min-height: auto;
+  }
+}
+
+.drawer-nav-menu {
+  border-right: none;
+
+  .el-menu-item {
+    min-height: 48px;
+    font-size: 15px;
+  }
+}
+
+@supports (padding: max(0px)) {
+  .chat-input.is-mobile {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .mobile-bar {
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+  }
+}

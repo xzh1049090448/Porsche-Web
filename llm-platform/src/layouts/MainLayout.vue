@@ -2,6 +2,22 @@
   <el-container class="main-layout">
     <el-header class="app-header" height="var(--header-h)">
       <div class="header-left">
+        <el-button
+          v-if="isTablet"
+          text
+          class="mobile-menu-btn touch-target"
+          :icon="Menu"
+          aria-label="打开菜单"
+          @click="showMobileMenu = true"
+        />
+        <el-button
+          v-if="isTablet && route.path !== '/'"
+          text
+          class="header-back-btn touch-target"
+          :icon="ArrowLeft"
+          aria-label="返回"
+          @click="goBack"
+        />
         <div class="logo">
           <span class="logo-icon">AI</span>
           <div>
@@ -13,7 +29,7 @@
       <el-menu
         mode="horizontal"
         :default-active="activeMenu"
-        class="header-menu"
+        class="header-menu desktop-only"
         :ellipsis="false"
         router
       >
@@ -22,9 +38,16 @@
         <el-menu-item index="/profile">个人中心</el-menu-item>
       </el-menu>
       <div class="header-right">
-        <el-tag v-if="user?.plan" size="small" :type="planTagType">{{ planLabel }}</el-tag>
+        <el-tag
+          v-if="user?.plan"
+          size="small"
+          :type="planTagType"
+          class="plan-tag-mobile-hide"
+        >
+          {{ planLabel }}
+        </el-tag>
         <el-dropdown trigger="click" @command="onUserCommand">
-          <span class="user-trigger">
+          <span class="user-trigger touch-target">
             <el-avatar :size="32">{{ avatarText }}</el-avatar>
             <span class="user-name">{{ user?.nickname || '用户' }}</span>
             <el-icon><ArrowDown /></el-icon>
@@ -39,6 +62,29 @@
         </el-dropdown>
       </div>
     </el-header>
+
+    <MobileDrawer v-model:show="showMobileMenu" position="left" title="导航">
+      <el-menu
+        class="drawer-nav-menu"
+        :default-active="activeMenu"
+        router
+        @select="showMobileMenu = false"
+      >
+        <el-menu-item index="/">
+          <el-icon><ChatDotRound /></el-icon>
+          <span>对话</span>
+        </el-menu-item>
+        <el-menu-item index="/billing">
+          <el-icon><Wallet /></el-icon>
+          <span>套餐与用量</span>
+        </el-menu-item>
+        <el-menu-item index="/profile">
+          <el-icon><User /></el-icon>
+          <span>个人中心</span>
+        </el-menu-item>
+      </el-menu>
+    </MobileDrawer>
+
     <el-main class="app-main">
       <router-view />
     </el-main>
@@ -46,15 +92,26 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown } from '@element-plus/icons-vue'
+import {
+  ArrowDown,
+  ArrowLeft,
+  Menu,
+  ChatDotRound,
+  Wallet,
+  User,
+} from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { ElMessageBox } from 'element-plus'
+import MobileDrawer from '@/components/mobile/MobileDrawer.vue'
+import { useBreakpoint } from '@/composables/useBreakpoint'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const showMobileMenu = ref(false)
+const { isTablet } = useBreakpoint()
 
 const user = computed(() => userStore.user)
 const activeMenu = computed(() => route.path)
@@ -73,6 +130,14 @@ const planTagType = computed(() => {
   if (p === 'enterprise') return 'warning'
   return 'info'
 })
+
+function goBack() {
+  if (window.history.length > 1) {
+    router.back()
+  } else {
+    router.push('/')
+  }
+}
 
 function onUserCommand(cmd) {
   if (cmd === 'logout') {
@@ -103,13 +168,23 @@ function onUserCommand(cmd) {
 }
 
 .header-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   flex-shrink: 0;
+  min-width: 0;
+}
+
+.mobile-menu-btn,
+.header-back-btn {
+  display: none;
 }
 
 .logo {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .logo-icon {
@@ -123,6 +198,7 @@ function onUserCommand(cmd) {
   justify-content: center;
   font-weight: 700;
   font-size: 13px;
+  flex-shrink: 0;
 }
 
 .logo-title {
@@ -154,6 +230,8 @@ function onUserCommand(cmd) {
   align-items: center;
   gap: 8px;
   cursor: pointer;
+  padding: 4px;
+  border-radius: 8px;
 }
 
 .user-name {
@@ -166,14 +244,7 @@ function onUserCommand(cmd) {
 
 .app-main {
   padding: 0;
-  height: calc(100vh - var(--header-h));
+  height: calc(var(--vh, 1vh) * 100 - var(--header-h));
   overflow: hidden;
-}
-
-@media (max-width: 768px) {
-  .logo-sub,
-  .user-name {
-    display: none;
-  }
 }
 </style>

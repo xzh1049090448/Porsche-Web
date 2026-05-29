@@ -8,6 +8,10 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
 import './styles/global.scss'
+import './styles/mobile.scss'
+import { initViewportHeight } from './utils/viewport-height'
+
+initViewportHeight()
 
 const app = createApp(App)
 

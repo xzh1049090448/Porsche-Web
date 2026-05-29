@@ -395,4 +395,59 @@ watch(
   font-size: 12px;
   color: var(--accent-green);
 }
+
+@media (max-width: 768px) {
+  .message-list {
+    padding: 12px 12px 8px;
+  }
+
+  .welcome {
+    padding: 32px 16px;
+
+    h2 {
+      font-size: 18px;
+    }
+
+    .welcome-sub {
+      font-size: 12px;
+    }
+
+    .quick-tag {
+      font-size: 12px;
+    }
+  }
+
+  .message {
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .bubble {
+    max-width: 92%;
+    padding: 10px 12px;
+    font-size: 14px;
+
+    &.multi-bubble {
+      max-width: 100%;
+      padding: 8px;
+    }
+  }
+
+  .multi-reply-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .msg-images .thumb {
+    width: 100px;
+    height: 72px;
+  }
+}
+
+@media (max-width: 480px) {
+  .bubble {
+    max-width: 94%;
+    font-size: 14px;
+  }
+}
 </style>

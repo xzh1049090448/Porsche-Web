@@ -150,5 +150,20 @@ const html = computed(() => renderMarkdown(props.content, { streaming: props.str
   :deep(strong) {
     font-weight: 600;
   }
+
+  @media (max-width: 480px) {
+    font-size: 14px;
+
+    :deep(pre) {
+      padding: 10px;
+      code {
+        font-size: 12px;
+      }
+    }
+
+    :deep(table) {
+      font-size: 12px;
+    }
+  }
 }
 </style>
