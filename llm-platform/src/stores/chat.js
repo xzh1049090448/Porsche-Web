@@ -139,9 +139,19 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function sendMessage(content, images = []) {
-    const settings = useSettingsStore()
-    const conv = await ensureActive()
     if (!content.trim() && !images.length) return
+    if (streaming.value) return
+
+    const settings = useSettingsStore()
+    streaming.value = true
+
+    let conv
+    try {
+      conv = await ensureActive()
+    } catch {
+      streaming.value = false
+      return
+    }
 
     const userContent = content.trim()
     const userMsg = {
@@ -171,7 +181,6 @@ export const useChatStore = defineStore('chat', () => {
       datasetUsed: false,
     }
     conv.messages.push(assistantMsg)
-    streaming.value = true
 
     let conversationId = typeof conv.id === 'number' ? conv.id : null
     let streamFailed = false
@@ -231,10 +240,10 @@ export const useChatStore = defineStore('chat', () => {
     if (settings.compareModelIds.length < 2) {
       const { ElMessage } = await import('element-plus')
       ElMessage.warning('请至少选择 2 个模型进行对比')
+      streaming.value = false
       return
     }
     compareResults.value = {}
-    streaming.value = true
 
     try {
       const { results, datasetAttribution } = await comparePlatformChat({

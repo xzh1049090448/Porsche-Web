@@ -9,8 +9,19 @@
             {{ m.name }}
           </div>
           <div class="compare-body">
-            {{ chatStore.compareResults[m.id] || '生成中...' }}
-            <span v-if="chatStore.streaming && !chatStore.compareResults[m.id]" class="cursor">|</span>
+            <div v-if="chatStore.streaming && !chatStore.compareResults[m.id]" class="reply-loading">
+              <span class="loading-dots" aria-hidden="true">
+                <i /><i /><i />
+              </span>
+              <span class="loading-label">生成中</span>
+            </div>
+            <template v-else>
+              <MarkdownContent
+                v-if="chatStore.compareResults[m.id]"
+                :content="chatStore.compareResults[m.id]"
+                :streaming="chatStore.streaming"
+              />
+            </template>
           </div>
         </div>
       </div>
@@ -53,7 +64,23 @@
               class="thumb"
             />
           </div>
-          <div class="content">{{ msg.content }}<span v-if="streamingLast(msg)" class="cursor">|</span></div>
+          <div class="content">
+            <div v-if="isAwaitingReply(msg)" class="reply-loading" aria-live="polite">
+              <span class="loading-dots" aria-hidden="true">
+                <i /><i /><i />
+              </span>
+              <span class="loading-label">正在思考</span>
+            </div>
+            <template v-else>
+              <MarkdownContent
+                v-if="msg.role === 'assistant'"
+                :content="msg.content"
+                :streaming="streamingLast(msg)"
+              />
+              <span v-else class="plain-text">{{ msg.content }}</span>
+              <span v-if="streamingLast(msg) && msg.content" class="cursor">|</span>
+            </template>
+          </div>
           <div v-if="msg.datasetUsed" class="dataset-badge">
             <el-icon><CircleCheck /></el-icon>
             {{ msg.datasetBadge }}
@@ -75,6 +102,7 @@ import { CopyDocument, CircleCheck } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
+import MarkdownContent from '@/components/chat/MarkdownContent.vue'
 defineEmits(['quick'])
 
 const chatStore = useChatStore()
@@ -94,6 +122,16 @@ const quickQuestions = [
   'Shopee 退换货政策怎么写？',
   '跨境物流时效如何回复客户？',
 ]
+
+function isAwaitingReply(msg) {
+  const list = messages.value
+  return (
+    chatStore.streaming &&
+    msg.role === 'assistant' &&
+    !msg.content &&
+    list[list.length - 1]?.id === msg.id
+  )
+}
 
 function streamingLast(msg) {
   const list = messages.value
@@ -119,7 +157,12 @@ async function scrollToBottom() {
 watch(() => chatStore.activeId, () => scrollToBottom())
 
 watch(
-  () => [messages.value.length, chatStore.streaming, chatStore.compareResults],
+  () => [
+    messages.value.length,
+    messages.value[messages.value.length - 1]?.content,
+    chatStore.streaming,
+    chatStore.compareResults,
+  ],
   () => scrollToBottom(),
   { deep: true }
 )
@@ -182,8 +225,20 @@ watch(
   border-radius: 12px;
   font-size: 14px;
   line-height: 1.6;
-  white-space: pre-wrap;
   word-break: break-word;
+}
+
+.plain-text {
+  white-space: pre-wrap;
+}
+
+.message.user .plain-text {
+  color: #fff;
+}
+
+.message.user :deep(.markdown-body a) {
+  color: #fff;
+  text-decoration: underline;
 }
 
 .msg-images {
@@ -207,6 +262,55 @@ watch(
 
 .cursor {
   animation: blink 0.8s infinite;
+}
+
+.reply-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  color: var(--text-secondary);
+}
+
+.loading-label {
+  font-size: 13px;
+}
+
+.loading-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+
+  i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.35;
+    animation: dot-bounce 1.2s infinite ease-in-out;
+
+    &:nth-child(2) {
+      animation-delay: 0.15s;
+    }
+
+    &:nth-child(3) {
+      animation-delay: 0.3s;
+    }
+  }
+}
+
+@keyframes dot-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+
+  40% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
 }
 
 @keyframes blink {
@@ -243,6 +347,5 @@ watch(
   font-size: 13px;
   line-height: 1.6;
   min-height: 120px;
-  white-space: pre-wrap;
 }
 </style>
