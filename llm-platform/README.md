@@ -69,7 +69,7 @@ src/
 | 认证 | `/api/v1/auth` | `send-code`、`login/code`、`login/password` |
 | 用户 | `/api/v1/users` | `me`、`me/password`、`me/verify`、`me/usage` |
 | 平台对话 | `/api/v1/platform` | `models`、`chat/completions`（SSE）、`chat/compare` |
-| 对话历史 | `/api/v1/conversations` | CRUD、`export/markdown` |
+| 对话历史 | `/api/v1/conversations` | CRUD、`export/markdown`；**删除为硬删除**，见 [docs/conversation-delete-api.md](./docs/conversation-delete-api.md) |
 | 数据集 | `/api/v1/datasets` | 列表（子库 ID 为整数） |
 | 计费 | `/api/v1/billing` | `plans`、`orders`、`orders/{id}/pay`、`invoice` |
 

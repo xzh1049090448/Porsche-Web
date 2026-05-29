@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { getItem, setItem } from '@/utils/storage'
+import { getItem, setItem, removeItem } from '@/utils/storage'
 import { USE_MOCK } from '@/api/request'
 import { streamPlatformChat, comparePlatformChat } from '@/api/platform'
 import {
@@ -12,6 +12,7 @@ import {
 } from '@/api/conversations'
 import { useSettingsStore } from './settings'
 import { DATASET_BADGE_TEXT } from '@/constants/datasets'
+import { purgeConversationFromLocal } from '@/utils/conversation-cache'
 
 function genLocalId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
@@ -87,8 +88,17 @@ export const useChatStore = defineStore('chat', () => {
       }
       if (idx >= 0) conversations.value[idx] = conv
       else conversations.value.unshift(conv)
-    } catch {
-      /* ignore */
+    } catch (err) {
+      if (err?.response?.status === 404) {
+        const deletedId = activeId.value
+        conversations.value = conversations.value.filter((c) => c.id !== deletedId)
+        purgeConversationFromLocal(deletedId)
+        activeId.value = conversations.value[0]?.id ?? null
+        persistLocal()
+        if (!conversations.value.length) {
+          await createConversation()
+        }
+      }
     }
   }
 
@@ -103,12 +113,30 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function deleteConversation(id) {
+    if (streaming.value) {
+      throw new Error('正在生成回复，请稍后再删除')
+    }
+
     await apiDeleteConversation(id)
+
     conversations.value = conversations.value.filter((c) => c.id !== id)
+    compareResults.value = {}
+    purgeConversationFromLocal(id)
+
     if (activeId.value === id) {
       activeId.value = conversations.value[0]?.id ?? null
+      if (!activeId.value) {
+        removeItem('activeConversation')
+      }
     }
+
     persistLocal()
+
+    if (!conversations.value.length) {
+      await createConversation()
+    } else if (activeId.value) {
+      persistLocal()
+    }
   }
 
   async function ensureActive() {

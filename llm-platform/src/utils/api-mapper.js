@@ -90,7 +90,8 @@ export function mapDataset(raw) {
 }
 
 const MODEL_DISPLAY_NAMES = {
-  'glm-5.1': 'GLM-5.1',
+  'glm-4.7-flash': 'GLM-4.7 Flash',
+  'glm-4': 'GLM-4',
 }
 
 export function mapModel(raw) {

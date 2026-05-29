@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getItem, setItem } from '@/utils/storage'
-import { DEFAULT_MODEL_ID, DEFAULT_SCENARIO_ID, MODELS } from '@/constants/models'
+import { ALLOWED_MODEL_IDS, DEFAULT_MODEL_ID, DEFAULT_SCENARIO_ID, MODELS } from '@/constants/models'
 import { SCENARIO_PRESETS, getScenarioPreset } from '@/constants/scenario-presets'
 import { listModels } from '@/api/platform'
 import { listDatasets } from '@/api/datasets'
@@ -18,13 +18,23 @@ export const useSettingsStore = defineStore('settings', () => {
     : DEFAULT_SCENARIO_ID
   const initialPreset = getScenarioPreset(initialScenarioId)
 
-  const selectedModelId = ref(getItem('selectedModel', DEFAULT_MODEL_ID))
+  const selectedModelId = ref(
+    ALLOWED_MODEL_IDS.includes(getItem('selectedModel')) ? getItem('selectedModel') : DEFAULT_MODEL_ID
+  )
   const selectedScenarioId = ref(initialScenarioId)
   const modelParams = ref({ ...initialPreset.params })
   const useDataset = ref(getItem('useDataset', true))
   const selectedDatasetIds = ref(getItem('selectedDatasets', []))
   const compareMode = ref(false)
-  const compareModelIds = ref(getItem('compareModels', [DEFAULT_MODEL_ID]))
+  const storedCompare = getItem('compareModels', ALLOWED_MODEL_IDS)
+  const compareModelIds = ref(
+    (Array.isArray(storedCompare) ? storedCompare : ALLOWED_MODEL_IDS).filter((id) =>
+      ALLOWED_MODEL_IDS.includes(id)
+    )
+  )
+  if (!compareModelIds.value.length) {
+    compareModelIds.value = [...ALLOWED_MODEL_IDS]
+  }
 
   let modelsLoadPromise = null
   let datasetsLoadPromise = null
@@ -35,8 +45,9 @@ export const useSettingsStore = defineStore('settings', () => {
     modelsLoadPromise = (async () => {
       try {
         const list = await listModels()
-        const glmOnly = list.filter((m) => m.id === DEFAULT_MODEL_ID)
-        models.value = glmOnly.length ? glmOnly : [...MODELS]
+        const allowed = new Set(ALLOWED_MODEL_IDS)
+        const filtered = list.filter((m) => allowed.has(m.id))
+        models.value = filtered.length ? filtered : [...MODELS]
         if (!models.value.some((m) => m.id === selectedModelId.value)) {
           selectedModelId.value = DEFAULT_MODEL_ID
           setItem('selectedModel', DEFAULT_MODEL_ID)

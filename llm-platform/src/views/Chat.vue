@@ -23,6 +23,7 @@ import ChatMessageList from '@/components/chat/ChatMessageList.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
 import ModelPanel from '@/components/chat/ModelPanel.vue'
 import DatasetPanel from '@/components/chat/DatasetPanel.vue'
+import { USE_MOCK } from '@/api/request'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 
@@ -32,6 +33,9 @@ const inputRef = ref()
 
 onMounted(async () => {
   await Promise.all([settingsStore.loadModels(), settingsStore.loadDatasets()])
+  if (!USE_MOCK) {
+    await chatStore.fetchConversations()
+  }
   await chatStore.ensureActive()
 })
 

@@ -1,5 +1,5 @@
 /** 开发环境 Mock：设置 VITE_USE_MOCK=true 启用 */
-import { getItem, setItem } from '@/utils/storage'
+import { getItem, setItem, removeItem } from '@/utils/storage'
 import { MODELS } from '@/constants/models'
 import { DATASETS, DATASET_BADGE_TEXT } from '@/constants/datasets'
 import { PLANS } from '@/constants/plans'
@@ -13,7 +13,7 @@ function genId() {
 
 const MOCK_RESPONSES = {
   default:
-    '您好！我是国内大模型聚合平台的 AI 助手，当前由智谱 GLM-5.1 提供对话能力。加载跨境电商专属数据集可获得更精准的行业回答。',
+    '您好！我是国内大模型聚合平台的 AI 助手，当前由智谱 GLM 系列模型提供对话能力。加载跨境电商专属数据集可获得更精准的行业回答。',
   cross_border:
     '根据跨境电商专属数据集检索结果：亚马逊 FBA 商品标题建议控制在 200 字符以内，核心关键词前置，避免促销性词汇。',
   compare: (modelName) => `【${modelName}】针对您的问题，结合通用知识库给出参考回答。（演示模式）`,
@@ -203,7 +203,14 @@ export const mockApi = {
 
   async deleteConversation(id) {
     const list = getItem('conversations', []).filter((c) => c.id !== id)
-    setItem('conversations', list)
+    if (list.length) {
+      setItem('conversations', list)
+    } else {
+      removeItem('conversations')
+    }
+    if (getItem('activeConversation') === id) {
+      removeItem('activeConversation')
+    }
   },
 
   async streamChat({ modelId, content, useDataset, datasetIds, onChunk, onDone, onMeta }) {

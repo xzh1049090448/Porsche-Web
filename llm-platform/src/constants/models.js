@@ -1,16 +1,26 @@
-/** 平台可用模型（当前仅接入智谱 GLM-5.1） */
+/** 平台可用模型（智谱 GLM 系列） */
 import { DEFAULT_SCENARIO_ID, getScenarioPreset } from './scenario-presets'
 
-export const DEFAULT_MODEL_ID = 'glm-5.1'
+export const ALLOWED_MODEL_IDS = ['glm-4.7-flash', 'glm-4']
+
+export const DEFAULT_MODEL_ID = 'glm-4.7-flash'
 
 export const MODELS = [
   {
-    id: DEFAULT_MODEL_ID,
-    name: 'GLM-5.1',
+    id: 'glm-4.7-flash',
+    name: 'GLM-4.7 Flash',
+    vendor: '智谱',
+    icon: 'G',
+    multimodal: false,
+    upstreamModel: 'glm-4.7-flash',
+  },
+  {
+    id: 'glm-4',
+    name: 'GLM-4',
     vendor: '智谱',
     icon: 'G',
     multimodal: true,
-    upstreamModel: 'glm-5.1',
+    upstreamModel: 'glm-4',
   },
 ]
 

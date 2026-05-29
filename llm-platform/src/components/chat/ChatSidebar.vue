@@ -18,6 +18,13 @@
       >
         <div class="conv-title">{{ c.title }}</div>
         <div class="conv-meta">{{ formatTime(c.updatedAt) }}</div>
+        <el-icon
+          class="conv-delete"
+          title="永久删除"
+          @click.stop="remove(c)"
+        >
+          <Delete />
+        </el-icon>
         <el-dropdown trigger="click" @click.stop>
           <el-icon class="conv-more" @click.stop><MoreFilled /></el-icon>
           <template #dropdown>
@@ -39,7 +46,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { Plus, Search, MoreFilled } from '@element-plus/icons-vue'
+import { Plus, Search, MoreFilled, Delete } from '@element-plus/icons-vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { exportToPdf, downloadFile } from '@/utils/export'
@@ -75,10 +82,29 @@ async function rename(c) {
 }
 
 function remove(c) {
-  ElMessageBox.confirm(`确定删除「${c.title}」？`, '删除对话', { type: 'warning' }).then(() => {
-    chatStore.deleteConversation(c.id)
-    ElMessage.success('已删除')
-  })
+  if (chatStore.streaming) {
+    ElMessage.warning('正在生成回复，请稍后再删除')
+    return
+  }
+  ElMessageBox.confirm(
+    `删除后将永久清除该对话的全部记录（含所有消息），且无法恢复。确定删除「${c.title}」？`,
+    '永久删除对话',
+    {
+      type: 'warning',
+      confirmButtonText: '永久删除',
+      cancelButtonText: '取消',
+      confirmButtonClass: 'el-button--danger',
+    }
+  )
+    .then(async () => {
+      try {
+        await chatStore.deleteConversation(c.id)
+        ElMessage.success('对话已永久删除')
+      } catch {
+        /* 错误由 request 拦截器或 store 抛出 */
+      }
+    })
+    .catch(() => {})
 }
 
 async function exportMd(c) {
@@ -123,7 +149,7 @@ function exportPdf(c) {
 
 .conv-item {
   position: relative;
-  padding: 10px 28px 10px 10px;
+  padding: 10px 52px 10px 10px;
   margin-bottom: 4px;
   border-radius: 8px;
   cursor: pointer;
@@ -156,10 +182,29 @@ function exportPdf(c) {
 
 .conv-more {
   position: absolute;
-  right: 8px;
+  right: 28px;
   top: 50%;
   transform: translateY(-50%);
   opacity: 0;
+  .conv-item:hover & {
+    opacity: 1;
+  }
+}
+
+.conv-delete {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: color 0.15s, opacity 0.15s;
+
+  &:hover {
+    color: var(--el-color-danger);
+  }
+
   .conv-item:hover & {
     opacity: 1;
   }
