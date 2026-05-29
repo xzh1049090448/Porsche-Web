@@ -74,9 +74,28 @@ export const useSettingsStore = defineStore('settings', () => {
       try {
         const list = await listModels()
         models.value = mergePlatformModels(list)
+        if (list.length && !models.value.length) {
+          const { ElMessage } = await import('element-plus')
+          ElMessage.warning('网关未配置智谱 GLM 模型，请更新 models.yaml 并热加载')
+        }
         if (!models.value.some((m) => m.id === selectedModelId.value)) {
-          selectedModelId.value = models.value[0]?.id || DEFAULT_MODEL_ID
-          setItem('selectedModel', selectedModelId.value)
+          const fallback =
+            models.value.find((m) => m.id === DEFAULT_MODEL_ID)?.id ||
+            models.value[0]?.id ||
+            DEFAULT_MODEL_ID
+          selectedModelId.value = fallback
+          setItem('selectedModel', fallback)
+        }
+        if (compareMode.value) {
+          const validCompare = compareModelIds.value.filter((id) =>
+            models.value.some((m) => m.id === id)
+          )
+          if (validCompare.length !== compareModelIds.value.length) {
+            compareModelIds.value = validCompare.length
+              ? validCompare
+              : models.value.map((m) => m.id)
+            setItem('compareModelIds', compareModelIds.value)
+          }
         }
         compareModelIds.value = normalizeCompareIds(
           compareModelIds.value.filter((id) => models.value.some((m) => m.id === id))
@@ -204,13 +223,16 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 })
 
-/** 以后端返回为准合并本地展示配置，保证 ALLOWED_MODEL_IDS 中的模型都会展示 */
+/** 以后端 /platform/models 为准，仅展示网关已注册的逻辑模型 */
 function mergePlatformModels(remoteList) {
+  if (!remoteList?.length) return [...MODELS]
   const byId = new Map(remoteList.map((m) => [m.id, m]))
-  return ALLOWED_MODEL_IDS.map((id) => {
+  const merged = ALLOWED_MODEL_IDS.map((id) => {
     const local = MODELS.find((m) => m.id === id)
-    if (!local) return null
     const remote = byId.get(id)
-    return remote ? { ...local, ...remote, name: local.name } : { ...local }
+    if (!local || !remote) return null
+    return { ...local, ...remote, name: local.name }
   }).filter(Boolean)
+  if (!merged.length && remoteList.length) return []
+  return merged.length ? merged : [...MODELS]
 }
