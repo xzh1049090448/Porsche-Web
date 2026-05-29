@@ -2,7 +2,7 @@
   <div ref="listRef" class="message-list">
     <div v-if="!messages.length" class="welcome">
       <h2>开始对话</h2>
-      <p>已接入智谱 GLM-4.7 Flash / GLM-4 / GLM-5.1</p>
+      <p>已接入智谱 GLM-5.1 / GLM-4.5 Air / GLM-4.7 Flash，可多选模型并行对比</p>
       <p class="welcome-sub">选择模型与数据集后输入跨境电商相关问题</p>
       <div class="quick-tags">
         <el-tag
