@@ -101,6 +101,7 @@ function exportPdf(c) {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   padding: 12px;
   background: var(--panel-bg);
   border-right: 1px solid var(--border);
@@ -117,6 +118,7 @@ function exportPdf(c) {
 
 .conv-list {
   flex: 1;
+  min-height: 0;
 }
 
 .conv-item {

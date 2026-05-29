@@ -54,6 +54,7 @@ function onQuick(q) {
 
 .chat-sidebar-wrap {
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -61,14 +62,21 @@ function onQuick(q) {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background: var(--app-bg);
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
 }
 
 .chat-config-wrap {
+  min-height: 0;
   background: var(--panel-bg);
   overflow: hidden;
+
+  :deep(.el-scrollbar) {
+    height: 100%;
+  }
 }
 
 @media (max-width: 1200px) {
@@ -80,7 +88,7 @@ function onQuick(q) {
 @media (max-width: 992px) {
   .chat-page {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
   }
 
   .chat-sidebar-wrap {

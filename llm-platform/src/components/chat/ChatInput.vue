@@ -101,6 +101,7 @@ defineExpose({
 
 <style scoped lang="scss">
 .chat-input {
+  flex-shrink: 0;
   padding: 12px 20px 16px;
   background: #fff;
   border-top: 1px solid var(--border);

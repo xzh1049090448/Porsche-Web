@@ -109,12 +109,18 @@ function copy(text) {
   ElMessage.success('已复制')
 }
 
+async function scrollToBottom() {
+  await nextTick()
+  if (listRef.value) {
+    listRef.value.scrollTop = listRef.value.scrollHeight
+  }
+}
+
+watch(() => chatStore.activeId, () => scrollToBottom())
+
 watch(
   () => [messages.value.length, chatStore.streaming, chatStore.compareResults],
-  async () => {
-    await nextTick()
-    if (listRef.value) listRef.value.scrollTop = listRef.value.scrollHeight
-  },
+  () => scrollToBottom(),
   { deep: true }
 )
 </script>
@@ -122,6 +128,7 @@ watch(
 <style scoped lang="scss">
 .message-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 20px;
 }
