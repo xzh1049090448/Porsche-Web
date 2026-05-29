@@ -81,8 +81,10 @@ export async function comparePlatformChat(body) {
   const res = await request.post(`${PREFIX}/chat/compare`, {
     models: body.models,
     messages: body.messages,
+    conversation_id: body.conversation_id ?? null,
     temperature: body.temperature,
     max_tokens: body.max_tokens,
+    context_window: body.context_window,
     dataset_enabled: body.dataset_enabled ?? false,
     dataset_ids: body.dataset_ids ?? null,
   })
@@ -90,5 +92,6 @@ export async function comparePlatformChat(body) {
   return {
     results: res.results || [],
     datasetAttribution: res.dataset_attribution,
+    conversationId: res.conversation_id,
   }
 }

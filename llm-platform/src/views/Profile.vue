@@ -131,7 +131,11 @@ async function saveProfile() {
 }
 
 async function changePwd() {
-  if (!pwdForm.newPassword || pwdForm.newPassword !== pwdForm.confirm) {
+  if (!pwdForm.oldPassword || !pwdForm.newPassword) {
+    ElMessage.warning('请填写原密码和新密码')
+    return
+  }
+  if (pwdForm.newPassword !== pwdForm.confirm) {
     ElMessage.warning('请确认新密码一致')
     return
   }

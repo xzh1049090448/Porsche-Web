@@ -1,5 +1,7 @@
 /** 将后端字段映射为前端使用的结构 */
 
+import { enrichMessage } from '@/utils/multi-model-message'
+
 export function mapUserProfile(raw) {
   if (!raw) return null
   return {
@@ -41,7 +43,7 @@ export function mapConversation(raw) {
 }
 
 export function mapMessage(raw) {
-  return {
+  return enrichMessage({
     id: raw.id,
     role: raw.role,
     content: raw.content,
@@ -50,7 +52,7 @@ export function mapMessage(raw) {
     datasetBadge: raw.dataset_attribution,
     tokens: raw.tokens,
     createdAt: new Date(raw.created_at).getTime(),
-  }
+  })
 }
 
 export function mapOrder(raw) {

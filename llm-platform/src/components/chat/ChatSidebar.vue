@@ -16,7 +16,7 @@
         :class="{ active: c.id === chatStore.activeId }"
         @click="chatStore.selectConversation(c.id)"
       >
-        <div class="conv-title">{{ c.title }}</div>
+        <div class="conv-title">📋 {{ c.title }}</div>
         <div class="conv-meta">{{ formatTime(c.updatedAt) }}</div>
         <el-icon
           class="conv-delete"

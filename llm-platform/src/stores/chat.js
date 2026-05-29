@@ -13,6 +13,7 @@ import {
 import { useSettingsStore } from './settings'
 import { DATASET_BADGE_TEXT } from '@/constants/datasets'
 import { purgeConversationFromLocal } from '@/utils/conversation-cache'
+import { toApiMessageContent } from '@/utils/multi-model-message'
 
 function genLocalId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
@@ -22,7 +23,6 @@ export const useChatStore = defineStore('chat', () => {
   const conversations = ref(USE_MOCK ? getItem('conversations', []) : [])
   const activeId = ref(USE_MOCK ? getItem('activeConversation', null) : null)
   const streaming = ref(false)
-  const compareResults = ref({})
   const loading = ref(false)
 
   function persistLocal() {
@@ -120,7 +120,6 @@ export const useChatStore = defineStore('chat', () => {
     await apiDeleteConversation(id)
 
     conversations.value = conversations.value.filter((c) => c.id !== id)
-    compareResults.value = {}
     purgeConversationFromLocal(id)
 
     if (activeId.value === id) {
@@ -157,7 +156,7 @@ export const useChatStore = defineStore('chat', () => {
   function buildMessagesForApi(conv, userContent) {
     const history = (conv.messages || []).map((m) => ({
       role: m.role,
-      content: m.content,
+      content: toApiMessageContent(m),
     }))
     const last = history[history.length - 1]
     if (!(last?.role === 'user' && last.content === userContent)) {
@@ -171,6 +170,12 @@ export const useChatStore = defineStore('chat', () => {
     if (streaming.value) return
 
     const settings = useSettingsStore()
+    if (settings.compareMode && images.length) {
+      const { ElMessage } = await import('element-plus')
+      ElMessage.warning('模型对比模式下不支持上传图片')
+      return
+    }
+
     streaming.value = true
 
     let conv
@@ -198,7 +203,7 @@ export const useChatStore = defineStore('chat', () => {
     persistLocal()
 
     if (settings.compareMode) {
-      return sendCompare(userContent)
+      return sendCompareMode(userContent, conv)
     }
 
     const assistantMsg = {
@@ -262,48 +267,71 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function sendCompare(content) {
+  async function sendCompareMode(content, conv) {
     const settings = useSettingsStore()
-    const conv = getActive()
-    if (settings.compareModelIds.length < 2) {
-      const { ElMessage } = await import('element-plus')
-      ElMessage.warning('请至少选择 2 个模型进行对比')
-      streaming.value = false
-      return
+    const modelIds = [...settings.compareModelIds]
+
+    const assistantMsg = {
+      id: genLocalId(),
+      role: 'assistant',
+      multiModel: true,
+      models: modelIds,
+      replies: Object.fromEntries(modelIds.map((id) => [id, ''])),
+      createdAt: Date.now(),
+      datasetUsed: false,
     }
-    compareResults.value = {}
+    conv.messages.push(assistantMsg)
+
+    let conversationId = typeof conv.id === 'number' ? conv.id : null
 
     try {
-      const { results, datasetAttribution } = await comparePlatformChat({
-        models: settings.compareModelIds,
-        messages: buildMessagesForApi(conv || { messages: [] }, content),
-        temperature: settings.modelParams.temperature,
-        max_tokens: settings.modelParams.maxTokens,
-        dataset_enabled: settings.useDataset,
-        dataset_ids: settings.useDataset ? settings.selectedDatasetIds : null,
-      })
-      const mapped = {}
+      const { results, datasetAttribution, conversationId: returnedId } =
+        await comparePlatformChat({
+          models: modelIds,
+          messages: buildMessagesForApi(conv, content),
+          conversation_id: conversationId,
+          temperature: settings.modelParams.temperature,
+          max_tokens: settings.modelParams.maxTokens,
+          context_window: settings.modelParams.contextWindow,
+          dataset_enabled: settings.useDataset,
+          dataset_ids: settings.useDataset ? settings.selectedDatasetIds : null,
+        })
+
       for (const r of results) {
-        mapped[r.model] = r.error ? `[错误] ${r.error}` : r.content || ''
+        assistantMsg.replies[r.model] = r.error ? `[错误] ${r.error}` : r.content || ''
       }
-      compareResults.value = mapped
       if (datasetAttribution) {
-        compareResults.value._attribution = datasetAttribution
+        assistantMsg.datasetUsed = true
+        assistantMsg.datasetBadge = datasetAttribution
+      }
+
+      if (returnedId != null) {
+        conversationId = returnedId
+        if (conv.id !== returnedId) {
+          conv.id = returnedId
+          activeId.value = returnedId
+        }
+      }
+
+      if (!USE_MOCK && conversationId) {
+        await refreshActiveConversation()
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.message || '对比请求失败'
+      for (const id of modelIds) {
+        assistantMsg.replies[id] = `[错误] ${msg}`
       }
     } finally {
       streaming.value = false
+      conv.updatedAt = Date.now()
+      persistLocal()
     }
-  }
-
-  function clearCompare() {
-    compareResults.value = {}
   }
 
   return {
     conversations,
     activeId,
     streaming,
-    compareResults,
     loading,
     getActive,
     fetchConversations,
@@ -314,6 +342,5 @@ export const useChatStore = defineStore('chat', () => {
     ensureActive,
     refreshActiveConversation,
     sendMessage,
-    clearCompare,
   }
 })

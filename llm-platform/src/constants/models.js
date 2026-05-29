@@ -3,6 +3,8 @@ import { DEFAULT_SCENARIO_ID, getScenarioPreset } from './scenario-presets'
 
 export const ALLOWED_MODEL_IDS = ['glm-4.7-flash', 'glm-4', 'glm-5.1']
 
+export const ALL_MODEL_IDS = [...ALLOWED_MODEL_IDS]
+
 export const DEFAULT_MODEL_ID = 'glm-4.7-flash'
 
 export const MODELS = [

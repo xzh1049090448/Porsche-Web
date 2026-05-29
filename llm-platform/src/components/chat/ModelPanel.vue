@@ -50,49 +50,53 @@
       </button>
     </div>
 
-    <el-divider />
-
     <template v-if="settings.models.length > 1">
-    <div class="compare-row">
-      <span>模型对比</span>
-      <el-switch
-        :model-value="settings.compareMode"
-        @change="onCompareToggle"
-      />
-    </div>
-    <template v-if="settings.compareMode">
-      <p class="hint">同一问题将同时调用所选模型</p>
-      <el-checkbox-group
-        :model-value="settings.compareModelIds"
-        class="compare-check"
-        @change="settings.setCompareModels"
-      >
-        <el-checkbox v-for="m in settings.models" :key="m.id" :label="m.id">
-          {{ m.name }}
-        </el-checkbox>
-      </el-checkbox-group>
-    </template>
+      <el-divider />
+      <div class="compare-section">
+        <div class="compare-header">
+          <div class="panel-subtitle">模型对比</div>
+          <el-switch
+            :model-value="settings.compareMode"
+            @change="settings.setCompareMode"
+          />
+        </div>
+        <template v-if="settings.compareMode">
+          <p class="hint">勾选要对比的模型，发送时将并行生成多个回复</p>
+          <el-checkbox-group
+            :model-value="settings.compareModelIds"
+            class="model-grid"
+            @change="onCompareModelsChange"
+          >
+            <el-checkbox
+              v-for="m in settings.models"
+              :key="m.id"
+              :value="m.id"
+              border
+              class="model-check"
+            >
+              <span class="model-icon">{{ m.icon }}</span>
+              <span class="model-name">{{ m.name }}</span>
+            </el-checkbox>
+          </el-checkbox-group>
+        </template>
+      </div>
     </template>
   </div>
 </template>
 
 <script setup>
 import { onMounted, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Cpu } from '@element-plus/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
-import { useChatStore } from '@/stores/chat'
 import { SCENARIO_PRESETS } from '@/constants/scenario-presets'
 
 const settings = useSettingsStore()
-const chatStore = useChatStore()
 
 function applySingleModelDefaults() {
   if (settings.models.length === 1) {
     settings.setModel(settings.models[0].id)
-    if (settings.compareMode) {
-      settings.toggleCompare(false)
-      chatStore.clearCompare()
-    }
+    settings.setCompareMode(false)
   }
 }
 
@@ -107,9 +111,12 @@ watch(
   }
 )
 
-function onCompareToggle(val) {
-  settings.toggleCompare(val)
-  if (!val) chatStore.clearCompare()
+function onCompareModelsChange(ids) {
+  if (!ids.length) {
+    ElMessage.warning('至少选择 1 个模型')
+    return
+  }
+  settings.setCompareModelIds(ids)
 }
 </script>
 
@@ -139,7 +146,8 @@ function onCompareToggle(val) {
   gap: 6px;
   width: 100%;
 
-  :deep(.el-radio) {
+  :deep(.el-radio),
+  :deep(.el-checkbox) {
     margin-right: 0;
     width: 100%;
     height: auto;
@@ -147,7 +155,8 @@ function onCompareToggle(val) {
   }
 }
 
-.model-radio {
+.model-radio,
+.model-check {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -243,25 +252,22 @@ function onCompareToggle(val) {
   color: var(--text-secondary);
 }
 
-.compare-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-  font-weight: 500;
+.compare-section {
+  .compare-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+
+    .panel-subtitle {
+      margin-bottom: 0;
+    }
+  }
 }
 
 .hint {
   font-size: 12px;
   color: var(--text-secondary);
-  margin: 8px 0;
-}
-
-.compare-check {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 160px;
-  overflow-y: auto;
+  margin: 0 0 8px;
 }
 </style>

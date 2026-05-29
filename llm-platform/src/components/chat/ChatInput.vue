@@ -57,7 +57,9 @@ const settings = useSettingsStore()
 const text = ref('')
 const pendingImages = ref([])
 
-const canMultimodal = computed(() => settings.currentModel()?.multimodal)
+const canMultimodal = computed(
+  () => !settings.compareMode && settings.currentModel()?.multimodal
+)
 
 const canSend = computed(
   () => (text.value.trim() || pendingImages.value.length) && !chatStore.streaming
