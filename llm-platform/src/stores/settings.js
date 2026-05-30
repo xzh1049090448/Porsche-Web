@@ -136,6 +136,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function setModel(id) {
+    if (compareMode.value) return
     if (!ALLOWED_MODEL_IDS.includes(id)) return
     const m = models.value.find((x) => x.id === id)
     if (m && m.registered === false) return

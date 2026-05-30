@@ -3,29 +3,35 @@
     <div class="panel-title">
       <el-icon><Cpu /></el-icon>
       模型选择
+      <span v-if="settings.compareMode" class="panel-lock-hint">对比模式下不可选</span>
     </div>
 
-    <el-radio-group
-      v-if="settings.models.length"
-      :model-value="settings.selectedModelId"
-      class="model-grid"
-      :disabled="settings.compareMode"
-      @change="settings.setModel"
+    <div
+      class="model-select-block"
+      :class="{ 'is-locked': settings.compareMode }"
     >
-      <el-radio
-        v-for="m in settings.models"
-        :key="m.id"
-        :value="m.id"
-        :disabled="!m.registered"
-        border
-        class="model-radio"
+      <el-radio-group
+        v-if="settings.models.length"
+        :model-value="settings.selectedModelId"
+        class="model-grid"
+        :disabled="settings.compareMode"
+        @change="onSingleModelChange"
       >
+        <el-radio
+          v-for="m in settings.models"
+          :key="m.id"
+          :value="m.id"
+          :disabled="settings.compareMode || !m.registered"
+          border
+          class="model-radio"
+        >
         <span class="model-icon">{{ m.icon }}</span>
         <span class="model-name">{{ m.name }}</span>
         <el-tag v-if="!m.registered" size="small" type="warning">未注册</el-tag>
         <el-tag v-else-if="m.multimodal" size="small" type="info">多模态</el-tag>
       </el-radio>
     </el-radio-group>
+    </div>
 
     <el-divider />
 
@@ -88,6 +94,11 @@ import { SCENARIO_PRESETS } from '@/constants/scenario-presets'
 
 const settings = useSettingsStore()
 
+function onSingleModelChange(id) {
+  if (settings.compareMode) return
+  settings.setModel(id)
+}
+
 function onCompareModelsChange(ids) {
   if (!ids.length) {
     ElMessage.warning('至少选择 1 个模型')
@@ -106,9 +117,26 @@ function onCompareModelsChange(ids) {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
   font-weight: 600;
   font-size: 14px;
   margin-bottom: 12px;
+}
+
+.panel-lock-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.model-select-block.is-locked {
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
+
+  :deep(.el-radio) {
+    cursor: not-allowed;
+  }
 }
 
 .panel-subtitle {
