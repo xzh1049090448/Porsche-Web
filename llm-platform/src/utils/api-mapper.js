@@ -97,6 +97,21 @@ const MODEL_DISPLAY_NAMES = {
   'glm-4.7-flash': 'GLM-4.7 Flash',
   'glm-4-flash': 'GLM-4.7 Flash',
   'glm-4': 'GLM-4.7 Flash',
+  'deepseek-v4-flash': 'DeepSeek V4 Flash',
+}
+
+const MODEL_VENDORS = {
+  'glm-5.1': '智谱',
+  'glm-4.5-air': '智谱',
+  'glm-4.7-flash': '智谱',
+  'deepseek-v4-flash': 'DeepSeek',
+}
+
+const MODEL_ICONS = {
+  'glm-5.1': 'G',
+  'glm-4.5-air': 'G',
+  'glm-4.7-flash': 'G',
+  'deepseek-v4-flash': 'D',
 }
 
 export function mapModel(raw) {
@@ -104,9 +119,9 @@ export function mapModel(raw) {
   return {
     id,
     name: raw.name || MODEL_DISPLAY_NAMES[id] || id,
-    vendor: raw.provider || '智谱',
-    icon: (id || '?').slice(0, 1).toUpperCase(),
-    multimodal: raw.multimodal ?? id?.startsWith('glm'),
+    vendor: MODEL_VENDORS[id] || raw.provider || '智谱',
+    icon: MODEL_ICONS[id] || (id || '?').slice(0, 1).toUpperCase(),
+    multimodal: raw.multimodal ?? false,
     upstreamModel: raw.upstream_model || id,
     registered: raw.registered !== false,
   }

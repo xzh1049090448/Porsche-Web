@@ -231,7 +231,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 })
 
-/** 以后端 /platform/models 为准合并；界面始终展示 ALLOWED_MODEL_IDS 三个模型 */
+/** 以后端 /platform/models 为准合并；界面始终展示 ALLOWED_MODEL_IDS 中的模型 */
 function mergePlatformModels(remoteList) {
   const byId = new Map((remoteList || []).map((m) => [m.id, m]))
   return ALLOWED_MODEL_IDS.map((id) => {
