@@ -1,5 +1,5 @@
 <template>
-  <div ref="listRef" class="message-list">
+  <div ref="listRef" class="message-list" @scroll="onListScroll">
     <div v-if="!messages.length" class="welcome">
       <h2>开始对话</h2>
       <p>已接入智谱 GLM 系列与 DeepSeek V4 Flash，可多选模型并行对比</p>
@@ -113,6 +113,9 @@ defineEmits(['quick'])
 const chatStore = useChatStore()
 const settings = useSettingsStore()
 const listRef = ref()
+/** 用户未主动上滑时跟随流式输出滚到底部 */
+const stickToBottom = ref(true)
+const SCROLL_BOTTOM_THRESHOLD = 80
 
 const messages = computed(() => chatStore.getActive()?.messages || [])
 
@@ -168,14 +171,40 @@ function copy(text) {
   ElMessage.success('已复制')
 }
 
-async function scrollToBottom() {
+function isNearBottom(el) {
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_BOTTOM_THRESHOLD
+}
+
+function onListScroll() {
+  const el = listRef.value
+  if (!el) return
+  stickToBottom.value = isNearBottom(el)
+}
+
+async function scrollToBottom(force = false) {
   await nextTick()
-  if (listRef.value) {
-    listRef.value.scrollTop = listRef.value.scrollHeight
+  const el = listRef.value
+  if (!el) return
+  if (force || stickToBottom.value || isNearBottom(el)) {
+    el.scrollTop = el.scrollHeight
+    stickToBottom.value = true
   }
 }
 
-watch(() => chatStore.activeId, () => scrollToBottom())
+watch(
+  () => chatStore.streaming,
+  (streaming, prev) => {
+    if (streaming && !prev) {
+      stickToBottom.value = true
+    }
+  }
+)
+
+watch(() => chatStore.activeId, () => {
+  stickToBottom.value = true
+  scrollToBottom(true)
+})
 
 watch(
   () => {
@@ -186,7 +215,7 @@ watch(
         : 0
     return [messages.value.length, last?.content, replyChars, chatStore.streaming]
   },
-  () => scrollToBottom(),
+  () => scrollToBottom(false),
   { deep: true }
 )
 </script>
