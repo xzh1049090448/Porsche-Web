@@ -108,5 +108,6 @@ export function mapModel(raw) {
     icon: (id || '?').slice(0, 1).toUpperCase(),
     multimodal: raw.multimodal ?? id?.startsWith('glm'),
     upstreamModel: raw.upstream_model || id,
+    registered: raw.registered !== false,
   }
 }

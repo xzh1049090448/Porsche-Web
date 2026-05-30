@@ -5,16 +5,8 @@
       模型选择
     </div>
 
-    <div v-if="settings.models.length === 1" class="model-single">
-      <span class="model-icon">{{ settings.models[0].icon }}</span>
-      <div class="model-single-info">
-        <span class="model-name">{{ settings.models[0].name }}</span>
-        <span class="model-vendor">{{ settings.models[0].vendor }}</span>
-      </div>
-      <el-tag v-if="settings.models[0].multimodal" size="small" type="info">多模态</el-tag>
-    </div>
     <el-radio-group
-      v-else
+      v-if="settings.models.length"
       :model-value="settings.selectedModelId"
       class="model-grid"
       :disabled="settings.compareMode"
@@ -24,12 +16,14 @@
         v-for="m in settings.models"
         :key="m.id"
         :value="m.id"
+        :disabled="!m.registered"
         border
         class="model-radio"
       >
         <span class="model-icon">{{ m.icon }}</span>
         <span class="model-name">{{ m.name }}</span>
-        <el-tag v-if="m.multimodal" size="small" type="info">多模态</el-tag>
+        <el-tag v-if="!m.registered" size="small" type="warning">未注册</el-tag>
+        <el-tag v-else-if="m.multimodal" size="small" type="info">多模态</el-tag>
       </el-radio>
     </el-radio-group>
 
@@ -71,11 +65,13 @@
               v-for="m in settings.models"
               :key="m.id"
               :value="m.id"
+              :disabled="!m.registered"
               border
               class="model-check"
             >
               <span class="model-icon">{{ m.icon }}</span>
               <span class="model-name">{{ m.name }}</span>
+              <el-tag v-if="!m.registered" size="small" type="warning">未注册</el-tag>
             </el-checkbox>
           </el-checkbox-group>
         </template>
@@ -85,31 +81,12 @@
 </template>
 
 <script setup>
-import { onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Cpu } from '@element-plus/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
 import { SCENARIO_PRESETS } from '@/constants/scenario-presets'
 
 const settings = useSettingsStore()
-
-function applySingleModelDefaults() {
-  if (settings.models.length === 1) {
-    settings.setModel(settings.models[0].id)
-    settings.setCompareMode(false)
-  }
-}
-
-onMounted(() => {
-  if (settings.modelsLoaded) applySingleModelDefaults()
-})
-
-watch(
-  () => settings.modelsLoaded,
-  (loaded) => {
-    if (loaded) applySingleModelDefaults()
-  }
-)
 
 function onCompareModelsChange(ids) {
   if (!ids.length) {

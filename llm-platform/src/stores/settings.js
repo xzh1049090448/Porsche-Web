@@ -74,9 +74,12 @@ export const useSettingsStore = defineStore('settings', () => {
       try {
         const list = await listModels()
         models.value = mergePlatformModels(list)
-        if (list.length && !models.value.length) {
+        const missing = ALLOWED_MODEL_IDS.filter((id) => !list.some((m) => m.id === id))
+        if (missing.length) {
           const { ElMessage } = await import('element-plus')
-          ElMessage.warning('网关未配置智谱 GLM 模型，请更新 models.yaml 并热加载')
+          ElMessage.warning(
+            `网关未注册模型：${missing.join('、')}，请检查 models.yaml 并热加载后刷新`
+          )
         }
         if (!models.value.some((m) => m.id === selectedModelId.value)) {
           const fallback =
@@ -101,10 +104,9 @@ export const useSettingsStore = defineStore('settings', () => {
           compareModelIds.value.filter((id) => models.value.some((m) => m.id === id))
         )
         setItem('compareModelIds', compareModelIds.value)
-        if (models.value.length === 1) {
-          compareMode.value = false
-          setItem('compareMode', false)
-          setModel(models.value[0].id)
+        const registered = models.value.filter((m) => m.registered)
+        if (registered.length && !registered.some((m) => m.id === selectedModelId.value)) {
+          setModel(registered[0].id)
         }
       } finally {
         modelsLoaded.value = true
@@ -135,6 +137,8 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function setModel(id) {
     if (!ALLOWED_MODEL_IDS.includes(id)) return
+    const m = models.value.find((x) => x.id === id)
+    if (m && m.registered === false) return
     selectedModelId.value = id
     setItem('selectedModel', id)
   }
@@ -155,7 +159,10 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function setCompareModelIds(ids) {
-    const next = normalizeCompareIds(ids)
+    const next = normalizeCompareIds(ids).filter((id) => {
+      const m = models.value.find((x) => x.id === id)
+      return m?.registered !== false
+    })
     if (!next.length) return
     compareModelIds.value = next
     setItem('compareModelIds', next)
@@ -223,16 +230,18 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 })
 
-/** 以后端 /platform/models 为准，仅展示网关已注册的逻辑模型 */
+/** 以后端 /platform/models 为准合并；界面始终展示 ALLOWED_MODEL_IDS 三个模型 */
 function mergePlatformModels(remoteList) {
-  if (!remoteList?.length) return [...MODELS]
-  const byId = new Map(remoteList.map((m) => [m.id, m]))
-  const merged = ALLOWED_MODEL_IDS.map((id) => {
+  const byId = new Map((remoteList || []).map((m) => [m.id, m]))
+  return ALLOWED_MODEL_IDS.map((id) => {
     const local = MODELS.find((m) => m.id === id)
+    if (!local) return null
     const remote = byId.get(id)
-    if (!local || !remote) return null
-    return { ...local, ...remote, name: local.name }
+    return {
+      ...local,
+      ...(remote || {}),
+      name: local.name,
+      registered: !!remote,
+    }
   }).filter(Boolean)
-  if (!merged.length && remoteList.length) return []
-  return merged.length ? merged : [...MODELS]
 }
