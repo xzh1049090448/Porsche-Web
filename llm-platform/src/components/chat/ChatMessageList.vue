@@ -45,19 +45,21 @@
               {{ m.name }}
             </div>
             <div class="reply-body">
-              <div v-if="isMultiModelLoading(msg, m.id)" class="reply-loading">
+              <div v-if="isMultiModelWaiting(msg, m.id)" class="reply-loading">
                 <span class="loading-dots" aria-hidden="true">
                   <i /><i /><i />
                 </span>
                 <span class="loading-label">生成中</span>
               </div>
-              <MarkdownContent
-                v-else-if="msg.replies?.[m.id]"
-                :content="msg.replies[m.id]"
-                :streaming="isMultiModelStreaming(msg, m.id)"
-              />
+              <template v-else>
+                <MarkdownContent
+                  :content="replyFor(msg, m.id)"
+                  :streaming="isMultiModelStreaming(msg, m.id)"
+                />
+                <span v-if="isMultiModelStreaming(msg, m.id)" class="cursor">|</span>
+              </template>
             </div>
-            <div v-if="msg.replies?.[m.id]" class="col-actions">
+            <div v-if="replyFor(msg, m.id)" class="col-actions">
               <el-button text size="small" :icon="CopyDocument" @click="copy(msg.replies[m.id])">
                 复制
               </el-button>
@@ -139,17 +141,26 @@ function streamingLast(msg) {
   return chatStore.streaming && msg.role === 'assistant' && isLastMessage(msg)
 }
 
-function isMultiModelLoading(msg, modelId) {
+function replyFor(msg, modelId) {
+  return msg.replies?.[modelId] ?? ''
+}
+
+function isMultiModelWaiting(msg, modelId) {
   return (
     chatStore.streaming &&
     isLastMessage(msg) &&
     msg.multiModel &&
-    !msg.replies?.[modelId]
+    replyFor(msg, modelId).length === 0
   )
 }
 
 function isMultiModelStreaming(msg, modelId) {
-  return chatStore.streaming && isLastMessage(msg) && msg.multiModel && !!msg.replies?.[modelId]
+  return (
+    chatStore.streaming &&
+    isLastMessage(msg) &&
+    msg.multiModel &&
+    replyFor(msg, modelId).length > 0
+  )
 }
 
 function copy(text) {
@@ -167,12 +178,14 @@ async function scrollToBottom() {
 watch(() => chatStore.activeId, () => scrollToBottom())
 
 watch(
-  () => [
-    messages.value.length,
-    messages.value[messages.value.length - 1]?.content,
-    messages.value[messages.value.length - 1]?.replies,
-    chatStore.streaming,
-  ],
+  () => {
+    const last = messages.value[messages.value.length - 1]
+    const replyChars =
+      last?.multiModel && last.replies
+        ? Object.values(last.replies).reduce((n, t) => n + (t?.length || 0), 0)
+        : 0
+    return [messages.value.length, last?.content, replyChars, chatStore.streaming]
+  },
   () => scrollToBottom(),
   { deep: true }
 )

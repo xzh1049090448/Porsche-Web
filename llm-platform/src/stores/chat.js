@@ -36,6 +36,52 @@ export const useChatStore = defineStore('chat', () => {
     return conversations.value.find((c) => c.id === activeId.value) || null
   }
 
+  /** 对比流式：显式更新 store 中的消息，确保界面逐字刷新 */
+  function patchCompareReply(conv, msgId, model, delta) {
+    if (!delta) return
+    const convId = conv.id
+    const cIdx = conversations.value.findIndex((c) => c.id === convId)
+    if (cIdx < 0) return
+    const msgs = conversations.value[cIdx].messages || []
+    const mIdx = msgs.findIndex((m) => m.id === msgId)
+    if (mIdx < 0) return
+    const msg = msgs[mIdx]
+    const replies = { ...(msg.replies || {}) }
+    replies[model] = (replies[model] ?? '') + delta
+    const nextMsgs = [...msgs]
+    nextMsgs[mIdx] = { ...msg, replies }
+    conversations.value[cIdx] = {
+      ...conversations.value[cIdx],
+      messages: nextMsgs,
+    }
+  }
+
+  /** 刷新后保留已流式展示的 replies（避免服务端一次性覆盖导致“突然整段出现”） */
+  function mergeLastMultiModelReplies(convId, msgId, localReplies) {
+    if (!localReplies || !Object.keys(localReplies).length) return
+    const cIdx = conversations.value.findIndex((c) => c.id === convId)
+    if (cIdx < 0) return
+    const msgs = conversations.value[cIdx].messages || []
+    const mIdx = msgs.findIndex((m) => m.id === msgId)
+    if (mIdx < 0) return
+    const msg = msgs[mIdx]
+    if (!msg.multiModel) return
+    const merged = { ...(msg.replies || {}) }
+    for (const [model, text] of Object.entries(localReplies)) {
+      const local = text || ''
+      const remote = merged[model] || ''
+      if (local.length >= remote.length) {
+        merged[model] = local
+      }
+    }
+    const nextMsgs = [...msgs]
+    nextMsgs[mIdx] = { ...msg, replies: merged }
+    conversations.value[cIdx] = {
+      ...conversations.value[cIdx],
+      messages: nextMsgs,
+    }
+  }
+
   let conversationsLoadPromise = null
 
   async function fetchConversations() {
@@ -299,11 +345,7 @@ export const useChatStore = defineStore('chat', () => {
         },
         {
           onModelChunk({ model, delta }) {
-            const prev = assistantMsg.replies[model] || ''
-            assistantMsg.replies = {
-              ...assistantMsg.replies,
-              [model]: prev + delta,
-            }
+            patchCompareReply(conv, assistantMsg.id, model, delta)
           },
           onDone(meta) {
             if (meta?.datasetUsed || meta?.datasetAttribution) {
@@ -331,7 +373,19 @@ export const useChatStore = defineStore('chat', () => {
       )
 
       if (!USE_MOCK && conversationId && !compareFailed) {
+        const cIdx = conversations.value.findIndex((c) => c.id === conv.id)
+        const mIdx =
+          cIdx >= 0
+            ? (conversations.value[cIdx].messages || []).findIndex(
+                (m) => m.id === assistantMsg.id
+              )
+            : -1
+        const streamedReplies =
+          cIdx >= 0 && mIdx >= 0
+            ? { ...(conversations.value[cIdx].messages[mIdx].replies || {}) }
+            : { ...assistantMsg.replies }
         await refreshActiveConversation()
+        mergeLastMultiModelReplies(conv.id, assistantMsg.id, streamedReplies)
       }
     } catch (err) {
       const msg = err?.response?.data?.detail || err?.message || '对比请求失败'
