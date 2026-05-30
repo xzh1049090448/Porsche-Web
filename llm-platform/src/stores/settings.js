@@ -61,7 +61,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const compareModelIds = ref(initialModelState.compareModelIds)
   const selectedScenarioId = ref(initialScenarioId)
   const modelParams = ref({ ...initialPreset.params })
-  const useDataset = ref(getItem('useDataset', true))
+  const useDataset = ref(getItem('useDataset', false))
   const selectedDatasetIds = ref(getItem('selectedDatasets', []))
 
   let modelsLoadPromise = null
