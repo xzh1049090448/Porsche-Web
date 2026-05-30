@@ -236,15 +236,16 @@ export const mockApi = {
   },
 
   async compareModels({ modelIds, content, onModelChunk }) {
-    for (const id of modelIds) {
+    const staggerMs = [0, 300, 600]
+    const jobs = modelIds.map(async (id, index) => {
+      await delay(staggerMs[index] ?? index * 300)
       const model = MODELS.find((m) => m.id === id)
       const text = MOCK_RESPONSES.compare(model?.name || id) + `\n\n${content.slice(0, 80)}...`
-      let acc = ''
       for (const ch of text) {
-        await delay(12)
-        acc += ch
-        onModelChunk(id, acc)
+        await delay(14 + Math.random() * 10)
+        onModelChunk?.({ model: id, delta: ch })
       }
-    }
+    })
+    await Promise.all(jobs)
   },
 }

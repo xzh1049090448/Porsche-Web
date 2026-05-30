@@ -61,7 +61,7 @@
           />
         </div>
         <template v-if="settings.compareMode">
-          <p class="hint">勾选要对比的模型，发送时将并行生成多个回复</p>
+          <p class="hint">勾选要对比的模型，发送后各模型将流式并行输出</p>
           <el-checkbox-group
             :model-value="settings.compareModelIds"
             class="model-grid"

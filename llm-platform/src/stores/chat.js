@@ -283,10 +283,11 @@ export const useChatStore = defineStore('chat', () => {
     conv.messages.push(assistantMsg)
 
     let conversationId = typeof conv.id === 'number' ? conv.id : null
+    let compareFailed = false
 
     try {
-      const { results, datasetAttribution, conversationId: returnedId } =
-        await comparePlatformChat({
+      await comparePlatformChat(
+        {
           models: modelIds,
           messages: buildMessagesForApi(conv, content),
           conversation_id: conversationId,
@@ -295,32 +296,50 @@ export const useChatStore = defineStore('chat', () => {
           context_window: settings.modelParams.contextWindow,
           dataset_enabled: settings.useDataset,
           dataset_ids: settings.useDataset ? settings.selectedDatasetIds : null,
-        })
-
-      for (const r of results) {
-        assistantMsg.replies[r.model] = r.error ? `[错误] ${r.error}` : r.content || ''
-      }
-      if (datasetAttribution) {
-        assistantMsg.datasetUsed = true
-        assistantMsg.datasetBadge = datasetAttribution
-      }
-
-      if (returnedId != null) {
-        conversationId = returnedId
-        if (conv.id !== returnedId) {
-          conv.id = returnedId
-          activeId.value = returnedId
+        },
+        {
+          onModelChunk({ model, delta }) {
+            const prev = assistantMsg.replies[model] || ''
+            assistantMsg.replies = {
+              ...assistantMsg.replies,
+              [model]: prev + delta,
+            }
+          },
+          onDone(meta) {
+            if (meta?.datasetUsed || meta?.datasetAttribution) {
+              assistantMsg.datasetUsed = true
+              assistantMsg.datasetBadge =
+                meta.datasetAttribution || DATASET_BADGE_TEXT
+            }
+            if (meta?.conversationId != null) {
+              conversationId = meta.conversationId
+              if (conv.id !== meta.conversationId) {
+                conv.id = meta.conversationId
+                activeId.value = meta.conversationId
+              }
+            }
+          },
+          onError(msg) {
+            compareFailed = true
+            for (const id of modelIds) {
+              if (!assistantMsg.replies[id]) {
+                assistantMsg.replies[id] = `[错误] ${msg}`
+              }
+            }
+          },
         }
-      }
+      )
 
-      if (!USE_MOCK && conversationId) {
+      if (!USE_MOCK && conversationId && !compareFailed) {
         await refreshActiveConversation()
       }
     } catch (err) {
       const msg = err?.response?.data?.detail || err?.message || '对比请求失败'
+      const next = { ...assistantMsg.replies }
       for (const id of modelIds) {
-        assistantMsg.replies[id] = `[错误] ${msg}`
+        next[id] = `[错误] ${msg}`
       }
+      assistantMsg.replies = next
     } finally {
       streaming.value = false
       conv.updatedAt = Date.now()

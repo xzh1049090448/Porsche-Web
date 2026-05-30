@@ -1,6 +1,6 @@
 import { getAuthToken, USE_MOCK } from './request'
 import { mockApi } from './mock'
-import { readPlatformChatStream } from '@/utils/sse'
+import { readPlatformChatStream, readPlatformCompareStream } from '@/utils/sse'
 import request from './request'
 
 const PREFIX = '/api/v1/platform'
@@ -56,42 +56,58 @@ export async function streamPlatformChat(body, callbacks) {
   return readPlatformChatStream(response, callbacks)
 }
 
-export async function comparePlatformChat(body) {
+/**
+ * 多模型对比（SSE：各模型并行流式输出）
+ */
+export async function comparePlatformChat(body, callbacks = {}) {
   if (USE_MOCK) {
-    const results = {}
     await mockApi.compareModels({
       modelIds: body.models,
       content: body.messages?.filter((m) => m.role === 'user').pop()?.content || '',
-      onModelChunk: (id, text) => {
-        results[id] = text
-      },
+      onModelChunk: (payload) => callbacks.onModelChunk?.(payload),
     })
-    return {
-      results: Object.entries(results).map(([model, content]) => ({
-        model,
-        content,
-        error: null,
-        tokens: 0,
-        latency_ms: 0,
-      })),
+    callbacks.onDone?.({
       datasetAttribution: body.dataset_enabled ? '本回答基于已确权跨境电商专属数据集生成' : null,
-    }
+      datasetUsed: body.dataset_enabled,
+    })
+    return { results: [], datasetAttribution: null, conversationId: null }
   }
 
-  const res = await request.post(`${PREFIX}/chat/compare`, {
+  const payload = {
     models: body.models,
     messages: body.messages,
     conversation_id: body.conversation_id ?? null,
     temperature: body.temperature,
     max_tokens: body.max_tokens,
     context_window: body.context_window,
+    stream: true,
     dataset_enabled: body.dataset_enabled ?? false,
     dataset_ids: body.dataset_ids ?? null,
+  }
+
+  const response = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/chat/compare`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${getAuthToken()}`,
+    },
+    body: JSON.stringify(payload),
+  })
+
+  const results = []
+  await readPlatformCompareStream(response, {
+    onModelChunk: callbacks.onModelChunk,
+    onModelResult(r) {
+      results.push(r)
+      callbacks.onModelResult?.(r)
+    },
+    onDone: callbacks.onDone,
+    onError: callbacks.onError,
   })
 
   return {
-    results: res.results || [],
-    datasetAttribution: res.dataset_attribution,
-    conversationId: res.conversation_id,
+    results,
+    datasetAttribution: null,
+    conversationId: null,
   }
 }
