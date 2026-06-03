@@ -1,11 +1,5 @@
 <template>
-  <div
-    class="chat-page"
-    :class="{
-      'is-sidebar-collapsed': sidebarCollapsed,
-      'is-config-collapsed': configCollapsed,
-    }"
-  >
+  <div class="chat-root">
     <MobileDrawer v-model:show="showSidebar" position="left" title="对话列表">
       <ChatSidebar embedded @navigated="showSidebar = false" />
     </MobileDrawer>
@@ -17,6 +11,13 @@
       </el-scrollbar>
     </MobileDrawer>
 
+    <div
+      class="chat-page"
+      :class="{
+        'is-sidebar-collapsed': sidebarCollapsed,
+        'is-config-collapsed': configCollapsed,
+      }"
+    >
     <aside class="chat-sidebar-wrap desktop-only" :class="{ collapsed: sidebarCollapsed }">
       <template v-if="sidebarCollapsed">
         <button
@@ -81,6 +82,7 @@
         </div>
       </template>
     </aside>
+    </div>
   </div>
 </template>
 
@@ -142,6 +144,11 @@ function onQuick(q) {
 </script>
 
 <style scoped lang="scss">
+.chat-root {
+  height: 100%;
+  overflow: hidden;
+}
+
 .chat-page {
   --panel-rail-w: 44px;
   --sidebar-col: var(--sidebar-w);
@@ -332,7 +339,15 @@ function onQuick(q) {
   .chat-page,
   .chat-page.is-sidebar-collapsed,
   .chat-page.is-config-collapsed {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+    grid-template-columns: unset;
+  }
+
+  .chat-center {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
   }
 }
 </style>
