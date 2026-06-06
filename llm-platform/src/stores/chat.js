@@ -11,6 +11,7 @@ import {
   deleteConversation as apiDeleteConversation,
 } from '@/api/conversations'
 import { useSettingsStore } from './settings'
+import { useUserStore } from './user'
 import { DATASET_BADGE_TEXT } from '@/constants/datasets'
 import { purgeConversationFromLocal } from '@/utils/conversation-cache'
 import { toApiMessageContent } from '@/utils/multi-model-message'
@@ -296,6 +297,10 @@ export const useChatStore = defineStore('chat', () => {
               assistantMsg.datasetUsed = true
               assistantMsg.datasetBadge = meta.datasetBadge || DATASET_BADGE_TEXT
             }
+            if (meta?.tokens != null) {
+              assistantMsg.tokens = meta.tokens
+            }
+            useUserStore().applyTokensUsed(meta?.tokens ?? 0, meta?.totalTokensUsed)
           },
           onError(msg) {
             streamFailed = true
@@ -360,6 +365,10 @@ export const useChatStore = defineStore('chat', () => {
                 activeId.value = meta.conversationId
               }
             }
+            if (meta?.tokens != null) {
+              assistantMsg.tokens = meta.tokens
+            }
+            useUserStore().applyTokensUsed(meta?.tokens ?? 0, meta?.totalTokensUsed)
           },
           onError(msg) {
             compareFailed = true

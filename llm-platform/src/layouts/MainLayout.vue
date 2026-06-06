@@ -38,6 +38,13 @@
         <el-menu-item index="/profile">个人中心</el-menu-item>
       </el-menu>
       <div class="header-right">
+        <span
+          v-if="userStore.totalTokensUsed"
+          class="token-stat plan-tag-mobile-hide"
+          title="累计 Token 用量"
+        >
+          {{ formatTokens(userStore.totalTokensUsed) }} Token
+        </span>
         <el-tag
           v-if="user?.plan"
           size="small"
@@ -92,7 +99,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowDown,
@@ -129,6 +136,16 @@ const planTagType = computed(() => {
   if (p === 'professional' || p === 'pro') return 'success'
   if (p === 'enterprise') return 'warning'
   return 'info'
+})
+
+function formatTokens(n) {
+  return Number(n || 0).toLocaleString()
+}
+
+onMounted(() => {
+  if (userStore.isLoggedIn) {
+    userStore.refreshUsage().catch(() => {})
+  }
 })
 
 function goBack() {
@@ -223,6 +240,12 @@ function onUserCommand(cmd) {
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
+}
+
+.token-stat {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .user-trigger {

@@ -66,9 +66,11 @@ export async function comparePlatformChat(body, callbacks = {}) {
       content: body.messages?.filter((m) => m.role === 'user').pop()?.content || '',
       onModelChunk: (payload) => callbacks.onModelChunk?.(payload),
     })
+    const estTokens = Math.ceil((body.messages?.filter((m) => m.role === 'user').pop()?.content || '').length * 1.2 * body.models.length)
     callbacks.onDone?.({
       datasetAttribution: body.dataset_enabled ? '本回答基于已确权跨境电商专属数据集生成' : null,
       datasetUsed: body.dataset_enabled,
+      tokens: estTokens,
     })
     return { results: [], datasetAttribution: null, conversationId: null }
   }

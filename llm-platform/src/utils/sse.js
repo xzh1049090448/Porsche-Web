@@ -23,6 +23,7 @@ export async function readPlatformChatStream(response, { onMeta, onChunk, onDone
   const decoder = new TextDecoder()
   let buffer = ''
   let meta = {}
+  let doneCalled = false
 
   try {
     while (true) {
@@ -48,6 +49,16 @@ export async function readPlatformChatStream(response, { onMeta, onChunk, onDone
             onMeta?.(meta)
             continue
           }
+          if (json.type === 'done') {
+            meta = {
+              ...meta,
+              tokens: json.tokens ?? 0,
+              totalTokensUsed: json.total_tokens_used,
+            }
+            onDone?.(meta)
+            doneCalled = true
+            continue
+          }
           if (json.error) {
             const msg = json.error?.message || json.error
             onError?.(typeof msg === 'string' ? msg : '流式输出错误')
@@ -60,7 +71,7 @@ export async function readPlatformChatStream(response, { onMeta, onChunk, onDone
         }
       }
     }
-    onDone?.(meta)
+    if (!doneCalled) onDone?.(meta)
   } catch (e) {
     onError?.(e.message || '流中断')
   }
@@ -92,6 +103,7 @@ export async function readPlatformCompareStream(
   const decoder = new TextDecoder()
   let buffer = ''
   let doneMeta = {}
+  let doneCalled = false
 
   try {
     while (true) {
@@ -130,7 +142,11 @@ export async function readPlatformCompareStream(
               conversationId: json.conversation_id,
               datasetAttribution: json.dataset_attribution,
               datasetUsed: json.dataset_used,
+              tokens: json.tokens ?? 0,
+              totalTokensUsed: json.total_tokens_used,
             }
+            onDone?.(doneMeta)
+            doneCalled = true
             continue
           }
           if (json.error) {
@@ -143,7 +159,7 @@ export async function readPlatformCompareStream(
         }
       }
     }
-    onDone?.(doneMeta)
+    if (!doneCalled) onDone?.(doneMeta)
   } catch (e) {
     onError?.(e.message || '流中断')
   }

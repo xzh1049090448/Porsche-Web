@@ -228,10 +228,13 @@ export const mockApi = {
       await delay(18 + Math.random() * 12)
       onChunk(text[i])
     }
+    const tokens = Math.ceil(text.length * 1.2)
+    const usage = await mockApi.getUsage()
     onDone({
       datasetUsed: useCross,
       datasetBadge: DATASET_BADGE_TEXT,
-      tokens: Math.ceil(text.length * 1.2),
+      tokens,
+      totalTokensUsed: (usage?.totalTokens || 0) + tokens,
     })
   },
 

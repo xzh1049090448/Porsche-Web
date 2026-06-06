@@ -66,6 +66,9 @@
             </div>
           </div>
         </div>
+        <div v-if="msg.multiModel && msg.tokens" class="msg-actions">
+          <span class="msg-tokens">合计 {{ formatTokens(msg.tokens) }} Token</span>
+        </div>
 
         <template v-else>
           <div class="content">
@@ -86,6 +89,7 @@
             </template>
           </div>
           <div v-if="msg.role === 'assistant' && msg.content" class="msg-actions">
+            <span v-if="msg.tokens" class="msg-tokens">{{ formatTokens(msg.tokens) }} Token</span>
             <el-button text size="small" :icon="CopyDocument" @click="copy(msg.content)">
               复制
             </el-button>
@@ -164,6 +168,10 @@ function isMultiModelStreaming(msg, modelId) {
     msg.multiModel &&
     replyFor(msg, modelId).length > 0
   )
+}
+
+function formatTokens(n) {
+  return Number(n || 0).toLocaleString()
 }
 
 function copy(text) {
@@ -317,9 +325,18 @@ watch(
 }
 
 .msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-top: 8px;
   border-top: 1px solid var(--border);
   padding-top: 4px;
+}
+
+.msg-tokens {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-right: auto;
 }
 
 .cursor {
