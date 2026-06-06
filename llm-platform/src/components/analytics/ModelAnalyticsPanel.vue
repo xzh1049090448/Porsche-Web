@@ -411,7 +411,12 @@ async function refreshSummary() {
 async function refreshChart() {
   if (activeView.value === 'user_consumption_trend') {
     if (!userOptions.value.length) await loadUsersFromRanking()
-    if (selectedUserId.value == null) return
+    if (selectedUserId.value == null) {
+      chartData.value = { time_labels: [], series: [], ranking: [] }
+      await nextTick()
+      renderChart()
+      return
+    }
   }
   chartData.value = await getChart(activeView.value, queryParams())
   await nextTick()
