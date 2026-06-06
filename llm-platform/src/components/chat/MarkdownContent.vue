@@ -73,7 +73,7 @@ const html = computed(() => renderMarkdown(props.content, { streaming: props.str
     margin: 0.75em 0;
     padding: 0.4em 0.8em;
     border-left: 3px solid var(--accent);
-    background: rgba(6, 182, 212, 0.08);
+    background: var(--blockquote-bg);
     color: var(--text-secondary);
   }
 
@@ -82,7 +82,7 @@ const html = computed(() => renderMarkdown(props.content, { streaming: props.str
     border-radius: 4px;
     font-family: Consolas, Monaco, 'Courier New', monospace;
     font-size: 0.9em;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--code-inline-bg);
     color: var(--accent);
   }
 
@@ -120,7 +120,7 @@ const html = computed(() => renderMarkdown(props.content, { streaming: props.str
   }
 
   :deep(th) {
-    background: var(--component-bg);
+    background: var(--hover-bg);
     font-weight: 600;
     color: var(--text-primary);
   }

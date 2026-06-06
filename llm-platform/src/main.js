@@ -10,7 +10,9 @@ import router from './router'
 import './styles/global.scss'
 import './styles/mobile.scss'
 import { initViewportHeight } from './utils/viewport-height'
+import { readStoredTheme, applyTheme } from './stores/theme'
 
+applyTheme(readStoredTheme())
 initViewportHeight()
 
 const app = createApp(App)

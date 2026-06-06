@@ -168,7 +168,7 @@ function onCompareModelsChange(ids) {
   }
 
   &.active {
-    background: var(--component-bg);
+    background: var(--active-item-bg);
     border-left-color: var(--accent);
 
     .model-name {
@@ -187,7 +187,7 @@ function onCompareModelsChange(ids) {
   width: 32px;
   height: 32px;
   border-radius: 6px;
-  background: rgba(6, 182, 212, 0.15);
+  background: var(--model-icon-bg);
   color: var(--accent);
   display: inline-flex;
   align-items: center;
@@ -282,7 +282,7 @@ function onCompareModelsChange(ids) {
   &.active {
     border-color: var(--border);
     border-left-color: var(--accent);
-    background: var(--component-bg);
+    background: var(--active-item-bg);
   }
 }
 

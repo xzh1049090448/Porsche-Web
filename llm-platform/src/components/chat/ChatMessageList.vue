@@ -292,27 +292,27 @@ watch(
     flex-direction: row-reverse;
 
     .bubble {
-      background: rgba(6, 182, 212, 0.2);
-      border: 1px solid rgba(6, 182, 212, 0.35);
-      color: var(--text-primary);
+      background: var(--bubble-user-bg);
+      border: 1px solid var(--bubble-user-border);
+      color: var(--bubble-user-text);
     }
   }
 
   &.assistant .bubble {
-    background: var(--component-bg);
+    background: var(--bubble-assistant-bg);
     border: 1px solid var(--border);
     color: var(--text-body);
   }
 
   :deep(.el-avatar) {
-    background: var(--component-bg);
+    background: var(--model-icon-bg);
     color: var(--accent);
     border: 1px solid var(--border);
     flex-shrink: 0;
   }
 
   &.user :deep(.el-avatar) {
-    background: rgba(6, 182, 212, 0.15);
+    background: var(--model-icon-bg);
     color: var(--accent);
   }
 }
@@ -336,7 +336,12 @@ watch(
 }
 
 .message.user .plain-text {
-  color: var(--text-primary);
+  color: var(--bubble-user-text);
+}
+
+.message.user :deep(.markdown-body a) {
+  color: var(--bubble-user-text);
+  text-decoration: underline;
 }
 
 .msg-images {
@@ -454,7 +459,7 @@ watch(
   width: 20px;
   height: 20px;
   border-radius: 4px;
-  background: rgba(6, 182, 212, 0.15);
+  background: var(--model-icon-bg);
   color: var(--accent);
   display: inline-flex;
   align-items: center;

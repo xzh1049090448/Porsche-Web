@@ -102,7 +102,7 @@ const settings = useSettingsStore()
     }
 
     &.is-checked {
-      background: var(--component-bg);
+      background: var(--active-item-bg);
       border-color: var(--accent);
     }
 

@@ -1,5 +1,6 @@
 <template>
   <div class="login-page">
+    <ThemeToggle class="login-theme-toggle" />
     <div class="login-card">
       <div class="login-brand">
         <span class="logo-icon">AI</span>
@@ -40,6 +41,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { Iphone, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
+import ThemeToggle from '@/components/ThemeToggle.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -76,12 +78,19 @@ async function submitPwd() {
 
 <style scoped lang="scss">
 .login-page {
+  position: relative;
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--app-bg);
+  background: var(--login-bg);
   padding: 24px;
+}
+
+.login-theme-toggle {
+  position: absolute;
+  top: 16px;
+  right: 16px;
 }
 
 .login-card {
@@ -90,7 +99,7 @@ async function submitPwd() {
   background: var(--component-bg);
   border: 1px solid var(--border);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--elevated-shadow);
 }
 
 .login-brand {
@@ -118,7 +127,7 @@ async function submitPwd() {
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #06b6d4, #0891b2);
+  background: var(--logo-gradient);
   color: #fff;
   align-items: center;
   justify-content: center;

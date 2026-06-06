@@ -38,6 +38,7 @@
         <el-menu-item index="/profile">个人中心</el-menu-item>
       </el-menu>
       <div class="header-right">
+        <ThemeToggle />
         <span
           v-if="userStore.totalTokensUsed"
           class="token-stat plan-tag-mobile-hide"
@@ -113,6 +114,7 @@ import { useUserStore } from '@/stores/user'
 import { useSettingsStore } from '@/stores/settings'
 import { ElMessageBox } from 'element-plus'
 import MobileDrawer from '@/components/mobile/MobileDrawer.vue'
+import ThemeToggle from '@/components/ThemeToggle.vue'
 import { useBreakpoint } from '@/composables/useBreakpoint'
 
 const route = useRoute()
@@ -186,7 +188,7 @@ function onUserCommand(cmd) {
   height: var(--header-h);
   background: var(--sidebar-bg);
   border-bottom: 1px solid var(--border);
-  box-shadow: none;
+  box-shadow: var(--header-shadow);
 }
 
 .header-left {
@@ -213,7 +215,7 @@ function onUserCommand(cmd) {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #06b6d4, #0891b2);
+  background: var(--logo-gradient);
   color: #fff;
   display: flex;
   align-items: center;

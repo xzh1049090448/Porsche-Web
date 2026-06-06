@@ -115,7 +115,7 @@ defineExpose({
   flex-shrink: 0;
   min-height: var(--input-h);
   padding: 16px 24px;
-  background: var(--app-bg);
+  background: var(--chat-input-bg);
   border-top: 1px solid var(--border);
 }
 

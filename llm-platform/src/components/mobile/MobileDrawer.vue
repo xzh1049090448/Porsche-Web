@@ -60,7 +60,7 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 2000;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--drawer-overlay);
 }
 
 .drawer-content {
@@ -69,7 +69,7 @@ onUnmounted(() => {
   bottom: 0;
   width: min(300px, 88vw);
   background: var(--panel-bg);
-  box-shadow: 0 0 24px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--drawer-shadow);
   display: flex;
   flex-direction: column;
   will-change: transform;

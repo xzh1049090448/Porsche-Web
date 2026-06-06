@@ -189,7 +189,7 @@ function exportPdf(c) {
   }
 
   &.active {
-    background: var(--component-bg);
+    background: var(--active-item-bg);
     border-left-color: var(--accent);
 
     .conv-title {
