@@ -12,7 +12,6 @@ import {
 } from '@/api/conversations'
 import { useSettingsStore } from './settings'
 import { useUserStore } from './user'
-import { DATASET_BADGE_TEXT } from '@/constants/datasets'
 import { purgeConversationFromLocal } from '@/utils/conversation-cache'
 import { toApiMessageContent } from '@/utils/multi-model-message'
 
@@ -108,8 +107,8 @@ export const useChatStore = defineStore('chat', () => {
     const body = {
       title,
       model: settings.selectedModelId,
-      datasetEnabled: settings.useDataset,
-      datasetIds: settings.useDataset ? settings.selectedDatasetIds : null,
+      datasetEnabled: false,
+      datasetIds: null,
     }
     const conv = await apiCreateConversation(body)
     conversations.value.unshift(conv)
@@ -258,7 +257,6 @@ export const useChatStore = defineStore('chat', () => {
       role: 'assistant',
       content: '',
       createdAt: Date.now(),
-      datasetUsed: false,
     }
     conv.messages.push(assistantMsg)
 
@@ -274,8 +272,8 @@ export const useChatStore = defineStore('chat', () => {
           temperature: settings.modelParams.temperature,
           max_tokens: settings.modelParams.maxTokens,
           context_window: settings.modelParams.contextWindow,
-          dataset_enabled: settings.useDataset,
-          dataset_ids: settings.useDataset ? settings.selectedDatasetIds : null,
+          dataset_enabled: false,
+          dataset_ids: null,
         },
         {
           onMeta(meta) {
@@ -286,17 +284,11 @@ export const useChatStore = defineStore('chat', () => {
                 activeId.value = meta.conversationId
               }
             }
-            assistantMsg.datasetUsed = meta.datasetUsed
-            assistantMsg.datasetBadge = meta.datasetBadge || DATASET_BADGE_TEXT
           },
           onChunk(ch) {
             assistantMsg.content += ch
           },
           onDone(meta) {
-            if (meta?.datasetUsed) {
-              assistantMsg.datasetUsed = true
-              assistantMsg.datasetBadge = meta.datasetBadge || DATASET_BADGE_TEXT
-            }
             if (meta?.tokens != null) {
               assistantMsg.tokens = meta.tokens
             }
@@ -329,7 +321,6 @@ export const useChatStore = defineStore('chat', () => {
       models: modelIds,
       replies: Object.fromEntries(modelIds.map((id) => [id, ''])),
       createdAt: Date.now(),
-      datasetUsed: false,
     }
     conv.messages.push(assistantMsg)
 
@@ -345,19 +336,14 @@ export const useChatStore = defineStore('chat', () => {
           temperature: settings.modelParams.temperature,
           max_tokens: settings.modelParams.maxTokens,
           context_window: settings.modelParams.contextWindow,
-          dataset_enabled: settings.useDataset,
-          dataset_ids: settings.useDataset ? settings.selectedDatasetIds : null,
+          dataset_enabled: false,
+          dataset_ids: null,
         },
         {
           onModelChunk({ model, delta }) {
             patchCompareReply(conv, assistantMsg.id, model, delta)
           },
           onDone(meta) {
-            if (meta?.datasetUsed || meta?.datasetAttribution) {
-              assistantMsg.datasetUsed = true
-              assistantMsg.datasetBadge =
-                meta.datasetAttribution || DATASET_BADGE_TEXT
-            }
             if (meta?.conversationId != null) {
               conversationId = meta.conversationId
               if (conv.id !== meta.conversationId) {

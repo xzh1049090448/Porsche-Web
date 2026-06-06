@@ -72,7 +72,6 @@
           <template #header>用量概览</template>
           <el-descriptions :column="1" border>
             <el-descriptions-item label="累计 Token">{{ usage.totalTokens?.toLocaleString() }}</el-descriptions-item>
-            <el-descriptions-item label="数据集调用">{{ usage.datasetCalls }} 次</el-descriptions-item>
             <el-descriptions-item label="今日剩余额度">
               {{ usage.remainingQuota }} / {{ usage.dailyLimit }}
             </el-descriptions-item>

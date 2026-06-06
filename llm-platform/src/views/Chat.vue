@@ -4,10 +4,9 @@
       <ChatSidebar embedded @navigated="showSidebar = false" />
     </MobileDrawer>
 
-    <MobileDrawer v-model:show="showConfig" position="right" title="模型与数据集">
+    <MobileDrawer v-model:show="showConfig" position="right" title="模型配置">
       <el-scrollbar class="config-drawer-scroll">
         <ModelPanel />
-        <DatasetPanel />
       </el-scrollbar>
     </MobileDrawer>
 
@@ -72,12 +71,11 @@
           <button type="button" class="panel-toggle" title="收起配置面板" @click="toggleConfig">
             <el-icon><DArrowRight /></el-icon>
           </button>
-          <span class="panel-label">模型与数据集</span>
+          <span class="panel-label">模型配置</span>
         </div>
         <div class="panel-body">
           <el-scrollbar>
             <ModelPanel />
-            <DatasetPanel />
           </el-scrollbar>
         </div>
       </template>
@@ -93,7 +91,6 @@ import ChatSidebar from '@/components/chat/ChatSidebar.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
 import ModelPanel from '@/components/chat/ModelPanel.vue'
-import DatasetPanel from '@/components/chat/DatasetPanel.vue'
 import MobileDrawer from '@/components/mobile/MobileDrawer.vue'
 import { USE_MOCK } from '@/api/request'
 import { useChatStore } from '@/stores/chat'
@@ -127,7 +124,7 @@ function toggleConfig() {
 }
 
 onMounted(async () => {
-  await Promise.all([settingsStore.loadModels(), settingsStore.loadDatasets()])
+  await settingsStore.loadModels()
   if (!USE_MOCK) {
     await chatStore.fetchConversations()
   }

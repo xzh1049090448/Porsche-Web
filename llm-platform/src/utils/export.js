@@ -5,9 +5,6 @@ export function exportToMarkdown(conversation) {
   for (const msg of conversation.messages || []) {
     const role = msg.role === 'user' ? '**用户**' : '**助手**'
     lines.push(`### ${role}`, '', msg.content, '')
-    if (msg.datasetUsed) {
-      lines.push(`> ${msg.datasetBadge || '基于专属数据集生成'}`, '')
-    }
   }
 
   return lines.join('\n')
@@ -46,7 +43,6 @@ export function exportToPdf(conversation) {
     <div class="msg ${m.role}">
       <strong>${m.role === 'user' ? '用户' : '助手'}</strong>
       <div>${m.content.replace(/\n/g, '<br>')}</div>
-      ${m.datasetUsed ? `<div class="badge">本回答基于已确权跨境电商专属数据集生成</div>` : ''}
     </div>`
     )
     .join('')}

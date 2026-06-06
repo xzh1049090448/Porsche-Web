@@ -1,7 +1,6 @@
 /** 开发环境 Mock：设置 VITE_USE_MOCK=true 启用 */
 import { getItem, setItem, removeItem } from '@/utils/storage'
 import { MODELS } from '@/constants/models'
-import { DATASETS, DATASET_BADGE_TEXT } from '@/constants/datasets'
 import { PLANS } from '@/constants/plans'
 import { FIXED_LOGIN_PHONE, FIXED_LOGIN_PASSWORD } from '@/constants/auth'
 
@@ -13,9 +12,7 @@ function genId() {
 
 const MOCK_RESPONSES = {
   default:
-    '您好！我是国内大模型聚合平台的 AI 助手，当前由智谱 GLM 与 DeepSeek V4 Flash 提供对话能力。加载跨境电商专属数据集可获得更精准的行业回答。',
-  cross_border:
-    '根据跨境电商专属数据集检索结果：亚马逊 FBA 商品标题建议控制在 200 字符以内，核心关键词前置，避免促销性词汇。',
+    '您好！我是中国大模型聚合平台的 AI 助手，当前由智谱 GLM 与 DeepSeek V4 Flash 提供对话能力。',
   compare: (modelName) => `【${modelName}】针对您的问题，结合通用知识库给出参考回答。（演示模式）`,
 }
 
@@ -213,16 +210,12 @@ export const mockApi = {
     }
   },
 
-  async streamChat({ modelId, content, useDataset, datasetIds, onChunk, onDone, onMeta }) {
+  async streamChat({ modelId, content, onChunk, onDone, onMeta }) {
     const model = MODELS.find((m) => m.id === modelId)
-    const useCross = useDataset && datasetIds?.length
     if (onMeta) {
-      onMeta({
-        datasetUsed: useCross,
-        datasetBadge: useCross ? DATASET_BADGE_TEXT : null,
-      })
+      onMeta({})
     }
-    let text = useCross ? MOCK_RESPONSES.cross_border : MOCK_RESPONSES.default
+    let text = MOCK_RESPONSES.default
     text = `【${model?.name || modelId}】${text}\n\n（演示模式）`
     for (let i = 0; i < text.length; i++) {
       await delay(18 + Math.random() * 12)
@@ -231,8 +224,6 @@ export const mockApi = {
     const tokens = Math.ceil(text.length * 1.2)
     const usage = await mockApi.getUsage()
     onDone({
-      datasetUsed: useCross,
-      datasetBadge: DATASET_BADGE_TEXT,
       tokens,
       totalTokensUsed: (usage?.totalTokens || 0) + tokens,
     })

@@ -10,7 +10,6 @@ import {
 } from '@/constants/models'
 import { SCENARIO_PRESETS, getScenarioPreset } from '@/constants/scenario-presets'
 import { listModels } from '@/api/platform'
-import { listDatasets } from '@/api/datasets'
 
 function normalizeCompareIds(ids) {
   const unique = [...new Set((ids || []).filter((id) => ALLOWED_MODEL_IDS.includes(id)))]
@@ -61,9 +60,7 @@ function mergePlatformModels(remoteList) {
 
 export const useSettingsStore = defineStore('settings', () => {
   const models = ref(mergePlatformModels([]))
-  const datasets = ref([])
   const modelsLoaded = ref(false)
-  const datasetsLoaded = ref(false)
 
   const storedScenario = getItem('selectedScenario', DEFAULT_SCENARIO_ID)
   const initialScenarioId = SCENARIO_PRESETS.some((s) => s.id === storedScenario)
@@ -77,11 +74,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const compareModelIds = ref(initialModelState.compareModelIds)
   const selectedScenarioId = ref(initialScenarioId)
   const modelParams = ref({ ...initialPreset.params })
-  const useDataset = ref(getItem('useDataset', false))
-  const selectedDatasetIds = ref(getItem('selectedDatasets', []))
 
   let modelsLoadPromise = null
-  let datasetsLoadPromise = null
 
   async function loadModels() {
     if (modelsLoaded.value) return
@@ -132,25 +126,6 @@ export const useSettingsStore = defineStore('settings', () => {
       }
     })()
     return modelsLoadPromise
-  }
-
-  async function loadDatasets() {
-    if (datasetsLoaded.value) return
-    if (datasetsLoadPromise) return datasetsLoadPromise
-    datasetsLoadPromise = (async () => {
-      try {
-        const list = await listDatasets()
-        datasets.value = list
-        if (list.length && (!selectedDatasetIds.value || !selectedDatasetIds.value.length)) {
-          selectedDatasetIds.value = list.map((d) => d.id)
-          setItem('selectedDatasets', selectedDatasetIds.value)
-        }
-      } finally {
-        datasetsLoaded.value = true
-        datasetsLoadPromise = null
-      }
-    })()
-    return datasetsLoadPromise
   }
 
   function setModel(id) {
@@ -206,16 +181,6 @@ export const useSettingsStore = defineStore('settings', () => {
   setItem('compareMode', compareMode.value)
   setItem('compareModelIds', compareModelIds.value)
 
-  function setUseDataset(val) {
-    useDataset.value = val
-    setItem('useDataset', val)
-  }
-
-  function setDatasetIds(ids) {
-    selectedDatasetIds.value = ids
-    setItem('selectedDatasets', ids)
-  }
-
   const currentModel = () => models.value.find((m) => m.id === selectedModelId.value)
 
   const compareModels = () =>
@@ -225,25 +190,18 @@ export const useSettingsStore = defineStore('settings', () => {
 
   return {
     models,
-    datasets,
     modelsLoaded,
-    datasetsLoaded,
     selectedModelId,
     compareMode,
     compareModelIds,
     selectedScenarioId,
     modelParams,
-    useDataset,
-    selectedDatasetIds,
     loadModels,
-    loadDatasets,
     setModel,
     setCompareMode,
     setCompareModelIds,
     setScenario,
     setModelParams,
-    setUseDataset,
-    setDatasetIds,
     currentModel,
     compareModels,
   }

@@ -25,8 +25,6 @@ export async function streamPlatformChat(body, callbacks) {
     return mockApi.streamChat({
       modelId: body.model,
       content: body.messages?.filter((m) => m.role === 'user').pop()?.content || '',
-      useDataset: body.dataset_enabled,
-      datasetIds: body.dataset_ids,
       onChunk: callbacks.onChunk,
       onDone: callbacks.onDone,
       onMeta: callbacks.onMeta,
@@ -41,8 +39,8 @@ export async function streamPlatformChat(body, callbacks) {
     max_tokens: body.max_tokens,
     context_window: body.context_window,
     stream: true,
-    dataset_enabled: body.dataset_enabled ?? false,
-    dataset_ids: body.dataset_ids ?? null,
+    dataset_enabled: false,
+    dataset_ids: null,
   }
 
   const response = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/chat/completions`, {
@@ -69,11 +67,9 @@ export async function comparePlatformChat(body, callbacks = {}) {
     })
     const estTokens = Math.ceil((body.messages?.filter((m) => m.role === 'user').pop()?.content || '').length * 1.2 * body.models.length)
     callbacks.onDone?.({
-      datasetAttribution: body.dataset_enabled ? '本回答基于已确权跨境电商专属数据集生成' : null,
-      datasetUsed: body.dataset_enabled,
       tokens: estTokens,
     })
-    return { results: [], datasetAttribution: null, conversationId: null }
+    return { results: [], conversationId: null }
   }
 
   const payload = {
@@ -84,8 +80,8 @@ export async function comparePlatformChat(body, callbacks = {}) {
     max_tokens: body.max_tokens,
     context_window: body.context_window,
     stream: true,
-    dataset_enabled: body.dataset_enabled ?? false,
-    dataset_ids: body.dataset_ids ?? null,
+    dataset_enabled: false,
+    dataset_ids: null,
   }
 
   const response = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/chat/compare`, {
@@ -110,7 +106,6 @@ export async function comparePlatformChat(body, callbacks = {}) {
 
   return {
     results,
-    datasetAttribution: null,
     conversationId: null,
   }
 }

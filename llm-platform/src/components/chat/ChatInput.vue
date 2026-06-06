@@ -37,16 +37,12 @@
         @click="send"
       />
     </div>
-    <div v-if="settings.useDataset" class="input-hint">
-      <el-icon><InfoFilled /></el-icon>
-      已启用跨境电商专属数据集
-    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
-import { Picture, Promotion, Close, InfoFilled } from '@element-plus/icons-vue'
+import { Picture, Promotion, Close } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
@@ -218,21 +214,7 @@ defineExpose({
   }
 }
 
-.input-hint {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--accent-green);
-  margin-top: 8px;
-}
-
 @media (max-width: 768px) {
-  .input-hint {
-    font-size: 11px;
-  }
-
   .chat-textarea :deep(.el-textarea__inner) {
     font-size: 16px;
   }

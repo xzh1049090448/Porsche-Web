@@ -3,7 +3,6 @@
     <div v-if="!messages.length" class="welcome">
       <h2>开始对话</h2>
       <p>已接入智谱 GLM 系列与 DeepSeek V4 Flash，可多选模型并行对比</p>
-      <p class="welcome-sub">选择模型与数据集后输入跨境电商相关问题</p>
       <div class="quick-tags">
         <el-tag
           v-for="q in quickQuestions"
@@ -96,10 +95,6 @@
           </div>
         </template>
 
-        <div v-if="msg.datasetUsed" class="dataset-badge">
-          <el-icon><CircleCheck /></el-icon>
-          {{ msg.datasetBadge }}
-        </div>
       </div>
     </div>
   </div>
@@ -107,7 +102,7 @@
 
 <script setup>
 import { computed, ref, watch, nextTick } from 'vue'
-import { CopyDocument, CircleCheck } from '@element-plus/icons-vue'
+import { CopyDocument } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
@@ -478,15 +473,6 @@ watch(
 .col-actions {
   border-top: 1px solid var(--border);
   padding: 2px 4px;
-}
-
-.dataset-badge {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--accent-green);
 }
 
 @media (max-width: 768px) {

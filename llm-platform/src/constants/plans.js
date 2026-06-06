@@ -6,7 +6,7 @@ export const PLANS = [
     price: 0,
     period: '每日',
     quota: '100 次/日',
-    features: ['基础模型', '基础数据集', '标准响应速度'],
+    features: ['基础模型', '标准响应速度'],
   },
   {
     id: 'pro',
@@ -14,7 +14,7 @@ export const PLANS = [
     price: 99,
     period: '月',
     quota: '无限次调用',
-    features: ['全模型', '全数据集', '模型对比', '优先响应'],
+    features: ['全模型', '模型对比', '优先响应'],
     recommended: true,
   },
   {
@@ -23,6 +23,6 @@ export const PLANS = [
     price: null,
     period: '定制',
     quota: '按需定制',
-    features: ['专属数据集部署', 'API 接口授权', '专属客服', '合规溯源凭证'],
+    features: ['API 接口授权', '专属客服', '合规溯源凭证'],
   },
 ]

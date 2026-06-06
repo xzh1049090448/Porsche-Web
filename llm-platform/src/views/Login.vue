@@ -4,8 +4,9 @@
     <div class="login-card">
       <div class="login-brand">
         <span class="logo-icon">AI</span>
-        <h1>国内大模型聚合平台</h1>
-        <p>聚合国内主流大模型 · 跨境电商专属知识库</p>
+        <h1>中国大模型聚合平台</h1>
+        <!-- <p>聚合国内主流大模型 · 跨境电商专属知识库</p> -->
+        <p>聚合国内主流大模型</p>
       </div>
 
       <el-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" @submit.prevent>

@@ -21,8 +21,9 @@
         <div class="logo">
           <span class="logo-icon">AI</span>
           <div>
-            <div class="logo-title">国内大模型聚合平台</div>
-            <div class="logo-sub">跨境电商专属 · 智谱 GLM / DeepSeek</div>
+            <div class="logo-title">中国大模型聚合平台</div>
+            <!-- <div class="logo-sub">跨境电商专属 · 智谱 GLM / DeepSeek</div> -->
+            <div class="logo-sub">智谱 GLM / DeepSeek</div>
           </div>
         </div>
       </div>
@@ -148,7 +149,6 @@ function formatTokens(n) {
 
 onMounted(() => {
   settingsStore.loadModels().catch(() => {})
-  settingsStore.loadDatasets().catch(() => {})
   if (userStore.isLoggedIn) {
     userStore.refreshUsage().catch(() => {})
   }

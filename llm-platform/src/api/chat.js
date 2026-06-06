@@ -8,4 +8,3 @@ export {
   deleteConversation,
   exportConversationMarkdown,
 } from './conversations'
-export { listDatasets } from './datasets'

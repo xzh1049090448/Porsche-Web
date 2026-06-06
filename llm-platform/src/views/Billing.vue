@@ -3,16 +3,13 @@
     <h1 class="page-title">套餐与用量</h1>
 
     <el-row :gutter="16" class="usage-cards">
-      <el-col :xs="12" :sm="6">
+      <el-col :xs="12" :sm="8">
         <el-statistic title="累计 Token" :value="usage.totalTokens || 0" />
       </el-col>
-      <el-col :xs="12" :sm="6">
-        <el-statistic title="数据集调用次数" :value="usage.datasetCalls || 0" />
-      </el-col>
-      <el-col :xs="12" :sm="6">
+      <el-col :xs="12" :sm="8">
         <el-statistic title="今日剩余" :value="usage.remainingQuota ?? 0" suffix="次" />
       </el-col>
-      <el-col :xs="12" :sm="6">
+      <el-col :xs="12" :sm="8">
         <el-statistic title="每日限额" :value="usage.dailyLimit ?? 0" suffix="次" />
       </el-col>
     </el-row>

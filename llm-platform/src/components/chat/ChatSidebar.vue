@@ -23,7 +23,7 @@
           title="永久删除"
           @click.stop="remove(c)"
         >
-          <Delete />
+          <Close />
         </el-icon>
         <el-dropdown trigger="click" @click.stop>
           <el-icon class="conv-more" @click.stop><MoreFilled /></el-icon>
@@ -46,7 +46,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { Plus, Search, MoreFilled, Delete } from '@element-plus/icons-vue'
+import { Plus, Search, MoreFilled, Close } from '@element-plus/icons-vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { exportToPdf, downloadFile } from '@/utils/export'
