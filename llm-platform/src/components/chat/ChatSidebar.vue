@@ -1,9 +1,9 @@
 <template>
   <aside class="chat-sidebar" :class="{ 'is-embedded': embedded }">
-    <el-button type="primary" class="new-btn" :icon="Plus" @click="onNew">新建对话</el-button>
+    <el-button type="primary" class="new-btn" :icon="Plus" @click="onNew">{{ t('chat.newChat') }}</el-button>
     <el-input
       v-model="keyword"
-      placeholder="搜索对话..."
+      :placeholder="t('chat.searchPlaceholder')"
       clearable
       :prefix-icon="Search"
       class="search-input"
@@ -20,7 +20,7 @@
         <div class="conv-meta">{{ formatTime(c.updatedAt) }}</div>
         <el-icon
           class="conv-delete"
-          title="永久删除"
+          :title="t('chat.deleteTitle')"
           @click.stop="remove(c)"
         >
           <Close />
@@ -29,17 +29,17 @@
           <el-icon class="conv-more" @click.stop><MoreFilled /></el-icon>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item @click="rename(c)">重命名</el-dropdown-item>
-              <el-dropdown-item @click="exportMd(c)">导出 Markdown</el-dropdown-item>
-              <el-dropdown-item @click="exportPdf(c)">导出 PDF</el-dropdown-item>
+              <el-dropdown-item @click="rename(c)">{{ t('chat.rename') }}</el-dropdown-item>
+              <el-dropdown-item @click="exportMd(c)">{{ t('chat.exportMd') }}</el-dropdown-item>
+              <el-dropdown-item @click="exportPdf(c)">{{ t('chat.exportPdf') }}</el-dropdown-item>
               <el-dropdown-item divided @click="remove(c)">
-                <span style="color: var(--el-color-danger)">删除</span>
+                <span style="color: var(--el-color-danger)">{{ t('chat.delete') }}</span>
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
       </div>
-      <el-empty v-if="filtered.length === 0" description="暂无对话" :image-size="64" />
+      <el-empty v-if="filtered.length === 0" :description="t('chat.emptyList')" :image-size="64" />
     </el-scrollbar>
   </aside>
 </template>
@@ -51,6 +51,7 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { exportToPdf, downloadFile } from '@/utils/export'
 import { exportConversationMarkdown } from '@/api/conversations'
+import { useI18n } from '@/composables/useI18n'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -59,6 +60,7 @@ const props = defineProps({
 const emit = defineEmits(['navigated'])
 
 const chatStore = useChatStore()
+const { t, dateLocale } = useI18n()
 const keyword = ref('')
 
 const filtered = computed(() => {
@@ -67,7 +69,7 @@ const filtered = computed(() => {
 })
 
 function formatTime(ts) {
-  return new Date(ts).toLocaleString('zh-CN', {
+  return new Date(ts).toLocaleString(dateLocale.value, {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -86,32 +88,29 @@ function onNew() {
 }
 
 async function rename(c) {
-  const { value } = await ElMessageBox.prompt('请输入对话名称', '重命名', {
+  const { value } = await ElMessageBox.prompt(t('chat.renamePrompt'), t('chat.rename'), {
     inputValue: c.title,
-    confirmButtonText: '确定',
+    confirmButtonText: t('chat.confirm'),
+    cancelButtonText: t('chat.cancel'),
   })
   if (value?.trim()) chatStore.renameConversation(c.id, value.trim())
 }
 
 function remove(c) {
   if (chatStore.streaming) {
-    ElMessage.warning('正在生成回复，请稍后再删除')
+    ElMessage.warning(t('chat.streamingDeleteWarn'))
     return
   }
-  ElMessageBox.confirm(
-    `删除后将永久清除该对话的全部记录（含所有消息），且无法恢复。确定删除「${c.title}」？`,
-    '永久删除对话',
-    {
-      type: 'warning',
-      confirmButtonText: '永久删除',
-      cancelButtonText: '取消',
-      confirmButtonClass: 'el-button--danger',
-    }
-  )
+  ElMessageBox.confirm(t('chat.deleteConfirm', { title: c.title }), t('chat.deleteDialogTitle'), {
+    type: 'warning',
+    confirmButtonText: t('chat.deletePermanent'),
+    cancelButtonText: t('chat.cancel'),
+    confirmButtonClass: 'el-button--danger',
+  })
     .then(async () => {
       try {
         await chatStore.deleteConversation(c.id)
-        ElMessage.success('对话已永久删除')
+        ElMessage.success(t('chat.deletedSuccess'))
       } catch {
         /* 错误由 request 拦截器或 store 抛出 */
       }
@@ -122,10 +121,10 @@ function remove(c) {
 async function exportMd(c) {
   try {
     const md = await exportConversationMarkdown(c.id)
-    downloadFile(md, `${c.title || '对话'}.md`)
-    ElMessage.success('已导出 Markdown')
+    downloadFile(md, `${c.title || t('chat.defaultTitle')}.md`)
+    ElMessage.success(t('chat.exportMdSuccess'))
   } catch {
-    ElMessage.error('导出失败')
+    ElMessage.error(t('chat.exportFailed'))
   }
 }
 

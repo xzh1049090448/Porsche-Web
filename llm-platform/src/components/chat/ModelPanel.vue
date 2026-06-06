@@ -2,15 +2,15 @@
   <div class="model-panel">
     <div class="panel-title">
       <el-icon><Cpu /></el-icon>
-      模型选择
-      <span v-if="settings.compareMode" class="panel-lock-hint">对比模式下不可选</span>
+      {{ t('model.select') }}
+      <span v-if="settings.compareMode" class="panel-lock-hint">{{ t('model.compareLocked') }}</span>
     </div>
 
     <div
       class="model-select-block"
       :class="{ 'is-locked': settings.compareMode }"
       role="radiogroup"
-      aria-label="选择模型"
+      :aria-label="t('model.selectAria')"
     >
       <button
         v-for="m in settings.models"
@@ -26,12 +26,12 @@
         <span class="model-icon">{{ m.icon }}</span>
         <span class="model-info">
           <span class="model-name">{{ m.name }}</span>
-          <span class="model-desc">{{ m.desc || m.vendor }}</span>
+          <span class="model-desc">{{ modelDesc(m) }}</span>
         </span>
         <span
           v-if="settings.modelsLoaded && m.registered === false"
           class="type-tag tag-warning"
-        >未注册</span>
+        >{{ t('model.unregistered') }}</span>
         <span v-else class="type-tag" :style="{ background: typeTag(m).color }">
           {{ typeTag(m).label }}
         </span>
@@ -40,10 +40,10 @@
 
     <el-divider />
 
-    <div class="panel-subtitle">使用场景</div>
+    <div class="panel-subtitle">{{ t('model.scenarios') }}</div>
     <div class="scenario-list">
       <button
-        v-for="s in SCENARIO_PRESETS"
+        v-for="s in localizedScenarios"
         :key="s.id"
         type="button"
         class="scenario-btn"
@@ -59,14 +59,14 @@
       <el-divider />
       <div class="compare-section">
         <div class="compare-header">
-          <div class="panel-subtitle">模型对比</div>
+          <div class="panel-subtitle">{{ t('model.compare') }}</div>
           <el-switch
             :model-value="settings.compareMode"
             @change="settings.setCompareMode"
           />
         </div>
         <template v-if="settings.compareMode">
-          <p class="hint">勾选要对比的模型，发送后各模型将流式并行输出</p>
+          <p class="hint">{{ t('model.compareHint') }}</p>
           <el-checkbox-group
             :model-value="settings.compareModelIds"
             class="compare-grid"
@@ -90,17 +90,37 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Cpu } from '@element-plus/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
 import { SCENARIO_PRESETS } from '@/constants/scenario-presets'
 import { MODEL_TYPE_TAGS } from '@/constants/models'
+import { useI18n } from '@/composables/useI18n'
 
 const settings = useSettingsStore()
+const { t } = useI18n()
+
+const localizedScenarios = computed(() =>
+  SCENARIO_PRESETS.map((s) => ({
+    ...s,
+    name: t(`scenarios.${s.id}.name`),
+    desc: t(`scenarios.${s.id}.desc`),
+  }))
+)
+
+function modelDesc(m) {
+  const key = `models.${m.id}.desc`
+  const translated = t(key)
+  return translated === key ? m.desc || m.vendor : translated
+}
 
 function typeTag(m) {
-  if (m.multimodal) return MODEL_TYPE_TAGS.multimodal
-  return MODEL_TYPE_TAGS[m.type] || MODEL_TYPE_TAGS.chat
+  const type = m.multimodal ? 'multimodal' : m.type || 'chat'
+  return {
+    label: t(`modelType.${type}`),
+    color: MODEL_TYPE_TAGS[type]?.color || MODEL_TYPE_TAGS.chat.color,
+  }
 }
 
 function onSingleModelChange(id) {
@@ -111,7 +131,7 @@ function onSingleModelChange(id) {
 
 function onCompareModelsChange(ids) {
   if (!ids.length) {
-    ElMessage.warning('至少选择 1 个模型')
+    ElMessage.warning(t('model.compareMin'))
     return
   }
   settings.setCompareModelIds(ids)

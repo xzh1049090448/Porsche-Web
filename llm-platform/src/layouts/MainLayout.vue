@@ -7,7 +7,7 @@
           text
           class="mobile-menu-btn touch-target"
           :icon="Menu"
-          aria-label="打开菜单"
+          :aria-label="t('nav.openMenu')"
           @click="showMobileMenu = true"
         />
         <el-button
@@ -15,15 +15,14 @@
           text
           class="header-back-btn touch-target"
           :icon="ArrowLeft"
-          aria-label="返回"
+          :aria-label="t('nav.back')"
           @click="goBack"
         />
         <div class="logo">
-          <span class="logo-icon">AI</span>
+          <img src="/logo.png" alt="" class="logo-icon" />
           <div>
-            <div class="logo-title">中国大模型聚合平台</div>
-            <!-- <div class="logo-sub">跨境电商专属 · 智谱 GLM / DeepSeek</div> -->
-            <div class="logo-sub">智谱 GLM / DeepSeek</div>
+            <div class="logo-title">{{ t('app.title') }}</div>
+            <div class="logo-sub">{{ t('app.subtitle') }}</div>
           </div>
         </div>
       </div>
@@ -34,16 +33,17 @@
         :ellipsis="false"
         router
       >
-        <el-menu-item index="/">对话</el-menu-item>
-        <el-menu-item index="/billing">套餐与用量</el-menu-item>
-        <el-menu-item index="/profile">个人中心</el-menu-item>
+        <el-menu-item index="/">{{ t('nav.chat') }}</el-menu-item>
+        <el-menu-item index="/billing">{{ t('nav.billing') }}</el-menu-item>
+        <el-menu-item index="/profile">{{ t('nav.profile') }}</el-menu-item>
       </el-menu>
       <div class="header-right">
+        <LocaleToggle />
         <ThemeToggle />
         <span
           v-if="userStore.totalTokensUsed"
           class="token-stat plan-tag-mobile-hide"
-          title="累计 Token 用量"
+          :title="t('user.tokenUsage')"
         >
           {{ formatTokens(userStore.totalTokensUsed) }} Token
         </span>
@@ -58,21 +58,21 @@
         <el-dropdown trigger="click" @command="onUserCommand">
           <span class="user-trigger touch-target">
             <el-avatar :size="32">{{ avatarText }}</el-avatar>
-            <span class="user-name">{{ user?.nickname || '用户' }}</span>
+            <span class="user-name">{{ user?.nickname || t('user.defaultName') }}</span>
             <el-icon><ArrowDown /></el-icon>
           </span>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="profile">个人中心</el-dropdown-item>
-              <el-dropdown-item command="billing">套餐用量</el-dropdown-item>
-              <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
+              <el-dropdown-item command="profile">{{ t('nav.profile') }}</el-dropdown-item>
+              <el-dropdown-item command="billing">{{ t('nav.billingShort') }}</el-dropdown-item>
+              <el-dropdown-item divided command="logout">{{ t('user.logout') }}</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
       </div>
     </el-header>
 
-    <MobileDrawer v-model:show="showMobileMenu" position="left" title="导航">
+    <MobileDrawer v-model:show="showMobileMenu" position="left" :title="t('nav.navigation')">
       <el-menu
         class="drawer-nav-menu"
         :default-active="activeMenu"
@@ -81,15 +81,15 @@
       >
         <el-menu-item index="/">
           <el-icon><ChatDotRound /></el-icon>
-          <span>对话</span>
+          <span>{{ t('nav.chat') }}</span>
         </el-menu-item>
         <el-menu-item index="/billing">
           <el-icon><Wallet /></el-icon>
-          <span>套餐与用量</span>
+          <span>{{ t('nav.billing') }}</span>
         </el-menu-item>
         <el-menu-item index="/profile">
           <el-icon><User /></el-icon>
-          <span>个人中心</span>
+          <span>{{ t('nav.profile') }}</span>
         </el-menu-item>
       </el-menu>
     </MobileDrawer>
@@ -116,7 +116,9 @@ import { useSettingsStore } from '@/stores/settings'
 import { ElMessageBox } from 'element-plus'
 import MobileDrawer from '@/components/mobile/MobileDrawer.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
+import LocaleToggle from '@/components/LocaleToggle.vue'
 import { useBreakpoint } from '@/composables/useBreakpoint'
+import { useI18n } from '@/composables/useI18n'
 
 const route = useRoute()
 const router = useRouter()
@@ -124,18 +126,18 @@ const userStore = useUserStore()
 const settingsStore = useSettingsStore()
 const showMobileMenu = ref(false)
 const { isTablet } = useBreakpoint()
+const { t } = useI18n()
 
 const user = computed(() => userStore.user)
 const activeMenu = computed(() => route.path)
 const avatarText = computed(() => (user.value?.nickname || 'U').slice(0, 1))
 
-const planMap = {
-  free: '免费版',
-  professional: '专业版',
-  pro: '专业版',
-  enterprise: '企业版',
-}
-const planLabel = computed(() => planMap[user.value?.plan] || '免费版')
+const planLabel = computed(() => {
+  const p = user.value?.plan
+  if (p === 'professional' || p === 'pro') return t('plan.pro')
+  if (p === 'enterprise') return t('plan.enterprise')
+  return t('plan.free')
+})
 const planTagType = computed(() => {
   const p = user.value?.plan
   if (p === 'professional' || p === 'pro') return 'success'
@@ -164,7 +166,7 @@ function goBack() {
 
 function onUserCommand(cmd) {
   if (cmd === 'logout') {
-    ElMessageBox.confirm('确定退出登录？', '提示', { type: 'warning' }).then(() => {
+    ElMessageBox.confirm(t('user.logoutConfirm'), t('user.tip'), { type: 'warning' }).then(() => {
       userStore.logout()
       router.push('/login')
     })
@@ -214,14 +216,7 @@ function onUserCommand(cmd) {
 .logo-icon {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
-  background: var(--logo-gradient);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 13px;
+  object-fit: contain;
   flex-shrink: 0;
 }
 

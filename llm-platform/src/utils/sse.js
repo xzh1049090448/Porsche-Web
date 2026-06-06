@@ -1,14 +1,15 @@
 /**
  * 解析平台 SSE：首包 meta + OpenAI 兼容 delta
  */
-async function readUnauthorizedDetail(response, fallback = '登录已过期，请重新登录') {
+async function readUnauthorizedDetail(response) {
   try {
     const err = await response.json()
     if (typeof err.detail === 'string') return err.detail
   } catch {
     /* ignore */
   }
-  return fallback
+  const { useLocaleStore } = await import('@/stores/locale')
+  return useLocaleStore().t('auth.sessionExpired')
 }
 
 export async function readPlatformChatStream(response, { onMeta, onChunk, onDone, onError }) {

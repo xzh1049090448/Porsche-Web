@@ -33,7 +33,7 @@
         circle
         :loading="chatStore.streaming"
         :disabled="!canSend"
-        aria-label="发送"
+        :aria-label="t('chat.send')"
         @click="send"
       />
     </div>
@@ -46,6 +46,7 @@ import { Picture, Promotion, Close } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
+import { useI18n } from '@/composables/useI18n'
 
 const props = defineProps({
   mobile: { type: Boolean, default: false },
@@ -55,11 +56,12 @@ const emit = defineEmits(['send'])
 
 const chatStore = useChatStore()
 const settings = useSettingsStore()
+const { t } = useI18n()
 const text = ref('')
 const pendingImages = ref([])
 
 const placeholder = computed(() =>
-  props.mobile ? '输入问题…' : '输入问题，Enter 发送，Shift+Enter 换行'
+  props.mobile ? t('chat.inputPlaceholderMobile') : t('chat.inputPlaceholder')
 )
 
 const canMultimodal = computed(
@@ -79,7 +81,7 @@ function onKeydown(e) {
 
 function onImageSelect(file) {
   if (!canMultimodal.value) {
-    ElMessage.warning('当前模型不支持多模态')
+    ElMessage.warning(t('chat.noMultimodal'))
     return
   }
   pendingImages.value.push({

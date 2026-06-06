@@ -15,10 +15,12 @@
 import { computed } from 'vue'
 import { Moon, Sunny } from '@element-plus/icons-vue'
 import { useThemeStore } from '@/stores/theme'
+import { useI18n } from '@/composables/useI18n'
 
 const themeStore = useThemeStore()
+const { t } = useI18n()
 const isDark = computed(() => themeStore.isDark)
-const tooltip = computed(() => (isDark.value ? '切换浅色主题' : '切换深色主题'))
+const tooltip = computed(() => (isDark.value ? t('theme.toLight') : t('theme.toDark')))
 </script>
 
 <style scoped lang="scss">

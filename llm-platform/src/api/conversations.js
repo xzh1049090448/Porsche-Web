@@ -54,7 +54,8 @@ export async function exportConversationMarkdown(id) {
   })
   if (res.status === 401) {
     const { handleUnauthorized } = await import('@/utils/auth-redirect')
-    let detail = '登录已过期，请重新登录'
+    const { useLocaleStore } = await import('@/stores/locale')
+    let detail = useLocaleStore().t('auth.sessionExpired')
     try {
       const err = await res.json()
       if (typeof err.detail === 'string') detail = err.detail
@@ -64,6 +65,9 @@ export async function exportConversationMarkdown(id) {
     await handleUnauthorized(detail)
     throw new Error(detail)
   }
-  if (!res.ok) throw new Error('导出失败')
+  if (!res.ok) {
+    const { useLocaleStore } = await import('@/stores/locale')
+    throw new Error(useLocaleStore().t('chat.exportFailed'))
+  }
   return res.text()
 }

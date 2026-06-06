@@ -1,19 +1,8 @@
 <template>
   <div ref="listRef" class="message-list" @scroll="onListScroll">
     <div v-if="!messages.length" class="welcome">
-      <h2>开始对话</h2>
-      <p>已接入智谱 GLM 系列与 DeepSeek V4 Flash，可多选模型并行对比</p>
-      <div class="quick-tags">
-        <el-tag
-          v-for="q in quickQuestions"
-          :key="q"
-          class="quick-tag"
-          effect="plain"
-          @click="$emit('quick', q)"
-        >
-          {{ q }}
-        </el-tag>
-      </div>
+      <h2>{{ t('chat.welcomeTitle') }}</h2>
+      <p>{{ t('chat.welcomeDesc') }}</p>
     </div>
 
     <div
@@ -23,7 +12,7 @@
       :class="msg.role"
     >
       <el-avatar :size="36" :class="msg.role">
-        {{ msg.role === 'user' ? '我' : 'AI' }}
+        {{ msg.role === 'user' ? t('chat.userAvatar') : t('chat.aiAvatar') }}
       </el-avatar>
       <div class="bubble" :class="{ 'multi-bubble': msg.multiModel }">
         <div v-if="msg.images?.length" class="msg-images">
@@ -48,7 +37,7 @@
                 <span class="loading-dots" aria-hidden="true">
                   <i /><i /><i />
                 </span>
-                <span class="loading-label">生成中</span>
+                <span class="loading-label">{{ t('chat.generating') }}</span>
               </div>
               <template v-else>
                 <MarkdownContent
@@ -60,13 +49,13 @@
             </div>
             <div v-if="replyFor(msg, m.id)" class="col-actions">
               <el-button text size="small" :icon="CopyDocument" @click="copy(msg.replies[m.id])">
-                复制
+                {{ t('chat.copy') }}
               </el-button>
             </div>
           </div>
         </div>
         <div v-if="msg.multiModel && msg.tokens" class="msg-actions">
-          <span class="msg-tokens">合计 {{ formatTokens(msg.tokens) }} Token</span>
+          <span class="msg-tokens">{{ t('chat.tokensTotal', { count: formatTokens(msg.tokens) }) }}</span>
         </div>
 
         <template v-else>
@@ -75,7 +64,7 @@
               <span class="loading-dots" aria-hidden="true">
                 <i /><i /><i />
               </span>
-              <span class="loading-label">正在思考</span>
+              <span class="loading-label">{{ t('chat.thinking') }}</span>
             </div>
             <template v-else>
               <MarkdownContent
@@ -88,9 +77,9 @@
             </template>
           </div>
           <div v-if="msg.role === 'assistant' && msg.content" class="msg-actions">
-            <span v-if="msg.tokens" class="msg-tokens">{{ formatTokens(msg.tokens) }} Token</span>
+            <span v-if="msg.tokens" class="msg-tokens">{{ t('chat.tokens', { count: formatTokens(msg.tokens) }) }}</span>
             <el-button text size="small" :icon="CopyDocument" @click="copy(msg.content)">
-              复制
+              {{ t('chat.copy') }}
             </el-button>
           </div>
         </template>
@@ -107,22 +96,17 @@ import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import MarkdownContent from '@/components/chat/MarkdownContent.vue'
-defineEmits(['quick'])
+import { useI18n } from '@/composables/useI18n'
 
 const chatStore = useChatStore()
 const settings = useSettingsStore()
+const { t } = useI18n()
 const listRef = ref()
 /** 用户未主动上滑时跟随流式输出滚到底部 */
 const stickToBottom = ref(true)
 const SCROLL_BOTTOM_THRESHOLD = 80
 
 const messages = computed(() => chatStore.getActive()?.messages || [])
-
-const quickQuestions = [
-  '亚马逊 FBA 标题优化要点？',
-  'Shopee 退换货政策怎么写？',
-  '跨境物流时效如何回复客户？',
-]
 
 function modelsForMessage(msg) {
   return (msg.models || [])
@@ -171,7 +155,7 @@ function formatTokens(n) {
 
 function copy(text) {
   navigator.clipboard.writeText(text)
-  ElMessage.success('已复制')
+  ElMessage.success(t('chat.copied'))
 }
 
 function isNearBottom(el) {
@@ -249,32 +233,6 @@ watch(
     font-size: 14px;
     line-height: 22px;
     color: var(--text-body);
-  }
-
-  .welcome-sub {
-    margin: 4px 0 0;
-    font-size: 12px;
-    color: var(--text-secondary);
-  }
-
-  .quick-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    justify-content: center;
-    margin-top: 24px;
-  }
-
-  .quick-tag {
-    cursor: pointer;
-    background: var(--component-bg);
-    border-color: var(--border);
-    color: var(--text-body);
-
-    &:hover {
-      border-color: var(--accent);
-      color: var(--accent);
-    }
   }
 }
 
@@ -485,14 +443,6 @@ watch(
 
     h2 {
       font-size: 18px;
-    }
-
-    .welcome-sub {
-      font-size: 12px;
-    }
-
-    .quick-tag {
-      font-size: 12px;
     }
   }
 

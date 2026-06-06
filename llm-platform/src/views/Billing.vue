@@ -1,33 +1,41 @@
 <template>
   <div class="billing-page page-container">
-    <h1 class="page-title">套餐与用量</h1>
+    <h1 class="page-title">{{ t('billing.title') }}</h1>
 
     <el-row :gutter="16" class="usage-cards">
       <el-col :xs="12" :sm="8">
-        <el-statistic title="累计 Token" :value="usage.totalTokens || 0" />
+        <el-statistic :title="t('billing.totalTokens')" :value="usage.totalTokens || 0" />
       </el-col>
       <el-col :xs="12" :sm="8">
-        <el-statistic title="今日剩余" :value="usage.remainingQuota ?? 0" suffix="次" />
+        <el-statistic
+          :title="t('billing.remainingToday')"
+          :value="usage.remainingQuota ?? 0"
+          :suffix="t('billing.times')"
+        />
       </el-col>
       <el-col :xs="12" :sm="8">
-        <el-statistic title="每日限额" :value="usage.dailyLimit ?? 0" suffix="次" />
+        <el-statistic
+          :title="t('billing.dailyLimit')"
+          :value="usage.dailyLimit ?? 0"
+          :suffix="t('billing.times')"
+        />
       </el-col>
     </el-row>
 
-    <h2 class="section-title">选择套餐</h2>
+    <h2 class="section-title">{{ t('billing.choosePlan') }}</h2>
     <el-row v-loading="plansLoading" :gutter="16">
-      <el-col v-for="plan in plans" :key="plan.id" :xs="24" :sm="8">
+      <el-col v-for="plan in displayPlans" :key="plan.id" :xs="24" :sm="8">
         <el-card
           shadow="hover"
           class="plan-card"
           :class="{ recommended: plan.recommended, active: currentPlan === plan.id }"
         >
-          <div v-if="plan.recommended" class="badge">推荐</div>
+          <div v-if="plan.recommended" class="badge">{{ t('billing.recommended') }}</div>
           <h3>{{ plan.name }}</h3>
           <div class="price">
-            <template v-if="plan.id === 'enterprise'">联系商务</template>
+            <template v-if="plan.id === 'enterprise'">{{ t('billing.contactSales') }}</template>
             <template v-else-if="plan.price > 0">¥{{ plan.price }}</template>
-            <template v-else>免费</template>
+            <template v-else>{{ t('billing.free') }}</template>
           </div>
           <p class="quota">{{ plan.description }}</p>
           <ul>
@@ -40,15 +48,7 @@
             class="plan-btn"
             @click="buy(plan)"
           >
-            {{
-              currentPlan === plan.id
-                ? '当前套餐'
-                : plan.id === 'enterprise'
-                  ? '咨询企业版'
-                  : plan.id === 'free'
-                    ? '默认套餐'
-                    : '购买并支付'
-            }}
+            {{ planButtonLabel(plan) }}
           </el-button>
         </el-card>
       </el-col>
@@ -57,10 +57,10 @@
     <el-row :gutter="20" class="mt-section">
       <el-col :xs="24" :md="12">
         <el-card shadow="never">
-          <template #header>发票申请</template>
+          <template #header>{{ t('billing.invoice') }}</template>
           <el-form label-width="90px" size="small">
-            <el-form-item label="选择订单">
-              <el-select v-model="invoiceOrderId" placeholder="已支付订单" style="width: 100%">
+            <el-form-item :label="t('billing.selectOrder')">
+              <el-select v-model="invoiceOrderId" :placeholder="t('billing.paidOrders')" style="width: 100%">
                 <el-option
                   v-for="o in paidOrders"
                   :key="o.id"
@@ -71,7 +71,7 @@
             </el-form-item>
             <el-form-item>
               <el-button type="primary" :disabled="!invoiceOrderId" @click="submitInvoice">
-                提交申请
+                {{ t('billing.submitInvoice') }}
               </el-button>
             </el-form-item>
           </el-form>
@@ -79,26 +79,26 @@
       </el-col>
     </el-row>
 
-    <h2 class="section-title">订单记录</h2>
+    <h2 class="section-title">{{ t('billing.orderHistory') }}</h2>
     <el-table :data="orders" stripe>
-      <el-table-column prop="orderNo" label="订单号" width="180" />
-      <el-table-column prop="plan" label="套餐" />
-      <el-table-column prop="amount" label="金额">
+      <el-table-column prop="orderNo" :label="t('billing.orderNo')" width="180" />
+      <el-table-column prop="plan" :label="t('billing.plan')" />
+      <el-table-column prop="amount" :label="t('billing.amount')">
         <template #default="{ row }">¥{{ row.amount }}</template>
       </el-table-column>
-      <el-table-column prop="status" label="状态">
+      <el-table-column prop="status" :label="t('billing.status')">
         <template #default="{ row }">
           <el-tag :type="row.status === 'paid' ? 'success' : 'warning'">
-            {{ row.status === 'paid' ? '已支付' : row.status }}
+            {{ row.status === 'paid' ? t('billing.paid') : row.status }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="时间">
+      <el-table-column :label="t('billing.time')">
         <template #default="{ row }">
-          {{ new Date(row.createdAt).toLocaleString('zh-CN') }}
+          {{ new Date(row.createdAt).toLocaleString(dateLocale) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="120">
+      <el-table-column :label="t('billing.pay')" width="120">
         <template #default="{ row }">
           <el-button
             v-if="row.status !== 'paid'"
@@ -107,7 +107,7 @@
             size="small"
             @click="pay(row)"
           >
-            支付
+            {{ t('billing.pay') }}
           </el-button>
         </template>
       </el-table-column>
@@ -127,8 +127,10 @@ import {
   applyInvoice,
 } from '@/api/billing'
 import { useUserStore } from '@/stores/user'
+import { useI18n } from '@/composables/useI18n'
 
 const userStore = useUserStore()
+const { t, ta, dateLocale } = useI18n()
 const usage = ref({})
 const plans = ref([])
 const orders = ref([])
@@ -138,6 +140,27 @@ const invoiceOrderId = ref(null)
 
 const currentPlan = computed(() => userStore.user?.plan || usage.value.plan || 'free')
 const paidOrders = computed(() => orders.value.filter((o) => o.status === 'paid'))
+
+const displayPlans = computed(() =>
+  plans.value.map((plan) => {
+    const localized = t(`billing.plans.${plan.id}.name`)
+    const hasLocalized = localized !== `billing.plans.${plan.id}.name`
+    if (!hasLocalized) return plan
+    return {
+      ...plan,
+      name: localized,
+      description: t(`billing.plans.${plan.id}.quota`),
+      features: ta(`billing.plans.${plan.id}.features`),
+    }
+  })
+)
+
+function planButtonLabel(plan) {
+  if (currentPlan.value === plan.id) return t('billing.currentPlan')
+  if (plan.id === 'enterprise') return t('billing.consultEnterprise')
+  if (plan.id === 'free') return t('billing.defaultPlan')
+  return t('billing.buyAndPay')
+}
 
 onMounted(async () => {
   plansLoading.value = true
@@ -154,7 +177,7 @@ onMounted(async () => {
 
 async function buy(plan) {
   if (plan.id === 'enterprise') {
-    ElMessageBox.alert('请联系商务获取企业版定制方案与 API 授权。', '企业版咨询')
+    ElMessageBox.alert(t('billing.enterpriseConsultMsg'), t('billing.enterpriseConsultTitle'))
     return
   }
   if (plan.id === 'free') return
@@ -165,7 +188,7 @@ async function buy(plan) {
     await userStore.fetchProfile()
     usage.value = await getUsageStats()
     orders.value = await getOrders()
-    ElMessage.success(`已开通 ${plan.name}`)
+    ElMessage.success(t('billing.planActivated', { name: plan.name }))
   } finally {
     purchasing.value = null
   }
@@ -175,16 +198,16 @@ async function pay(order) {
   await payOrder(order.id)
   orders.value = await getOrders()
   await userStore.fetchProfile()
-  ElMessage.success('支付成功')
+  ElMessage.success(t('billing.paySuccess'))
 }
 
 async function submitInvoice() {
   if (!invoiceOrderId.value) {
-    ElMessage.warning('请选择订单')
+    ElMessage.warning(t('billing.selectOrderWarn'))
     return
   }
   const res = await applyInvoice(invoiceOrderId.value)
-  ElMessage.success(res.message || '发票申请已提交')
+  ElMessage.success(res.message || t('billing.invoiceSubmitted'))
 }
 </script>
 

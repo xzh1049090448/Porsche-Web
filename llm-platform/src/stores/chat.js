@@ -12,6 +12,7 @@ import {
 } from '@/api/conversations'
 import { useSettingsStore } from './settings'
 import { useUserStore } from './user'
+import { useLocaleStore } from './locale'
 import { purgeConversationFromLocal } from '@/utils/conversation-cache'
 import { toApiMessageContent } from '@/utils/multi-model-message'
 
@@ -102,10 +103,11 @@ export const useChatStore = defineStore('chat', () => {
     return conversationsLoadPromise
   }
 
-  async function createConversation(title = '新对话') {
+  async function createConversation(title) {
     const settings = useSettingsStore()
+    const localeStore = useLocaleStore()
     const body = {
-      title,
+      title: title || localeStore.t('chat.defaultTitle'),
       model: settings.selectedModelId,
       datasetEnabled: false,
       datasetIds: null,
@@ -160,7 +162,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function deleteConversation(id) {
     if (streaming.value) {
-      throw new Error('正在生成回复，请稍后再删除')
+      throw new Error(useLocaleStore().t('chat.streamingDeleteWarn'))
     }
 
     await apiDeleteConversation(id)
@@ -218,7 +220,8 @@ export const useChatStore = defineStore('chat', () => {
     const settings = useSettingsStore()
     if (settings.compareMode && images.length) {
       const { ElMessage } = await import('element-plus')
-      ElMessage.warning('模型对比模式下不支持上传图片')
+      const localeStore = useLocaleStore()
+      ElMessage.warning(localeStore.t('chat.compareNoImage'))
       return
     }
 
@@ -243,7 +246,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!conv.messages) conv.messages = []
     conv.messages.push(userMsg)
     if (conv.messages.filter((m) => m.role === 'user').length === 1) {
-      conv.title = userContent.slice(0, 24) || '新对话'
+      conv.title = userContent.slice(0, 24) || useLocaleStore().t('chat.defaultTitle')
     }
     conv.updatedAt = Date.now()
     persistLocal()
@@ -296,7 +299,7 @@ export const useChatStore = defineStore('chat', () => {
           },
           onError(msg) {
             streamFailed = true
-            assistantMsg.content += `\n\n[错误] ${msg}`
+            assistantMsg.content += `\n\n${useLocaleStore().t('chat.errorPrefix')} ${msg}`
           },
         }
       )
@@ -360,7 +363,7 @@ export const useChatStore = defineStore('chat', () => {
             compareFailed = true
             for (const id of modelIds) {
               if (!assistantMsg.replies[id]) {
-                assistantMsg.replies[id] = `[错误] ${msg}`
+                assistantMsg.replies[id] = `${useLocaleStore().t('chat.errorPrefix')} ${msg}`
               }
             }
           },
@@ -383,10 +386,10 @@ export const useChatStore = defineStore('chat', () => {
         mergeLastMultiModelReplies(conv.id, assistantMsg.id, streamedReplies)
       }
     } catch (err) {
-      const msg = err?.response?.data?.detail || err?.message || '对比请求失败'
+      const msg = err?.response?.data?.detail || err?.message || useLocaleStore().t('chat.compareFailed')
       const next = { ...assistantMsg.replies }
       for (const id of modelIds) {
-        next[id] = `[错误] ${msg}`
+        next[id] = `${useLocaleStore().t('chat.errorPrefix')} ${msg}`
       }
       assistantMsg.replies = next
     } finally {

@@ -1,10 +1,10 @@
 <template>
   <div class="chat-root">
-    <MobileDrawer v-model:show="showSidebar" position="left" title="对话列表">
+    <MobileDrawer v-model:show="showSidebar" position="left" :title="t('chat.convListDrawer')">
       <ChatSidebar embedded @navigated="showSidebar = false" />
     </MobileDrawer>
 
-    <MobileDrawer v-model:show="showConfig" position="right" title="模型配置">
+    <MobileDrawer v-model:show="showConfig" position="right" :title="t('chat.modelConfig')">
       <el-scrollbar class="config-drawer-scroll">
         <ModelPanel />
       </el-scrollbar>
@@ -22,17 +22,17 @@
         <button
           type="button"
           class="panel-rail"
-          title="展开对话列表"
+          :title="t('chat.expandConvList')"
           @click="toggleSidebar"
         >
           <el-icon><DArrowRight /></el-icon>
-          <span class="rail-text">对话</span>
+          <span class="rail-text">{{ t('nav.chat') }}</span>
         </button>
       </template>
       <template v-else>
         <div class="panel-toolbar">
-          <span class="panel-label">对话列表</span>
-          <button type="button" class="panel-toggle" title="收起对话列表" @click="toggleSidebar">
+          <span class="panel-label">{{ t('chat.convList') }}</span>
+          <button type="button" class="panel-toggle" :title="t('chat.collapseConvList')" @click="toggleSidebar">
             <el-icon><DArrowLeft /></el-icon>
           </button>
         </div>
@@ -46,32 +46,32 @@
       <div class="mobile-bar mobile-only">
         <el-button class="touch-target" text @click="showSidebar = true">
           <el-icon><Menu /></el-icon>
-          <span>对话</span>
+          <span>{{ t('nav.chat') }}</span>
         </el-button>
         <span class="mobile-title">{{ currentTitle }}</span>
         <el-button class="touch-target" text @click="showConfig = true">
           <el-icon><Setting /></el-icon>
-          <span>配置</span>
+          <span>{{ t('chat.config') }}</span>
         </el-button>
       </div>
 
-      <ChatMessageList class="chat-messages" @quick="onQuick" />
-      <ChatInput ref="inputRef" :mobile="isTablet" @send="onSend" />
+      <ChatMessageList class="chat-messages" />
+      <ChatInput :mobile="isTablet" @send="onSend" />
     </div>
 
     <aside class="chat-config-wrap desktop-only" :class="{ collapsed: configCollapsed }">
       <template v-if="configCollapsed">
-        <button type="button" class="panel-rail" title="展开配置面板" @click="toggleConfig">
+        <button type="button" class="panel-rail" :title="t('chat.expandConfig')" @click="toggleConfig">
           <el-icon><DArrowLeft /></el-icon>
-          <span class="rail-text">配置</span>
+          <span class="rail-text">{{ t('chat.config') }}</span>
         </button>
       </template>
       <template v-else>
         <div class="panel-toolbar">
-          <button type="button" class="panel-toggle" title="收起配置面板" @click="toggleConfig">
+          <button type="button" class="panel-toggle" :title="t('chat.collapseConfig')" @click="toggleConfig">
             <el-icon><DArrowRight /></el-icon>
           </button>
-          <span class="panel-label">模型配置</span>
+          <span class="panel-label">{{ t('chat.modelConfig') }}</span>
         </div>
         <div class="panel-body">
           <el-scrollbar>
@@ -98,19 +98,23 @@ import { useSettingsStore } from '@/stores/settings'
 import { useBreakpoint } from '@/composables/useBreakpoint'
 import { getItem, setItem } from '@/utils/storage'
 
+import { useI18n } from '@/composables/useI18n'
+
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
-const inputRef = ref()
 const showSidebar = ref(false)
 const showConfig = ref(false)
 const { isTablet } = useBreakpoint()
+const { t } = useI18n()
 
 const sidebarCollapsed = ref(getItem('chatSidebarCollapsed', false))
 const configCollapsed = ref(getItem('chatConfigCollapsed', false))
 
 const currentTitle = computed(() => {
   const conv = chatStore.getActive()
-  return conv?.title || '新对话'
+  const title = conv?.title
+  if (!title || title === '新对话' || title === 'New Chat') return t('chat.defaultTitle')
+  return title
 })
 
 function toggleSidebar() {
@@ -133,10 +137,6 @@ onMounted(async () => {
 
 function onSend(content, images) {
   chatStore.sendMessage(content, images)
-}
-
-function onQuick(q) {
-  inputRef.value?.setText(q)
 }
 </script>
 

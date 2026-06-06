@@ -1,19 +1,21 @@
 <template>
   <div class="login-page">
-    <ThemeToggle class="login-theme-toggle" />
+    <div class="login-toolbar">
+      <LocaleToggle />
+      <ThemeToggle />
+    </div>
     <div class="login-card">
       <div class="login-brand">
-        <span class="logo-icon">AI</span>
-        <h1>中国大模型聚合平台</h1>
-        <!-- <p>聚合国内主流大模型 · 跨境电商专属知识库</p> -->
-        <p>聚合国内主流大模型</p>
+        <img src="/logo.png" alt="" class="logo-icon" />
+        <h1>{{ t('app.title') }}</h1>
+        <p>{{ t('app.tagline') }}</p>
       </div>
 
       <el-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" @submit.prevent>
         <el-form-item prop="phone">
           <el-input
             v-model="pwdForm.phone"
-            placeholder="手机号"
+            :placeholder="t('login.phone')"
             maxlength="11"
             :prefix-icon="Iphone"
           />
@@ -22,14 +24,14 @@
           <el-input
             v-model="pwdForm.password"
             type="password"
-            placeholder="密码"
+            :placeholder="t('login.password')"
             show-password
             :prefix-icon="Lock"
             @keyup.enter="submitPwd"
           />
         </el-form-item>
         <el-button type="primary" class="submit-btn" :loading="loading" @click="submitPwd">
-          登录
+          {{ t('login.submit') }}
         </el-button>
       </el-form>
     </div>
@@ -37,16 +39,19 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Iphone, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import ThemeToggle from '@/components/ThemeToggle.vue'
+import LocaleToggle from '@/components/LocaleToggle.vue'
+import { useI18n } from '@/composables/useI18n'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
+const { t } = useI18n()
 
 const loading = ref(false)
 const pwdFormRef = ref()
@@ -56,20 +61,20 @@ const pwdForm = reactive({
   password: '',
 })
 
-const pwdRules = {
+const pwdRules = computed(() => ({
   phone: [
-    { required: true, message: '请输入手机号' },
-    { pattern: /^1\d{10}$/, message: '手机号格式不正确' },
+    { required: true, message: t('login.phoneRequired') },
+    { pattern: /^1\d{10}$/, message: t('login.phoneInvalid') },
   ],
-  password: [{ required: true, message: '请输入密码' }],
-}
+  password: [{ required: true, message: t('login.passwordRequired') }],
+}))
 
 async function submitPwd() {
   await pwdFormRef.value?.validate()
   loading.value = true
   try {
     await userStore.loginPassword({ phone: pwdForm.phone, password: pwdForm.password })
-    ElMessage.success('登录成功')
+    ElMessage.success(t('login.success'))
     router.replace(route.query.redirect || '/')
   } finally {
     loading.value = false
@@ -88,10 +93,13 @@ async function submitPwd() {
   padding: 24px;
 }
 
-.login-theme-toggle {
+.login-toolbar {
   position: absolute;
   top: 16px;
   right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .login-card {
@@ -124,16 +132,9 @@ async function submitPwd() {
 }
 
 .logo-icon {
-  display: inline-flex;
   width: 48px;
   height: 48px;
-  border-radius: 12px;
-  background: var(--logo-gradient);
-  color: #fff;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 16px;
+  object-fit: contain;
 }
 
 .submit-btn {

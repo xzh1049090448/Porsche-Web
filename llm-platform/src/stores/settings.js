@@ -87,8 +87,11 @@ export const useSettingsStore = defineStore('settings', () => {
         const missing = ALLOWED_MODEL_IDS.filter((id) => !list.some((m) => m.id === id))
         if (missing.length) {
           const { ElMessage } = await import('element-plus')
+          const { useLocaleStore } = await import('./locale')
           ElMessage.warning(
-            `网关未注册模型：${missing.join('、')}，请检查 models.yaml 并热加载后刷新`
+            useLocaleStore().t('model.unregisteredWarn', {
+              models: missing.join(useLocaleStore().isEn ? ', ' : '、'),
+            })
           )
         }
         if (!models.value.some((m) => m.id === selectedModelId.value)) {
