@@ -236,16 +236,19 @@ function exportPdf(c) {
   transform: translateY(-50%);
   padding: 8px;
   font-size: 18px;
-  color: var(--text-secondary);
-  opacity: 0;
-  transition: color 0.15s, opacity 0.15s;
+  color: var(--conv-delete-color);
+  opacity: var(--conv-action-opacity);
+  border-radius: 6px;
+  transition: color 0.15s, opacity 0.15s, background 0.15s;
 
   &:hover {
-    color: var(--el-color-danger);
+    color: var(--conv-delete-hover-color);
+    background: var(--conv-delete-hover-bg);
   }
 
-  .conv-item:hover & {
-    opacity: 1;
+  .conv-item:hover &,
+  .conv-item.active & {
+    opacity: var(--conv-action-opacity-hover);
   }
 }
 

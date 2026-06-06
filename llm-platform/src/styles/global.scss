@@ -55,6 +55,12 @@ html[data-theme='light'] {
   --primary-hover: #66b1ff;
   --chat-input-bg: #ffffff;
 
+  --conv-action-opacity: 0;
+  --conv-action-opacity-hover: 1;
+  --conv-delete-color: var(--text-secondary);
+  --conv-delete-hover-color: var(--el-color-danger);
+  --conv-delete-hover-bg: rgba(245, 108, 108, 0.12);
+
   --el-color-primary: #409eff;
   --el-color-primary-light-3: #79bbff;
   --el-color-primary-light-5: #a0cfff;
@@ -130,6 +136,12 @@ html[data-theme='dark'] {
   --logo-gradient: linear-gradient(135deg, #06b6d4, #0891b2);
   --primary-hover: #0891b2;
   --chat-input-bg: #0f0f12;
+
+  --conv-action-opacity: 0.65;
+  --conv-action-opacity-hover: 1;
+  --conv-delete-color: #f87171;
+  --conv-delete-hover-color: #fca5a5;
+  --conv-delete-hover-bg: rgba(239, 68, 68, 0.22);
 
   --el-color-primary: #06b6d4;
   --el-color-primary-light-3: #38bfd8;
