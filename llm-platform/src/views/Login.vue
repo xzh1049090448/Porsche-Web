@@ -80,16 +80,17 @@ async function submitPwd() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(160deg, #e8f4ff 0%, #f0f9eb 50%, #f5f7fa 100%);
+  background: var(--app-bg);
   padding: 24px;
 }
 
 .login-card {
   width: min(420px, 100%);
   padding: 32px;
-  background: #fff;
+  background: var(--component-bg);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
 }
 
 .login-brand {
@@ -98,13 +99,17 @@ async function submitPwd() {
 
   h1 {
     margin: 12px 0 4px;
-    font-size: 22px;
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 28px;
+    color: var(--text-primary);
   }
 
   p {
     margin: 0;
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: 14px;
+    line-height: 22px;
   }
 }
 
@@ -113,7 +118,7 @@ async function submitPwd() {
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #409eff, #67c23a);
+  background: linear-gradient(135deg, #06b6d4, #0891b2);
   color: #fff;
   align-items: center;
   justify-content: center;
@@ -124,5 +129,7 @@ async function submitPwd() {
 .submit-btn {
   width: 100%;
   margin-top: 8px;
+  height: 40px;
+  border-radius: 8px;
 }
 </style>

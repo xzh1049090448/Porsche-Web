@@ -233,7 +233,8 @@ watch(
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px;
+  padding: 24px;
+  background: var(--app-bg);
 }
 
 .welcome {
@@ -243,12 +244,22 @@ watch(
 
   h2 {
     color: var(--text-primary);
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 28px;
     margin: 0 0 8px;
+  }
+
+  p {
+    font-size: 14px;
+    line-height: 22px;
+    color: var(--text-body);
   }
 
   .welcome-sub {
     margin: 4px 0 0;
-    font-size: 13px;
+    font-size: 12px;
+    color: var(--text-secondary);
   }
 
   .quick-tags {
@@ -256,40 +267,62 @@ watch(
     flex-wrap: wrap;
     gap: 8px;
     justify-content: center;
-    margin-top: 20px;
+    margin-top: 24px;
   }
 
   .quick-tag {
     cursor: pointer;
+    background: var(--component-bg);
+    border-color: var(--border);
+    color: var(--text-body);
+
+    &:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
   }
 }
 
 .message {
   display: flex;
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 
   &.user {
     flex-direction: row-reverse;
 
     .bubble {
-      background: #409eff;
-      color: #fff;
+      background: rgba(6, 182, 212, 0.2);
+      border: 1px solid rgba(6, 182, 212, 0.35);
+      color: var(--text-primary);
     }
   }
 
   &.assistant .bubble {
-    background: #fff;
+    background: var(--component-bg);
     border: 1px solid var(--border);
+    color: var(--text-body);
+  }
+
+  :deep(.el-avatar) {
+    background: var(--component-bg);
+    color: var(--accent);
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  &.user :deep(.el-avatar) {
+    background: rgba(6, 182, 212, 0.15);
+    color: var(--accent);
   }
 }
 
 .bubble {
   max-width: min(720px, 85%);
   padding: 12px 16px;
-  border-radius: 12px;
+  border-radius: 8px;
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 22px;
   word-break: break-word;
 
   &.multi-bubble {
@@ -303,12 +336,7 @@ watch(
 }
 
 .message.user .plain-text {
-  color: #fff;
-}
-
-.message.user :deep(.markdown-body a) {
-  color: #fff;
-  text-decoration: underline;
+  color: var(--text-primary);
 }
 
 .msg-images {
@@ -408,14 +436,15 @@ watch(
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
-  background: #fafafa;
+  background: var(--hover-bg);
 }
 
 .reply-header {
   padding: 8px 10px;
-  background: #f5f7fa;
-  font-weight: 600;
+  background: var(--component-bg);
+  font-weight: 500;
   font-size: 12px;
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -425,7 +454,7 @@ watch(
   width: 20px;
   height: 20px;
   border-radius: 4px;
-  background: #ecf5ff;
+  background: rgba(6, 182, 212, 0.15);
   color: var(--accent);
   display: inline-flex;
   align-items: center;

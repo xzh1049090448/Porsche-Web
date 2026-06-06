@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { getItem } from '@/utils/storage'
+import { handleUnauthorized, isAuthRequestUrl } from '@/utils/auth-redirect'
 
 /** 默认对接 ai-gateway；开发可用 Mock */
 export const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
@@ -31,9 +32,11 @@ function formatError(err) {
 request.interceptors.response.use(
   (res) => res.data,
   (err) => {
-    if (err.response?.status === 401) {
-      // 由路由守卫处理未登录，避免重复弹窗
-    } else {
+    const status = err.response?.status
+    const url = err.config?.url || ''
+    if (status === 401 && !isAuthRequestUrl(url)) {
+      handleUnauthorized(formatError(err))
+    } else if (status !== 401) {
       ElMessage.error(formatError(err))
     }
     return Promise.reject(err)

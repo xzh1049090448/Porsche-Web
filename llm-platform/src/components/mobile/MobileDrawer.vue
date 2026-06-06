@@ -118,7 +118,7 @@ onUnmounted(() => {
   color: var(--text-secondary);
 
   &:active {
-    background: #f0f2f5;
+    background: var(--hover-bg);
   }
 
   .el-icon {

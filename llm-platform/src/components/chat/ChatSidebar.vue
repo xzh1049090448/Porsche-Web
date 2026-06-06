@@ -141,7 +141,7 @@ function exportPdf(c) {
   height: 100%;
   min-height: 0;
   padding: 12px;
-  background: var(--panel-bg);
+  background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
 }
 
@@ -152,11 +152,21 @@ function exportPdf(c) {
 
 .new-btn {
   width: 100%;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  height: 40px;
+  border-radius: 8px;
+  font-weight: 500;
 }
 
 .search-input {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+
+  :deep(.el-input__wrapper) {
+    background: var(--component-bg);
+    box-shadow: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
 }
 
 .conv-list {
@@ -169,28 +179,30 @@ function exportPdf(c) {
   padding: 12px 52px 12px 12px;
   margin-bottom: 4px;
   min-height: 56px;
-  border-radius: 8px;
+  border-radius: 0;
+  border-left: 3px solid transparent;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.2s, border-color 0.2s;
 
   &:hover {
-    background: #f5f7fa;
-  }
-
-  &:active {
-    background: #e5e7eb;
+    background: var(--hover-bg);
   }
 
   &.active {
-    background: #ecf5ff;
-    border-left: 3px solid var(--accent);
-    padding-left: 9px;
+    background: var(--component-bg);
+    border-left-color: var(--accent);
+
+    .conv-title {
+      color: var(--text-primary);
+    }
   }
 }
 
 .conv-title {
   font-size: 14px;
   font-weight: 500;
+  line-height: 22px;
+  color: var(--text-body);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -198,8 +210,9 @@ function exportPdf(c) {
 
 .conv-meta {
   font-size: 12px;
+  line-height: 18px;
   color: var(--text-secondary);
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .conv-more {

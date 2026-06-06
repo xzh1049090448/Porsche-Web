@@ -182,10 +182,11 @@ function onUserCommand(cmd) {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 0 20px;
-  background: var(--panel-bg);
+  padding: 0 24px;
+  height: var(--header-h);
+  background: var(--sidebar-bg);
   border-bottom: 1px solid var(--border);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  box-shadow: none;
 }
 
 .header-left {
@@ -209,10 +210,10 @@ function onUserCommand(cmd) {
 }
 
 .logo-icon {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #409eff, #67c23a);
+  background: linear-gradient(135deg, #06b6d4, #0891b2);
   color: #fff;
   display: flex;
   align-items: center;
@@ -223,13 +224,15 @@ function onUserCommand(cmd) {
 }
 
 .logo-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 24px;
+  color: var(--text-primary);
 }
 
 .logo-sub {
   font-size: 11px;
+  line-height: 16px;
   color: var(--text-secondary);
 }
 
@@ -257,12 +260,18 @@ function onUserCommand(cmd) {
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  padding: 4px;
+  padding: 4px 8px;
   border-radius: 8px;
+  transition: background 0.2s;
+
+  &:hover {
+    background: var(--hover-bg);
+  }
 }
 
 .user-name {
   font-size: 14px;
+  color: var(--text-body);
   max-width: 100px;
   overflow: hidden;
   text-overflow: ellipsis;

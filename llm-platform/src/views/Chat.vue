@@ -176,7 +176,7 @@ function onQuick(q) {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--panel-bg);
+  background: var(--sidebar-bg);
 }
 
 .chat-sidebar-wrap {
@@ -198,10 +198,10 @@ function onQuick(q) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  height: 40px;
-  padding: 0 10px;
+  height: 48px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--border);
-  background: #fafafa;
+  background: var(--sidebar-bg);
 }
 
 .chat-config-wrap .panel-toolbar {
@@ -209,8 +209,9 @@ function onQuick(q) {
 }
 
 .panel-label {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -239,11 +240,11 @@ function onQuick(q) {
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: color 0.15s, background 0.15s;
+  transition: color 0.2s, background 0.2s;
 
   &:hover {
     color: var(--accent);
-    background: #ecf5ff;
+    background: var(--hover-bg);
   }
 
   .el-icon {
@@ -297,23 +298,26 @@ function onQuick(q) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 0 8px;
+  padding: 0 12px;
   height: 48px;
-  background: var(--panel-bg);
+  background: var(--sidebar-bg);
   border-bottom: 1px solid var(--border);
 
   .el-button {
     flex-shrink: 0;
     padding: 8px 10px;
     font-size: 13px;
+    color: var(--text-body);
   }
 
   .mobile-title {
     flex: 1;
     min-width: 0;
     text-align: center;
-    font-weight: 600;
-    font-size: 15px;
+    font-weight: 500;
+    font-size: 16px;
+    line-height: 24px;
+    color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

@@ -57,7 +57,7 @@ const settings = useSettingsStore()
 
 <style scoped lang="scss">
 .dataset-panel {
-  padding: 12px;
+  padding: 16px 12px;
   border-top: 1px solid var(--border);
 }
 
@@ -65,14 +65,18 @@ const settings = useSettingsStore()
   display: flex;
   align-items: center;
   gap: 6px;
-  font-weight: 600;
-  font-size: 14px;
-  margin-bottom: 12px;
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--text-primary);
+  margin-bottom: 16px;
 }
 
 .panel-subtitle {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
+  line-height: 22px;
+  color: var(--text-primary);
   margin-bottom: 8px;
 }
 
@@ -86,8 +90,25 @@ const settings = useSettingsStore()
     margin-right: 0;
     width: 100%;
     height: auto;
-    padding: 8px;
+    padding: 10px 12px;
     white-space: normal;
+    background: transparent;
+    border-color: var(--border);
+    border-radius: 8px;
+    transition: background 0.2s, border-color 0.2s;
+
+    &:hover {
+      background: var(--hover-bg);
+    }
+
+    &.is-checked {
+      background: var(--component-bg);
+      border-color: var(--accent);
+    }
+
+    .el-radio__label {
+      color: var(--text-body);
+    }
   }
 }
 
@@ -102,10 +123,18 @@ const settings = useSettingsStore()
   margin-right: 0;
   height: auto;
   align-items: flex-start;
+  padding: 8px;
+  border-radius: 6px;
+  transition: background 0.2s;
+
+  &:hover {
+    background: var(--hover-bg);
+  }
 
   :deep(.el-checkbox__label) {
     white-space: normal;
     line-height: 1.4;
+    color: var(--text-body);
   }
 }
 

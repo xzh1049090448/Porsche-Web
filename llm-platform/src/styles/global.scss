@@ -1,17 +1,78 @@
 :root {
-  --app-bg: #f5f7fa;
-  --panel-bg: #ffffff;
-  --border: #ebeef5;
-  --text-primary: #303133;
-  --text-secondary: #909399;
-  --accent: #409eff;
-  --accent-green: #67c23a;
-  --dataset-badge: #e1f3d8;
-  --header-h: 60px;
+  /* 优创 AIGC 设计规范 - 色彩系统 */
+  --app-bg: #0f0f12;
+  --sidebar-bg: #191b1f;
+  --component-bg: #2a2c2f;
+  --hover-bg: #222428;
+  --tooltip-bg: #1e293b;
+
+  --panel-bg: var(--sidebar-bg);
+  --border: #333538;
+  --border-subtle: #374151;
+
+  --text-primary: #ffffff;
+  --text-body: #e5e7eb;
+  --text-secondary: #9ca3af;
+  --text-disabled: #6b7280;
+
+  --accent: #06b6d4;
+  --accent-yellow: #fbbf24;
+  --accent-red: #ef4444;
+  --accent-green: #10b981;
+  --accent-blue: #3b82f6;
+
+  --tag-chat: #06b6d4;
+  --tag-image: #8b5cf6;
+  --tag-video: #f97316;
+  --tag-multimodal: #eab308;
+
+  --dataset-badge: rgba(16, 185, 129, 0.15);
+
+  --header-h: 48px;
   --sidebar-w: 240px;
-  --config-w: 280px;
+  --config-w: 260px;
   --panel-rail-w: 44px;
+  --input-h: 80px;
   --vh: 1vh;
+
+  /* Element Plus 深色主题映射 */
+  --el-color-primary: #06b6d4;
+  --el-color-primary-light-3: #38bfd8;
+  --el-color-primary-light-5: #6bcfdd;
+  --el-color-primary-light-7: #9edfec;
+  --el-color-primary-light-8: #b5e7f1;
+  --el-color-primary-light-9: #d1f0f6;
+  --el-color-primary-dark-2: #0592ab;
+
+  --el-color-success: #10b981;
+  --el-color-warning: #fbbf24;
+  --el-color-danger: #ef4444;
+  --el-color-info: #3b82f6;
+
+  --el-bg-color: #0f0f12;
+  --el-bg-color-page: #0f0f12;
+  --el-bg-color-overlay: #2a2c2f;
+
+  --el-text-color-primary: #ffffff;
+  --el-text-color-regular: #e5e7eb;
+  --el-text-color-secondary: #9ca3af;
+  --el-text-color-placeholder: #6b7280;
+  --el-text-color-disabled: #6b7280;
+
+  --el-border-color: #333538;
+  --el-border-color-light: #333538;
+  --el-border-color-lighter: #2a2c2f;
+  --el-border-color-extra-light: #222428;
+
+  --el-fill-color-blank: #2a2c2f;
+  --el-fill-color-light: #222428;
+  --el-fill-color: #191b1f;
+  --el-fill-color-dark: #0f0f12;
+  --el-fill-color-darker: #0f0f12;
+
+  --el-mask-color: rgba(0, 0, 0, 0.6);
+  --el-box-shadow-light: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --el-box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
 *,
@@ -26,9 +87,20 @@ body,
   margin: 0;
   height: 100%;
   height: calc(var(--vh, 1vh) * 100);
-  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  color: var(--text-primary);
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    'PingFang SC',
+    'Microsoft YaHei',
+    sans-serif;
+  color: var(--text-body);
   background: var(--app-bg);
+  -webkit-font-smoothing: antialiased;
 }
 
 a {
@@ -40,15 +112,115 @@ a {
   margin: 0 0 16px;
   font-size: 20px;
   font-weight: 600;
+  line-height: 28px;
+  color: var(--text-primary);
 }
 
 .page-container {
-  padding: 20px;
+  padding: 24px;
   max-width: 1200px;
   margin: 0 auto;
   overflow-y: auto;
   height: 100%;
   box-sizing: border-box;
+}
+
+.dataset-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--accent-green);
+  background: var(--dataset-badge);
+  border-radius: 4px;
+}
+
+/* Element Plus 全局深色适配 */
+.el-card {
+  --el-card-bg-color: var(--component-bg);
+  --el-card-border-color: var(--border);
+  color: var(--text-body);
+}
+
+.el-menu {
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: var(--text-secondary);
+  --el-menu-hover-bg-color: var(--hover-bg);
+  --el-menu-active-color: var(--accent);
+  --el-menu-border-color: transparent;
+}
+
+.el-input {
+  --el-input-bg-color: var(--component-bg);
+  --el-input-border-color: var(--border);
+  --el-input-hover-border-color: var(--border-subtle);
+  --el-input-focus-border-color: var(--accent);
+  --el-input-text-color: var(--text-body);
+  --el-input-placeholder-color: var(--text-disabled);
+}
+
+.el-textarea {
+  --el-input-bg-color: var(--component-bg);
+  --el-input-border-color: var(--border);
+  --el-input-hover-border-color: var(--border-subtle);
+  --el-input-focus-border-color: var(--accent);
+  --el-input-text-color: var(--text-body);
+  --el-input-placeholder-color: var(--text-disabled);
+}
+
+.el-button--default {
+  --el-button-bg-color: transparent;
+  --el-button-border-color: var(--border-subtle);
+  --el-button-text-color: var(--text-primary);
+  --el-button-hover-bg-color: var(--hover-bg);
+  --el-button-hover-border-color: var(--border-subtle);
+  --el-button-hover-text-color: var(--text-primary);
+}
+
+.el-button--primary {
+  --el-button-bg-color: var(--accent);
+  --el-button-border-color: var(--accent);
+  --el-button-hover-bg-color: #0891b2;
+  --el-button-hover-border-color: #0891b2;
+}
+
+.el-divider {
+  --el-border-color: var(--border);
+}
+
+.el-empty {
+  --el-empty-fill-color-0: var(--component-bg);
+  --el-empty-fill-color-1: var(--hover-bg);
+  --el-empty-fill-color-2: var(--sidebar-bg);
+  --el-empty-fill-color-3: var(--border);
+  --el-empty-fill-color-4: var(--text-disabled);
+  --el-empty-fill-color-5: var(--text-secondary);
+  --el-empty-fill-color-6: var(--text-body);
+  --el-empty-fill-color-7: var(--text-primary);
+  --el-empty-fill-color-8: var(--accent);
+  --el-empty-fill-color-9: var(--accent);
+}
+
+.el-dropdown-menu {
+  --el-bg-color-overlay: var(--component-bg);
+  --el-border-color-light: var(--border);
+}
+
+.el-message-box {
+  --el-bg-color: var(--component-bg);
+  --el-messagebox-title-color: var(--text-primary);
+  --el-messagebox-content-color: var(--text-body);
+}
+
+.el-dialog {
+  --el-dialog-bg-color: var(--component-bg);
+  --el-dialog-title-font-size: 16px;
+}
+
+.el-alert {
+  --el-alert-title-font-size: 12px;
 }
 
 @media (max-width: 768px) {
@@ -62,20 +234,8 @@ a {
   }
 }
 
-.dataset-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 8px;
-  padding: 4px 10px;
-  font-size: 12px;
-  color: #529b2e;
-  background: var(--dataset-badge);
-  border-radius: 4px;
-}
-
 @media (max-width: 992px) {
   :root {
-    --header-h: 52px;
+    --header-h: 48px;
   }
 }

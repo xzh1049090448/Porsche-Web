@@ -52,6 +52,18 @@ export async function exportConversationMarkdown(id) {
       Authorization: `Bearer ${(await import('@/utils/storage')).getItem('token')}`,
     },
   })
+  if (res.status === 401) {
+    const { handleUnauthorized } = await import('@/utils/auth-redirect')
+    let detail = '登录已过期，请重新登录'
+    try {
+      const err = await res.json()
+      if (typeof err.detail === 'string') detail = err.detail
+    } catch {
+      /* ignore */
+    }
+    await handleUnauthorized(detail)
+    throw new Error(detail)
+  }
   if (!res.ok) throw new Error('导出失败')
   return res.text()
 }

@@ -9,28 +9,33 @@
     <div
       class="model-select-block"
       :class="{ 'is-locked': settings.compareMode }"
+      role="radiogroup"
+      aria-label="选择模型"
     >
-      <el-radio-group
-        v-if="settings.models.length"
-        :model-value="settings.selectedModelId"
-        class="model-grid"
-        :disabled="settings.compareMode"
-        @change="onSingleModelChange"
+      <button
+        v-for="m in settings.models"
+        :key="m.id"
+        type="button"
+        role="radio"
+        class="model-item"
+        :class="{ active: settings.selectedModelId === m.id }"
+        :aria-checked="settings.selectedModelId === m.id"
+        :disabled="settings.compareMode || (settings.modelsLoaded && m.registered === false)"
+        @click="onSingleModelChange(m.id)"
       >
-        <el-radio
-          v-for="m in settings.models"
-          :key="m.id"
-          :value="m.id"
-          :disabled="settings.compareMode || (settings.modelsLoaded && m.registered === false)"
-          border
-          class="model-radio"
-        >
         <span class="model-icon">{{ m.icon }}</span>
-        <span class="model-name">{{ m.name }}</span>
-        <el-tag v-if="settings.modelsLoaded && m.registered === false" size="small" type="warning">未注册</el-tag>
-        <el-tag v-else-if="m.multimodal" size="small" type="info">多模态</el-tag>
-      </el-radio>
-    </el-radio-group>
+        <span class="model-info">
+          <span class="model-name">{{ m.name }}</span>
+          <span class="model-desc">{{ m.desc || m.vendor }}</span>
+        </span>
+        <span
+          v-if="settings.modelsLoaded && m.registered === false"
+          class="type-tag tag-warning"
+        >未注册</span>
+        <span v-else class="type-tag" :style="{ background: typeTag(m).color }">
+          {{ typeTag(m).label }}
+        </span>
+      </button>
     </div>
 
     <el-divider />
@@ -64,7 +69,7 @@
           <p class="hint">勾选要对比的模型，发送后各模型将流式并行输出</p>
           <el-checkbox-group
             :model-value="settings.compareModelIds"
-            class="model-grid"
+            class="compare-grid"
             @change="onCompareModelsChange"
           >
             <el-checkbox
@@ -72,12 +77,10 @@
               :key="m.id"
               :value="m.id"
               :disabled="settings.modelsLoaded && m.registered === false"
-              border
-              class="model-check"
+              class="compare-check"
             >
-              <span class="model-icon">{{ m.icon }}</span>
+              <span class="model-icon sm">{{ m.icon }}</span>
               <span class="model-name">{{ m.name }}</span>
-              <el-tag v-if="settings.modelsLoaded && m.registered === false" size="small" type="warning">未注册</el-tag>
             </el-checkbox>
           </el-checkbox-group>
         </template>
@@ -91,11 +94,18 @@ import { ElMessage } from 'element-plus'
 import { Cpu } from '@element-plus/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
 import { SCENARIO_PRESETS } from '@/constants/scenario-presets'
+import { MODEL_TYPE_TAGS } from '@/constants/models'
 
 const settings = useSettingsStore()
 
+function typeTag(m) {
+  if (m.multimodal) return MODEL_TYPE_TAGS.multimodal
+  return MODEL_TYPE_TAGS[m.type] || MODEL_TYPE_TAGS.chat
+}
+
 function onSingleModelChange(id) {
   if (settings.compareMode) return
+  if (settings.modelsLoaded && settings.models.find((m) => m.id === id)?.registered === false) return
   settings.setModel(id)
 }
 
@@ -110,7 +120,7 @@ function onCompareModelsChange(ids) {
 
 <style scoped lang="scss">
 .model-panel {
-  padding: 12px;
+  padding: 16px 12px;
 }
 
 .panel-title {
@@ -118,9 +128,11 @@ function onCompareModelsChange(ids) {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  font-weight: 600;
-  font-size: 14px;
-  margin-bottom: 12px;
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--text-primary);
+  margin-bottom: 16px;
 }
 
 .panel-lock-hint {
@@ -130,87 +142,116 @@ function onCompareModelsChange(ids) {
 }
 
 .model-select-block.is-locked {
-  opacity: 0.55;
+  opacity: 0.5;
   pointer-events: none;
   user-select: none;
+}
 
-  :deep(.el-radio) {
+.model-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 72px;
+  padding: 12px;
+  margin-bottom: 4px;
+  border: none;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s, border-color 0.2s;
+
+  &:hover:not(:disabled) {
+    background: var(--hover-bg);
+  }
+
+  &.active {
+    background: var(--component-bg);
+    border-left-color: var(--accent);
+
+    .model-name {
+      color: var(--text-primary);
+    }
+  }
+
+  &:disabled {
+    opacity: 0.5;
     cursor: not-allowed;
   }
 }
 
-.panel-subtitle {
-  font-size: 13px;
-  font-weight: 500;
-  margin-bottom: 8px;
-}
-
-.model-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-
-  :deep(.el-radio),
-  :deep(.el-checkbox) {
-    margin-right: 0;
-    width: 100%;
-    height: auto;
-    padding: 8px 10px;
-  }
-}
-
-.model-radio,
-.model-check {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .model-icon {
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  background: #ecf5ff;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: rgba(6, 182, 212, 0.15);
   color: var(--accent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.model-name {
-  flex: 1;
   font-size: 13px;
-}
+  font-weight: 700;
 
-.model-single {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fafafa;
-}
-
-.model-single-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-
-  .model-name {
-    font-weight: 600;
-    font-size: 14px;
+  &.sm {
+    width: 22px;
+    height: 22px;
+    font-size: 11px;
   }
 }
 
-.model-vendor {
+.model-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.model-name {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+  color: var(--text-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-desc {
   font-size: 12px;
+  line-height: 18px;
   color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.type-tag {
+  flex-shrink: 0;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 20px;
+  color: #fff;
+  white-space: nowrap;
+
+  &.tag-warning {
+    background: var(--accent-yellow);
+    color: #1f2937;
+  }
+}
+
+.panel-subtitle {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  color: var(--text-primary);
+  margin-bottom: 8px;
 }
 
 .scenario-list {
@@ -227,27 +268,27 @@ function onCompareModelsChange(ids) {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border);
+  border-left: 3px solid transparent;
   border-radius: 8px;
-  background: #fff;
+  background: transparent;
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.2s, background 0.2s;
 
   &:hover {
-    border-color: #c6e2ff;
-    background: #f5f9ff;
+    background: var(--hover-bg);
   }
 
   &.active {
-    border-color: var(--accent);
-    background: #ecf5ff;
-    box-shadow: inset 3px 0 0 var(--accent);
+    border-color: var(--border);
+    border-left-color: var(--accent);
+    background: var(--component-bg);
   }
 }
 
 .scenario-name {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   color: var(--text-primary);
 }
 
@@ -274,5 +315,37 @@ function onCompareModelsChange(ids) {
   font-size: 12px;
   color: var(--text-secondary);
   margin: 0 0 8px;
+  line-height: 18px;
+}
+
+.compare-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.compare-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-right: 0;
+  height: auto;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: transparent;
+  transition: background 0.2s;
+
+  &:hover {
+    background: var(--hover-bg);
+  }
+
+  :deep(.el-checkbox__label) {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-body);
+  }
 }
 </style>

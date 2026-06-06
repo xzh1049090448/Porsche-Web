@@ -14,7 +14,7 @@
         :auto-upload="false"
         :on-change="onImageSelect"
       >
-        <el-button class="touch-target" :icon="Picture" circle />
+        <el-button class="attach-btn touch-target" :icon="Picture" circle />
       </el-upload>
       <el-input
         v-model="text"
@@ -23,18 +23,19 @@
         :placeholder="placeholder"
         resize="none"
         :disabled="chatStore.streaming"
+        class="chat-textarea"
         @keydown="onKeydown"
       />
       <el-button
         type="primary"
         class="send-btn touch-target"
         :icon="Promotion"
+        circle
         :loading="chatStore.streaming"
         :disabled="!canSend"
+        aria-label="发送"
         @click="send"
-      >
-        <span v-if="!mobile">发送</span>
-      </el-button>
+      />
     </div>
     <div v-if="settings.useDataset" class="input-hint">
       <el-icon><InfoFilled /></el-icon>
@@ -112,17 +113,17 @@ defineExpose({
 <style scoped lang="scss">
 .chat-input {
   flex-shrink: 0;
-  padding: 12px 20px 16px;
-  background: #fff;
+  min-height: var(--input-h);
+  padding: 16px 24px;
+  background: var(--app-bg);
   border-top: 1px solid var(--border);
 }
 
 .chat-input.is-mobile {
-  padding: 10px 12px 12px;
+  padding: 12px;
   position: sticky;
   bottom: 0;
   z-index: 100;
-  background: var(--panel-bg);
 }
 
 .preview-row {
@@ -144,38 +145,76 @@ defineExpose({
     position: absolute;
     top: -4px;
     right: -4px;
-    background: #fff;
+    background: var(--component-bg);
     border-radius: 50%;
     cursor: pointer;
-    color: #f56c6c;
+    color: var(--accent-red);
   }
 }
 
 .input-row {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   align-items: flex-end;
+}
 
-  .el-textarea {
-    flex: 1;
-  }
+.chat-textarea {
+  flex: 1;
 
   :deep(.el-textarea__inner) {
-    padding: 10px 12px;
+    min-height: 48px !important;
     max-height: 120px;
-    line-height: 1.5;
+    padding: 12px;
+    line-height: 22px;
+    font-size: 14px;
+    border-radius: 8px;
+    background: var(--component-bg);
+    border-color: var(--border);
+    color: var(--text-body);
+    box-shadow: none;
+
+    &::placeholder {
+      color: var(--text-disabled);
+    }
+
+    &:hover {
+      border-color: var(--border-subtle);
+    }
+
+    &:focus {
+      border-color: var(--accent);
+    }
   }
 }
 
-.is-mobile .input-row {
-  :deep(.el-textarea__inner) {
-    font-size: 16px;
+.attach-btn {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  background: var(--component-bg);
+  border-color: var(--border);
+  color: var(--text-secondary);
+
+  &:hover {
+    background: var(--hover-bg);
+    border-color: var(--border-subtle);
+    color: var(--text-primary);
+  }
+}
+
+.send-btn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+  transition: transform 0.2s, background 0.2s;
+
+  &:hover:not(:disabled) {
+    transform: scale(1.06);
   }
 
-  .send-btn {
-    min-width: 44px;
-    height: 44px;
-    padding: 0 14px;
+  &:active:not(:disabled) {
+    transform: scale(0.96);
   }
 }
 
@@ -184,6 +223,7 @@ defineExpose({
   align-items: center;
   gap: 4px;
   font-size: 12px;
+  line-height: 18px;
   color: var(--accent-green);
   margin-top: 8px;
 }
@@ -191,6 +231,10 @@ defineExpose({
 @media (max-width: 768px) {
   .input-hint {
     font-size: 11px;
+  }
+
+  .chat-textarea :deep(.el-textarea__inner) {
+    font-size: 16px;
   }
 }
 </style>

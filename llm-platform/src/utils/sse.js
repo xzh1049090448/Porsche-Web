@@ -1,8 +1,23 @@
 /**
  * 解析平台 SSE：首包 meta + OpenAI 兼容 delta
  */
+async function readUnauthorizedDetail(response, fallback = '登录已过期，请重新登录') {
+  try {
+    const err = await response.json()
+    if (typeof err.detail === 'string') return err.detail
+  } catch {
+    /* ignore */
+  }
+  return fallback
+}
+
 export async function readPlatformChatStream(response, { onMeta, onChunk, onDone, onError }) {
   if (!response.ok) {
+    if (response.status === 401) {
+      const { handleUnauthorized } = await import('@/utils/auth-redirect')
+      await handleUnauthorized(await readUnauthorizedDetail(response))
+      return
+    }
     let detail = `HTTP ${response.status}`
     try {
       const err = await response.json()
@@ -83,6 +98,11 @@ export async function readPlatformCompareStream(
   { onModelChunk, onModelResult, onDone, onError }
 ) {
   if (!response.ok) {
+    if (response.status === 401) {
+      const { handleUnauthorized } = await import('@/utils/auth-redirect')
+      await handleUnauthorized(await readUnauthorizedDetail(response))
+      return
+    }
     let detail = `HTTP ${response.status}`
     try {
       const err = await response.json()
