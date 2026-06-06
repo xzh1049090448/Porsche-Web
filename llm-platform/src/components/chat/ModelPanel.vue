@@ -21,13 +21,13 @@
           v-for="m in settings.models"
           :key="m.id"
           :value="m.id"
-          :disabled="settings.compareMode || !m.registered"
+          :disabled="settings.compareMode || (settings.modelsLoaded && m.registered === false)"
           border
           class="model-radio"
         >
         <span class="model-icon">{{ m.icon }}</span>
         <span class="model-name">{{ m.name }}</span>
-        <el-tag v-if="!m.registered" size="small" type="warning">未注册</el-tag>
+        <el-tag v-if="settings.modelsLoaded && m.registered === false" size="small" type="warning">未注册</el-tag>
         <el-tag v-else-if="m.multimodal" size="small" type="info">多模态</el-tag>
       </el-radio>
     </el-radio-group>
@@ -71,13 +71,13 @@
               v-for="m in settings.models"
               :key="m.id"
               :value="m.id"
-              :disabled="!m.registered"
+              :disabled="settings.modelsLoaded && m.registered === false"
               border
               class="model-check"
             >
               <span class="model-icon">{{ m.icon }}</span>
               <span class="model-name">{{ m.name }}</span>
-              <el-tag v-if="!m.registered" size="small" type="warning">未注册</el-tag>
+              <el-tag v-if="settings.modelsLoaded && m.registered === false" size="small" type="warning">未注册</el-tag>
             </el-checkbox>
           </el-checkbox-group>
         </template>

@@ -8,11 +8,12 @@ const PREFIX = '/api/v1/platform'
 export async function listModels() {
   if (USE_MOCK) {
     const { MODELS } = await import('@/constants/models')
-    return MODELS
+    return MODELS.map((m) => ({ ...m, registered: true }))
   }
   const res = await request.get(`${PREFIX}/models`)
   const { mapModel } = await import('@/utils/api-mapper')
-  return (res.models || []).map(mapModel)
+  const rawList = Array.isArray(res) ? res : (res.models || res.items || [])
+  return rawList.map(mapModel)
 }
 
 /**

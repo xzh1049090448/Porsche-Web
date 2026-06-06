@@ -43,8 +43,24 @@ function readInitialModelState() {
   return { selectedModelId, compareMode, compareModelIds }
 }
 
+/** 以后端 /platform/models 为准合并；界面始终展示 ALLOWED_MODEL_IDS 中的模型 */
+function mergePlatformModels(remoteList) {
+  const byId = new Map((remoteList || []).map((m) => [m.id, m]))
+  return ALLOWED_MODEL_IDS.map((id) => {
+    const local = MODELS.find((m) => m.id === id)
+    if (!local) return null
+    const remote = byId.get(id)
+    return {
+      ...local,
+      ...(remote || {}),
+      name: local.name,
+      registered: remote ? remote.registered !== false : false,
+    }
+  }).filter(Boolean)
+}
+
 export const useSettingsStore = defineStore('settings', () => {
-  const models = ref([...MODELS])
+  const models = ref(mergePlatformModels([]))
   const datasets = ref([])
   const modelsLoaded = ref(false)
   const datasetsLoaded = ref(false)
@@ -108,8 +124,10 @@ export const useSettingsStore = defineStore('settings', () => {
         if (registered.length && !registered.some((m) => m.id === selectedModelId.value)) {
           setModel(registered[0].id)
         }
-      } finally {
         modelsLoaded.value = true
+      } catch {
+        modelsLoaded.value = false
+      } finally {
         modelsLoadPromise = null
       }
     })()
@@ -230,19 +248,3 @@ export const useSettingsStore = defineStore('settings', () => {
     compareModels,
   }
 })
-
-/** 以后端 /platform/models 为准合并；界面始终展示 ALLOWED_MODEL_IDS 中的模型 */
-function mergePlatformModels(remoteList) {
-  const byId = new Map((remoteList || []).map((m) => [m.id, m]))
-  return ALLOWED_MODEL_IDS.map((id) => {
-    const local = MODELS.find((m) => m.id === id)
-    if (!local) return null
-    const remote = byId.get(id)
-    return {
-      ...local,
-      ...(remote || {}),
-      name: local.name,
-      registered: !!remote,
-    }
-  }).filter(Boolean)
-}

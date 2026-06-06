@@ -110,6 +110,7 @@ import {
   User,
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
+import { useSettingsStore } from '@/stores/settings'
 import { ElMessageBox } from 'element-plus'
 import MobileDrawer from '@/components/mobile/MobileDrawer.vue'
 import { useBreakpoint } from '@/composables/useBreakpoint'
@@ -117,6 +118,7 @@ import { useBreakpoint } from '@/composables/useBreakpoint'
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const settingsStore = useSettingsStore()
 const showMobileMenu = ref(false)
 const { isTablet } = useBreakpoint()
 
@@ -143,6 +145,8 @@ function formatTokens(n) {
 }
 
 onMounted(() => {
+  settingsStore.loadModels().catch(() => {})
+  settingsStore.loadDatasets().catch(() => {})
   if (userStore.isLoggedIn) {
     userStore.refreshUsage().catch(() => {})
   }
