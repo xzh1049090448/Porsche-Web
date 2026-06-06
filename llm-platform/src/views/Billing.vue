@@ -2,6 +2,8 @@
   <div class="billing-page page-container">
     <h1 class="page-title">{{ t('billing.title') }}</h1>
 
+    <el-tabs v-model="mainTab" class="billing-tabs">
+      <el-tab-pane :label="t('billing.tabPlans')" name="plans">
     <el-row :gutter="16" class="usage-cards">
       <el-col :xs="12" :sm="8">
         <el-statistic :title="t('billing.totalTokens')" :value="usage.totalTokens || 0" />
@@ -112,6 +114,11 @@
         </template>
       </el-table-column>
     </el-table>
+      </el-tab-pane>
+      <el-tab-pane v-if="analyticsAllowed" :label="t('analytics.title')" name="analytics">
+        <ModelAnalyticsPanel />
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
@@ -126,11 +133,15 @@ import {
   payOrder,
   applyInvoice,
 } from '@/api/billing'
+import { checkAccess } from '@/api/modelAnalytics'
+import ModelAnalyticsPanel from '@/components/analytics/ModelAnalyticsPanel.vue'
 import { useUserStore } from '@/stores/user'
 import { useI18n } from '@/composables/useI18n'
 
 const userStore = useUserStore()
 const { t, ta, dateLocale } = useI18n()
+const mainTab = ref('plans')
+const analyticsAllowed = ref(false)
 const usage = ref({})
 const plans = ref([])
 const orders = ref([])
@@ -165,11 +176,17 @@ function planButtonLabel(plan) {
 onMounted(async () => {
   plansLoading.value = true
   try {
-    const [u, p, o] = await Promise.all([getUsageStats(), getPlans(), getOrders()])
+    const [u, p, o, access] = await Promise.all([
+      getUsageStats(),
+      getPlans(),
+      getOrders(),
+      checkAccess().catch(() => ({ allowed: false })),
+    ])
     usage.value = u
     plans.value = p.plans || []
     if (p.currentPlan) usage.value.plan = p.currentPlan
     orders.value = o
+    analyticsAllowed.value = access?.allowed === true
   } finally {
     plansLoading.value = false
   }
@@ -214,7 +231,7 @@ async function submitInvoice() {
 <style scoped lang="scss">
 .page-container {
   padding: 24px;
-  max-width: 1100px;
+  max-width: 1200px;
   margin: 0 auto;
   height: 100%;
   overflow-y: auto;
@@ -284,5 +301,11 @@ async function submitInvoice() {
 
 .mt-section {
   margin-top: 8px;
+}
+
+.billing-tabs {
+  :deep(.el-tabs__header) {
+    margin-bottom: 16px;
+  }
 }
 </style>
