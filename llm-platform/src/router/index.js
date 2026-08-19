@@ -16,6 +16,7 @@ const routes = [
       { path: '', name: 'Chat', component: () => import('@/views/Chat.vue') },
       { path: 'profile', name: 'Profile', component: () => import('@/views/Profile.vue') },
       { path: 'billing', name: 'Billing', component: () => import('@/views/Billing.vue') },
+      { path: 'api-keys', name: 'ApiKeys', component: () => import('@/views/ApiKeys.vue') },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
