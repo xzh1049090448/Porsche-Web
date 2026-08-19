@@ -7,3 +7,12 @@ dist
 llm-platform/.env
 llm-platform/.env.*
 !.env.example
+
+# Harness 工作日志（agent 生成，不入库）
+progress.md
+session-handoff.md
+clean-state-checklist.md
+
+# 本地草图会话与隔离工作区
+.superpowers/
+.worktrees/
