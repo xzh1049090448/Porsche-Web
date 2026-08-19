@@ -11,6 +11,7 @@ export const messages = {
       billing: '套餐与用量',
       profile: '个人中心',
       billingShort: '套餐用量',
+      apiKeys: 'API 密钥',
       navigation: '导航',
       openMenu: '打开菜单',
       back: '返回',
@@ -198,6 +199,9 @@ export const messages = {
         },
       },
     },
+    apiKeys: {
+      title: 'API 密钥', description: '创建和管理用于 Gateway 模型调用的密钥。', listTitle: '密钥列表', create: '创建密钥', createTitle: '创建 API 密钥', edit: '编辑', editTitle: '编辑 API 密钥', save: '保存', cancel: '取消', name: '名称', nameRequired: '请输入密钥名称', prefix: 'Token 前缀', models: '允许模型', allModels: '全部模型', modelsHelp: '不选择模型表示允许调用全部模型。', ipAllowlist: 'IP 白名单', ipPlaceholder: '每行一个 IP 地址，例如：\n203.0.113.10\n2001:db8::1', ipHelp: '每行只能填写一个 IPv4 或 IPv6 地址；不支持 CIDR 或主机名。', ipInvalid: 'IP 白名单仅支持每行一个 IPv4 或 IPv6 地址，不能使用 CIDR 或主机名。', anyIp: '不限制', status: '状态', active: '已启用', disabled: '已停用', revoked: '已撤销', expired: '已到期', expiresAt: '到期时间', noExpiry: '永不过期', createdAt: '创建时间', actions: '操作', empty: '暂无 API 密钥', loadFailed: '加载 API 密钥失败。', retry: '重试', expiring: '7 天内到期', revoke: '撤销', revokeTitle: '撤销 API 密钥', revokeConfirm: '确定撤销「{name}」？撤销后无法恢复。', revokedSuccess: 'API 密钥已撤销', saved: 'API 密钥已保存', secretTitle: '请立即保存 API 密钥', secretWarning: '此密钥只会显示一次。关闭后将无法再次查看。', secretConfirm: '我已安全保存', copy: '复制', copied: '已复制', copyFailed: '复制失败，请手动复制。',
+    },
     analytics: {
       title: '模型数据分析',
       totalCost: '总消耗',
@@ -250,6 +254,7 @@ export const messages = {
       billing: 'Plans & Usage',
       profile: 'Profile',
       billingShort: 'Plans',
+      apiKeys: 'API Keys',
       navigation: 'Menu',
       openMenu: 'Open menu',
       back: 'Back',
@@ -448,6 +453,9 @@ export const messages = {
           features: ['API access', 'Dedicated support', 'Compliance audit trail'],
         },
       },
+    },
+    apiKeys: {
+      title: 'API Keys', description: 'Create and manage keys for Gateway model calls.', listTitle: 'Key list', create: 'Create key', createTitle: 'Create API key', edit: 'Edit', editTitle: 'Edit API key', save: 'Save', cancel: 'Cancel', name: 'Name', nameRequired: 'Enter a key name', prefix: 'Token prefix', models: 'Allowed models', allModels: 'All models', modelsHelp: 'No model selection allows all models.', ipAllowlist: 'IP allowlist', ipPlaceholder: 'One IP address per line, for example:\n203.0.113.10\n2001:db8::1', ipHelp: 'Enter one IPv4 or IPv6 address per line; CIDR ranges and host names are not supported.', ipInvalid: 'Enter one IPv4 or IPv6 address per line. CIDR ranges and host names are not allowed.', anyIp: 'No restriction', status: 'Status', active: 'Active', disabled: 'Disabled', revoked: 'Revoked', expired: 'Expired', expiresAt: 'Expires', noExpiry: 'Never', createdAt: 'Created', actions: 'Actions', empty: 'No API keys yet', loadFailed: 'Could not load API keys.', retry: 'Retry', expiring: 'Expiring in 7 days', revoke: 'Revoke', revokeTitle: 'Revoke API key', revokeConfirm: 'Revoke “{name}”? This cannot be undone.', revokedSuccess: 'API key revoked', saved: 'API key saved', secretTitle: 'Save your API key now', secretWarning: 'This key is shown only once. It cannot be viewed again after closing this dialog.', secretConfirm: 'I saved it securely', copy: 'Copy', copied: 'Copied', copyFailed: 'Copy failed. Copy it manually.',
     },
     analytics: {
       title: 'Model Analytics',

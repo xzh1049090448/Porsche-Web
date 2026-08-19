@@ -35,6 +35,7 @@
       >
         <el-menu-item index="/">{{ t('nav.chat') }}</el-menu-item>
         <el-menu-item index="/billing">{{ t('nav.billing') }}</el-menu-item>
+        <el-menu-item index="/api-keys">{{ t('nav.apiKeys') }}</el-menu-item>
         <el-menu-item index="/profile">{{ t('nav.profile') }}</el-menu-item>
       </el-menu>
       <div class="header-right">
@@ -65,6 +66,7 @@
             <el-dropdown-menu>
               <el-dropdown-item command="profile">{{ t('nav.profile') }}</el-dropdown-item>
               <el-dropdown-item command="billing">{{ t('nav.billingShort') }}</el-dropdown-item>
+              <el-dropdown-item command="api-keys">{{ t('nav.apiKeys') }}</el-dropdown-item>
               <el-dropdown-item divided command="logout">{{ t('user.logout') }}</el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -86,6 +88,10 @@
         <el-menu-item index="/billing">
           <el-icon><Wallet /></el-icon>
           <span>{{ t('nav.billing') }}</span>
+        </el-menu-item>
+        <el-menu-item index="/api-keys">
+          <el-icon><Key /></el-icon>
+          <span>{{ t('nav.apiKeys') }}</span>
         </el-menu-item>
         <el-menu-item index="/profile">
           <el-icon><User /></el-icon>
@@ -109,6 +115,7 @@ import {
   Menu,
   ChatDotRound,
   Wallet,
+  Key,
   User,
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
@@ -172,7 +179,7 @@ function onUserCommand(cmd) {
     })
     return
   }
-  router.push(cmd === 'profile' ? '/profile' : '/billing')
+  router.push(cmd === 'profile' ? '/profile' : cmd === 'api-keys' ? '/api-keys' : '/billing')
 }
 </script>
 
