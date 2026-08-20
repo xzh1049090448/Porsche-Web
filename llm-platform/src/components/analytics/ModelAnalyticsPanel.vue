@@ -63,7 +63,10 @@
       />
     </el-tabs>
 
-    <div ref="chartRef" class="chart-container" />
+    <div v-if="isChartEmpty" class="chart-empty">
+      <el-empty :description="t('analytics.noChart')" />
+    </div>
+    <div v-else ref="chartRef" class="chart-container" />
 
     <div class="analytics-footer">
       <el-select
@@ -121,6 +124,7 @@ import { ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import { getSummary, getModels, getChart, exportExcel } from '@/api/modelAnalytics'
+import { buildAnalyticsChartOption, isAnalyticsChartEmpty } from './chart-options'
 import { useI18n } from '@/composables/useI18n'
 import { useThemeStore } from '@/stores/theme'
 
@@ -143,6 +147,8 @@ const activeView = ref('consumption_distribution')
 
 const chartRef = ref(null)
 let chartInstance = null
+let resizeObserver = null
+let resizeFrame = null
 
 const rangeOptions = [
   { value: '1h', labelKey: 'analytics.ranges.1h' },
@@ -168,7 +174,7 @@ const viewTabs = [
 const rankingViews = new Set(['call_ranking', 'user_consumption_ranking'])
 const isRankingView = computed(() => rankingViews.has(activeView.value))
 
-const CHART_COLORS = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4']
+const isChartEmpty = computed(() => isAnalyticsChartEmpty(activeView.value, chartData.value))
 
 function getThemeStyle() {
   const style = getComputedStyle(document.documentElement)
@@ -197,189 +203,44 @@ function queryParams() {
   return p
 }
 
-function filterSeries(series) {
-  if (!series?.length || !selectedModels.value.length) return series || []
-  const selected = new Set(selectedModels.value)
-  if (selected.size === allModels.value.length) return series
-  return series.filter((s) => selected.has(s.name))
-}
-
 function initChart() {
   if (!chartRef.value) return
-  chartInstance?.dispose()
-  chartInstance = echarts.init(chartRef.value)
+  if (chartInstance?.getDom() !== chartRef.value) {
+    chartInstance?.dispose()
+    chartInstance = echarts.init(chartRef.value)
+  }
 }
 
 function renderChart() {
+  if (isChartEmpty.value) {
+    chartInstance?.dispose()
+    chartInstance = null
+    resizeObserver?.disconnect()
+    return
+  }
+  initChart()
   if (!chartInstance || !chartData.value) return
   const theme = getThemeStyle()
-  const option = buildChartOption(chartData.value, theme)
-  chartInstance.setOption(option, true)
-}
-
-function buildChartOption(data, theme) {
-  const base = {
-    color: CHART_COLORS,
-    textStyle: { color: theme.text },
-    tooltip: { trigger: 'item' },
-  }
-
-  switch (activeView.value) {
-    case 'consumption_distribution':
-      return buildStackedBarOption(data, theme, base)
-    case 'call_trend':
-      return buildCallTrendOption(data, theme, base)
-    case 'call_distribution':
-      return buildPieOption(data, theme, base, 'calls')
-    case 'call_ranking':
-      return buildHorizontalBarOption(data, theme, base, 'calls')
-    case 'user_consumption_ranking':
-      return buildHorizontalBarOption(data, theme, base, 'cost')
-    case 'user_consumption_trend':
-      return buildUserTrendOption(data, theme, base)
-    default:
-      return base
-  }
-}
-
-function buildStackedBarOption(data, theme, base) {
-  const metric = data.metric || 'cost'
-  const series = filterSeries(data.series)
-  const yName = metric === 'cost' ? t('analytics.metricCost') : t('analytics.metricTokens')
-  return {
-    ...base,
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    legend: { type: 'scroll', bottom: 0, textStyle: { color: theme.text } },
-    grid: { left: 60, right: 20, top: 40, bottom: 60 },
-    xAxis: {
-      type: 'category',
-      data: data.time_labels || [],
-      axisLabel: { color: theme.text },
-      axisLine: { lineStyle: { color: theme.border } },
-    },
-    yAxis: {
-      type: 'value',
-      name: yName,
-      axisLabel: { color: theme.text },
-      splitLine: { lineStyle: { color: theme.border, opacity: 0.3 } },
-    },
-    series: series.map((s) => ({
-      name: s.name,
-      type: 'bar',
-      stack: 'total',
-      emphasis: { focus: 'series' },
-      data: (s.data || []).map((d) => (metric === 'cost' ? d.cost : d.tokens)),
-    })),
-  }
-}
-
-function buildCallTrendOption(data, theme, base) {
-  const series = data.series?.[0]
-  const labels = data.time_labels || []
-  const totals = (series?.data || []).map((d) => d.calls ?? 0)
-  return {
-    ...base,
-    tooltip: { trigger: 'axis' },
-    grid: { left: 60, right: 20, top: 40, bottom: 40 },
-    xAxis: {
-      type: 'category',
-      data: labels,
-      axisLabel: { color: theme.text },
-      axisLine: { lineStyle: { color: theme.border } },
-    },
-    yAxis: {
-      type: 'value',
-      name: t('analytics.totalCalls'),
-      axisLabel: { color: theme.text },
-      splitLine: { lineStyle: { color: theme.border, opacity: 0.3 } },
-    },
-    series: [
-      {
-        name: t('analytics.views.callTrend'),
-        type: 'line',
-        smooth: true,
-        data: totals,
-      },
-    ],
-  }
-}
-
-function buildPieOption(data, theme, base, field) {
-  const ranking = (data.ranking || []).filter(
-    (r) =>
-      !selectedModels.value.length ||
-      selectedModels.value.length === allModels.value.length ||
-      selectedModels.value.includes(r.key)
+  const option = buildAnalyticsChartOption(
+    activeView.value,
+    chartData.value,
+    theme,
+    t,
+    chartRef.value?.clientWidth ?? 0,
   )
-  return {
-    ...base,
-    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-    legend: { orient: 'vertical', right: 10, top: 'center', textStyle: { color: theme.text } },
-    series: [
-      {
-        type: 'pie',
-        radius: ['40%', '70%'],
-        center: ['40%', '50%'],
-        data: ranking.map((r) => ({ name: r.label || r.key, value: r[field] ?? 0 })),
-        emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.2)' } },
-      },
-    ],
-  }
-}
-
-function buildHorizontalBarOption(data, theme, base, field) {
-  const ranking = [...(data.ranking || [])].reverse()
-  return {
-    ...base,
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    grid: { left: 120, right: 40, top: 20, bottom: 30 },
-    xAxis: {
-      type: 'value',
-      axisLabel: { color: theme.text },
-      splitLine: { lineStyle: { color: theme.border, opacity: 0.3 } },
-    },
-    yAxis: {
-      type: 'category',
-      data: ranking.map((r) => r.label || r.key),
-      axisLabel: { color: theme.text },
-      axisLine: { lineStyle: { color: theme.border } },
-    },
-    series: [
-      {
-        type: 'bar',
-        data: ranking.map((r) => r[field] ?? 0),
-      },
-    ],
-  }
-}
-
-function buildUserTrendOption(data, theme, base) {
-  const series = data.series?.[0]
-  const labels = data.time_labels || []
-  return {
-    ...base,
-    tooltip: { trigger: 'axis' },
-    grid: { left: 60, right: 20, top: 40, bottom: 40 },
-    xAxis: {
-      type: 'category',
-      data: labels,
-      axisLabel: { color: theme.text },
-      axisLine: { lineStyle: { color: theme.border } },
-    },
-    yAxis: {
-      type: 'value',
-      name: t('analytics.metricCost'),
-      axisLabel: { color: theme.text },
-      splitLine: { lineStyle: { color: theme.border, opacity: 0.3 } },
-    },
-    series: [
-      {
-        name: t('analytics.views.userConsumptionTrend'),
-        type: 'line',
-        smooth: true,
-        data: (series?.data || []).map((d) => d.cost ?? 0),
-      },
-    ],
+  if (!option) return
+  chartInstance.setOption(option, true)
+  resizeObserver?.disconnect()
+  if (chartRef.value && typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => {
+      if (resizeFrame != null) cancelAnimationFrame(resizeFrame)
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = null
+        renderChart()
+        chartInstance?.resize()
+      })
+    })
+    resizeObserver.observe(chartRef.value)
   }
 }
 
@@ -489,22 +350,17 @@ async function exportExcelFile() {
   }
 }
 
-function handleResize() {
-  chartInstance?.resize()
-}
-
 watch(() => themeStore.theme, () => {
   nextTick(() => renderChart())
 })
 
 onMounted(async () => {
-  initChart()
-  window.addEventListener('resize', handleResize)
   await refreshData()
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', handleResize)
+  resizeObserver?.disconnect()
+  if (resizeFrame != null) cancelAnimationFrame(resizeFrame)
   chartInstance?.dispose()
   chartInstance = null
 })
@@ -570,6 +426,13 @@ onBeforeUnmount(() => {
 .chart-container {
   width: 100%;
   height: clamp(480px, 62vh, 780px);
+  margin-bottom: 16px;
+}
+
+.chart-empty {
+  height: clamp(480px, 62vh, 780px);
+  display: grid;
+  place-items: center;
   margin-bottom: 16px;
 }
 
