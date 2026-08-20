@@ -569,7 +569,7 @@ onBeforeUnmount(() => {
 
 .chart-container {
   width: 100%;
-  height: 420px;
+  height: clamp(480px, 62vh, 780px);
   margin-bottom: 16px;
 }
 
