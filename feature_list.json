@@ -1,0 +1,104 @@
+{
+  "project": "Porsche-Web（大模型聚合平台用户端前端）",
+  "last_updated": "2026-07-31",
+  "rules": {
+    "single_active_feature": true,
+    "passing_requires_evidence": true,
+    "do_not_skip_verification": true
+  },
+  "status_legend": {
+    "not_started": "功能还没开始做（或代码已存在但尚未按 harness 流程验证并记录证据）。",
+    "in_progress": "这个功能是当前唯一正在进行的任务。",
+    "blocked": "因为已记录的阻塞问题，当前无法继续推进。",
+    "passing": "要求的验证已经通过，并且证据已经记录。"
+  },
+  "subprojects": {
+    "llm-platform": "Vue 3 + Vite + Element Plus + Pinia 大模型聚合平台用户端"
+  },
+  "features": [
+    {
+      "id": "web-001",
+      "priority": 1,
+      "area": "llm-platform",
+      "title": "登录",
+      "user_visible_behavior": "手机号验证码登录与账号密码登录。",
+      "status": "not_started",
+      "verification": [
+        "npm run build",
+        "浏览器访问登录页，验证码 123456 / 密码 demo123 登录成功"
+      ],
+      "evidence": [],
+      "notes": "代码已实现（views/Login），待验证。"
+    },
+    {
+      "id": "web-002",
+      "priority": 2,
+      "area": "llm-platform",
+      "title": "模型面板",
+      "user_visible_behavior": "8 大国内模型切换、温度/Token/上下文参数、多模型对比。",
+      "status": "not_started",
+      "verification": [
+        "npm run build",
+        "浏览器切换模型并调整参数，确认面板联动正确"
+      ],
+      "evidence": [],
+      "notes": "代码已实现（constants/模型配置、components/chat），待验证。"
+    },
+    {
+      "id": "web-003",
+      "priority": 3,
+      "area": "llm-platform",
+      "title": "专属数据集",
+      "user_visible_behavior": "通用/跨境数据集开关、4 类子数据集多选、回答专属标识。",
+      "status": "not_started",
+      "verification": [
+        "npm run build",
+        "浏览器勾选数据集开关与子库，确认请求携带对应参数"
+      ],
+      "evidence": [],
+      "notes": "代码已实现（constants/datasets），待验证。"
+    },
+    {
+      "id": "web-004",
+      "priority": 4,
+      "area": "llm-platform",
+      "title": "对话",
+      "user_visible_behavior": "流式打字机效果、多轮对话、历史命名/删除、复制、Markdown/PDF 导出、图片上传（多模态）。",
+      "status": "not_started",
+      "verification": [
+        "npm run build",
+        "浏览器发起对话，确认流式输出、历史管理与导出可用"
+      ],
+      "evidence": [],
+      "notes": "代码已实现（views/Chat、components/chat），待验证。"
+    },
+    {
+      "id": "web-005",
+      "priority": 5,
+      "area": "llm-platform",
+      "title": "个人中心",
+      "user_visible_behavior": "资料修改、密码修改、实名认证、用量概览。",
+      "status": "not_started",
+      "verification": [
+        "npm run build",
+        "浏览器进入个人中心，修改资料/密码并查看用量"
+      ],
+      "evidence": [],
+      "notes": "代码已实现（views/Profile），待验证。"
+    },
+    {
+      "id": "web-006",
+      "priority": 6,
+      "area": "llm-platform",
+      "title": "套餐计费",
+      "user_visible_behavior": "三档套餐、用量统计、充值、订单、发票申请。",
+      "status": "not_started",
+      "verification": [
+        "npm run build",
+        "浏览器进入计费页，查看套餐、创建订单、申请发票"
+      ],
+      "evidence": [],
+      "notes": "代码已实现（views/Billing），待验证。"
+    }
+  ]
+}

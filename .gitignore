@@ -3,9 +3,9 @@ dist
 .DS_Store
 *.local
 
-# 环境变量（各子项目自行配置）
-llm-platform/.env
-llm-platform/.env.*
+# 环境变量
+.env
+.env.*
 !.env.example
 
 # Harness 工作日志（agent 生成，不入库）
