@@ -41,7 +41,7 @@ export function parsePlatformEvent(event, data) {
     return { kind: 'modelDone', model: payload.model }
   }
   if (event === 'model_error' && typeof payload.model === 'string' && payload.model) {
-    return { kind: 'modelError', model: payload.model, message: safeClientMessage(payload.error) }
+    return { kind: 'modelError', model: payload.model, message: safeModelErrorMessage(payload.error) }
   }
   if (event === 'message' && payload.choices?.[0]?.delta) {
     return { kind: 'chatChunk', delta: payload.choices[0].delta.content || '' }
@@ -52,9 +52,18 @@ export function parsePlatformEvent(event, data) {
   return null
 }
 
-function safeClientMessage(error) {
-  const message = typeof error?.message === 'string' ? error.message : ''
-  return message && message.length <= 120 && !/https?:\/\/|key|secret|token/i.test(message) ? message : '请求失败'
+// Model-error payloads are untrusted transport data. Only an explicit stable
+// code may select a fixed client message; upstream messages never cross this boundary.
+function safeModelErrorMessage(error) {
+  switch (error?.code) {
+    case 'gateway_upstream_error':
+    case 'upstream_unavailable':
+      return '服务暂不可用'
+    case 'model_unavailable':
+      return '模型当前不可用'
+    default:
+      return '请求失败'
+  }
 }
 
 async function consumePlatformSSE(response, onEvent) {
