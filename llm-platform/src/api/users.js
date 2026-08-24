@@ -1,6 +1,6 @@
 import request, { USE_MOCK } from './request'
 import { mockApi } from './mock'
-import { mapUserProfile, mapUsageStats } from '@/utils/api-mapper'
+import { mapUserProfile, mapUsageStats } from '@/utils/platform-mappers'
 
 const PREFIX = '/api/v1/users'
 

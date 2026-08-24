@@ -1,66 +1,40 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getItem, setItem } from '@/utils/storage'
-import {
-  ALLOWED_MODEL_IDS,
-  ALL_MODEL_IDS,
-  DEFAULT_MODEL_ID,
-  DEFAULT_SCENARIO_ID,
-  MODELS,
-} from '@/constants/models'
-import { SCENARIO_PRESETS, getScenarioPreset } from '@/constants/scenario-presets'
-import { listModels } from '@/api/platform'
-
-function normalizeCompareIds(ids) {
-  const unique = [...new Set((ids || []).filter((id) => ALLOWED_MODEL_IDS.includes(id)))]
-  if (!unique.length) return [...ALL_MODEL_IDS]
-  return unique
-}
+import { DEFAULT_SCENARIO_ID, SCENARIO_PRESETS, getScenarioPreset } from '@/constants/scenario-presets'
+import { getModel, listModels } from '@/api/platform'
+import { chooseAvailableModel, chooseCompareModels } from '@/utils/model-catalog'
 
 function readInitialModelState() {
   const storedCompareMode = getItem('compareMode', null)
   const storedCompareIds = getItem('compareModelIds', null)
   const storedMulti = getItem('selectedModels', null)
-  const legacySingle = getItem('selectedModel', DEFAULT_MODEL_ID)
+  const legacySingle = getItem('selectedModel', '')
 
-  let selectedModelId = ALLOWED_MODEL_IDS.includes(legacySingle) ? legacySingle : DEFAULT_MODEL_ID
+  let selectedModelId = typeof legacySingle === 'string' ? legacySingle : ''
   let compareMode = false
-  let compareModelIds = [...ALL_MODEL_IDS]
+  let compareModelIds = []
 
   if (storedCompareMode !== null) {
     compareMode = !!storedCompareMode
   } else if (Array.isArray(storedMulti) && storedMulti.length > 1) {
     compareMode = true
-    compareModelIds = normalizeCompareIds(storedMulti)
+    compareModelIds = storedMulti
     selectedModelId = storedMulti[0]
   }
 
   if (Array.isArray(storedCompareIds) && storedCompareIds.length) {
-    compareModelIds = normalizeCompareIds(storedCompareIds)
+    compareModelIds = storedCompareIds
   }
 
   return { selectedModelId, compareMode, compareModelIds }
 }
 
-/** 以后端 /platform/models 为准合并；界面始终展示 ALLOWED_MODEL_IDS 中的模型 */
-function mergePlatformModels(remoteList) {
-  const byId = new Map((remoteList || []).map((m) => [m.id, m]))
-  return ALLOWED_MODEL_IDS.map((id) => {
-    const local = MODELS.find((m) => m.id === id)
-    if (!local) return null
-    const remote = byId.get(id)
-    return {
-      ...local,
-      ...(remote || {}),
-      name: local.name,
-      registered: remote ? remote.registered !== false : false,
-    }
-  }).filter(Boolean)
-}
-
 export const useSettingsStore = defineStore('settings', () => {
-  const models = ref(mergePlatformModels([]))
+  const models = ref([])
   const modelsLoaded = ref(false)
+  const catalogStale = ref(false)
+  const modelLoadError = ref(false)
 
   const storedScenario = getItem('selectedScenario', DEFAULT_SCENARIO_ID)
   const initialScenarioId = SCENARIO_PRESETS.some((s) => s.id === storedScenario)
@@ -82,48 +56,19 @@ export const useSettingsStore = defineStore('settings', () => {
     if (modelsLoadPromise) return modelsLoadPromise
     modelsLoadPromise = (async () => {
       try {
-        const list = await listModels()
-        models.value = mergePlatformModels(list)
-        const missing = ALLOWED_MODEL_IDS.filter((id) => !list.some((m) => m.id === id))
-        if (missing.length) {
-          const { ElMessage } = await import('element-plus')
-          const { useLocaleStore } = await import('./locale')
-          ElMessage.warning(
-            useLocaleStore().t('model.unregisteredWarn', {
-              models: missing.join(useLocaleStore().isEn ? ', ' : '、'),
-            })
-          )
-        }
-        if (!models.value.some((m) => m.id === selectedModelId.value)) {
-          const fallback =
-            models.value.find((m) => m.id === DEFAULT_MODEL_ID)?.id ||
-            models.value[0]?.id ||
-            DEFAULT_MODEL_ID
-          selectedModelId.value = fallback
-          setItem('selectedModel', fallback)
-        }
-        if (compareMode.value) {
-          const validCompare = compareModelIds.value.filter((id) =>
-            models.value.some((m) => m.id === id)
-          )
-          if (validCompare.length !== compareModelIds.value.length) {
-            compareModelIds.value = validCompare.length
-              ? validCompare
-              : models.value.map((m) => m.id)
-            setItem('compareModelIds', compareModelIds.value)
-          }
-        }
-        compareModelIds.value = normalizeCompareIds(
-          compareModelIds.value.filter((id) => models.value.some((m) => m.id === id))
-        )
+        const catalog = await listModels()
+        models.value = catalog.models
+        catalogStale.value = catalog.catalogStale
+        modelLoadError.value = false
+        selectedModelId.value = chooseAvailableModel(selectedModelId.value, models.value)
+        compareModelIds.value = chooseCompareModels(compareModelIds.value, models.value)
+        if (compareMode.value && compareModelIds.value.length === 0) compareMode.value = false
+        setItem('selectedModel', selectedModelId.value)
         setItem('compareModelIds', compareModelIds.value)
-        const registered = models.value.filter((m) => m.registered)
-        if (registered.length && !registered.some((m) => m.id === selectedModelId.value)) {
-          setModel(registered[0].id)
-        }
         modelsLoaded.value = true
       } catch {
         modelsLoaded.value = false
+        modelLoadError.value = true
       } finally {
         modelsLoadPromise = null
       }
@@ -133,15 +78,28 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function setModel(id) {
     if (compareMode.value) return
-    if (!ALLOWED_MODEL_IDS.includes(id)) return
-    const m = models.value.find((x) => x.id === id)
-    if (m && m.registered === false) return
+    if (!models.value.some((model) => model.id === id)) return
     selectedModelId.value = id
     setItem('selectedModel', id)
+    void loadModelDetail(id)
+  }
+
+  /** Refreshes metadata for an already-authorized dynamic catalog model. */
+  async function loadModelDetail(id) {
+    if (!models.value.some((model) => model.id === id)) return null
+    try {
+      const detail = await getModel(id)
+      if (!detail) return null
+      const index = models.value.findIndex((model) => model.id === id)
+      if (index >= 0) models.value[index] = { ...models.value[index], ...detail }
+      return detail
+    } catch {
+      return null
+    }
   }
 
   function setCompareMode(val) {
-    if (models.value.length <= 1) {
+    if (models.value.length < 2) {
       compareMode.value = false
       setItem('compareMode', false)
       return
@@ -149,17 +107,14 @@ export const useSettingsStore = defineStore('settings', () => {
     compareMode.value = val
     setItem('compareMode', val)
     if (val && compareModelIds.value.length < 2) {
-      const next = normalizeCompareIds([selectedModelId.value, ...ALL_MODEL_IDS])
-      compareModelIds.value = next.slice(0, Math.max(2, next.length))
+      const next = chooseCompareModels([selectedModelId.value, ...models.value.map((model) => model.id)], models.value)
+      compareModelIds.value = next
       setItem('compareModelIds', compareModelIds.value)
     }
   }
 
   function setCompareModelIds(ids) {
-    const next = normalizeCompareIds(ids).filter((id) => {
-      const m = models.value.find((x) => x.id === id)
-      return m?.registered !== false
-    })
+    const next = chooseCompareModels(ids, models.value)
     if (!next.length) return
     compareModelIds.value = next
     setItem('compareModelIds', next)
@@ -194,12 +149,15 @@ export const useSettingsStore = defineStore('settings', () => {
   return {
     models,
     modelsLoaded,
+    catalogStale,
+    modelLoadError,
     selectedModelId,
     compareMode,
     compareModelIds,
     selectedScenarioId,
     modelParams,
     loadModels,
+    loadModelDetail,
     setModel,
     setCompareMode,
     setCompareModelIds,

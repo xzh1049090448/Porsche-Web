@@ -2,18 +2,22 @@ import { getAuthToken, USE_MOCK } from './request'
 import { mockApi } from './mock'
 import { readPlatformChatStream, readPlatformCompareStream } from '@/utils/sse'
 import request from './request'
+import { catalogModels } from '@/utils/model-catalog'
 
 const PREFIX = '/api/v1/platform'
 
 export async function listModels() {
   if (USE_MOCK) {
-    const { MODELS } = await import('@/constants/models')
-    return MODELS.map((m) => ({ ...m, registered: true }))
+    return { models: await mockApi.listModels(), catalogStale: false }
   }
   const res = await request.get(`${PREFIX}/models`)
-  const { mapModel } = await import('@/utils/api-mapper')
-  const rawList = Array.isArray(res) ? res : (res.models || res.items || [])
-  return rawList.map(mapModel)
+  return { models: catalogModels(res), catalogStale: res?.catalog_stale === true }
+}
+
+/** Reads an authorized model detail from the local platform API. */
+export async function getModel(id) {
+  const res = await request.get(`${PREFIX}/models/${encodeURIComponent(id)}`)
+  return catalogModels({ data: [res] })[0] || null
 }
 
 /**

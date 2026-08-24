@@ -57,6 +57,21 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /** Records a single compare-model failure without replacing successful siblings. */
+  function markCompareModelFailure(conv, msgId, model, message) {
+    const cIdx = conversations.value.findIndex((item) => item.id === conv.id)
+    if (cIdx < 0) return
+    const messages = conversations.value[cIdx].messages || []
+    const mIdx = messages.findIndex((messageItem) => messageItem.id === msgId)
+    if (mIdx < 0) return
+    const current = messages[mIdx]
+    const replies = { ...(current.replies || {}) }
+    if (!replies[model]) replies[model] = `${useLocaleStore().t('chat.errorPrefix')} ${message}`
+    const nextMessages = [...messages]
+    nextMessages[mIdx] = { ...current, replies }
+    conversations.value[cIdx] = { ...conversations.value[cIdx], messages: nextMessages }
+  }
+
   /** 刷新后保留已流式展示的 replies（避免服务端一次性覆盖导致“突然整段出现”） */
   function mergeLastMultiModelReplies(convId, msgId, localReplies) {
     if (!localReplies || !Object.keys(localReplies).length) return
@@ -346,6 +361,11 @@ export const useChatStore = defineStore('chat', () => {
           onModelChunk({ model, delta }) {
             patchCompareReply(conv, assistantMsg.id, model, delta)
           },
+          onModelResult(result) {
+            if (result?.error) {
+              markCompareModelFailure(conv, assistantMsg.id, result.model, result.error)
+            }
+          },
           onDone(meta) {
             if (meta?.conversationId != null) {
               conversationId = meta.conversationId
@@ -386,7 +406,7 @@ export const useChatStore = defineStore('chat', () => {
         mergeLastMultiModelReplies(conv.id, assistantMsg.id, streamedReplies)
       }
     } catch (err) {
-      const msg = err?.response?.data?.detail || err?.message || useLocaleStore().t('chat.compareFailed')
+      const msg = useLocaleStore().t('chat.compareFailed')
       const next = { ...assistantMsg.replies }
       for (const id of modelIds) {
         next[id] = `${useLocaleStore().t('chat.errorPrefix')} ${msg}`

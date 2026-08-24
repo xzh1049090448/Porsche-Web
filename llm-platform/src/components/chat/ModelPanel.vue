@@ -1,5 +1,7 @@
 <template>
   <div class="model-panel">
+    <p v-if="settings.modelLoadError" class="catalog-status is-error">{{ t('model.catalogUnavailable') }}</p>
+    <p v-else-if="settings.catalogStale" class="catalog-status">{{ t('model.catalogStale') }}</p>
     <div class="panel-title">
       <el-icon><Cpu /></el-icon>
       {{ t('model.select') }}
@@ -20,7 +22,7 @@
         class="model-item"
         :class="{ active: settings.selectedModelId === m.id }"
         :aria-checked="settings.selectedModelId === m.id"
-        :disabled="settings.compareMode || (settings.modelsLoaded && m.registered === false)"
+        :disabled="settings.compareMode"
         @click="onSingleModelChange(m.id)"
       >
         <span class="model-icon">{{ m.icon }}</span>
@@ -28,11 +30,7 @@
           <span class="model-name">{{ m.name }}</span>
           <span class="model-desc">{{ modelDesc(m) }}</span>
         </span>
-        <span
-          v-if="settings.modelsLoaded && m.registered === false"
-          class="type-tag tag-warning"
-        >{{ t('model.unregistered') }}</span>
-        <span v-else class="type-tag" :style="{ background: typeTag(m).color }">
+        <span class="type-tag" :style="{ background: typeTag(m).color }">
           {{ typeTag(m).label }}
         </span>
       </button>
@@ -76,7 +74,6 @@
               v-for="m in settings.models"
               :key="m.id"
               :value="m.id"
-              :disabled="settings.modelsLoaded && m.registered === false"
               class="compare-check"
             >
               <span class="model-icon sm">{{ m.icon }}</span>
@@ -95,8 +92,12 @@ import { ElMessage } from 'element-plus'
 import { Cpu } from '@element-plus/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
 import { SCENARIO_PRESETS } from '@/constants/scenario-presets'
-import { MODEL_TYPE_TAGS } from '@/constants/models'
 import { useI18n } from '@/composables/useI18n'
+
+const MODEL_TYPE_TAGS = {
+  chat: { color: 'var(--tag-chat)' },
+  multimodal: { color: 'var(--tag-multimodal)' },
+}
 
 const settings = useSettingsStore()
 const { t } = useI18n()
@@ -125,7 +126,6 @@ function typeTag(m) {
 
 function onSingleModelChange(id) {
   if (settings.compareMode) return
-  if (settings.modelsLoaded && settings.models.find((m) => m.id === id)?.registered === false) return
   settings.setModel(id)
 }
 
@@ -141,6 +141,17 @@ function onCompareModelsChange(ids) {
 <style scoped lang="scss">
 .model-panel {
   padding: 16px 12px;
+}
+
+.catalog-status {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-secondary);
+
+  &.is-error {
+    color: var(--danger);
+  }
 }
 
 .panel-title {

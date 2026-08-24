@@ -1,6 +1,6 @@
 import request, { USE_MOCK } from './request'
 import { mockApi } from './mock'
-import { mapOrder, mapPlan } from '@/utils/api-mapper'
+import { mapOrder, mapPlan } from '@/utils/platform-mappers'
 import { getUsageStats } from './users'
 
 const PREFIX = '/api/v1/billing'

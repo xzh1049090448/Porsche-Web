@@ -1,10 +1,14 @@
 /** 开发环境 Mock：设置 VITE_USE_MOCK=true 启用 */
 import { getItem, setItem, removeItem } from '@/utils/storage'
-import { MODELS } from '@/constants/models'
 import { PLANS } from '@/constants/plans'
 import { FIXED_LOGIN_PHONE, FIXED_LOGIN_PASSWORD } from '@/constants/auth'
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms))
+
+const MOCK_MODELS = [
+  { id: 'demo-chat', name: 'Demo Chat', desc: '本地演示模型', vendor: 'Demo', icon: 'D', type: 'chat', multimodal: false },
+  { id: 'demo-reasoning', name: 'Demo Reasoning', desc: '本地演示推理模型', vendor: 'Demo', icon: 'D', type: 'chat', multimodal: false },
+]
 
 function genId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
@@ -21,6 +25,10 @@ function ensureConvStore() {
 }
 
 export const mockApi = {
+  async listModels() {
+    await delay(100)
+    return MOCK_MODELS.map((model) => ({ ...model }))
+  },
   async loginSms({ phone, code }) {
     await delay(600)
     if (!/^1\d{10}$/.test(phone)) throw new Error('手机号格式不正确')
@@ -211,7 +219,7 @@ export const mockApi = {
   },
 
   async streamChat({ modelId, content, onChunk, onDone, onMeta }) {
-    const model = MODELS.find((m) => m.id === modelId)
+    const model = MOCK_MODELS.find((m) => m.id === modelId)
     if (onMeta) {
       onMeta({})
     }
@@ -233,7 +241,7 @@ export const mockApi = {
     const staggerMs = [0, 300, 600]
     const jobs = modelIds.map(async (id, index) => {
       await delay(staggerMs[index] ?? index * 300)
-      const model = MODELS.find((m) => m.id === id)
+      const model = MOCK_MODELS.find((m) => m.id === id)
       const text = MOCK_RESPONSES.compare(model?.name || id) + `\n\n${content.slice(0, 80)}...`
       for (const ch of text) {
         await delay(14 + Math.random() * 10)
