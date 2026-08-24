@@ -97,19 +97,20 @@ if [ "${NODE_MAJOR}" -lt 18 ]; then
 fi
 info "Node $(node -v) · npm $(npm -v) · 分支 ${BRANCH}"
 
-if [ "${SKIP_NGINX}" != "1" ]; then
-  need_cmd nginx "Web 服务器"
-  if ! nginx -t >/dev/null 2>&1; then
-    err "nginx 配置自检失败，请先修复 nginx。"
-    exit 1
-  fi
-fi
-
-# 需要 root（写 /var/www 与 /etc/nginx）
+# 需要 root（写 /var/www 与 /etc/nginx，且 nginx -t 需访问 /var/log/nginx、/run/nginx.pid）
 if [ "$(id -u)" -ne 0 ]; then
   err "部署需要 root 权限（写入 ${DEPLOY_DIR} 与 nginx 配置）。"
   err "请用 sudo 执行，或通过 DEPLOY_DIR 指定用户可写目录。"
   exit 1
+fi
+
+if [ "${SKIP_NGINX}" != "1" ]; then
+  need_cmd nginx "Web 服务器"
+  if ! nginx -t >/dev/null 2>&1; then
+    err "nginx 配置自检失败，请先修复 nginx。"
+    err "可运行 sudo nginx -t 查看详细信息。"
+    exit 1
+  fi
 fi
 
 info "前置检查通过。"
