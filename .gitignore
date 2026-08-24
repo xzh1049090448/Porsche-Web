@@ -16,3 +16,9 @@ clean-state-checklist.md
 # 本地草图会话与隔离工作区
 .superpowers/
 .worktrees/
+
+# 本地 agent 工具产物（不入库）
+.claw/
+.clawd-todos.json
+.sandbox-home/
+.sandbox-tmp/
