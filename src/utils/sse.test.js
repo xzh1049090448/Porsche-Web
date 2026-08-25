@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parsePlatformEvent, readPlatformCompareStream } from './sse.js'
+import { parsePlatformEvent, readPlatformChatStream, readPlatformCompareStream } from './sse.js'
 
 test('parsePlatformEvent reads white-label compare chunk and model lifecycle events', () => {
   assert.deepEqual(
@@ -48,4 +48,52 @@ test('readPlatformCompareStream preserves successful siblings when one model emi
 
   assert.deepEqual(chunks, [{ model: 'a', delta: 'A' }])
   assert.deepEqual(results, [{ model: 'b', error: '服务暂不可用' }, { model: 'a' }])
+})
+
+test('readPlatformChatStream uses conversation_guid metadata without retired dataset fields', async () => {
+  const encoder = new TextEncoder()
+  const response = new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode('data: {"type":"meta","conversation_guid":"903496573054181376","dataset_used":true}\n\ndata: {"type":"done","conversation_guid":"903496573054181376","dataset_attribution":"legacy","tokens":12}\n\n'))
+      controller.close()
+    },
+  }), { status: 200 })
+  const events = []
+  await readPlatformChatStream(response, {
+    onMeta: (meta) => events.push(['meta', meta]),
+    onDone: (meta) => events.push(['done', meta]),
+  })
+
+  assert.deepEqual(events, [
+    ['meta', { conversationGuid: '903496573054181376' }],
+    ['done', { conversationGuid: '903496573054181376', tokens: 12, totalTokensUsed: undefined }],
+  ])
+})
+
+test('SSE metadata rejects numeric, null, and blank conversation_guid values', async () => {
+  const invalidGuids = [903496573054181376, null, '', '   ']
+
+  for (const conversation_guid of invalidGuids) {
+    const encoder = new TextEncoder()
+    const response = new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'meta', conversation_guid })}\n\n`))
+        controller.close()
+      },
+    }), { status: 200 })
+    const meta = []
+    await readPlatformChatStream(response, { onMeta: (event) => meta.push(event) })
+    assert.deepEqual(meta, [{ conversationGuid: null }])
+  }
+})
+
+test('401 SSE handling never forwards an upstream secret detail', async () => {
+  const response = new Response(JSON.stringify({ detail: 'Authorization=Bearer secret prompt=private' }), { status: 401 })
+  let unauthorizedArguments
+
+  await readPlatformChatStream(response, {
+    onUnauthorized: (...args) => { unauthorizedArguments = args },
+  })
+
+  assert.deepEqual(unauthorizedArguments, [])
 })

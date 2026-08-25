@@ -1,15 +1,17 @@
 /**
  * 解析平台 SSE：首包 meta + OpenAI 兼容 delta
  */
-async function readUnauthorizedDetail(response) {
-  try {
-    const err = await response.json()
-    if (typeof err.detail === 'string') return err.detail
-  } catch {
-    /* ignore */
+function mapConversationGuid(value) {
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+async function handleSSEUnauthorized(onUnauthorized) {
+  if (onUnauthorized) {
+    await onUnauthorized()
+    return
   }
-  const { useLocaleStore } = await import('@/stores/locale')
-  return useLocaleStore().t('auth.sessionExpired')
+  const { handleUnauthorized } = await import('./auth-redirect.js')
+  await handleUnauthorized()
 }
 
 async function readPlatformFailure(response) {
@@ -103,11 +105,10 @@ async function consumePlatformSSE(response, onEvent) {
   dispatch()
 }
 
-export async function readPlatformChatStream(response, { onMeta, onChunk, onDone, onError }) {
+export async function readPlatformChatStream(response, { onMeta, onChunk, onDone, onError, onUnauthorized }) {
   if (!response.ok) {
     if (response.status === 401) {
-      const { handleUnauthorized } = await import('@/utils/auth-redirect')
-      await handleUnauthorized(await readUnauthorizedDetail(response))
+      await handleSSEUnauthorized(onUnauthorized)
       return
     }
     onError?.(await readPlatformFailure(response))
@@ -122,7 +123,7 @@ export async function readPlatformChatStream(response, { onMeta, onChunk, onDone
       if (data === '[DONE]') return
       const parsed = parsePlatformEvent(event, data)
       if (parsed?.kind === 'meta') {
-        meta = { conversationId: parsed.payload.conversation_id, datasetUsed: parsed.payload.dataset_used, datasetBadge: parsed.payload.dataset_attribution }
+        meta = { conversationGuid: mapConversationGuid(parsed.payload.conversation_guid) }
         onMeta?.(meta)
       } else if (parsed?.kind === 'done') {
         meta = { ...meta, tokens: parsed.payload.tokens ?? 0, totalTokensUsed: parsed.payload.total_tokens_used }
@@ -143,12 +144,11 @@ export async function readPlatformChatStream(response, { onMeta, onChunk, onDone
 /** 解析模型对比 SSE：流式 model_chunk，结束后推送 done */
 export async function readPlatformCompareStream(
   response,
-  { onModelChunk, onModelResult, onDone, onError }
+  { onModelChunk, onModelResult, onDone, onError, onUnauthorized }
 ) {
   if (!response.ok) {
     if (response.status === 401) {
-      const { handleUnauthorized } = await import('@/utils/auth-redirect')
-      await handleUnauthorized(await readUnauthorizedDetail(response))
+      await handleSSEUnauthorized(onUnauthorized)
       return
     }
     onError?.(await readPlatformFailure(response))
@@ -166,7 +166,7 @@ export async function readPlatformCompareStream(
       else if (parsed?.kind === 'modelDone') onModelResult?.({ model: parsed.model })
       else if (parsed?.kind === 'modelError') onModelResult?.({ model: parsed.model, error: parsed.message })
       else if (parsed?.kind === 'done') {
-        doneMeta = { conversationId: parsed.payload.conversation_id, datasetAttribution: parsed.payload.dataset_attribution, datasetUsed: parsed.payload.dataset_used, tokens: parsed.payload.tokens ?? 0, totalTokensUsed: parsed.payload.total_tokens_used }
+        doneMeta = { conversationGuid: mapConversationGuid(parsed.payload.conversation_guid), tokens: parsed.payload.tokens ?? 0, totalTokensUsed: parsed.payload.total_tokens_used }
         onDone?.(doneMeta)
         doneCalled = true
       } else if (parsed?.kind === 'error') {
