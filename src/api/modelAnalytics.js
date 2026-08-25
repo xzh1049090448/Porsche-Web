@@ -15,7 +15,7 @@ function buildParams(params = {}) {
   if (params.granularity) q.granularity = params.granularity
   if (params.models) q.models = params.models
   if (params.top_n != null) q.top_n = params.top_n
-  if (params.user_id != null) q.user_id = params.user_id
+  if (params.user_guid != null) q.user_guid = params.user_guid
   return q
 }
 

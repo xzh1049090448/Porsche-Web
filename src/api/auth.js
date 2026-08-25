@@ -1,6 +1,7 @@
 import request, { USE_MOCK } from './request'
 import { mockApi } from './mock'
 import { getProfile } from './users'
+import { optionalGuid } from './guid'
 
 const PREFIX = '/api/v1/auth'
 
@@ -35,7 +36,7 @@ export async function loginAndLoadProfile(loginFn, payload) {
   return {
     token: tokenRes.access_token,
     user: profile,
-    userId: tokenRes.user_id,
+    userGuid: optionalGuid(tokenRes.user_guid),
     planType: tokenRes.plan_type,
   }
 }

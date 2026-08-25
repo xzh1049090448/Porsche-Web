@@ -66,10 +66,10 @@ test('gateway token adapter uses only the implemented token CRUD paths and metho
 
   assert.match(source, /const PREFIX = '\/api\/v1\/tokens'/)
   assert.match(source, /request\.get\(PREFIX\)/)
-  assert.match(source, /request\.get\(`\$\{PREFIX\}\/\$\{id\}`\)/)
+  assert.match(source, /request\.get\(`\$\{PREFIX\}\/\$\{encodeURIComponent\(requiredGuid\(guid, 'token GUID'\)\)\}`\)/)
   assert.match(source, /request\.post\(PREFIX, body\)/)
-  assert.match(source, /request\.patch\(`\$\{PREFIX\}\/\$\{id\}`, body\)/)
-  assert.match(source, /request\.post\(`\$\{PREFIX\}\/\$\{id\}\/revoke`\)/)
+  assert.match(source, /request\.patch\(`\$\{PREFIX\}\/\$\{encodeURIComponent\(requiredGuid\(guid, 'token GUID'\)\)\}`, body\)/)
+  assert.match(source, /request\.post\(`\$\{PREFIX\}\/\$\{encodeURIComponent\(requiredGuid\(guid, 'token GUID'\)\)\}\/revoke`\)/)
 })
 
 test('API key route and all navigation variants expose the protected page', async () => {

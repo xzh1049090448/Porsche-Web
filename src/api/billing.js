@@ -2,6 +2,7 @@ import request, { USE_MOCK } from './request'
 import { mockApi } from './mock'
 import { mapOrder, mapPlan } from '@/utils/platform-mappers'
 import { getUsageStats } from './users'
+import { requiredGuid } from './guid'
 
 const PREFIX = '/api/v1/billing'
 
@@ -34,9 +35,10 @@ export async function createOrder(planType) {
   return mapOrder(raw)
 }
 
-export async function payOrder(orderId) {
-  if (USE_MOCK) return mockApi.payOrder(orderId)
-  const raw = await request.post(`${PREFIX}/orders/${orderId}/pay`)
+export async function payOrder(orderGuid) {
+  const guid = requiredGuid(orderGuid, 'order GUID')
+  if (USE_MOCK) return mockApi.payOrder(guid)
+  const raw = await request.post(`${PREFIX}/orders/${encodeURIComponent(guid)}/pay`)
   return mapOrder(raw)
 }
 
@@ -44,10 +46,11 @@ export async function payOrder(orderId) {
 export async function purchaseAndPay(planType) {
   const order = await createOrder(planType)
   if (order.status === 'paid') return order
-  return payOrder(order.id)
+  return payOrder(order.guid)
 }
 
-export function applyInvoice(orderId) {
-  if (USE_MOCK) return Promise.resolve({ message: '发票申请已提交', order_no: `ORD${orderId}` })
-  return request.post(`${PREFIX}/invoice`, { order_id: orderId })
+export function applyInvoice(orderGuid) {
+  const guid = requiredGuid(orderGuid, 'order GUID')
+  if (USE_MOCK) return Promise.resolve({ message: '发票申请已提交', order_no: `ORD${guid}` })
+  return request.post(`${PREFIX}/invoice`, { order_guid: guid })
 }

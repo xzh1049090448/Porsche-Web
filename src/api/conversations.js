@@ -1,6 +1,7 @@
 import request, { USE_MOCK } from './request'
 import { mockApi } from './mock'
 import { mapConversation } from '@/utils/platform-mappers'
+import { requiredGuid } from './guid'
 
 const PREFIX = '/api/v1/conversations'
 
@@ -18,36 +19,38 @@ export async function createConversation(body) {
   const raw = await request.post(PREFIX, {
     title: body.title,
     model: body.model,
-    dataset_enabled: body.datasetEnabled,
-    dataset_ids: body.datasetIds,
   })
   return mapConversation(raw)
 }
 
-export async function getConversation(id) {
-  if (USE_MOCK) return mockApi.getConversation(id)
-  const raw = await request.get(`${PREFIX}/${id}`)
+export async function getConversation(guid) {
+  const conversationGuid = requiredGuid(guid, 'conversation GUID')
+  if (USE_MOCK) return mockApi.getConversation(conversationGuid)
+  const raw = await request.get(`${PREFIX}/${encodeURIComponent(conversationGuid)}`)
   return mapConversation(raw)
 }
 
-export async function updateConversationTitle(id, title) {
-  if (USE_MOCK) return mockApi.renameConversation(id, title)
-  const raw = await request.put(`${PREFIX}/${id}`, { title })
+export async function updateConversationTitle(guid, title) {
+  const conversationGuid = requiredGuid(guid, 'conversation GUID')
+  if (USE_MOCK) return mockApi.renameConversation(conversationGuid, title)
+  const raw = await request.put(`${PREFIX}/${encodeURIComponent(conversationGuid)}`, { title })
   return mapConversation(raw)
 }
 
-export async function deleteConversation(id) {
-  if (USE_MOCK) return mockApi.deleteConversation(id)
-  return request.delete(`${PREFIX}/${id}`)
+export async function deleteConversation(guid) {
+  const conversationGuid = requiredGuid(guid, 'conversation GUID')
+  if (USE_MOCK) return mockApi.deleteConversation(conversationGuid)
+  return request.delete(`${PREFIX}/${encodeURIComponent(conversationGuid)}`)
 }
 
-export async function exportConversationMarkdown(id) {
+export async function exportConversationMarkdown(guid) {
+  const conversationGuid = requiredGuid(guid, 'conversation GUID')
   if (USE_MOCK) {
-    const conv = await mockApi.getConversation(id)
+    const conv = await mockApi.getConversation(conversationGuid)
     const { exportToMarkdown } = await import('@/utils/export')
     return exportToMarkdown(conv)
   }
-  const res = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/${id}/export/markdown`, {
+  const res = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/${encodeURIComponent(conversationGuid)}/export/markdown`, {
     headers: {
       Authorization: `Bearer ${(await import('@/utils/storage')).getItem('token')}`,
     },
@@ -55,13 +58,7 @@ export async function exportConversationMarkdown(id) {
   if (res.status === 401) {
     const { handleUnauthorized } = await import('@/utils/auth-redirect')
     const { useLocaleStore } = await import('@/stores/locale')
-    let detail = useLocaleStore().t('auth.sessionExpired')
-    try {
-      const err = await res.json()
-      if (typeof err.detail === 'string') detail = err.detail
-    } catch {
-      /* ignore */
-    }
+    const detail = useLocaleStore().t('auth.sessionExpired')
     await handleUnauthorized(detail)
     throw new Error(detail)
   }

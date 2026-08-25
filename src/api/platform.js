@@ -3,6 +3,7 @@ import { mockApi } from './mock'
 import { readPlatformChatStream, readPlatformCompareStream } from '@/utils/sse'
 import request from './request'
 import { catalogModels } from '@/utils/model-catalog'
+import { optionalGuid } from './guid'
 
 const PREFIX = '/api/v1/platform'
 
@@ -38,13 +39,11 @@ export async function streamPlatformChat(body, callbacks) {
   const payload = {
     model: body.model,
     messages: body.messages,
-    conversation_id: body.conversation_id ?? null,
+    conversation_guid: optionalGuid(body.conversationGuid),
     temperature: body.temperature,
     max_tokens: body.max_tokens,
     context_window: body.context_window,
     stream: true,
-    dataset_enabled: false,
-    dataset_ids: null,
   }
 
   const response = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/chat/completions`, {
@@ -73,19 +72,17 @@ export async function comparePlatformChat(body, callbacks = {}) {
     callbacks.onDone?.({
       tokens: estTokens,
     })
-    return { results: [], conversationId: null }
+    return { results: [], conversationGuid: null }
   }
 
   const payload = {
     models: body.models,
     messages: body.messages,
-    conversation_id: body.conversation_id ?? null,
+    conversation_guid: optionalGuid(body.conversationGuid),
     temperature: body.temperature,
     max_tokens: body.max_tokens,
     context_window: body.context_window,
     stream: true,
-    dataset_enabled: false,
-    dataset_ids: null,
   }
 
   const response = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/chat/compare`, {
@@ -110,6 +107,6 @@ export async function comparePlatformChat(body, callbacks = {}) {
 
   return {
     results,
-    conversationId: null,
+    conversationGuid: null,
   }
 }

@@ -10,14 +10,17 @@ const MOCK_MODELS = [
   { id: 'demo-reasoning', name: 'Demo Reasoning', desc: '本地演示推理模型', vendor: 'Demo', icon: 'D', type: 'chat', multimodal: false },
 ]
 
-function genId() {
-  return `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+let nextMockGuid = 903496573054181376n
+
+function genGuid() {
+  nextMockGuid += 1n
+  return nextMockGuid.toString()
 }
 
 const MOCK_RESPONSES = {
   default:
     '您好！我是中国大模型聚合平台的 AI 助手，当前由智谱 GLM 与 DeepSeek V4 Flash 提供对话能力。',
-  compare: (modelName) => `【${modelName}】针对您的问题，结合通用知识库给出参考回答。（演示模式）`,
+  compare: (modelName) => `【${modelName}】针对您的问题给出参考回答。（演示模式）`,
 }
 
 function ensureConvStore() {
@@ -33,15 +36,15 @@ export const mockApi = {
     await delay(600)
     if (!/^1\d{10}$/.test(phone)) throw new Error('手机号格式不正确')
     if (code !== '123456') throw new Error('验证码错误（演示环境请输入 123456）')
-    const token = 'mock_token_' + genId()
+    const token = 'mock_token_' + genGuid()
     setItem('user', {
-      id: 1,
+      guid: '903496573054181376',
       phone,
       nickname: `用户${phone.slice(-4)}`,
       verified: false,
       plan: 'free',
     })
-    return { access_token: token, user_id: 1, plan_type: 'free' }
+    return { access_token: token, user_guid: '903496573054181376', plan_type: 'free' }
   },
 
   async loginPassword({ account, password }) {
@@ -49,15 +52,15 @@ export const mockApi = {
     if (account !== FIXED_LOGIN_PHONE || password !== FIXED_LOGIN_PASSWORD) {
       throw new Error(`账号或密码错误（演示：${FIXED_LOGIN_PHONE} / ${FIXED_LOGIN_PASSWORD}）`)
     }
-    const token = 'mock_token_' + genId()
+    const token = 'mock_token_' + genGuid()
     setItem('user', {
-      id: 1,
+      guid: '903496573054181376',
       phone: account,
       nickname: account.slice(-4),
       verified: true,
       plan: 'professional',
     })
-    return { access_token: token, user_id: 1, plan_type: 'professional' }
+    return { access_token: token, user_guid: '903496573054181376', plan_type: 'professional' }
   },
 
   async sendSms(phone) {
@@ -90,7 +93,6 @@ export const mockApi = {
     await delay(200)
     return {
       totalTokens: 128450,
-      datasetCalls: 342,
       remainingQuota: 68,
       dailyLimit: 100,
       plan: getItem('user')?.plan || 'free',
@@ -120,7 +122,7 @@ export const mockApi = {
     await delay(200)
     return [
       {
-        id: 1,
+        guid: '903496573054181377',
         orderNo: 'ORD001',
         plan: 'professional',
         amount: 99,
@@ -137,8 +139,8 @@ export const mockApi = {
     const user = { ...getItem('user'), plan: planType }
     setItem('user', user)
     return {
-      id: Date.now(),
-      orderNo: 'ORD' + genId(),
+      guid: genGuid(),
+      orderNo: 'ORD' + genGuid(),
       plan: planType,
       amount: 99,
       status: 'pending',
@@ -148,13 +150,13 @@ export const mockApi = {
     }
   },
 
-  async payOrder(orderId) {
+  async payOrder(orderGuid) {
     await delay(300)
     const user = getItem('user')
     setItem('user', { ...user, plan: 'professional' })
     return {
-      id: orderId,
-      orderNo: 'ORD' + orderId,
+      guid: orderGuid,
+      orderNo: 'ORD' + orderGuid,
       plan: 'professional',
       amount: 99,
       status: 'paid',
@@ -173,11 +175,9 @@ export const mockApi = {
   async createConversation(body) {
     ensureConvStore()
     const conv = {
-      id: genId(),
+      guid: genGuid(),
       title: body.title || '新对话',
       model: body.model,
-      datasetEnabled: body.datasetEnabled,
-      datasetIds: body.datasetIds,
       messages: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -188,16 +188,16 @@ export const mockApi = {
     return conv
   },
 
-  async getConversation(id) {
+  async getConversation(guid) {
     const list = getItem('conversations', [])
-    const c = list.find((x) => x.id === id)
+    const c = list.find((x) => x.guid === guid)
     if (!c) throw new Error('对话不存在')
     return c
   },
 
-  async renameConversation(id, title) {
+  async renameConversation(guid, title) {
     const list = getItem('conversations', [])
-    const c = list.find((x) => x.id === id)
+    const c = list.find((x) => x.guid === guid)
     if (c) {
       c.title = title
       c.updatedAt = Date.now()
@@ -206,14 +206,14 @@ export const mockApi = {
     return c
   },
 
-  async deleteConversation(id) {
-    const list = getItem('conversations', []).filter((c) => c.id !== id)
+  async deleteConversation(guid) {
+    const list = getItem('conversations', []).filter((c) => c.guid !== guid)
     if (list.length) {
       setItem('conversations', list)
     } else {
       removeItem('conversations')
     }
-    if (getItem('activeConversation') === id) {
+    if (getItem('activeConversation') === guid) {
       removeItem('activeConversation')
     }
   },
