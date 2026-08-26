@@ -14,7 +14,7 @@
 | `granularity` | string | `1h` \| `2h`（默认）\| `4h` \| `1d` |
 | `models` | string | 逗号分隔模型名，空=全部 |
 | `top_n` | int | 排行类默认 10 |
-| `user_id` | int | 用户消耗趋势专用 |
+| `user_guid` | string | 用户消耗趋势专用的业务 GUID |
 
 ## 1. GET `/access`
 
@@ -63,7 +63,7 @@
 - `call_distribution` — 饼图（各模型调用占比）
 - `call_ranking` — 横向柱状（模型调用 Top N）
 - `user_consumption_ranking` — 横向柱状（用户消耗 Top N，手机号脱敏）
-- `user_consumption_trend` — 折线（指定 user_id 消耗趋势，需 `user_id`）
+- `user_consumption_trend` — 折线（指定 `user_guid` 消耗趋势，需 `user_guid`）
 
 **Response 200**
 ```json
@@ -91,7 +91,7 @@
 说明：
 - `series` 用于时序/堆叠类图表；`ranking` 用于排行/饼图类
 - `cost = tokens * token_price_per_1k / 1000`（后端 settings 配置）
-- 用户排行 `label` 为脱敏手机号如 `138****8000`
+- 用户排行 `key` 为字符串用户 GUID；`label` 为昵称或 `用户 #<guid>`，不得返回手机号。
 
 ## 5. GET `/export`
 
