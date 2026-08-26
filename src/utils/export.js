@@ -20,12 +20,22 @@ export function downloadFile(content, filename, mime = 'text/markdown;charset=ut
   URL.revokeObjectURL(url)
 }
 
+function escapeHTML(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 /** 简易 PDF：通过打印窗口（浏览器原生） */
 export function exportToPdf(conversation) {
+  const title = escapeHTML(conversation.title || '对话记录')
   const html = `
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8"><title>${conversation.title || '对话记录'}</title>
+<head><meta charset="UTF-8"><title>${title}</title>
 <style>
   body { font-family: "Microsoft YaHei", sans-serif; padding: 24px; line-height: 1.6; }
   h1 { font-size: 20px; }
@@ -35,15 +45,19 @@ export function exportToPdf(conversation) {
   .badge { font-size: 12px; color: #67c23a; margin-top: 8px; }
 </style></head>
 <body>
-  <h1>${conversation.title || '对话记录'}</h1>
+  <h1>${title}</h1>
   <p style="color:#909399;font-size:12px">导出时间：${new Date().toLocaleString('zh-CN')}</p>
   ${(conversation.messages || [])
     .map(
-      (m) => `
-    <div class="msg ${m.role}">
-      <strong>${m.role === 'user' ? '用户' : '助手'}</strong>
-      <div>${m.content.replace(/\n/g, '<br>')}</div>
+      (m) => {
+        const role = m.role === 'user' ? 'user' : 'assistant'
+        const content = escapeHTML(m.content).replace(/\n/g, '<br>')
+        return `
+    <div class="msg ${role}">
+      <strong>${role === 'user' ? '用户' : '助手'}</strong>
+      <div>${content}</div>
     </div>`
+      }
     )
     .join('')}
 </body></html>`
