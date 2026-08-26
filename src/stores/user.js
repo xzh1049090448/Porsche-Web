@@ -82,7 +82,6 @@ export const useUserStore = defineStore('user', () => {
       user.value = {
         ...user.value,
         totalTokensUsed: stats.totalTokens,
-        datasetCalls: stats.datasetCalls,
       }
       setItem('user', user.value)
     }

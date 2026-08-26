@@ -14,6 +14,11 @@ import { useSettingsStore } from './settings'
 import { useUserStore } from './user'
 import { useLocaleStore } from './locale'
 import { purgeConversationFromLocal } from '@/utils/conversation-cache'
+import {
+  applyConversationGuid,
+  removeConversationByGuid,
+  upsertConversationByGuid,
+} from '@/utils/conversation-state'
 import { toApiMessageContent } from '@/utils/multi-model-message'
 
 function genLocalId() {
@@ -34,17 +39,17 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function getActive() {
-    return conversations.value.find((c) => c.id === activeId.value) || null
+    return conversations.value.find((c) => c.guid === activeId.value) || null
   }
 
   /** 对比流式：显式更新 store 中的消息，确保界面逐字刷新 */
   function patchCompareReply(conv, msgId, model, delta) {
     if (!delta) return
-    const convId = conv.id
-    const cIdx = conversations.value.findIndex((c) => c.id === convId)
+    const conversationGuid = conv.guid
+    const cIdx = conversations.value.findIndex((c) => c.guid === conversationGuid)
     if (cIdx < 0) return
     const msgs = conversations.value[cIdx].messages || []
-    const mIdx = msgs.findIndex((m) => m.id === msgId)
+    const mIdx = msgs.findIndex((m) => m.localKey === msgId)
     if (mIdx < 0) return
     const msg = msgs[mIdx]
     const replies = { ...(msg.replies || {}) }
@@ -59,10 +64,10 @@ export const useChatStore = defineStore('chat', () => {
 
   /** Records a single compare-model failure without replacing successful siblings. */
   function markCompareModelFailure(conv, msgId, model, message) {
-    const cIdx = conversations.value.findIndex((item) => item.id === conv.id)
+    const cIdx = conversations.value.findIndex((item) => item.guid === conv.guid)
     if (cIdx < 0) return
     const messages = conversations.value[cIdx].messages || []
-    const mIdx = messages.findIndex((messageItem) => messageItem.id === msgId)
+    const mIdx = messages.findIndex((messageItem) => messageItem.localKey === msgId)
     if (mIdx < 0) return
     const current = messages[mIdx]
     const replies = { ...(current.replies || {}) }
@@ -73,12 +78,12 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /** 刷新后保留已流式展示的 replies（避免服务端一次性覆盖导致“突然整段出现”） */
-  function mergeLastMultiModelReplies(convId, msgId, localReplies) {
+  function mergeLastMultiModelReplies(conversationGuid, msgId, localReplies) {
     if (!localReplies || !Object.keys(localReplies).length) return
-    const cIdx = conversations.value.findIndex((c) => c.id === convId)
+    const cIdx = conversations.value.findIndex((c) => c.guid === conversationGuid)
     if (cIdx < 0) return
     const msgs = conversations.value[cIdx].messages || []
-    const mIdx = msgs.findIndex((m) => m.id === msgId)
+    const mIdx = msgs.findIndex((m) => m.localKey === msgId)
     if (mIdx < 0) return
     const msg = msgs[mIdx]
     if (!msg.multiModel) return
@@ -108,7 +113,7 @@ export const useChatStore = defineStore('chat', () => {
         const { items } = await listConversations({ limit: 100 })
         conversations.value = items
         if (!activeId.value && items.length) {
-          activeId.value = items[0].id
+          activeId.value = items[0].guid
         }
       } finally {
         loading.value = false
@@ -124,18 +129,16 @@ export const useChatStore = defineStore('chat', () => {
     const body = {
       title: title || localeStore.t('chat.defaultTitle'),
       model: settings.selectedModelId,
-      datasetEnabled: false,
-      datasetIds: null,
     }
     const conv = await apiCreateConversation(body)
-    conversations.value.unshift(conv)
-    activeId.value = conv.id
+    conversations.value = upsertConversationByGuid(conversations.value, conv)
+    activeId.value = conv.guid
     persistLocal()
     return conv
   }
 
-  function selectConversation(id) {
-    activeId.value = id
+  function selectConversation(conversationGuid) {
+    activeId.value = conversationGuid
     persistLocal()
     if (!USE_MOCK) refreshActiveConversation()
   }
@@ -144,19 +147,18 @@ export const useChatStore = defineStore('chat', () => {
     if (!activeId.value) return
     try {
       const conv = await getConversation(activeId.value)
-      const idx = conversations.value.findIndex((c) => c.id === conv.id)
+      const idx = conversations.value.findIndex((c) => c.guid === conv.guid)
       const local = idx >= 0 ? conversations.value[idx] : null
       if (local?.messages?.length && (!conv.messages || conv.messages.length < local.messages.length)) {
         conv.messages = local.messages
       }
-      if (idx >= 0) conversations.value[idx] = conv
-      else conversations.value.unshift(conv)
+      conversations.value = upsertConversationByGuid(conversations.value, conv)
     } catch (err) {
       if (err?.response?.status === 404) {
         const deletedId = activeId.value
-        conversations.value = conversations.value.filter((c) => c.id !== deletedId)
+        conversations.value = removeConversationByGuid(conversations.value, deletedId)
         purgeConversationFromLocal(deletedId)
-        activeId.value = conversations.value[0]?.id ?? null
+        activeId.value = conversations.value[0]?.guid ?? null
         persistLocal()
         if (!conversations.value.length) {
           await createConversation()
@@ -165,9 +167,9 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function renameConversation(id, title) {
-    await updateConversationTitle(id, title)
-    const c = conversations.value.find((x) => x.id === id)
+  async function renameConversation(conversationGuid, title) {
+    await updateConversationTitle(conversationGuid, title)
+    const c = conversations.value.find((x) => x.guid === conversationGuid)
     if (c) {
       c.title = title
       c.updatedAt = Date.now()
@@ -175,18 +177,18 @@ export const useChatStore = defineStore('chat', () => {
     persistLocal()
   }
 
-  async function deleteConversation(id) {
+  async function deleteConversation(conversationGuid) {
     if (streaming.value) {
       throw new Error(useLocaleStore().t('chat.streamingDeleteWarn'))
     }
 
-    await apiDeleteConversation(id)
+    await apiDeleteConversation(conversationGuid)
 
-    conversations.value = conversations.value.filter((c) => c.id !== id)
-    purgeConversationFromLocal(id)
+    conversations.value = removeConversationByGuid(conversations.value, conversationGuid)
+    purgeConversationFromLocal(conversationGuid)
 
-    if (activeId.value === id) {
-      activeId.value = conversations.value[0]?.id ?? null
+    if (activeId.value === conversationGuid) {
+      activeId.value = conversations.value[0]?.guid ?? null
       if (!activeId.value) {
         removeItem('activeConversation')
       }
@@ -209,7 +211,7 @@ export const useChatStore = defineStore('chat', () => {
       if (conversations.value.length === 0) {
         await createConversation()
       } else {
-        activeId.value = conversations.value[0].id
+        activeId.value = conversations.value[0].guid
         persistLocal()
       }
     }
@@ -252,7 +254,7 @@ export const useChatStore = defineStore('chat', () => {
 
     const userContent = content.trim()
     const userMsg = {
-      id: genLocalId(),
+      localKey: genLocalId(),
       role: 'user',
       content: userContent,
       images,
@@ -271,14 +273,14 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     const assistantMsg = {
-      id: genLocalId(),
+      localKey: genLocalId(),
       role: 'assistant',
       content: '',
       createdAt: Date.now(),
     }
     conv.messages.push(assistantMsg)
 
-    let conversationId = typeof conv.id === 'number' ? conv.id : null
+    let conversationGuid = typeof conv.guid === 'string' && conv.guid.trim() ? conv.guid : null
     let streamFailed = false
 
     try {
@@ -286,20 +288,18 @@ export const useChatStore = defineStore('chat', () => {
         {
           model: settings.selectedModelId,
           messages: buildMessagesForApi(conv, userContent),
-          conversation_id: conversationId,
+          conversationGuid,
           temperature: settings.modelParams.temperature,
           max_tokens: settings.modelParams.maxTokens,
           context_window: settings.modelParams.contextWindow,
-          dataset_enabled: false,
-          dataset_ids: null,
         },
         {
           onMeta(meta) {
-            if (meta.conversationId != null) {
-              conversationId = meta.conversationId
-              if (conv.id !== meta.conversationId) {
-                conv.id = meta.conversationId
-                activeId.value = meta.conversationId
+            if (meta.conversationGuid != null) {
+              conversationGuid = meta.conversationGuid
+              if (conv.guid !== meta.conversationGuid) {
+                Object.assign(conv, applyConversationGuid(conv, meta.conversationGuid))
+                activeId.value = meta.conversationGuid
               }
             }
           },
@@ -318,7 +318,7 @@ export const useChatStore = defineStore('chat', () => {
           },
         }
       )
-      if (!USE_MOCK && conversationId && !streamFailed) {
+      if (!USE_MOCK && conversationGuid && !streamFailed) {
         await refreshActiveConversation()
       }
     } finally {
@@ -333,7 +333,7 @@ export const useChatStore = defineStore('chat', () => {
     const modelIds = [...settings.compareModelIds]
 
     const assistantMsg = {
-      id: genLocalId(),
+      localKey: genLocalId(),
       role: 'assistant',
       multiModel: true,
       models: modelIds,
@@ -342,7 +342,7 @@ export const useChatStore = defineStore('chat', () => {
     }
     conv.messages.push(assistantMsg)
 
-    let conversationId = typeof conv.id === 'number' ? conv.id : null
+    let conversationGuid = typeof conv.guid === 'string' && conv.guid.trim() ? conv.guid : null
     let compareFailed = false
 
     try {
@@ -350,28 +350,26 @@ export const useChatStore = defineStore('chat', () => {
         {
           models: modelIds,
           messages: buildMessagesForApi(conv, content),
-          conversation_id: conversationId,
+          conversationGuid,
           temperature: settings.modelParams.temperature,
           max_tokens: settings.modelParams.maxTokens,
           context_window: settings.modelParams.contextWindow,
-          dataset_enabled: false,
-          dataset_ids: null,
         },
         {
           onModelChunk({ model, delta }) {
-            patchCompareReply(conv, assistantMsg.id, model, delta)
+            patchCompareReply(conv, assistantMsg.localKey, model, delta)
           },
           onModelResult(result) {
             if (result?.error) {
-              markCompareModelFailure(conv, assistantMsg.id, result.model, result.error)
+              markCompareModelFailure(conv, assistantMsg.localKey, result.model, result.error)
             }
           },
           onDone(meta) {
-            if (meta?.conversationId != null) {
-              conversationId = meta.conversationId
-              if (conv.id !== meta.conversationId) {
-                conv.id = meta.conversationId
-                activeId.value = meta.conversationId
+            if (meta?.conversationGuid != null) {
+              conversationGuid = meta.conversationGuid
+              if (conv.guid !== meta.conversationGuid) {
+                Object.assign(conv, applyConversationGuid(conv, meta.conversationGuid))
+                activeId.value = meta.conversationGuid
               }
             }
             if (meta?.tokens != null) {
@@ -390,12 +388,12 @@ export const useChatStore = defineStore('chat', () => {
         }
       )
 
-      if (!USE_MOCK && conversationId && !compareFailed) {
-        const cIdx = conversations.value.findIndex((c) => c.id === conv.id)
+      if (!USE_MOCK && conversationGuid && !compareFailed) {
+        const cIdx = conversations.value.findIndex((c) => c.guid === conv.guid)
         const mIdx =
           cIdx >= 0
             ? (conversations.value[cIdx].messages || []).findIndex(
-                (m) => m.id === assistantMsg.id
+                (m) => m.localKey === assistantMsg.localKey
               )
             : -1
         const streamedReplies =
@@ -403,7 +401,7 @@ export const useChatStore = defineStore('chat', () => {
             ? { ...(conversations.value[cIdx].messages[mIdx].replies || {}) }
             : { ...assistantMsg.replies }
         await refreshActiveConversation()
-        mergeLastMultiModelReplies(conv.id, assistantMsg.id, streamedReplies)
+        mergeLastMultiModelReplies(conv.guid, assistantMsg.localKey, streamedReplies)
       }
     } catch (err) {
       const msg = useLocaleStore().t('chat.compareFailed')

@@ -65,9 +65,9 @@
               <el-select v-model="invoiceOrderId" :placeholder="t('billing.paidOrders')" style="width: 100%">
                 <el-option
                   v-for="o in paidOrders"
-                  :key="o.id"
+                  :key="o.guid"
                   :label="`${o.orderNo} · ${o.plan} · ¥${o.amount}`"
-                  :value="o.id"
+                  :value="o.guid"
                 />
               </el-select>
             </el-form-item>
@@ -212,7 +212,7 @@ async function buy(plan) {
 }
 
 async function pay(order) {
-  await payOrder(order.id)
+  await payOrder(order.guid)
   orders.value = await getOrders()
   await userStore.fetchProfile()
   ElMessage.success(t('billing.paySuccess'))

@@ -101,7 +101,7 @@
       </el-select>
       <el-select
         v-if="activeView === 'user_consumption_trend'"
-        v-model="selectedUserId"
+        v-model="selectedUserGuid"
         size="small"
         class="user-select"
         :placeholder="t('analytics.selectUser')"
@@ -109,9 +109,9 @@
       >
         <el-option
           v-for="u in userOptions"
-          :key="u.userId"
+          :key="u.userGuid"
           :label="u.label"
-          :value="u.userId"
+          :value="u.userGuid"
         />
       </el-select>
     </div>
@@ -127,6 +127,7 @@ import { getSummary, getModels, getChart, exportExcel } from '@/api/modelAnalyti
 import { buildAnalyticsChartOption, isAnalyticsChartEmpty } from './chart-options'
 import { useI18n } from '@/composables/useI18n'
 import { useThemeStore } from '@/stores/theme'
+import { optionalGuid } from '@/api/guid'
 
 const { t } = useI18n()
 const themeStore = useThemeStore()
@@ -137,7 +138,7 @@ const allModels = ref([])
 const selectedModels = ref([])
 const chartData = ref(null)
 const userOptions = ref([])
-const selectedUserId = ref(null)
+const selectedUserGuid = ref(null)
 
 const rangePreset = ref('24h')
 const customRange = ref(null)
@@ -197,8 +198,8 @@ function queryParams() {
   if (!allSelected && selectedModels.value.length > 0) {
     p.models = selectedModels.value.join(',')
   }
-  if (activeView.value === 'user_consumption_trend' && selectedUserId.value != null) {
-    p.user_id = selectedUserId.value
+  if (activeView.value === 'user_consumption_trend' && selectedUserGuid.value != null) {
+    p.user_guid = selectedUserGuid.value
   }
   return p
 }
@@ -254,14 +255,14 @@ async function loadModels() {
 
 async function loadUsersFromRanking() {
   const params = { ...queryParams() }
-  delete params.user_id
+  delete params.user_guid
   const res = await getChart('user_consumption_ranking', params)
   userOptions.value = (res.ranking || []).map((r) => ({
-    userId: Number(r.key) || r.key,
+    userGuid: optionalGuid(r.key),
     label: r.label || String(r.key),
-  }))
-  if (selectedUserId.value == null && userOptions.value.length) {
-    selectedUserId.value = userOptions.value[0].userId
+  })).filter((user) => user.userGuid)
+  if (selectedUserGuid.value == null && userOptions.value.length) {
+    selectedUserGuid.value = userOptions.value[0].userGuid
   }
 }
 
@@ -272,7 +273,7 @@ async function refreshSummary() {
 async function refreshChart() {
   if (activeView.value === 'user_consumption_trend') {
     if (!userOptions.value.length) await loadUsersFromRanking()
-    if (selectedUserId.value == null) {
+    if (selectedUserGuid.value == null) {
       chartData.value = { time_labels: [], series: [], ranking: [] }
       await nextTick()
       renderChart()

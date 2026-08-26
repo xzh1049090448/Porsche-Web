@@ -9,6 +9,8 @@ const sourcePath = (relativePath) => fileURLToPath(new URL(relativePath, import.
 test('tokenRows removes secret fields before a token is rendered', () => {
   const rows = tokenRows([
     {
+      id: 7,
+      guid: '903496573054181376',
       token: 'sk-gw-secret',
       token_hash: 'hash',
       token_prefix: 'sk-gw-abc',
@@ -19,6 +21,8 @@ test('tokenRows removes secret fields before a token is rendered', () => {
 
   assert.equal(rows[0].token, undefined)
   assert.equal(rows[0].token_hash, undefined)
+  assert.equal(rows[0].id, undefined)
+  assert.equal(rows[0].guid, '903496573054181376')
   assert.equal(rows[0].tokenPrefix, 'sk-gw-abc')
 })
 

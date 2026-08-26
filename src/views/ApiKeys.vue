@@ -98,14 +98,14 @@ const loadError = ref(false)
 const drawerVisible = ref(false)
 const secretVisible = ref(false)
 const createdSecret = ref('')
-const editingId = ref(null)
+const editingGuid = ref(null)
 const initialExpiry = ref(null)
 const submitting = ref(false)
 const formRef = ref()
 const form = reactive({ name: '', allowedModels: [], ipAllowlistText: '', expiresAt: null, status: 'active' })
 
 const summary = computed(() => apiKeySummary(rows.value))
-const isEditing = computed(() => editingId.value !== null)
+const isEditing = computed(() => editingGuid.value !== null)
 const availableModels = computed(() => settingsStore.models)
 const rules = {
   name: [{ required: true, message: () => t('apiKeys.nameRequired'), trigger: 'blur' }],
@@ -138,8 +138,8 @@ function openCreate() {
 
 async function openEdit(row) {
   try {
-    const token = tokenRows([await getGatewayToken(row.id)])[0]
-    editingId.value = token.id
+    const token = tokenRows([await getGatewayToken(row.guid)])[0]
+    editingGuid.value = token.guid
     form.name = token.name || ''
     form.allowedModels = [...token.allowedModels]
     form.ipAllowlistText = token.ipAllowlist.join('\n')
@@ -151,7 +151,7 @@ async function openEdit(row) {
 }
 
 function resetForm() {
-  editingId.value = null
+  editingGuid.value = null
   initialExpiry.value = null
   Object.assign(form, { name: '', allowedModels: [], ipAllowlistText: '', expiresAt: null, status: 'active' })
   formRef.value?.clearValidate()
@@ -164,7 +164,7 @@ async function submitForm() {
   try {
     const payload = payloadFromForm()
     if (isEditing.value) {
-      const updated = await updateGatewayToken(editingId.value, payload)
+      const updated = await updateGatewayToken(editingGuid.value, payload)
       replaceRow(updated)
       drawerVisible.value = false
       ElMessage.success(t('apiKeys.saved'))
@@ -196,7 +196,7 @@ function payloadFromForm() {
 
 function replaceRow(token) {
   const sanitized = tokenRows([token])[0]
-  const index = rows.value.findIndex((row) => row.id === sanitized.id)
+  const index = rows.value.findIndex((row) => row.guid === sanitized.guid)
   if (index >= 0) rows.value.splice(index, 1, sanitized)
   else rows.value.unshift(sanitized)
 }
@@ -204,7 +204,7 @@ function replaceRow(token) {
 async function confirmRevoke(row) {
   try {
     await ElMessageBox.confirm(t('apiKeys.revokeConfirm', { name: row.name }), t('apiKeys.revokeTitle'), { type: 'warning' })
-    await revokeGatewayToken(row.id)
+    await revokeGatewayToken(row.guid)
     replaceRow({ ...row, status: 'revoked' })
     ElMessage.success(t('apiKeys.revokedSuccess'))
   } catch {}

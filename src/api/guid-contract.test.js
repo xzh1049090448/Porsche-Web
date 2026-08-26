@@ -51,3 +51,30 @@ test('mock resources contain GUID fields but no retired dataset state', async ()
   assert.match(source, /guid:/)
   assert.doesNotMatch(source, /datasetCalls|datasetEnabled|datasetIds/)
 })
+
+test('frontend state uses opaque GUIDs and has no retired RAG request state', async () => {
+  const [chat, user, tokens, billing, analytics, messages] = await Promise.all([
+    readFile(new URL('../stores/chat.js', import.meta.url), 'utf8'),
+    readFile(new URL('../stores/user.js', import.meta.url), 'utf8'),
+    readFile(new URL('../views/ApiKeys.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../views/Billing.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../components/analytics/ModelAnalyticsPanel.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../components/chat/ChatMessageList.vue', import.meta.url), 'utf8'),
+  ])
+
+  assert.match(chat, /conversationGuid/)
+  assert.doesNotMatch(chat, /conversation_id|dataset_enabled|dataset_ids|datasetEnabled|datasetIds/)
+  assert.doesNotMatch(chat, /typeof conv\.id === 'number'/)
+  assert.doesNotMatch(chat, /\bid:\s*genLocalId\(\)/)
+  assert.match(chat, /localKey:\s*genLocalId\(\)/)
+  assert.doesNotMatch(user, /datasetCalls/)
+  assert.match(tokens, /row\.guid/)
+  assert.doesNotMatch(tokens, /row\.id|token\.id/)
+  assert.match(billing, /order\.guid|o\.guid/)
+  assert.doesNotMatch(billing, /order\.id|o\.id/)
+  assert.match(analytics, /userGuid/)
+  assert.match(analytics, /user_guid/)
+  assert.doesNotMatch(analytics, /user_id|userId|Number\(r\.key\)/)
+  assert.match(messages, /:key="msg\.guid \|\| msg\.localKey"/)
+  assert.doesNotMatch(messages, /msg\.id/)
+})

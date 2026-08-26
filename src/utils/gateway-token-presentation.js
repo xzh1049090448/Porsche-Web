@@ -1,10 +1,17 @@
+import { optionalGuid } from '../api/guid.js'
+
 /** Remove any accidental secret fields before token data enters component state. */
 export function tokenRows(tokens = []) {
-  return tokens.map(({ token, token_hash, ...tokenData }) => ({
-    ...tokenData,
-    tokenPrefix: tokenData.token_prefix || '',
+  return tokens.map((tokenData) => ({
+    guid: optionalGuid(tokenData.guid),
+    name: typeof tokenData.name === 'string' ? tokenData.name : '',
+    status: typeof tokenData.status === 'string' ? tokenData.status : '',
+    tokenPrefix: typeof tokenData.token_prefix === 'string' ? tokenData.token_prefix : '',
     allowedModels: Array.isArray(tokenData.allowed_models) ? tokenData.allowed_models : [],
     ipAllowlist: Array.isArray(tokenData.ip_allowlist) ? tokenData.ip_allowlist : [],
+    expires_at: tokenData.expires_at ?? null,
+    last_used_at: tokenData.last_used_at ?? null,
+    created_at: tokenData.created_at ?? null,
   }))
 }
 

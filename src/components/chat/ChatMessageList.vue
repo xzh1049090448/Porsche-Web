@@ -7,7 +7,7 @@
 
     <div
       v-for="msg in messages"
-      :key="msg.id"
+      :key="msg.guid || msg.localKey"
       class="message"
       :class="msg.role"
     >
@@ -116,7 +116,7 @@ function modelsForMessage(msg) {
 
 function isLastMessage(msg) {
   const list = messages.value
-  return list[list.length - 1]?.id === msg.id
+  return list[list.length - 1] === msg
 }
 
 function isAwaitingReply(msg) {

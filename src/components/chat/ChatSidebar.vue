@@ -11,10 +11,10 @@
     <el-scrollbar class="conv-list">
       <div
         v-for="c in filtered"
-        :key="c.id"
+        :key="c.guid"
         class="conv-item"
-        :class="{ active: c.id === chatStore.activeId }"
-        @click="selectConversation(c.id)"
+        :class="{ active: c.guid === chatStore.activeId }"
+        @click="selectConversation(c.guid)"
       >
         <div class="conv-title">📋 {{ c.title }}</div>
         <div class="conv-meta">{{ formatTime(c.updatedAt) }}</div>
@@ -93,7 +93,7 @@ async function rename(c) {
     confirmButtonText: t('chat.confirm'),
     cancelButtonText: t('chat.cancel'),
   })
-  if (value?.trim()) chatStore.renameConversation(c.id, value.trim())
+  if (value?.trim()) chatStore.renameConversation(c.guid, value.trim())
 }
 
 function remove(c) {
@@ -109,7 +109,7 @@ function remove(c) {
   })
     .then(async () => {
       try {
-        await chatStore.deleteConversation(c.id)
+        await chatStore.deleteConversation(c.guid)
         ElMessage.success(t('chat.deletedSuccess'))
       } catch {
         /* 错误由 request 拦截器或 store 抛出 */
@@ -120,7 +120,7 @@ function remove(c) {
 
 async function exportMd(c) {
   try {
-    const md = await exportConversationMarkdown(c.id)
+    const md = await exportConversationMarkdown(c.guid)
     downloadFile(md, `${c.title || t('chat.defaultTitle')}.md`)
     ElMessage.success(t('chat.exportMdSuccess'))
   } catch {
