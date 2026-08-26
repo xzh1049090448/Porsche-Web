@@ -4,6 +4,7 @@ import { readPlatformChatStream, readPlatformCompareStream } from '@/utils/sse'
 import request from './request'
 import { catalogModels } from '@/utils/model-catalog'
 import { optionalGuid } from './guid'
+import { getPlatformModelDetail } from './platform-model-detail'
 
 const PREFIX = '/api/v1/platform'
 
@@ -17,8 +18,7 @@ export async function listModels() {
 
 /** Reads an authorized model detail from the local platform API. */
 export async function getModel(id) {
-  const res = await request.get(`${PREFIX}/models/${encodeURIComponent(id)}`)
-  return catalogModels({ data: [res] })[0] || null
+  return getPlatformModelDetail(id, request, catalogModels)
 }
 
 /**
