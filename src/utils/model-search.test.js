@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { readFileSync } from 'node:fs'
 import { filterModels } from './model-search.js'
+import { messages } from '../i18n/messages.js'
 
 const models = [
   {
@@ -40,4 +42,21 @@ test('filterModels safely handles missing fields, invalid lists, and no matches'
   assert.deepEqual(filterModels(incompleteModels, 'only').map((model) => model?.id), ['only-id'])
   assert.deepEqual(filterModels(incompleteModels, '不存在'), [])
   assert.deepEqual(filterModels(null, 'anything'), [])
+})
+
+test('ModelPanel shares filtered models between controls', () => {
+  const source = readFileSync(new URL('../components/chat/ModelPanel.vue', import.meta.url), 'utf8')
+
+  assert.equal((source.match(/v-for="m in filteredModels"/g) || []).length, 2)
+  assert.match(source, /v-model="searchTerm"/)
+  assert.doesNotMatch(source, /setItem\(['"]modelSearch/)
+})
+
+test('model search translations exist in Chinese and English', () => {
+  for (const locale of ['zh', 'en']) {
+    for (const key of ['searchPlaceholder', 'searchAria', 'searchEmpty']) {
+      assert.equal(typeof messages[locale].model[key], 'string')
+      assert.notEqual(messages[locale].model[key], '')
+    }
+  }
 })

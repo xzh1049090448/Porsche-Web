@@ -85,6 +85,9 @@ export const messages = {
     model: {
       select: '模型选择',
       selectAria: '选择模型',
+      searchPlaceholder: '搜索模型',
+      searchAria: '搜索模型目录',
+      searchEmpty: '未找到匹配的模型',
       compareLocked: '对比模式下不可选',
       scenarios: '使用场景',
       compare: '模型对比',
@@ -323,6 +326,9 @@ export const messages = {
     model: {
       select: 'Models',
       selectAria: 'Select model',
+      searchPlaceholder: 'Search models',
+      searchAria: 'Search model catalog',
+      searchEmpty: 'No matching models found',
       compareLocked: 'Unavailable in compare mode',
       scenarios: 'Scenarios',
       compare: 'Compare models',

@@ -8,6 +8,14 @@
       <span v-if="settings.compareMode" class="panel-lock-hint">{{ t('model.compareLocked') }}</span>
     </div>
 
+    <el-input
+      v-model="searchTerm"
+      clearable
+      class="model-search"
+      :placeholder="t('model.searchPlaceholder')"
+      :aria-label="t('model.searchAria')"
+    />
+
     <div
       class="model-select-block"
       :class="{ 'is-locked': settings.compareMode }"
@@ -15,7 +23,7 @@
       :aria-label="t('model.selectAria')"
     >
       <button
-        v-for="m in settings.models"
+        v-for="m in filteredModels"
         :key="m.id"
         type="button"
         role="radio"
@@ -35,6 +43,11 @@
         </span>
       </button>
     </div>
+    <el-empty
+      v-if="searchTerm.trim() && !filteredModels.length"
+      :description="t('model.searchEmpty')"
+      :image-size="80"
+    />
 
     <el-divider />
 
@@ -66,12 +79,13 @@
         <template v-if="settings.compareMode">
           <p class="hint">{{ t('model.compareHint') }}</p>
           <el-checkbox-group
+            v-if="filteredModels.length"
             :model-value="settings.compareModelIds"
             class="compare-grid"
             @change="onCompareModelsChange"
           >
             <el-checkbox
-              v-for="m in settings.models"
+              v-for="m in filteredModels"
               :key="m.id"
               :value="m.id"
               class="compare-check"
@@ -80,6 +94,11 @@
               <span class="model-name">{{ m.name }}</span>
             </el-checkbox>
           </el-checkbox-group>
+          <el-empty
+            v-else-if="searchTerm.trim()"
+            :description="t('model.searchEmpty')"
+            :image-size="80"
+          />
         </template>
       </div>
     </template>
@@ -87,12 +106,13 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Cpu } from '@element-plus/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
 import { SCENARIO_PRESETS } from '@/constants/scenario-presets'
 import { useI18n } from '@/composables/useI18n'
+import { filterModels } from '@/utils/model-search'
 
 const MODEL_TYPE_TAGS = {
   chat: { color: 'var(--tag-chat)' },
@@ -101,6 +121,8 @@ const MODEL_TYPE_TAGS = {
 
 const settings = useSettingsStore()
 const { t } = useI18n()
+const searchTerm = ref('')
+const filteredModels = computed(() => filterModels(settings.models, searchTerm.value))
 
 const localizedScenarios = computed(() =>
   SCENARIO_PRESETS.map((s) => ({
@@ -170,6 +192,10 @@ function onCompareModelsChange(ids) {
   font-size: 12px;
   font-weight: 400;
   color: var(--text-secondary);
+}
+
+.model-search {
+  margin: 0 0 12px;
 }
 
 .model-select-block.is-locked {
