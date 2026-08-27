@@ -1,6 +1,6 @@
 {
   "project": "Porsche-Web（大模型聚合平台用户端前端）",
-  "last_updated": "2026-08-26",
+  "last_updated": "2026-08-27",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -105,6 +105,27 @@
         "2026-08-26：git diff --check 通过"
       ],
       "notes": "一次性 GUID-only 切换完成；不保留内部 id 或 RAG/dataset 回退。"
+    },
+    {
+      "id": "web-008",
+      "priority": 0,
+      "area": "llm-platform",
+      "title": "模型选择搜索",
+      "user_visible_behavior": "在单模型与多模型对比选择列表中，本地按已授权模型的名称、ID、厂商或描述筛选；清空搜索后恢复完整列表。",
+      "status": "passing",
+      "verification": [
+        "node --test src/utils/model-search.test.js",
+        "npm test",
+        "npm run build",
+        "git diff --check"
+      ],
+      "evidence": [
+        "2026-08-27：node --test src/utils/model-search.test.js 5/5 通过（字段匹配、空搜索无变异、单选/对比共用过滤列表契约与中英文文案）",
+        "2026-08-27：npm test 44/44 通过",
+        "2026-08-27：npm run build 通过（仅既有 Vite/Rollup 警告）",
+        "2026-08-27：git diff --check 通过"
+      ],
+      "notes": "已完成自动化验证。未执行需后端认证的浏览器手动 smoke；web-002 更广泛的模型面板浏览器端到端验证仍未完成。"
     }
   ]
 }
