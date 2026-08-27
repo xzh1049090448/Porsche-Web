@@ -49,6 +49,7 @@ test('ModelPanel shares filtered models between controls', () => {
 
   assert.equal((source.match(/v-for="m in filteredModels"/g) || []).length, 2)
   assert.match(source, /v-model="searchTerm"/)
+  assert.match(source, /<el-input\s+v-if="settings\.modelsLoaded"[\s\S]*?v-model="searchTerm"/)
   assert.doesNotMatch(source, /setItem\(['"]modelSearch/)
 })
 

@@ -9,6 +9,7 @@
     </div>
 
     <el-input
+      v-if="settings.modelsLoaded"
       v-model="searchTerm"
       clearable
       class="model-search"
