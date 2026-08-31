@@ -20,7 +20,7 @@ export async function updateProfile(data) {
 
 export function changePassword(data) {
   if (USE_MOCK) return Promise.resolve({ message: '密码修改成功' })
-  return request.post(`${PREFIX}/me/password`, {
+  return request.post('/api/v1/auth/self/password', {
     old_password: data.oldPassword,
     new_password: data.newPassword,
   })
@@ -28,7 +28,7 @@ export function changePassword(data) {
 
 export function submitRealName(data) {
   if (USE_MOCK) return mockApi.realNameVerify(data)
-  return request.post(`${PREFIX}/me/verify`, {
+  return request.post('/api/v1/auth/self/verify', {
     real_name: data.name,
     id_card: data.idCard,
   })

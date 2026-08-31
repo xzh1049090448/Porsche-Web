@@ -173,8 +173,8 @@ function goBack() {
 
 function onUserCommand(cmd) {
   if (cmd === 'logout') {
-    ElMessageBox.confirm(t('user.logoutConfirm'), t('user.tip'), { type: 'warning' }).then(() => {
-      userStore.logout()
+    ElMessageBox.confirm(t('user.logoutConfirm'), t('user.tip'), { type: 'warning' }).then(async () => {
+      await userStore.logout()
       router.push('/login')
     })
     return

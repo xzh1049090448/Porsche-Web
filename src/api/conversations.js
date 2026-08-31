@@ -1,4 +1,4 @@
-import request, { USE_MOCK } from './request'
+import request, { getAuthToken, USE_MOCK } from './request'
 import { mockApi } from './mock'
 import { mapConversation } from '@/utils/platform-mappers'
 import { requiredGuid } from './guid'
@@ -52,7 +52,7 @@ export async function exportConversationMarkdown(guid) {
   }
   const res = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/${encodeURIComponent(conversationGuid)}/export/markdown`, {
     headers: {
-      Authorization: `Bearer ${(await import('@/utils/storage')).getItem('token')}`,
+      Authorization: `Bearer ${getAuthToken()}`,
     },
   })
   if (res.status === 401) {

@@ -12,12 +12,12 @@
       </div>
 
       <el-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" @submit.prevent>
-        <el-form-item prop="phone">
+        <el-form-item prop="username">
           <el-input
-            v-model="pwdForm.phone"
-            :placeholder="t('login.phone')"
-            maxlength="11"
-            :prefix-icon="Iphone"
+            v-model="pwdForm.username"
+            :placeholder="t('login.username')"
+            maxlength="20"
+            :prefix-icon="User"
           />
         </el-form-item>
         <el-form-item prop="password">
@@ -33,6 +33,7 @@
         <el-button type="primary" class="submit-btn" :loading="loading" @click="submitPwd">
           {{ t('login.submit') }}
         </el-button>
+        <el-button text class="register-link" @click="router.push('/register')">{{ t('login.register') }}</el-button>
       </el-form>
     </div>
   </div>
@@ -41,7 +42,7 @@
 <script setup>
 import { ref, reactive, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Iphone, Lock } from '@element-plus/icons-vue'
+import { User, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import ThemeToggle from '@/components/ThemeToggle.vue'
@@ -57,15 +58,12 @@ const loading = ref(false)
 const pwdFormRef = ref()
 
 const pwdForm = reactive({
-  phone: '',
+  username: '',
   password: '',
 })
 
 const pwdRules = computed(() => ({
-  phone: [
-    { required: true, message: t('login.phoneRequired') },
-    { pattern: /^1\d{10}$/, message: t('login.phoneInvalid') },
-  ],
+  username: [{ required: true, message: t('login.usernameRequired') }],
   password: [{ required: true, message: t('login.passwordRequired') }],
 }))
 
@@ -73,7 +71,7 @@ async function submitPwd() {
   await pwdFormRef.value?.validate()
   loading.value = true
   try {
-    await userStore.loginPassword({ phone: pwdForm.phone, password: pwdForm.password })
+    await userStore.loginUsername({ username: pwdForm.username, password: pwdForm.password })
     ElMessage.success(t('login.success'))
     router.replace(route.query.redirect || '/')
   } finally {
@@ -143,4 +141,6 @@ async function submitPwd() {
   height: 40px;
   border-radius: 8px;
 }
+
+.register-link { width: 100%; margin-top: 8px; }
 </style>

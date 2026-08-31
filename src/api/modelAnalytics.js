@@ -1,6 +1,5 @@
 import axios from 'axios'
-import request from './request'
-import { getItem } from '@/utils/storage'
+import request, { getAuthToken } from './request'
 
 const PREFIX = '/api/v1/billing/analytics'
 
@@ -22,7 +21,7 @@ function buildParams(params = {}) {
 export async function checkAccess() {
   try {
     const baseURL = import.meta.env.VITE_API_BASE ?? ''
-    const token = getItem('token')
+    const token = getAuthToken()
     const res = await axios.get(`${baseURL}${PREFIX}/access`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       validateStatus: (status) => status < 500,
@@ -48,7 +47,7 @@ export function getChart(view, params) {
 
 export async function exportExcel(view, params) {
   const baseURL = import.meta.env.VITE_API_BASE ?? ''
-  const token = getItem('token')
+  const token = getAuthToken()
   const res = await axios.get(`${baseURL}${PREFIX}/export`, {
     params: { ...buildParams(params), view },
     responseType: 'blob',
