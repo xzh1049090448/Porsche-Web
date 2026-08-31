@@ -1,4 +1,4 @@
-import request, { getAuthToken, USE_MOCK } from './request'
+import request, { authenticatedFetch, USE_MOCK } from './request'
 import { mockApi } from './mock'
 import { mapConversation } from '@/utils/platform-mappers'
 import { requiredGuid } from './guid'
@@ -50,18 +50,9 @@ export async function exportConversationMarkdown(guid) {
     const { exportToMarkdown } = await import('@/utils/export')
     return exportToMarkdown(conv)
   }
-  const res = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/${encodeURIComponent(conversationGuid)}/export/markdown`, {
-    headers: {
-      Authorization: `Bearer ${getAuthToken()}`,
-    },
+  const res = await authenticatedFetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/${encodeURIComponent(conversationGuid)}/export/markdown`, {
+    headers: {},
   })
-  if (res.status === 401) {
-    const { handleUnauthorized } = await import('@/utils/auth-redirect')
-    const { useLocaleStore } = await import('@/stores/locale')
-    const detail = useLocaleStore().t('auth.sessionExpired')
-    await handleUnauthorized(detail)
-    throw new Error(detail)
-  }
   if (!res.ok) {
     const { useLocaleStore } = await import('@/stores/locale')
     throw new Error(useLocaleStore().t('chat.exportFailed'))

@@ -1,4 +1,4 @@
-import { getAuthToken, USE_MOCK } from './request'
+import { authenticatedFetch, USE_MOCK } from './request'
 import { mockApi } from './mock'
 import { readPlatformChatStream, readPlatformCompareStream } from '@/utils/sse'
 import request from './request'
@@ -46,11 +46,10 @@ export async function streamPlatformChat(body, callbacks) {
     stream: true,
   }
 
-  const response = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/chat/completions`, {
+  const response = await authenticatedFetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${getAuthToken()}`,
     },
     body: JSON.stringify(payload),
   })
@@ -85,11 +84,10 @@ export async function comparePlatformChat(body, callbacks = {}) {
     stream: true,
   }
 
-  const response = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/chat/compare`, {
+  const response = await authenticatedFetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/chat/compare`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${getAuthToken()}`,
     },
     body: JSON.stringify(payload),
   })

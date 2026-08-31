@@ -1,6 +1,6 @@
 {
   "project": "Porsche-Web（大模型聚合平台用户端前端）",
-  "last_updated": "2026-08-27",
+  "last_updated": "2026-08-31",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -29,7 +29,8 @@
         "HTTPS 浏览器 E2E：注册、登录、刷新、登出、会话撤销"
       ],
       "evidence": [
-        "2026-08-31：Node 单元测试覆盖内存状态、单飞刷新、失败清理与会话 DTO 白名单。"
+        "2026-08-31：Node 单元测试覆盖内存状态、单飞刷新、失败清理与会话 DTO 白名单。",
+        "2026-08-31：原生 SSE、对话导出和分析请求已覆盖共享 401 单飞刷新与一次重放；npm test 54/54、npm run build、git diff --check 通过。"
       ],
       "notes": "管理员创建/角色展示被后端契约阻塞：暂无创建端点，AdminUser DTO 不含 username/role；不伪造 UI。Secure/HttpOnly Refresh Cookie 仅能在 HTTPS 且部署 Origin 已加入 AUTH_TRUSTED_ORIGINS 时完成真实 E2E。"
     },

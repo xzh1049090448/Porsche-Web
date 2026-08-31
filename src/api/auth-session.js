@@ -9,6 +9,16 @@ const SESSION_FIELDS = {
   current: 'current',
 }
 
+const SESSION_USER_FIELDS = ['guid', 'username', 'nickname', 'role', 'status']
+
+/** Returns only the documented, browser-safe representation of an authenticated user. */
+export function sessionUser(user) {
+  if (!user || typeof user !== 'object') return null
+  return Object.fromEntries(SESSION_USER_FIELDS
+    .filter((field) => Object.hasOwn(user, field))
+    .map((field) => [field, user[field]]))
+}
+
 /**
  * Creates the browser-side, in-memory authentication state shared by Axios
  * and Pinia. Refresh material deliberately remains an HttpOnly cookie.
@@ -25,7 +35,7 @@ export function createAuthSessionManager({ refresh } = {}) {
 
   function setSession({ accessToken, user }) {
     currentAccessToken = typeof accessToken === 'string' && accessToken ? accessToken : null
-    currentUser = user && typeof user === 'object' ? { ...user } : null
+    currentUser = sessionUser(user)
     notify()
   }
 
@@ -67,6 +77,40 @@ export function createAuthSessionManager({ refresh } = {}) {
       return () => listeners.delete(listener)
     },
   }
+}
+
+/**
+ * Runs a fetch request with the transient Bearer token, refreshing exactly
+ * once after a protected-request 401. Callers never handle refresh cookies.
+ */
+export async function authenticatedFetch(auth, input, init = {}, { fetchImpl = fetch, onUnauthorized } = {}) {
+  const requestUrl = typeof input === 'string' ? input : input?.url || ''
+  const isAuthRequest = requestUrl.includes('/auth/')
+
+  const send = async (retried = false) => {
+    const headers = new Headers(init.headers || {})
+    const token = auth.accessToken()
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    const response = await fetchImpl(input, { ...init, headers })
+    if (response.status !== 401 || isAuthRequest) return response
+
+    if (retried || !token) {
+      auth.clearSession()
+      await onUnauthorized?.()
+      const error = new Error('unauthorized')
+      error.authHandled = true
+      throw error
+    }
+
+    try {
+      return await auth.refreshAndRetry({ headers }, () => send(true))
+    } catch (error) {
+      if (!error?.authHandled) await onUnauthorized?.()
+      throw error
+    }
+  }
+
+  return send()
 }
 
 /** Filters the session API response before reactive UI state receives it. */

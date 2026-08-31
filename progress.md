@@ -5,6 +5,7 @@
 - 2026-08-31：隔离 worktree 完成认证迁移。Access Token 和用户摘要仅存 Pinia/模块内存；Refresh 仅由浏览器 HttpOnly Cookie 携带。
 - 2026-08-31：新增 `src/api/auth-session.test.js`，先确认模块缺失导致 RED，后验证内存无 Storage 写入、401 单飞刷新/一次重放、刷新失败清理和会话 DTO 白名单。
 - 2026-08-31：`npm test` 通过（49/49）；`npm run build` 通过。保留既有 Vite/Rollup 注释、动态导入和 chunk 体积警告。
+- 2026-08-31：原生 SSE、对话 Markdown 导出及分析权限/Excel 导出统一走内存 Bearer 的单飞 Cookie 刷新路径；401 仅重放一次，刷新失败或二次 401 会清空内存并只跳转一次。登录、刷新及用户状态仅保留 `guid/username/nickname/role/status` 白名单。`npm test` 54/54、`npm run build`、`git diff --check` 通过。
 
 未执行真实 HTTPS 浏览器 E2E：后端 Refresh Cookie 固定 `Secure; HttpOnly; SameSite=Lax`，需要 HTTPS 页面和配置在 `AUTH_TRUSTED_ORIGINS` 中的同源 Origin。管理员创建/角色展示未做：后端没有创建端点，且 `AdminUser` DTO 未提供 username/role。
 

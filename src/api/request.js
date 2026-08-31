@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-import { createAuthSessionManager } from './auth-session'
+import { authenticatedFetch as runAuthenticatedFetch, createAuthSessionManager } from './auth-session'
 import { handleUnauthorized, isAuthRequestUrl } from '@/utils/auth-redirect'
 
 export const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
@@ -48,5 +48,12 @@ request.interceptors.response.use(
 
 /** Returns the transient Access token for fetch-based streaming requests. */
 export function getAuthToken() { return authSession.accessToken() }
+
+/** Uses the same single-flight refresh policy for browser-native requests. */
+export function authenticatedFetch(input, init = {}) {
+  return runAuthenticatedFetch(authSession, input, { credentials: 'include', ...init }, {
+    onUnauthorized: () => handleUnauthorized(),
+  })
+}
 
 export default request
