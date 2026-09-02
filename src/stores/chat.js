@@ -112,8 +112,11 @@ export const useChatStore = defineStore('chat', () => {
       try {
         const { items } = await listConversations({ limit: 100 })
         conversations.value = items
-        if (!activeId.value && items.length) {
+        if (!getActive() && items.length) {
           activeId.value = items[0].guid
+        }
+        if (!USE_MOCK && activeId.value) {
+          await refreshActiveConversation()
         }
       } finally {
         loading.value = false
@@ -140,31 +143,51 @@ export const useChatStore = defineStore('chat', () => {
   function selectConversation(conversationGuid) {
     activeId.value = conversationGuid
     persistLocal()
-    if (!USE_MOCK) refreshActiveConversation()
+    if (!USE_MOCK) return refreshActiveConversation()
   }
 
+  const conversationDetailPromises = new Map()
+
   async function refreshActiveConversation() {
-    if (!activeId.value) return
-    try {
-      const conv = await getConversation(activeId.value)
-      const idx = conversations.value.findIndex((c) => c.guid === conv.guid)
-      const local = idx >= 0 ? conversations.value[idx] : null
-      if (local?.messages?.length && (!conv.messages || conv.messages.length < local.messages.length)) {
-        conv.messages = local.messages
-      }
-      conversations.value = upsertConversationByGuid(conversations.value, conv)
-    } catch (err) {
-      if (err?.response?.status === 404) {
-        const deletedId = activeId.value
-        conversations.value = removeConversationByGuid(conversations.value, deletedId)
-        purgeConversationFromLocal(deletedId)
-        activeId.value = conversations.value[0]?.guid ?? null
-        persistLocal()
-        if (!conversations.value.length) {
-          await createConversation()
-        }
-      }
+    // The user may select another conversation while this request is pending.
+    const requestedGuid = activeId.value
+    if (!requestedGuid) return
+    if (conversationDetailPromises.has(requestedGuid)) {
+      return conversationDetailPromises.get(requestedGuid)
     }
+    const pending = (async () => {
+      try {
+        const conv = await getConversation(requestedGuid)
+        const idx = conversations.value.findIndex((c) => c.guid === requestedGuid)
+        // Do not resurrect a removed conversation or apply a mismatched response.
+        if (idx < 0 || conv.guid !== requestedGuid) return
+        const local = conversations.value[idx]
+        if (local?.messages?.length && (!conv.messages || conv.messages.length < local.messages.length)) {
+          conv.messages = local.messages
+        }
+        conversations.value = upsertConversationByGuid(conversations.value, conv)
+        return conv
+      } catch (err) {
+        if (err?.response?.status === 404) {
+          conversations.value = removeConversationByGuid(conversations.value, requestedGuid)
+          purgeConversationFromLocal(requestedGuid)
+          if (activeId.value === requestedGuid) {
+            activeId.value = conversations.value[0]?.guid ?? null
+            persistLocal()
+            if (!conversations.value.length) {
+              await createConversation()
+            } else {
+              await refreshActiveConversation()
+            }
+          }
+        }
+      } finally {
+        // Cache only in-flight work: a failed detail must remain retryable.
+        conversationDetailPromises.delete(requestedGuid)
+      }
+    })()
+    conversationDetailPromises.set(requestedGuid, pending)
+    return pending
   }
 
   async function renameConversation(conversationGuid, title) {
