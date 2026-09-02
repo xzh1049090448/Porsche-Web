@@ -151,7 +151,7 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
             else browser.write({ ...current, suppressed: true })
           }
           if (!definiteFailure(error) || kind === 'logout') uncertain()
-          else if (kind === 'refresh') clearSession()
+          else if (kind === 'refresh' || (kind === 'login' && state === 'initializing' && !access && !user)) clearSession()
           throw error
         }
       })

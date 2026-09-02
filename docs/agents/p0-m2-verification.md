@@ -1,5 +1,7 @@
 # P0 M2 前端实施与验证记录
 
+**最终结论：M2 本地实现、规格复核与独立质量复核通过。** 最新单测 113/113、构建 5.64 秒、浏览器 flow 8 项通过。前端已合入 origin/main@7fbf616，后端最新代码合同为0bab2b7。M3和新版本部署仍未验证。下文保留各阶段历史证据，最终结果以本段及末节为准。
+
 记录日期：2026-09-03；本轮开始日期：2026-09-02。
 
 用户要求更新基线后继续：已 fetch 前端 origin/main@7fbf616、后端 origin/main@0bab2b7。下列 82/82 和浏览器证据属于合并前 checkpoint 3a10d6e，不能代替合并后验证；合并与重新审查进行中。
@@ -139,3 +141,29 @@ Result: PASS; existing build warnings remain.
 Both saved browser scripts were rerun after merging. Flow: result=PASS, all 8 checks, errors=[], unexpected=[]. Mock: result=PASS, calls=[], errors=[]. These remain local fixtures.
 
 Backend changes were inspected read-only; its MySQL/Redis tests were not rerun. Final independent review is pending.
+
+Post-merge independent spec review: PASS at 662c892. Upstream history behavior, epoch checks, pending-instance cleanup and stream isolation reviewed; no new M2 spec gaps. Final quality review resumed against this revision.
+
+## Final verification and quality sign-off (2026-09-03)
+
+Final state-machine boundary fix: a definite failed login while initializing with no identity settles to anonymous. Existing authenticated identity remains unchanged on credential failure. Independent probes verified zero subsequent refresh and preserved existing identity; targeted tests 17/17 PASS. Independent quality verdict: M2 PASS. Post-merge spec review: PASS.
+
+Command run: `npm test > /tmp/porsche-p0-final-tests.log 2>&1`
+
+```text
+tests 113
+pass 113
+fail 0
+cancelled 0
+skipped 0
+```
+
+Result: PASS.
+
+Command run: `npm run build > /tmp/porsche-p0-final-build.log 2>&1`
+
+```text
+built in 5.64s
+```
+
+Result: PASS. The saved browser-flow command was rerun on the final source: result=PASS, all 8 checks, errors=[], unexpected=[]. Mock zero-network login was verified after upstream integration. M3 and deployment remain unverified; no online business writes were executed.

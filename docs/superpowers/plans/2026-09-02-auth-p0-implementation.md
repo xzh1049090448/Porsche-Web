@@ -8,15 +8,15 @@
 
 ## 任务
 
-- [ ] 建立基线：按既有锁文件安装，运行 npm test、npm run build；记录 init.sh 的离线缓存限制。
-- [ ] 测试先行：认证内存状态及共享协调，无凭据持久化；epoch/generation、5 GET单次刷新、迟到401、换用户、pending失败关闭、注销竞态。
-- [ ] 实现认证核心（src/api/auth-session.js 及独立coordination模块）：无Pinia/router依赖，注入HTTP/浏览器适配；Web Locks串行Cookie变更，持久非敏感epoch/pending/suppressed，每次锁内复核；不可用时认证阻断。未知结果不自动恢复，不能声称Abort证明服务器取消。
-- [ ] 请求整合（request.js/auth.js/users.js、原生fetch）：单独无重试auth HTTP；仅明确安全GET allowlist可恢复一次，epoch变更零重试；POST/SSE不重放；保留HTTP/body语义，nested/detail/Blob错误安全解析，403不注销。
-- [ ] UI/store：用户名注册不自动登录；身份与profile独立；路由单次恢复；改密/会话撤销/注销；业务profile失败不撤销已认证身份；本地退出与服务端撤销结果区分。
-- [ ] 身份隔离：旧token/user键清理，主题语言保留；所有业务响应、异步缓存、下载、SSE回调校验epoch；五旁路保持JSON/text/Blob/stream返回类型。
-- [ ] SSE最小安全修复：error不可逆；[DONE]后等待业务done；缺done为incomplete；取消/错误不成功/不推算用量；原生取消接入，无POST重试。完整P1新功能不在此轮。
-- [ ] 回归、实际本地浏览器mock验证（只本地拦截，不请求线上业务）、需求一致性审查、独立安全质量审查、修复再验证。
-- [ ] 更新feature_list/progress/domain/契约与验证报告。自动化通过不等于M3联合验收；真实HTTPS Cookie/多标签故障/权限仍需隔离数据与明确授权。
+- [x] 建立基线：按既有锁文件安装，运行 npm test、npm run build；记录 init.sh 的离线缓存限制。
+- [x] 测试先行：认证内存状态及共享协调，无凭据持久化；epoch/generation、5 GET单次刷新、迟到401、换用户、pending失败关闭、注销竞态。
+- [x] 实现认证核心（src/api/auth-session.js 及独立coordination模块）：无Pinia/router依赖，注入HTTP/浏览器适配；Web Locks串行Cookie变更，持久非敏感epoch/pending/suppressed，每次锁内复核；不可用时认证阻断。未知结果不自动恢复，不能声称Abort证明服务器取消。
+- [x] 请求整合（request.js/auth.js/users.js、原生fetch）：单独无重试auth HTTP；仅明确安全GET allowlist可恢复一次，epoch变更零重试；POST/SSE不重放；保留HTTP/body语义，nested/detail/Blob错误安全解析，403不注销。
+- [x] UI/store：用户名注册不自动登录；身份与profile独立；路由单次恢复；改密/会话撤销/注销；业务profile失败不撤销已认证身份；本地退出与服务端撤销结果区分。
+- [x] 身份隔离：旧token/user键清理，主题语言保留；所有业务响应、异步缓存、下载、SSE回调校验epoch；五旁路保持JSON/text/Blob/stream返回类型。
+- [x] SSE最小安全修复：error不可逆；[DONE]后等待业务done；缺done为incomplete；取消/错误不成功/不推算用量；原生取消接入，无POST重试。完整P1新功能不在此轮。
+- [x] 回归、实际本地浏览器mock验证（只本地拦截，不请求线上业务）、需求一致性审查、独立安全质量审查、修复再验证。
+- [x] 更新feature_list/progress/domain/契约与验证报告。自动化通过不等于M3联合验收；真实HTTPS Cookie/多标签故障/权限仍需隔离数据与明确授权。
 
 ## 评审通过的行为
 

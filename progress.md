@@ -62,3 +62,9 @@
 - 后端project_manager已书面复核0bab2b7：公开认证/DTO/Cookie/SSE不变；刷新窗口外重放改为提交撤销+审计后401 auth_request_failed且无Set-Cookie，前端应终止恢复。新代码基线已记录contract；未声称新SHA已部署，后端本轮仅只读核对。
 
 - 2026-09-03 post-merge: 111/111 tests and build (5.54s) PASS; 8 browser flow checks and zero-network Mock login PASS. Upstream 13 history cases retained, 2 identity race cases added. Final independent review and M3 remain pending.
+
+## 2026-09-03：M2本地收尾
+
+- 合并最新main后的规格与独立质量复核均PASS；修复初始化期间无身份登录明确失败后的状态边界，独立探针确认后续ensureSession零refresh且已有身份不受影响。
+- 最终npm test113/113、build5.64s及完整本地browser flow8项PASS。Mock零API登录在合并后验证通过；具体命令见docs/agents/p0-m2-verification.md。
+- M2本地实现完成；web-009仍待M3真实同源HTTPS/多标签/权限及后端联合验收，保持in_progress，不标整体passing。未推送、部署或操作线上账号。原主目录修改保留；本轮工作保留在feature/auth-p0-harden。

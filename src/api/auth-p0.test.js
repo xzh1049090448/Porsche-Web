@@ -144,3 +144,25 @@ test('five native bypass paths share in-memory Bearer and retain their response 
   assert.deepEqual(await responses[3].json(), { allowed: true })
   assert.ok(await responses[4].blob() instanceof Blob)
 })
+
+test('a rejected initial login becomes anonymous and cannot trigger automatic restore', async () => {
+  let refreshes = 0
+  const browser = browserFixture()
+  const auth = createAuthSessionManager({ browser, refresh: async () => { refreshes++; return refreshed } })
+  assert.equal(auth.state(), 'initializing')
+  await assert.rejects(auth.cookieOperation('login', async () => { throw { response: { status: 401 } } }))
+  assert.equal(auth.state(), 'anonymous')
+  assert.equal(browser.read().pending, null)
+  assert.equal(browser.read().suppressed, false)
+  assert.equal(await auth.ensureSession(), false)
+  assert.equal(refreshes, 0)
+})
+
+test('a rejected login does not clear an already authenticated identity', async () => {
+  const auth = createAuthSessionManager({ browser: browserFixture() })
+  auth.setSession(session)
+  await assert.rejects(auth.cookieOperation('login', async () => { throw { response: { status: 401 } } }))
+  assert.equal(auth.state(), 'authenticated')
+  assert.equal(auth.accessToken(), 'old')
+  assert.deepEqual(auth.user(), user)
+})

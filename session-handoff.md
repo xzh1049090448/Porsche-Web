@@ -1,6 +1,6 @@
 # 当前接续状态（2026-09-03）
 
-当前工作为 `feature/auth-p0-harden` 的 P0 加固与最新 main 集成。前端已 fetch `origin/main@7fbf616`，后端最新只读基线 `0bab2b7`；本轮 checkpoint 为 `3a10d6e`。合并后验证和审查仍进行，以 `progress.md`、`feature_list.json` 和 `docs/agents/p0-m2-verification.md` 的最新记录为准。下面为随上游合入的 Issue #3/#5 历史交接，不代表当前分支或 P0 已完成。
+当前工作为 `feature/auth-p0-harden` 的 P0 加固与最新 main 集成。前端已 fetch `origin/main@7fbf616`，后端最新只读基线 `0bab2b7`；本轮 checkpoint 为 `3a10d6e`。合并后M2本地验证和独立审查已完成（113/113测试、build、browser flow通过），M3仍待执行，以 `progress.md`、`feature_list.json` 和 `docs/agents/p0-m2-verification.md` 的最新记录为准。下面为随上游合入的 Issue #3/#5 历史交接，不代表当前分支或 P0 已完成。
 
 ---
 
