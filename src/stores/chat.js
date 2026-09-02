@@ -238,6 +238,11 @@ export const useChatStore = defineStore('chat', () => {
         persistLocal()
       }
     }
+    // A send can arrive while initial history is still loading. Wait for the
+    // current selection's existing request, then re-check if selection changed.
+    while (conversationDetailPromises.has(activeId.value)) {
+      await conversationDetailPromises.get(activeId.value)
+    }
     return getActive()
   }
 

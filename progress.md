@@ -8,6 +8,7 @@
 - 可见 Chrome 本地假数据验证：慢 A 200/404/500 不抢 B 选择、不将 A 正文放入 B；初始 500 后点击同会话重试成功；空账号只创建一个新会话；localStorage/sessionStorage 无历史正文。脚本 `/private/tmp/playwright-test-issue3-races.js`，5 个场景均 PASS。
 - 验证环境修正：早期 SSR 测试开启客户端预打包，干扰运行中 Vite 缓存，导致浏览器白屏 `Outdated Optimize Dep`；这不是 Issue #3 RED。测试现已禁用客户端预打包，协调任务重启其 5178 服务后浏览器验证通过；未改依赖。构建仍有既有动态导入/chunk-size 警告。
 - 仅记录实现者本地证据；独立规格、质量和安全审查由协调任务另行记录。没有 push、merge、部署、生产访问或 GitHub issue 状态变更。
+- 质量审查后补充（本地提交 `7471a38` 之后）：确认历史 pending 时发送会过早请求并可能脱离消息数组；先补两个真实 store/SSE 回归得到 RED（请求 1 次而非 0、B 详情未完成时已 ready）。`ensureActive` 现在仅等待当前 GUID 已有的详情 promise，await 后重查最新选择；不增加每次发送 GET、不缓存失败为已加载。13/13 store 回归、全量 67/67、构建、diff-check 通过。浏览器新增第 6 个 send 场景确认带完整历史发送，新问题和流式回答均保留；最终独立复核仍交协调任务记录。
 - web-009 的更广泛认证/管理员验收暂停为 blocked；沿用历史证据，本轮不新增通过声明。真实 HTTPS 验收仍待执行。
 
 ## web-009：一期用户名认证与可撤销会话

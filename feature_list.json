@@ -43,8 +43,8 @@
       "status": "passing",
       "verification": ["实际 store 行为回归测试", "本地浏览器假数据验证", "npm test", "npm run build", "git diff --check"],
       "evidence": [
-        "2026-09-02：真实 Pinia store/API/mappers 经 Vite SSR 运行、仅替换 Axios transport。RED：初始消息 undefined、详情请求 0 次、旧 A 404 抢回 B 选择；缺失选择回退另行 RED 后修复。最终 11 个行为回归 GREEN，npm test 65/65。",
-        "2026-09-02：可见 Chrome + 本地 5178 假数据通过慢 A 200/404/500 后 B 保持选中与正文、同会话 500 重试、空账号只创建一次；无历史写入 localStorage/sessionStorage。脚本 /private/tmp/playwright-test-issue3-races.js。",
+        "2026-09-02：真实 Pinia store/API/mappers 经 Vite SSR 运行、仅替换 Axios transport。RED：初始消息 undefined、详情请求 0 次、旧 A 404 抢回 B 选择；缺失选择回退另行 RED 后修复。质量审查补充的发送竞态也先 RED（历史未就绪已发请求、切换后未等待 B），再以 ensureActive 等待现有请求修复。最终 13 个行为回归 GREEN，npm test 67/67。",
+        "2026-09-02：可见 Chrome + 本地 5178 假数据通过慢 A 200/404/500 后 B 保持选中与正文、同会话 500 重试、空账号只创建一次、历史 pending 时发送等待且保留新问答与流式回答；6 个场景通过，无历史写入 localStorage/sessionStorage。脚本 /private/tmp/playwright-test-issue3-races.js。",
         "2026-09-02：npm run build、git diff --check 通过；保留既有动态导入/chunk-size 警告。"
       ],
       "notes": "仅 Issue #3 本地范围；真实 HTTPS 验收仍待执行，不表示 web-004 或 web-009 整体验收完成，不关闭 GitHub issue。未改认证协议、GUID 字符串、真实历史仅内存的约束。独立规格/质量/安全审查由协调任务记录，不以实现者自检代替。"

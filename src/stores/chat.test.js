@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { after, before, beforeEach, test } from 'node:test'
 import { createServer } from 'vite'
 import { createPinia, setActivePinia } from 'pinia'
+import { setImmediate } from 'node:timers/promises'
 
 // Load the real store/API/mappers via the project's Vite aliases, replacing
 // only Axios's transport so every request stays inside these local fixtures.
@@ -181,4 +182,55 @@ test('failed list request does not create a conversation and can be retried', as
   route = success
   await store.fetchConversations()
   assert.equal(store.getActive().messages[0]?.content, `Message ${A}`)
+})
+
+test('sending during initial detail waits for history and keeps the new streamed messages attached', async () => {
+  const store = useChatStore()
+  const response = deferred(), started = deferred(), stream = deferred()
+  const history = { ...detail(A), messages: [
+    ...detail(A).messages,
+    { guid: `${A}2`, role: 'assistant', content: 'Previous reply', created_at: 2 },
+    { guid: `${A}3`, role: 'user', content: 'Previous follow-up', created_at: 3 },
+  ] }
+  route = ({ url }) => url === listPath ? { items: [summary(A)], total: 1 } : (started.resolve(), response.promise)
+  const originalFetch = globalThis.fetch
+  const sent = []
+  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return stream.promise }
+  try {
+    const initial = store.fetchConversations()
+    await started.promise
+    const sending = store.sendMessage('New question')
+    await setImmediate()
+    const earlyRequests = sent.length
+    response.resolve(history)
+    await initial
+    stream.resolve(new Response('data: {"choices":[{"delta":{"content":"New answer"}}]}\n\ndata: [DONE]\n\n', { status: 200 }))
+    await sending
+    assert.equal(earlyRequests, 0, 'must not send before the in-flight history is available')
+    assert.equal(sent[0].messages[0].content, `Message ${A}`)
+    assert.equal(store.getActive().messages.at(-2).content, 'New question')
+    assert.equal(store.getActive().messages.at(-1).content, 'New answer')
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('ensureActive follows a newly selected pending detail without waiting on it twice or fetching again', async () => {
+  const store = useChatStore()
+  store.conversations = [summary(A), summary(B)]
+  const a = deferred(), b = deferred()
+  route = ({ url }) => url.endsWith(A) ? a.promise : b.promise
+  const loadingA = store.selectConversation(A)
+  let ready = false
+  const ensuring = store.ensureActive().then(conv => { ready = true; return conv })
+  const loadingB = store.selectConversation(B)
+  a.resolve(detail(A))
+  await loadingA
+  await setImmediate()
+  const readyBeforeB = ready
+  b.resolve(detail(B))
+  await loadingB
+  const active = await ensuring
+  assert.equal(readyBeforeB, false, 'the latest selection must finish its own pending detail')
+  assert.equal(active.guid, B)
+  assert.equal(active.messages[0].content, `Message ${B}`)
+  assert.equal(calls.length, 2, 'waiting should not issue extra detail requests')
 })
