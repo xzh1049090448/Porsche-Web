@@ -56,7 +56,8 @@
         "2026-09-02：隔离分支feature/auth-p0-harden复用6f8fbca；基线54/54测试和build通过。旧POST自动重放记录是历史行为，本轮按M1取消。",
         "2026-09-03：M2本地单测82/82、生产构建通过；Chrome本地fixture覆盖注册/登录/资料更新/错误密码不重放/注销401刷新抑制，390px无溢出；Mock无后端登录零API通过。独立审查仍进行，真实M3未执行；完整证据见docs/agents/p0-m2-verification.md。",
         "2026-09-03: integrated origin/main@7fbf616, backend contract reconfirmed at 0bab2b7; 111/111 tests, build, browser flow (8 checks) and Mock zero-network login PASS. M3 not executed.",
-        "2026-09-03：最终113/113测试、build及本地flow8项通过；合并后独立规格和质量复核M2 PASS。初始化失败登录状态边界已修复并独立复验；M3及部署未执行。"
+        "2026-09-03：最终113/113测试、build及本地flow8项通过；合并后独立规格和质量复核M2 PASS。初始化失败登录状态边界已修复并独立复验；M3及部署未执行。",
+        "2026-09-03：M3准入准备完成；验收域名已确认，公开首页/health200但入口包不匹配候选3eeca2b；发布候选与12项清单已准备。真实M3均未运行，待发布/账号安排。"
       ],
       "notes": "用户已确认90abbdc与aiportcloud.com并授权M2。管理员新增功能不在P0。复用6f8fbca后补齐M1并发/失败关闭/响应隔离/SSE防假成功；M3真实联合验收仍待专用数据与授权。 2026-09-03同步origin/main@7fbf616：保留上游Issue #3/#5完成记录；上游暂停的广泛认证验收仍不在本轮签收范围，本分支按用户授权继续M2。 M2本地完成；当前in_progress仅保留M3真实联合验收待办。"
     },

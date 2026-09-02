@@ -68,3 +68,9 @@
 - 合并最新main后的规格与独立质量复核均PASS；修复初始化期间无身份登录明确失败后的状态边界，独立探针确认后续ensureSession零refresh且已有身份不受影响。
 - 最终npm test113/113、build5.64s及完整本地browser flow8项PASS。Mock零API登录在合并后验证通过；具体命令见docs/agents/p0-m2-verification.md。
 - M2本地实现完成；web-009仍待M3真实同源HTTPS/多标签/权限及后端联合验收，保持in_progress，不标整体passing。未推送、部署或操作线上账号。原主目录修改保留；本轮工作保留在feature/auth-p0-harden。
+
+## 2026-09-03：M3准入准备
+
+- 用户确认aiportcloud.com为验收环境；公开首页和health均200。公开入口index-Be22Ci25.js与候选index-D6qDWanU.js不一致，公开入口未含本轮认证协调标记；尚不能在当前站点签收本轮代码。
+- 已准备仅dist的候选包/tmp/porsche-web-3eeca2b-m3.tar.gz、校验值与12项M3执行清单，见docs/agents/p0-m3-readiness.md。
+- 本轮未登录/注册/部署或修改线上数据；等待候选发布授权、实际后端版本及专用账号安排。M3全部NOT_RUN。
