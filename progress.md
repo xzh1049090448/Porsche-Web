@@ -74,3 +74,9 @@
 - 用户确认aiportcloud.com为验收环境；公开首页和health均200。公开入口index-Be22Ci25.js与候选index-D6qDWanU.js不一致，公开入口未含本轮认证协调标记；尚不能在当前站点签收本轮代码。
 - 已准备仅dist的候选包/tmp/porsche-web-3eeca2b-m3.tar.gz、校验值与12项M3执行清单，见docs/agents/p0-m3-readiness.md。
 - 本轮未登录/注册/部署或修改线上数据；等待候选发布授权、实际后端版本及专用账号安排。M3全部NOT_RUN。
+
+## 2026-09-03：M3发布及真实认证部分验收
+
+- 用户明确授权前端发布及两个专用测试账号。3eeca2b候选已发布，源站和公开/Chrome入口均匹配；静态备份已保留，后端未改动。
+- 真实注册、登录/恢复、安全Cookie、会话隔离、撤销、改密、正常注销通过所列子项；客户端阻断注销后的reload抑制通过。详见docs/agents/p0-m3-readiness.md。
+- 尚缺真实到期并发、多标签故障、部分ACL/SSE与后端联合签收；web-009仍in_progress。后端checkout为0bab2b7，镜像无revision标签，不能宣称运行二进制已证明该SHA。
