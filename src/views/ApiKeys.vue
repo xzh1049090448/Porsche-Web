@@ -74,7 +74,7 @@
 
     <el-dialog v-model="secretVisible" :title="t('apiKeys.secretTitle')" :close-on-click-modal="false" :close-on-press-escape="false" :show-close="false" width="min(520px, 92vw)" @closed="clearSecret">
       <el-alert type="warning" :closable="false" show-icon :title="t('apiKeys.secretWarning')" />
-      <el-input class="secret-value" :model-value="createdSecret" readonly>
+      <el-input ref="secretInput" class="secret-value" :model-value="createdSecret" readonly>
         <template #append><el-button @click="copySecret">{{ t('apiKeys.copy') }}</el-button></template>
       </el-input>
       <template #footer><el-button type="primary" @click="secretVisible = false">{{ t('apiKeys.secretConfirm') }}</el-button></template>
@@ -83,10 +83,11 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createGatewayToken, getGatewayToken, listGatewayTokens, revokeGatewayToken, updateGatewayToken } from '@/api/gatewayTokens'
 import { apiKeySummary, isLiteralIP, tokenRows, tokenStatus } from '@/utils/gateway-token-presentation'
+import { copyText } from '@/utils/clipboard'
 import { useSettingsStore } from '@/stores/settings'
 import { useI18n } from '@/composables/useI18n'
 
@@ -98,6 +99,8 @@ const loadError = ref(false)
 const drawerVisible = ref(false)
 const secretVisible = ref(false)
 const createdSecret = ref('')
+const secretInput = ref()
+let pendingCopy = null
 const editingGuid = ref(null)
 const initialExpiry = ref(null)
 const submitting = ref(false)
@@ -117,6 +120,7 @@ onMounted(() => {
   settingsStore.loadModels().catch(() => {})
 })
 onBeforeUnmount(clearSecret)
+watch(secretVisible, (visible) => { if (!visible) clearSecret() }, { flush: 'sync' })
 
 async function loadTokens() {
   loading.value = true
@@ -211,15 +215,21 @@ async function confirmRevoke(row) {
 }
 
 async function copySecret() {
-  try {
-    await navigator.clipboard.writeText(createdSecret.value)
-    ElMessage.success(t('apiKeys.copied'))
-  } catch {
-    ElMessage.warning(t('apiKeys.copyFailed'))
-  }
+  pendingCopy?.abort()
+  const request = new AbortController()
+  pendingCopy = request
+  const copied = await copyText(createdSecret.value, {
+    navigator, document, signal: request.signal, container: secretInput.value?.$el,
+  })
+  if (request.signal.aborted || !secretVisible.value) return
+  pendingCopy = null
+  if (copied) ElMessage.success(t('apiKeys.copied'))
+  else ElMessage.warning(t('apiKeys.copyFailed'))
 }
 
 function clearSecret() {
+  pendingCopy?.abort()
+  pendingCopy = null
   createdSecret.value = ''
 }
 
