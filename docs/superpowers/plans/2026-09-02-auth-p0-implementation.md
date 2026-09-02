@@ -29,3 +29,7 @@
 AUTH001-035：注册规则、单次恢复、5并发GET、迟到响应、身份切换、多标签串行与通知丢失、缺能力/存储失败、pending崩溃标记、logout失败reload抑制、401/403分流、五旁路、profile503独立、无泄密错误。
 SSE001-008：UTF8/CRLF多行分帧、[DONE]后done/error、EOF不完整、取消、重复终态、零POST重放。
 ENV001-003：同源HTTPS Cookie/Origin、多标签真实故障（M3未执行，不伪造）。
+
+## 2026-09-03 基线更新
+
+用户要求先拉取最新前后端再继续。已fetch前端origin/main@7fbf616并合入本工作分支，后端最新只读基线0bab2b7。保留上游历史会话/发送等待及API Key复制修复；追加详情pending的跨身份缓存与旧finally回归。合并前验证仅作为历史证据；合并后重跑单测、build、浏览器并复核。后端协调者书面确认公开合同不变，窗口外Refresh重放提交撤销后返回401且无Set-Cookie；新SHA部署状态未确认。

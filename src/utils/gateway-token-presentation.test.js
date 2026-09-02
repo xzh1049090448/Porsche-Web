@@ -95,7 +95,7 @@ test('the page keeps a created secret transient and excludes secret persistence 
   assert.match(source, /createdSecret\.value = typeof created\.token === 'string' \? created\.token : ''/)
   assert.match(source, /@closed="clearSecret"/)
   assert.match(source, /onBeforeUnmount\(clearSecret\)/)
-  assert.match(source, /function clearSecret\(\) \{\s*createdSecret\.value = ''\s*\}/)
+  assert.match(source, /function clearSecret\(\) \{\s*pendingCopy\?\.abort\(\)\s*pendingCopy = null\s*createdSecret\.value = ''\s*\}/)
   assert.doesNotMatch(source, /localStorage|sessionStorage|v-html|console\.|window\.location|router\.(?:push|replace)/)
   assert.doesNotMatch(source, /token_hash|token_prefix.*createdSecret/)
 })

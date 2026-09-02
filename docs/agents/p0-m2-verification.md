@@ -2,6 +2,8 @@
 
 记录日期：2026-09-03；本轮开始日期：2026-09-02。
 
+用户要求更新基线后继续：已 fetch 前端 origin/main@7fbf616、后端 origin/main@0bab2b7。下列 82/82 和浏览器证据属于合并前 checkpoint 3a10d6e，不能代替合并后验证；合并与重新审查进行中。
+
 ## 范围与版本
 
 - 工作树：`Porsche-Web/.worktrees/auth-p0-harden`，分支 `feature/auth-p0-harden`。
@@ -109,3 +111,31 @@ Existing package-lock unchanged
 ## 审查状态
 
 规格独立复核 PASS（M2 范围）：严格 LoginResponse/AuthUser 校验已修复，畸形 login/refresh 保留 pending/suppressed；昵称和 Mock 回归已关闭。SSE 未知 401 只提示且零重放符合设计，不强行改为全部退出。独立质量复核进行中；真实 M3 和后端最终签收未执行。
+
+## Post-merge verification (2026-09-03)
+
+Frontend upstream: origin/main@7fbf616. Backend code: 0bab2b7; public contracts reconfirmed by backend project_manager, deployment unverified. All 13 upstream history race tests remain; two identity-isolation regression tests were added.
+
+Command run: `npm test > /tmp/porsche-p0-merged-tests.log 2>&1`
+
+```text
+tests 111
+pass 111
+fail 0
+cancelled 0
+skipped 0
+```
+
+Result: PASS, including 15 real-store history/identity tests. Old pending work is not reused across identities; old cleanup cannot remove new pending work; old waiters cannot return the new user's conversation.
+
+Command run: `npm run build > /tmp/porsche-p0-merged-build.log 2>&1`
+
+```text
+built in 5.54s
+```
+
+Result: PASS; existing build warnings remain.
+
+Both saved browser scripts were rerun after merging. Flow: result=PASS, all 8 checks, errors=[], unexpected=[]. Mock: result=PASS, calls=[], errors=[]. These remain local fixtures.
+
+Backend changes were inspected read-only; its MySQL/Redis tests were not rerun. Final independent review is pending.

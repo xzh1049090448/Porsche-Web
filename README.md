@@ -33,7 +33,7 @@ npm run build
 
 ### 认证与开发验证
 
-本分支对接后端 `90abbdc` 的用户名与可撤销会话协议，契约见 [interface-contract.json](interface-contract.json)。注册成功后仍需登录；没有可用于正式接口的通用演示账号。
+本分支以最新后端 `0bab2b7` 核对用户名与可撤销会话协议（与 `90abbdc` 公开接口兼容），契约见 [interface-contract.json](interface-contract.json)。注册成功后仍需登录；没有可用于正式接口的通用演示账号。
 
 Access Token 仅在内存，Refresh Cookie 由后端以 HttpOnly/Secure/SameSite=Lax 设置。认证需要浏览器 Web Locks、跨标签通知和可写的非敏感协调存储；能力不足时停止认证并提示。用户名、密码、Token、SID 和用户资料不写入协调存储。
 

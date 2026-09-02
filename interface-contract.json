@@ -1,7 +1,7 @@
 {
   "version": "v1.0.0-p0",
   "status": "agreed_for_implementation",
-  "update_time": "2026-09-02",
+  "update_time": "2026-09-03",
   "maintainers": [
     "front_end_project_coordinator",
     "project_manager"
@@ -9,8 +9,11 @@
   "baseline": {
     "frontend_main": "9e133518874e1c0554615ae988f57d6d6cecfbf6",
     "frontend_reused": "6f8fbca",
-    "backend": "90abbdc49513039fa9218a6ce72d3147fbf1721e",
-    "backend_old_main_not_target": "e0efac2e22a9946491da72be1c0f3269156835eb"
+    "backend": "0bab2b7fd7515789c7a853edab7db120771b6028",
+    "backend_old_main_not_target": "e0efac2e22a9946491da72be1c0f3269156835eb",
+    "frontend_upstream_integrated": "7fbf616",
+    "backend_current_code": "0bab2b7fd7515789c7a853edab7db120771b6028",
+    "backend_prior_confirmed_deployment": "90abbdc49513039fa9218a6ce72d3147fbf1721e"
   },
   "interfaces": [
     {
@@ -29,7 +32,7 @@
           "user": "AuthUser"
         }
       },
-      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+      "confirmation": "backend confirmed at 90abbdc; unchanged public contract reconfirmed at 0bab2b7 on 2026-09-03; frontend accepted"
     },
     {
       "name": "login",
@@ -44,7 +47,7 @@
         "status": 200,
         "body": "LoginResponse"
       },
-      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+      "confirmation": "backend confirmed at 90abbdc; unchanged public contract reconfirmed at 0bab2b7 on 2026-09-03; frontend accepted"
     },
     {
       "name": "refresh",
@@ -56,7 +59,7 @@
         "status": 200,
         "body": "LoginResponse"
       },
-      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+      "confirmation": "backend confirmed at 90abbdc; unchanged public contract reconfirmed at 0bab2b7 on 2026-09-03; frontend accepted"
     },
     {
       "name": "logout",
@@ -68,7 +71,7 @@
         "status": 204,
         "body": null
       },
-      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+      "confirmation": "backend confirmed at 90abbdc; unchanged public contract reconfirmed at 0bab2b7 on 2026-09-03; frontend accepted"
     },
     {
       "name": "self",
@@ -82,7 +85,7 @@
           "user": "AuthUser"
         }
       },
-      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+      "confirmation": "backend confirmed at 90abbdc; unchanged public contract reconfirmed at 0bab2b7 on 2026-09-03; frontend accepted"
     },
     {
       "name": "sessions",
@@ -96,7 +99,7 @@
           "data": "AuthSession[]"
         }
       },
-      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+      "confirmation": "backend confirmed at 90abbdc; unchanged public contract reconfirmed at 0bab2b7 on 2026-09-03; frontend accepted"
     },
     {
       "name": "revoke_session",
@@ -110,7 +113,7 @@
         "status": 204,
         "body": null
       },
-      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+      "confirmation": "backend confirmed at 90abbdc; unchanged public contract reconfirmed at 0bab2b7 on 2026-09-03; frontend accepted"
     },
     {
       "name": "revoke_others",
@@ -122,7 +125,7 @@
         "status": 204,
         "body": null
       },
-      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+      "confirmation": "backend confirmed at 90abbdc; unchanged public contract reconfirmed at 0bab2b7 on 2026-09-03; frontend accepted"
     },
     {
       "name": "change_password",
@@ -137,7 +140,7 @@
         "status": 204,
         "body": null
       },
-      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+      "confirmation": "backend confirmed at 90abbdc; unchanged public contract reconfirmed at 0bab2b7 on 2026-09-03; frontend accepted"
     },
     {
       "name": "profile",
@@ -149,7 +152,7 @@
         "status": 200,
         "body": "UserProfile"
       },
-      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+      "confirmation": "backend confirmed at 90abbdc; unchanged public contract reconfirmed at 0bab2b7 on 2026-09-03; frontend accepted"
     }
   ],
   "sse_events": [
@@ -315,5 +318,14 @@
       },
       "response": "text/event-stream"
     }
-  ]
+  ],
+  "upstream_reconfirmation": {
+    "date": "2026-09-03",
+    "backend_role": "project_manager",
+    "status": "written code-contract confirmation; not deployment or joint acceptance",
+    "scope": "9 auth endpoints + users/me DTO/path/Cookie/Origin/middleware and platform SSE unchanged from 90abbdc",
+    "change": "Refresh replay outside recovery window now returns 401 auth_request_failed after committed revocation/audit; no Set-Cookie. Stop recovery without replay; old/new Refresh and Access rejected after revocation.",
+    "execution": "read-only diff verification; backend tests not rerun in this task",
+    "deployment": "90abbdc previously user-confirmed; 0bab2b7 deployment not verified"
+  }
 }

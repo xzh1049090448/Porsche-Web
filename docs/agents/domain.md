@@ -2,6 +2,10 @@
 
 实施工作树：feature/auth-p0-harden，基于前端认证分支6f8fbca（其父为main@9e13351）复用加固。后端契约基线90abbdc49513039fa9218a6ce72d3147fbf1721e，用户明确确认 https://aiportcloud.com 运行该版本；公开health返回200不单独证明部署SHA。旧后端main@e0efac2并非本轮契约目标。
 
+## 最新同步
+
+2026-09-03按用户要求已拉取前端origin/main@7fbf616、后端origin/main@0bab2b7。本分支将新前端历史加载/复制修复与P0合并；新后端代码在Porsche/.worktrees/frontend-alignment-latest核对。90abbdc仍仅是之前用户确认的部署版本，新main是否部署需另有证据。此前验证不能替代合并后验证。
+
 ## 开工与角色
 
 先读 [AGENTS.md](../../AGENTS.md)、[README.md](../../README.md)、[progress.md](../../progress.md)、[feature_list.json](../../feature_list.json)、[interface-contract.json](../../interface-contract.json)，确认实际工作树、分支、revision 和已有修改。Explorer 是协调者自己执行的只读探索阶段。角色范围、启动和交接见 [启动说明](README.md) 与 [协同模板](collaboration-templates.md)。
