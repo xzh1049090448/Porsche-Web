@@ -17,6 +17,22 @@
   },
   "features": [
     {
+      "id": "web-011",
+      "priority": 0,
+      "area": "llm-platform",
+      "title": "Issue #4：一次性 API Key 安全复制兼容",
+      "user_visible_behavior": "优先使用原生剪贴板，失败时在弹窗内兼容复制；仅确认复制成功才提示成功，失败保留手动选择。",
+      "status": "passing",
+      "verification": ["node --test src/utils/clipboard.test.js", "实际 Element Plus 弹窗本地假数据验证", "npm test", "npm run build", "git diff --check"],
+      "evidence": [
+        "2026-09-02：boolean 工具、选区恢复、显式内容容器与脱离/跨 document 容器先 RED 后修复；工具 14/14，全量 npm test 81/81。",
+        "2026-09-02：本地可见 Chrome 实际 Element Plus 弹窗假数据四路径（native/missing/rejected/failed）及六个生命周期/选区场景通过；无 secret 写入 Storage，关闭/卸载清空，迟到结果不 toast/fallback。脚本 /private/tmp/playwright-test-issue4-independent.js 与 /private/tmp/playwright-test-issue4-lifecycle.js。",
+        "2026-09-02：npm run build、git diff --check 通过；保留既有动态导入/chunk-size 警告。",
+        "2026-09-02：独立 PM/spec PASS、quality/security APPROVE；协调任务重新执行 npm test 81/81、build 7.87s、diff-check，并复核实际 Chrome 四复制路径。"
+      ],
+      "notes": "2026-09-02：只修改 API Key 复制路径，本地验证及独立规格/质量审查通过。真实 HTTPS 生产验收不在本轮范围；浏览器已发起的原生 clipboard 写入无法撤回。未 push/merge/deploy 或关闭 GitHub issue。"
+    },
+    {
       "id": "web-009",
       "priority": 0,
       "area": "llm-platform",
@@ -45,9 +61,10 @@
       "evidence": [
         "2026-09-02：真实 Pinia store/API/mappers 经 Vite SSR 运行、仅替换 Axios transport。RED：初始消息 undefined、详情请求 0 次、旧 A 404 抢回 B 选择；缺失选择回退另行 RED 后修复。质量审查补充的发送竞态也先 RED（历史未就绪已发请求、切换后未等待 B），再以 ensureActive 等待现有请求修复。最终 13 个行为回归 GREEN，npm test 67/67。",
         "2026-09-02：可见 Chrome + 本地 5178 假数据通过慢 A 200/404/500 后 B 保持选中与正文、同会话 500 重试、空账号只创建一次、历史 pending 时发送等待且保留新问答与流式回答；6 个场景通过，无历史写入 localStorage/sessionStorage。脚本 /private/tmp/playwright-test-issue3-races.js。",
-        "2026-09-02：npm run build、git diff --check 通过；保留既有动态导入/chunk-size 警告。"
+        "2026-09-02：npm run build、git diff --check 通过；保留既有动态导入/chunk-size 警告。",
+        "2026-09-02：独立 PM/spec 与 quality/security 复核通过；协调任务重新执行首次进入/刷新探针及 6 个历史竞态浏览器场景，均通过。"
       ],
-      "notes": "仅 Issue #3 本地范围；真实 HTTPS 验收仍待执行，不表示 web-004 或 web-009 整体验收完成，不关闭 GitHub issue。未改认证协议、GUID 字符串、真实历史仅内存的约束。独立规格/质量/安全审查由协调任务记录，不以实现者自检代替。"
+      "notes": "仅 Issue #3 本地范围；真实 HTTPS 验收仍待执行，不表示 web-004 或 web-009 整体验收完成，不关闭 GitHub issue。未改认证协议、GUID 字符串、真实历史仅内存的约束。独立规格/质量/安全审查已通过，不以实现者自检代替。"
     },
     {
       "id": "web-001",
