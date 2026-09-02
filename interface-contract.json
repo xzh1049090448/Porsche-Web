@@ -1,0 +1,319 @@
+{
+  "version": "v1.0.0-p0",
+  "status": "agreed_for_implementation",
+  "update_time": "2026-09-02",
+  "maintainers": [
+    "front_end_project_coordinator",
+    "project_manager"
+  ],
+  "baseline": {
+    "frontend_main": "9e133518874e1c0554615ae988f57d6d6cecfbf6",
+    "frontend_reused": "6f8fbca",
+    "backend": "90abbdc49513039fa9218a6ce72d3147fbf1721e",
+    "backend_old_main_not_target": "e0efac2e22a9946491da72be1c0f3269156835eb"
+  },
+  "interfaces": [
+    {
+      "name": "register",
+      "method": "POST",
+      "path": "/api/v1/auth/register",
+      "authentication": "none",
+      "request": {
+        "username": "required string",
+        "password": "required string",
+        "nickname": "optional string|null"
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "user": "AuthUser"
+        }
+      },
+      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+    },
+    {
+      "name": "login",
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "authentication": "none",
+      "request": {
+        "username": "required string",
+        "password": "required string"
+      },
+      "response": {
+        "status": 200,
+        "body": "LoginResponse"
+      },
+      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+    },
+    {
+      "name": "refresh",
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "authentication": "refresh-cookie + trusted Origin",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": "LoginResponse"
+      },
+      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+    },
+    {
+      "name": "logout",
+      "method": "POST",
+      "path": "/api/v1/auth/logout",
+      "authentication": "Bearer + refresh-cookie + trusted Origin",
+      "request": null,
+      "response": {
+        "status": 204,
+        "body": null
+      },
+      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+    },
+    {
+      "name": "self",
+      "method": "GET",
+      "path": "/api/v1/auth/self",
+      "authentication": "Bearer",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "user": "AuthUser"
+        }
+      },
+      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+    },
+    {
+      "name": "sessions",
+      "method": "GET",
+      "path": "/api/v1/auth/sessions",
+      "authentication": "Bearer",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "data": "AuthSession[]"
+        }
+      },
+      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+    },
+    {
+      "name": "revoke_session",
+      "method": "DELETE",
+      "path": "/api/v1/auth/sessions/{guid}",
+      "authentication": "Bearer",
+      "request": {
+        "path_guid": "positive decimal-string"
+      },
+      "response": {
+        "status": 204,
+        "body": null
+      },
+      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+    },
+    {
+      "name": "revoke_others",
+      "method": "POST",
+      "path": "/api/v1/auth/sessions/revoke-others",
+      "authentication": "Bearer",
+      "request": null,
+      "response": {
+        "status": 204,
+        "body": null
+      },
+      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+    },
+    {
+      "name": "change_password",
+      "method": "POST",
+      "path": "/api/v1/auth/self/password",
+      "authentication": "Bearer",
+      "request": {
+        "old_password": "required string",
+        "new_password": "required string"
+      },
+      "response": {
+        "status": 204,
+        "body": null
+      },
+      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+    },
+    {
+      "name": "profile",
+      "method": "GET",
+      "path": "/api/v1/users/me",
+      "authentication": "Bearer",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": "UserProfile"
+      },
+      "confirmation": "backend confirmed code at 90abbdc; frontend accepted"
+    }
+  ],
+  "sse_events": [
+    {
+      "event": "message",
+      "data": {
+        "type": "meta",
+        "conversation_guid": "decimal-string"
+      }
+    },
+    {
+      "event": "message",
+      "data": "OpenAI delta chunk"
+    },
+    {
+      "event": "message",
+      "data": "[DONE]",
+      "business_complete": false
+    },
+    {
+      "event": "message",
+      "data": {
+        "type": "done",
+        "tokens": "integer",
+        "total_tokens_used": "integer"
+      }
+    },
+    {
+      "event": "error",
+      "data": "safe error envelope; may follow [DONE]"
+    }
+  ],
+  "approvals": {
+    "front_end_project_coordinator": "ALIGN-20260902-01 C1-C7 accepted",
+    "project_manager": "backend_alignment final written C1-C7 response",
+    "user": "confirmed environment, deployed 90abbdc, M2 frontend implementation",
+    "quality_gate": "M1 design accepted; implementation and M3 not accepted yet"
+  },
+  "open_issues": [
+    {
+      "id": "M3-ENV",
+      "status": "open",
+      "description": "Dedicated HTTPS same-origin test data/accounts and actual Cookie/multi-tab tests are not authorized or executed by this implementation."
+    },
+    {
+      "id": "P1-FREEZE",
+      "status": "open",
+      "description": "Full model schema, upstream timestamp semantics, production performance and cancellation/billing acceptance remain P1/M3."
+    }
+  ],
+  "alignment_id": "ALIGN-20260902-01",
+  "environment": {
+    "url": "https://aiportcloud.com/",
+    "origin": "https://aiportcloud.com",
+    "revision_confirmation": "user-confirmed",
+    "public_health_check": "200 {status:ok}; not a revision proof",
+    "business_test_authorization": false
+  },
+  "definitions": {
+    "AuthUser": {
+      "guid": "decimal-string",
+      "username": "string|null",
+      "nickname": "string|null",
+      "role": "string",
+      "status": "string"
+    },
+    "LoginResponse": {
+      "access_token": "string",
+      "token_type": "Bearer",
+      "expires_in": "integer seconds",
+      "user": "AuthUser"
+    },
+    "AuthSession": {
+      "guid": "decimal-string",
+      "login_method": "string",
+      "ip": "string",
+      "user_agent": "string",
+      "created_at": "UTC RFC3339Nano",
+      "last_active_at": "UTC RFC3339Nano",
+      "expires_at": "UTC RFC3339Nano",
+      "current": "boolean"
+    },
+    "UserProfile": {
+      "guid": "decimal-string",
+      "nickname": "string|null",
+      "is_verified": "boolean",
+      "plan_type": "string",
+      "total_tokens_used": "integer",
+      "daily_calls_used": "integer",
+      "daily_call_limit": "integer",
+      "created_at": "UTC RFC3339Nano"
+    }
+  },
+  "definition_format": "Descriptive field types, not JSON Schema or example responses",
+  "authentication": {
+    "access_storage": "memory-only",
+    "refresh_cookie": {
+      "name": "porsche_refresh",
+      "HttpOnly": true,
+      "Secure": true,
+      "SameSite": "Lax",
+      "Path": "/api/v1/auth",
+      "Domain": null
+    },
+    "session_header": "X-Auth-Session optional; if present must match SID, never session guid",
+    "logout": "Cookie SID must equal Bearer SID; clears Cookie",
+    "password_change": "clears Cookie and invalidates all sessions; old password error 401",
+    "register": "201 without session; trim username 3-20 ASCII alphanumeric underscore hyphen; password 8-20 Unicode characters and server weak-password rules",
+    "sessions": "active nonexpired nonrevoked, no pagination, max 100; last_active_at DESC then internal id DESC"
+  },
+  "errors": {
+    "auth_handler": {
+      "error": {
+        "code": "auth_invalid_request|auth_invalid_credentials|auth_invalid_refresh|auth_origin_denied|auth_request_failed|auth_unavailable",
+        "message": "safe string",
+        "type": "authentication_error",
+        "request_id": "string"
+      }
+    },
+    "middleware": {
+      "detail": "string"
+    },
+    "rules": [
+      "401 meaning depends on endpoint and envelope; never replay auth writes",
+      "403 permissions does not log out",
+      "unknown non-JSON data must not be displayed verbatim",
+      "retired phone auth is 410 only at target90abbdc, not old main"
+    ]
+  },
+  "sse_rules": [
+    "POST not automatically replayed",
+    "error is irreversible terminal; callbacks terminate at most once",
+    "EOF without business done is incomplete",
+    "cancel does not prove server cancellation or no billing",
+    "no ping/event id/resume commitment",
+    "existing compare compatibility must remain tested"
+  ],
+  "p1_outline": [
+    {
+      "method": "GET",
+      "path": "/api/v1/platform/models",
+      "response": {
+        "data": "Model[]",
+        "catalog_stale": "boolean"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/platform/models/detail",
+      "query": {
+        "id": "opaque model id URL encoded"
+      },
+      "response": "Model"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform/chat/completions",
+      "request": {
+        "model": "string",
+        "messages": "message[]",
+        "max_tokens": "positive integer",
+        "stream": true
+      },
+      "response": "text/event-stream"
+    }
+  ]
+}

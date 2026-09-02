@@ -56,6 +56,7 @@
       </div>
 
       <ChatMessageList class="chat-messages" />
+      <el-button v-if="chatStore.streaming" @click="chatStore.cancelStream()">停止接收（已产生的用量仍可能计费）</el-button>
       <ChatInput :mobile="isTablet" @send="onSend" />
     </div>
 

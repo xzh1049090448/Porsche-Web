@@ -1,3 +1,4 @@
+import { changePassword as changeAuthPassword } from './auth'
 import request, { USE_MOCK } from './request'
 import { mockApi } from './mock'
 import { mapUserProfile, mapUsageStats } from '@/utils/platform-mappers'
@@ -19,11 +20,7 @@ export async function updateProfile(data) {
 }
 
 export function changePassword(data) {
-  if (USE_MOCK) return Promise.resolve({ message: '密码修改成功' })
-  return request.post('/api/v1/auth/self/password', {
-    old_password: data.oldPassword,
-    new_password: data.newPassword,
-  })
+  return changeAuthPassword(data)
 }
 
 export function submitRealName(data) {

@@ -17,3 +17,17 @@
 - 2026-08-27：`git diff --check` 通过。
 
 未运行需后端认证的浏览器手动 smoke；`web-002` 更广泛的模型面板浏览器端到端验证仍未完成。
+
+## 2026-09-02：P0 M2 实施开始
+
+- 用户已确认 https://aiportcloud.com 运行90abbdc，并批准M1后实施前端P0，不含部署。
+- 在feature/auth-p0-harden隔离工作树复用session-auth-frontend@6f8fbca，主工作树和既有未提交内容保持不动。
+- init.sh离线安装因缓存缺失失败；随后按已有package-lock执行npm ci --ignore-scripts --no-audit --no-fund（独立临时缓存）成功。锁文件与原工作树字节一致，未改package.json。基线npm test 54/54、npm run build通过；保留既有大chunk和动态导入警告。
+- 契约与用户/双方协调者/M1评审确认已落盘interface-contract.json；web-009为唯一in_progress。
+- 本轮本地浏览器将拦截所有API使用fixture，不以Mock结果替代真实Cookie或联合验收。
+
+## 2026-09-03：P0 M2 本地验证
+
+- src实施与本地回归已完成：82/82单测、build通过。浏览器完整fixture和Mock零API登录通过，资料昵称保存、注销失败重挂载循环及窄屏问题已修复。
+- 可复跑脚本和实际输出见docs/agents/p0-m2-verification.md。规格/质量审查结论待补；web-009保持in_progress，不将本地验证当作M3联合验收。
+- 依赖声明和构建配置无diff；已有锁文件按字节保持不变。所有线上业务写操作未执行。

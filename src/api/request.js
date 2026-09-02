@@ -1,59 +1,24 @@
 import axios from 'axios'
+import { createSessionRefresh } from './auth-refresh'
+import { installAuthInterceptors } from './auth-request-policy'
 import { ElMessage } from 'element-plus'
 import { authenticatedFetch as runAuthenticatedFetch, createAuthSessionManager } from './auth-session'
-import { handleUnauthorized, isAuthRequestUrl } from '@/utils/auth-redirect'
+import { createBrowserAuthAdapter } from './auth-browser'
+import { authErrorMessage } from './auth-errors'
+import { handleUnauthorized } from '@/utils/auth-redirect'
 
 export const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
-
-const request = axios.create({ baseURL: import.meta.env.VITE_API_BASE ?? '', timeout: 120000, withCredentials: true })
-
-// Only this module attaches the in-memory Access token. Refresh remains an
-// HttpOnly cookie that JavaScript neither reads nor writes.
-export const authSession = createAuthSessionManager({ refresh: () => request.post('/api/v1/auth/refresh') })
-
-request.interceptors.request.use((config) => {
-  const token = authSession.accessToken()
-  if (token) config.headers.Authorization = `Bearer ${token}`
-  return config
+const options = { baseURL: import.meta.env.VITE_API_BASE ?? '', timeout: 120000, withCredentials: true }
+// Cookie operations use a separate transport with no session/retry interceptors.
+export const authTransport = axios.create(options)
+export const authSession = createAuthSessionManager({
+  browser: createBrowserAuthAdapter(),
+  refresh: createSessionRefresh({ useMock: USE_MOCK, transport: authTransport }),
 })
-
-function formatError(err) {
-  const data = err.response?.data
-  const detail = data?.detail
-  if (typeof detail === 'string') return detail
-  if (Array.isArray(detail)) return detail.map((d) => d.msg || d.message || JSON.stringify(d)).join('; ')
-  return data?.error?.message || data?.message || err.message || '请求失败'
-}
-
-request.interceptors.response.use(
-  (res) => res.data,
-  async (err) => {
-    const status = err.response?.status
-    const config = err.config || {}
-    const url = config.url || ''
-    if (status === 401 && !config.__authRetried && !isAuthRequestUrl(url) && authSession.accessToken()) {
-      try {
-        return await authSession.refreshAndRetry(config, (retryConfig) => request.request(retryConfig))
-      } catch {
-        await handleUnauthorized(formatError(err))
-      }
-    } else if (status === 401 && !isAuthRequestUrl(url)) {
-      await handleUnauthorized(formatError(err))
-    } else if (status !== 401) {
-      ElMessage.error(formatError(err))
-    }
-    return Promise.reject(err)
-  },
-)
-
-/** Returns the transient Access token for fetch-based streaming requests. */
+const request = axios.create(options)
+installAuthInterceptors(request, authSession, { onUnauthorized: () => handleUnauthorized(), onError: error => ElMessage.error(authErrorMessage(error)) })
 export function getAuthToken() { return authSession.accessToken() }
-
-/** Uses the same single-flight refresh policy for browser-native requests. */
 export function authenticatedFetch(input, init = {}) {
-  return runAuthenticatedFetch(authSession, input, { credentials: 'include', ...init }, {
-    onUnauthorized: () => handleUnauthorized(),
-  })
+  return runAuthenticatedFetch(authSession, input, { credentials: 'include', ...init }, { onUnauthorized: () => handleUnauthorized() })
 }
-
 export default request

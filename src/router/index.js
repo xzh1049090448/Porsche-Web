@@ -19,7 +19,7 @@ const router = createRouter({ history: createWebHistory(), routes })
 
 router.beforeEach(async (to) => {
   const userStore = useUserStore()
-  if (to.meta.requiresAuth && !userStore.isLoggedIn) await userStore.restoreSession()
+  if (to.meta.requiresAuth || to.meta.guest) await userStore.ensureSession()
   if (to.meta.requiresAuth && !userStore.isLoggedIn) return { name: 'Login', query: { redirect: to.fullPath } }
   if (to.meta.guest && userStore.isLoggedIn) return { path: '/' }
   return true

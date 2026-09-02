@@ -1,6 +1,6 @@
 {
   "project": "Porsche-Web（大模型聚合平台用户端前端）",
-  "last_updated": "2026-08-31",
+  "last_updated": "2026-09-03",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -20,7 +20,7 @@
       "id": "web-009",
       "priority": 0,
       "area": "llm-platform",
-      "title": "一期用户名认证与可撤销会话",
+      "title": "P0 用户名认证与可撤销会话加固",
       "user_visible_behavior": "用户名注册/登录、Cookie 刷新恢复、登出、会话管理和内存 Access Token。",
       "status": "in_progress",
       "verification": [
@@ -30,9 +30,11 @@
       ],
       "evidence": [
         "2026-08-31：Node 单元测试覆盖内存状态、单飞刷新、失败清理与会话 DTO 白名单。",
-        "2026-08-31：原生 SSE、对话导出和分析请求已覆盖共享 401 单飞刷新与一次重放；npm test 54/54、npm run build、git diff --check 通过。"
+        "2026-08-31：原生 SSE、对话导出和分析请求已覆盖共享 401 单飞刷新与一次重放；npm test 54/54、npm run build、git diff --check 通过。",
+        "2026-09-02：隔离分支feature/auth-p0-harden复用6f8fbca；基线54/54测试和build通过。旧POST自动重放记录是历史行为，本轮按M1取消。",
+        "2026-09-03：M2本地单测82/82、生产构建通过；Chrome本地fixture覆盖注册/登录/资料更新/错误密码不重放/注销401刷新抑制，390px无溢出；Mock无后端登录零API通过。独立审查仍进行，真实M3未执行；完整证据见docs/agents/p0-m2-verification.md。"
       ],
-      "notes": "管理员创建/角色展示被后端契约阻塞：暂无创建端点，AdminUser DTO 不含 username/role；不伪造 UI。Secure/HttpOnly Refresh Cookie 仅能在 HTTPS 且部署 Origin 已加入 AUTH_TRUSTED_ORIGINS 时完成真实 E2E。"
+      "notes": "用户已确认90abbdc与aiportcloud.com并授权M2。管理员新增功能不在P0。复用6f8fbca后补齐M1并发/失败关闭/响应隔离/SSE防假成功；M3真实联合验收仍待专用数据与授权。"
     },
     {
       "id": "web-001",
@@ -42,11 +44,10 @@
       "user_visible_behavior": "手机号验证码登录与账号密码登录。",
       "status": "not_started",
       "verification": [
-        "npm run build",
-        "浏览器访问登录页，验证码 123456 / 密码 demo123 登录成功"
+        "由web-009的用户名注册/登录与会话验收取代旧演示账号检查"
       ],
       "evidence": [],
-      "notes": "代码已实现（views/Login），待验证。"
+      "notes": "历史手机号需求已被90abbdc用户名协议取代；当前验收由web-009跟踪，不以演示账号标准判通过。"
     },
     {
       "id": "web-002",
