@@ -1,5 +1,7 @@
 # Porsche-Web 前端领域架构
 
+> 当前对齐入口：2026-09-03的[完整备忘录](2026-09-03-first-cross-team-alignment.md)及[契约](../../interface-contract.json)修订ALIGN-20260903-02-r2。归档运行证据为后端ad3f5b4、前端158a00e；M2已通过、M3部分通过、预算4/4。以下90abbdc/0bab2b7及未部署表述保留历史范围，不代表当前实时状态。
+
 实施工作树：feature/auth-p0-harden，基于前端认证分支6f8fbca（其父为main@9e13351）复用加固。后端契约基线90abbdc49513039fa9218a6ce72d3147fbf1721e，用户明确确认 https://aiportcloud.com 运行该版本；公开health返回200不单独证明部署SHA。旧后端main@e0efac2并非本轮契约目标。
 
 ## 最新同步
