@@ -1,3 +1,5 @@
+最新：后端诊断代码04ed728本地293全量/46race、独立规格质量PASS，二进制来源核对；Docker Hub超时导致镜像未生成，未上传/部署。详情docs/agents/validation/m3-backend-diagnostic-candidate.json；M3-11仍FAIL，预算余2次×32，不重置。
+
 ## 2026-09-03：当前状态——有效SSE首试503阻塞
 
 - 线上158a00e已发布且菜单回归通过，自然到期限定子项已双方复核；下方旧状态仅为历史。

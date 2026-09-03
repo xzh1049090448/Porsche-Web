@@ -154,3 +154,12 @@ M3-02 仅所列创建、重复与3个非法输入样本通过，不能据此认�
 双方结论：前端协调者、独立质量角色及后端project_manager均确认本次仅能判定M3-11首试FAIL、首帧前失败，未签整体M3。后端及质量角色基于脱敏结果/脚本与代码只读复核，没有独立执行线上生成。质量复核中的token表述以实际应用计数为限。
 
 后续任务由后端project_manager牵头：准备最小脱敏诊断方案，记录失败阶段、服务端request_id、安全的上游状态或网络错误类别、耗时和运行版本；不记录密钥、认证头、完整提示词/响应正文。具体诊断实现与部署须单独形成可审查变更，不在本次只读分析中执行。先用本地可控上游验证诊断覆盖且公开错误合同不变，再确定获授权的诊断版本、发布与回滚步骤，满足条件后复用剩余2次预算。前端负责保存响应状态/事件顺序、取消边界及调用前后应用用量，独立质量复核后再提交双方签收。责任清单见[诊断任务准备记录](m3-sse-diagnostic-handoff.md)。
+
+
+## 后端诊断本地候选（用户继续后，2026-09-03）
+
+已按双方诊断方案实施本地后端候选04ed728（基于0bab2b7），独立worktree Porsche/.worktrees/m3-sse-diagnostics。固定阶段/原因、request_id_sha256及独立trace_id、上游状态和保存确认标记已完成；保留公开503/SSE及扣次/保存顺序。隔离MySQL/Redis最终全量293、race46个pass事件，0fail/skip；vet/build通过，后端PM与独立质量限定本地PASS，实际socket脱敏探针通过。新边界redirect response+error漏记先RED后修复。临时测试容器和凭据已清理。
+
+二进制从独立clone构建，确认嵌入源码04ed72806f5ca139d219d166452e0473ba5bf1a1、vcs.modified=false；嵌套worktree最初错误VCS元数据产物未采用。包与哈希见[候选清单](validation/m3-backend-diagnostic-candidate.json)。本地Docker镜像构建因Docker Hub基础镜像metadata拉取超时未完成，因此没有候选镜像ID、未上传/部署。需在可用构建环境完成amd64镜像，核对二进制与标签并准备后端回滚，再取得明确后端发布授权。
+
+本地诊断完成不证明线上503已修复。M3-11继续FAIL，线上模型预算仍已用1/3、余2/3，每次max_tokens32；本轮本地测试没有生成上游调用。有效正常/取消SSE及其余矩阵仍未联合签收。后端详细报告位于Porsche提交e7de256的docs/superpowers/reports/2026-09-03-m3-sse-diagnostics.md。
