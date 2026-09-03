@@ -187,3 +187,12 @@ M3-02 仅所列创建、重复与3个非法输入样本通过，不能据此认�
 后端project_manager只读复核release-result、浏览器结果、候选诊断及预算，确认发布记录与第2次失败记录一致，request_id_sha256完全匹配，故障位于upstream200之后、首个公开帧之前的chunk投影校验；M3-11仍FAIL。质量角色独立只读复核同组证据，给出PARTIAL：认可部署健康及诊断链路，不认可有效SSE通过或整体M3签收。两角色均未独立执行部署/线上生成。
 
 下一步责任与准入：后端PM先对照已约定上游SSE规范和静态样例，梳理JSON/字段类型、id/object/created、usage-only、choice/delta/tool_calls各拒绝条件；需要补诊断时仅设计固定原因枚举和固定字段路径/类型类别，不记录原始帧、值、提示词、工具参数或任意字段名，不提前放宽投影白名单。执行角色先以合成fixture证明各分支分类与脱敏，质量角色复核后才能准备后续候选。待下一次能区分失败分支时，协调者再按剩余1次×32预算安排复测，不能盲目重试。此后续方案尚未实施或发布。
+
+## 2026-09-03：chunk细分候选6e70784已完成本地验证，待新候选发布授权
+
+- 固定malformed_chunk_detail.reason/field已实现，原公开503、大类和SSE接受/拒绝行为保持；没有记录原始帧或字段值。完整345/race113个测试pass，0fail/skip，vet/build及独立规格/质量PASS；独立22组新旧输出一致。
+- linux/amd64镜像cb42daed已本机构建，归档SHA195a6f38，来源/二进制/CA验证通过；尚未上传/部署。具体清单m3-chunk-diagnostic-candidate.json与后端发布单2026-09-03-m3-chunk-release.md已准备，后端PM材料复核通过。
+- 线上仍04ed728（容器9425ea/镜像a69），M3-11仍FAIL，具体首帧校验字段尚未知；最后1次gpt-5.4-nano×max_tokens32预算未使用。新候选需单独完成发布授权及运行核验后才能安排最后一次复测。
+- 本轮测试fixture和凭据已清理；不能复用其旧TEST_*地址。go-009仅本地passing，go-004保持blocked，前端web-009保持in_progress。
+
+后端PM与独立质量均仅确认本地细分诊断及候选材料，不签真实SSE或整体M3。细分方案、验证及发布步骤详见后端2026-09-03-m3-chunk-validation报告与m3-chunk-release发布单。
