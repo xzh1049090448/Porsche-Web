@@ -25,7 +25,7 @@
         >
           <Close />
         </el-icon>
-        <el-dropdown trigger="click" @click.stop>
+        <el-dropdown class="conv-more-dropdown" trigger="click" @click.stop>
           <el-icon class="conv-more" @click.stop><MoreFilled /></el-icon>
           <template #dropdown>
             <el-dropdown-menu>
@@ -214,11 +214,15 @@ function exportPdf(c) {
   margin-top: 2px;
 }
 
-.conv-more {
+.conv-more-dropdown {
   position: absolute;
   right: 28px;
   top: 50%;
   transform: translateY(-50%);
+}
+
+.conv-more {
+  position: static;
   padding: 8px;
   font-size: 18px;
   opacity: 0;
