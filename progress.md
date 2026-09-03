@@ -1,5 +1,13 @@
 # 当前验证进度
 
+## 2026-09-03：object有限分类候选ad3f5b4已准备
+
+- 本地实现固定decoded_kind/field_shape/key_match；保持原SSE接受/拒绝，原值不进入日志。相关包及race各175pass；默认全量304pass/0fail/98个DB或Redis fixture缺失SKIP，不能算完整DB验收。50组公开响应与17正常摘要对照一致，独立规格/质量限定PASS。
+- linux/amd64候选ad3f5b4、镜像2bc6b866、归档SHA8154e46b已核验；尚未上传或部署。发布脚本7项mock/绑定检查、第四次脚本3项预检通过。详细发布单2026-09-03-m3-object-release.md与m3-object-diagnostic-candidate.json已准备。
+- 线上07:34:15Z只读确认仍6e70784/13ada4aa/cb42，健康200、两个更早回滚对象保留。本轮0真实生成；预算总4、已用3、剩1次gpt-5.4-nano/max_tokens32。
+- 待准确新候选部署授权后再核验运行来源并复测。go-010仅本地诊断passing，go-004 blocked、web-009 in_progress；M3-11仍FAIL。
+
+
 ## 2026-09-03 15:22：追加1次诊断调用预算
 
 - 用户明确“增加调用预算”；未指定数量，按最小增量增加1次，总上限3→4，已用3、剩余1。模型仍为gpt-5.4-nano，每次max_tokens=32；原三次记录完整保留。

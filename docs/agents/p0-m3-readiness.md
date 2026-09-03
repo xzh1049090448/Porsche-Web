@@ -217,3 +217,13 @@ M3-02 仅所列创建、重复与3个非法输入样本通过，不能据此认�
 - 新额度用于补充可区分object原因的诊断复测，先准备并验证具体采证方案，不盲目重跑旧请求、不自动重放。历史attempt3脚本仍是一次性记录，不为增加预算而直接修改重跑。
 - 本次仅更新预算和交接记录，未执行第4次生成、未部署新候选。增加调用额度不代表已授权任何尚未确定的新候选部署。M3-11仍FAIL。
 - 当前预算以validation/m3-sse-budget.json及本节为准；此前“预算0/3次耗尽”是当时事实。
+
+
+## 2026-09-03：object有限分类候选ad3f5b4已准备
+
+- 本地实现固定decoded_kind/field_shape/key_match；保持原SSE接受/拒绝，原值不进入日志。相关包及race各175pass；默认全量304pass/0fail/98个DB或Redis fixture缺失SKIP，不能算完整DB验收。50组公开响应与17正常摘要对照一致，独立规格/质量限定PASS。
+- linux/amd64候选ad3f5b4、镜像2bc6b866、归档SHA8154e46b已核验；尚未上传或部署。发布脚本7项mock/绑定检查、第四次脚本3项预检通过。详细发布单2026-09-03-m3-object-release.md与m3-object-diagnostic-candidate.json已准备。
+- 线上07:34:15Z只读确认仍6e70784/13ada4aa/cb42，健康200、两个更早回滚对象保留。本轮0真实生成；预算总4、已用3、剩1次gpt-5.4-nano/max_tokens32。
+- 待准确新候选部署授权后再核验运行来源并复测。go-010仅本地诊断passing，go-004 blocked、web-009 in_progress；M3-11仍FAIL。
+
+详见[本轮验证](2026-09-03-m3-object-validation.md)。
