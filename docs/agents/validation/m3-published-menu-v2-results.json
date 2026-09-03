@@ -1,0 +1,41 @@
+[
+  {
+    "name": "create-owned-empty-conversation",
+    "status": "PASS",
+    "guid": "353757531257966592",
+    "code": 200
+  },
+  {
+    "name": "published-pointer-menu-1280",
+    "status": "PASS",
+    "entry": "index-i7ZWPv9J.js",
+    "box": {
+      "x": 180,
+      "y": 230,
+      "width": 18,
+      "height": 18
+    }
+  },
+  {
+    "name": "published-pointer-menu-1600",
+    "status": "PASS",
+    "entry": "index-i7ZWPv9J.js",
+    "box": {
+      "x": 180,
+      "y": 230,
+      "width": 18,
+      "height": 18
+    }
+  },
+  {
+    "name": "real-download-body-after-identity-change",
+    "status": "PASS",
+    "downloads": 0,
+    "activation": "ordinary pointer click on published 158a00e"
+  },
+  {
+    "name": "fixture-cleanup",
+    "status": "PASS",
+    "deleteStatus": 200
+  }
+]

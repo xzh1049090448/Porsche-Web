@@ -125,3 +125,15 @@ M3-02 仅所列创建、重复与3个非法输入样本通过，不能据此认�
 - [最终清理](validation/m3-final-cleanup-results.json)：两个专用账号均删除剩余本轮命名fixture（A补删1条，B无），重新查询fixture为0；各撤销其他会话204，确认仅剩当前1会话，logout204且随后refresh401。没有删除账号，没有改动其他用户资源。
 - 未完成：修复候选线上鼠标回归、历史详情迟到响应完整实测、有效SSE成功/错误/取消及用量边界、精确后端源码来源证明。专用账号目录含gpt-5.4-nano且应用快照剩余100次，但不代表付费授权；已询问最多3次短请求、每次最多32输出tokens，尚未得到回复，未执行有效生成。
 - web-009保持in_progress。不能将第一次expiry失败、导出pointer失败或未捕获route断言退出抹去；最终通过仅限各自成功复跑与明确证据范围。本轮没有将旧M2 Mock当作真实验收，也没有为补版本证明重启后端。
+
+## 158a00e用户发布后的核验（2026-09-03，取代此前“尚未发布”状态）
+
+用户已运行专用脚本并报告成功。公开HTML入口index-i7ZWPv9J.js、公开JS的SHA256 7c133cb1197c701cc6288d2718384c92f8b4b24a15fd13d821f3930d8bf09033均匹配候选。只读核实备份目录/var/backups/porsche-web/m3-158a00e-20260903T042341Z。部署记录见validation/m3-menu-candidate.json。
+
+已使用原A/B专用账号进行真实Chrome回归：普通鼠标点击在1280/1600均打开菜单，图标x180、width18；真实Markdown正文消费后延迟，再切换身份，释放后下载事件为0。脚本没有force/dispatchEvent，也没有有效模型生成。证据：validation/m3-published-menu-v2-results.json。
+
+首轮只完成1280，随后Escape在当时焦点下未关闭菜单导致夹具等待超时；清理成功，原始记录保留validation/m3-published-menu-results.json。补跑改为普通点击会话标题关闭菜单，两个宽度及下载保护通过。不能据此声称Escape交互已通过。
+
+本次解决了新候选发布与鼠标菜单线上回归事项；历史上3eeca2b的真实认证结果仍绑定原版本，不将其改写为158a00e全面复跑。M3整体仍未签收，保留有效SSE、历史详情其余矩阵及后端源码来源证据缺口。
+
+独立前端质量角色已书面接受158a00e已发布菜单普通点击及下载身份隔离子项；不覆盖Escape、有效SSE或整体M3。发布后最终清理见validation/m3-postpublish-cleanup-results.json：A/B fixture均0，撤销遗留会话204，各注销204且refresh401。

@@ -1,0 +1,26 @@
+[
+  {
+    "account": "A",
+    "login": 200,
+    "conversationListStatus": 200,
+    "conversationRecheckStatus": 200,
+    "fixtureDeletes": [],
+    "remainingFixtures": 0,
+    "revokeOthers": 204,
+    "remainingBeforeLogout": 1,
+    "logout": 204,
+    "refreshAfterLogout": 401
+  },
+  {
+    "account": "B",
+    "login": 200,
+    "conversationListStatus": 200,
+    "conversationRecheckStatus": 200,
+    "fixtureDeletes": [],
+    "remainingFixtures": 0,
+    "revokeOthers": 204,
+    "remainingBeforeLogout": 1,
+    "logout": 204,
+    "refreshAfterLogout": 401
+  }
+]
