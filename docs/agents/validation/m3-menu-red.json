@@ -1,0 +1,62 @@
+[
+  {
+    "width": 1280,
+    "status": "FAIL",
+    "errors": [],
+    "unexpected": [],
+    "geometry": {
+      "icon": {
+        "x": -19,
+        "y": 251,
+        "width": 18,
+        "height": 18,
+        "top": 251,
+        "right": -1,
+        "bottom": 269,
+        "left": -19
+      },
+      "wrapper": {
+        "x": 27,
+        "y": 260,
+        "width": 0,
+        "height": 0,
+        "top": 260,
+        "right": 27,
+        "bottom": 260,
+        "left": 27
+      },
+      "wrapperClass": "el-dropdown"
+    },
+    "error": "locator.click: Timeout 2000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.conv-item').filter({ hasText: 'Local menu fixture' }).locator('.conv-more')\u001b[22m\n\u001b[2m    - locator resolved to <i tabindex=\"0\" role=\"button\" data-v-5615bdbe=\"\" id=\"el-id-6883-24\" aria-haspopup=\"menu\" aria-expanded=\"false\" aria-controls=\"el-id-6883-25\" class=\"el-icon conv-more el-tooltip__trigger el-tooltip__trigger\">…</i>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - element is outside of the viewport\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - element is outside of the viewport\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    4 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - element is outside of the viewport\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n"
+  },
+  {
+    "width": 1600,
+    "status": "FAIL",
+    "errors": [],
+    "unexpected": [],
+    "geometry": {
+      "icon": {
+        "x": -19,
+        "y": 251,
+        "width": 18,
+        "height": 18,
+        "top": 251,
+        "right": -1,
+        "bottom": 269,
+        "left": -19
+      },
+      "wrapper": {
+        "x": 27,
+        "y": 260,
+        "width": 0,
+        "height": 0,
+        "top": 260,
+        "right": 27,
+        "bottom": 260,
+        "left": 27
+      },
+      "wrapperClass": "el-dropdown"
+    },
+    "error": "locator.click: Timeout 2000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.conv-item').filter({ hasText: 'Local menu fixture' }).locator('.conv-more')\u001b[22m\n\u001b[2m    - locator resolved to <i tabindex=\"0\" role=\"button\" data-v-5615bdbe=\"\" id=\"el-id-6875-24\" aria-haspopup=\"menu\" aria-expanded=\"false\" aria-controls=\"el-id-6875-25\" class=\"el-icon conv-more el-tooltip__trigger el-tooltip__trigger\">…</i>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - element is outside of the viewport\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - element is outside of the viewport\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    4 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - element is outside of the viewport\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n"
+  }
+]

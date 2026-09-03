@@ -1,5 +1,13 @@
 # 当前验证进度
 
+## 2026-09-03：M3最新子项进展（等待最终到期证据与质量复核）
+
+- 已发布前端3eeca2b并复用两个专用账号；M2完成，web-009仍in_progress。下方M2/准入阶段“未部署/未运行”等均是当时快照，不能覆盖本节最新状态。
+- 新增empty_username_and_password、username_length_1、password_length_1三个非法注册样本均400；错误admin前缀404不算403。另以真实/admin/users403转发profile作故障注入，前端保持身份、refresh0次、重试恢复PASS。
+- 丢Broadcast通知且延迟真实profile响应的跨身份子项PASS；首次多标签整轮随后FAIL（fresh-context登录按钮disabled等待超时，初始响应未记录、根因未定），不标整轮PASS。补跑的refresh/logout跨标签锁顺序、关闭refresh标签后pending/reload零自动认证两项分别PASS。
+- 后端project_manager已根据第一轮证据书面接受02注册/03/06/07/08正常注销/10会话隔离已测子项与0bab2b7合同一致；未独立运行、未签整体M3。新增证据仍待前端质量复核。后端另已书面接受新增3个注册400样本、真实admin403/转发profile、跨标签串行/关闭以及无效Bearer的SSE 1POST/0refresh限定子项；仅为证据复核，未独立运行或签整体M3。
+- 真实Access到期并发测试仍运行；SSE无效Bearer测试已通过真实中间件401断言、1POST/0refresh，用量calls/tokens0→0，仅是拒绝零重放子项，不是有效SSE终态；成功付费SSE未获本记录授权。目录40项及剩余额度100只代表当时查询状态。持久脱敏JSON及边界见docs/agents/p0-m3-readiness.md。
+
 ## web-011：Issue #4 一次性 API Key 安全复制（本地验证与独立审查通过）
 
 - 2026-09-02：只修改 API Key 复制路径。`copyText(text, environment)` 原生优先；缺失/拒绝时使用临时 readonly textarea，同步复制严格返回 true 才提示成功。显式使用现有 secret input 容器，校验容器连接且属于当前 document，避免 Element Plus 外层 dialog role 超出焦点陷阱。临时节点 finally 清空并移除，恢复焦点、页面选区与输入框选择。
@@ -69,7 +77,7 @@
 - 最终npm test113/113、build5.64s及完整本地browser flow8项PASS。Mock零API登录在合并后验证通过；具体命令见docs/agents/p0-m2-verification.md。
 - M2本地实现完成；web-009仍待M3真实同源HTTPS/多标签/权限及后端联合验收，保持in_progress，不标整体passing。未推送、部署或操作线上账号。原主目录修改保留；本轮工作保留在feature/auth-p0-harden。
 
-## 2026-09-03：M3准入准备
+## 2026-09-03：M3准入准备（发布前历史快照）
 
 - 用户确认aiportcloud.com为验收环境；公开首页和health均200。公开入口index-Be22Ci25.js与候选index-D6qDWanU.js不一致，公开入口未含本轮认证协调标记；尚不能在当前站点签收本轮代码。
 - 已准备仅dist的候选包/tmp/porsche-web-3eeca2b-m3.tar.gz、校验值与12项M3执行清单，见docs/agents/p0-m3-readiness.md。
@@ -79,4 +87,11 @@
 
 - 用户明确授权前端发布及两个专用测试账号。3eeca2b候选已发布，源站和公开/Chrome入口均匹配；静态备份已保留，后端未改动。
 - 真实注册、登录/恢复、安全Cookie、会话隔离、撤销、改密、正常注销通过所列子项；客户端阻断注销后的reload抑制通过。详见docs/agents/p0-m3-readiness.md。
-- 尚缺真实到期并发、多标签故障、部分ACL/SSE与后端联合签收；web-009仍in_progress。后端checkout为0bab2b7，镜像无revision标签，不能宣称运行二进制已证明该SHA。
+- 第一轮结束时尚缺真实到期并发、多标签故障、部分ACL/SSE与后端联合签收；新增子项进展见文首，web-009仍in_progress。后端checkout为0bab2b7，镜像无revision标签，不能宣称运行二进制已证明该SHA。
+
+## 2026-09-03：M3真实到期完成及导出菜单本地修复
+
+- 线上3eeca2b自然到期v2：真实过期POST401零刷新重放；三个并发安全GET各401→200，仅一次refresh，迟到401复用新token。双方角色基于证据确认所测范围，整体M3仍未签收。
+- 额外Cookie竞态、双刷新串行、历史/导出归属拒绝及键盘下载跨身份保护通过对应子项；失败/未测边界保留于p0-m3-readiness.md。
+- 发现并本地修复菜单图标屏外布局：158a00e，1280/1600普通click红→绿，独立质量PASS、113/113和build6.53秒PASS。仅本地，已准备新发布包，线上未替换。
+- A/B剩余fixture清零，撤销遗留会话并确认注销后refresh401。有效SSE预算与新修复候选发布待确认；运行二进制无Git revision，精确源码来源仍未证明。
