@@ -4,7 +4,7 @@
 
 **Goal:** Narrow the local Vite API proxy to the `/api` path segment, restore `/api-keys` SPA hard reload behavior, and requalify P02/R01 in a disposable real FE+BE environment.
 
-**Architecture:** The implementation changes only the Vite proxy context from the broad string prefix `'/api'` to the regular expression `'^/api(?:/|$)'`. A Node boundary test imports the real `vite.config.js`, models Vite context matching, and protects the existing target and hook. Real acceptance uses a fresh loopback MySQL/Redis/backend/frontend fixture, then PM and independent QA evidence gates the P02/R01 status update and exact cleanup.
+**Architecture:** The implementation changes only the Vite proxy context from the broad string prefix `'/api'` to the JavaScript source string `'^/api(?:/|\\?|$)'`, whose runtime RegExp text is `^/api(?:/|\?|$)`. A Node boundary test imports the real `vite.config.js`, models Vite raw-URL context matching including query strings, and protects the existing target and hook. Real acceptance uses a fresh loopback MySQL/Redis/backend/frontend fixture, then PM and independent QA evidence gates the P02/R01 status update and exact cleanup.
 
 **Tech Stack:** Vue 3, Vite 6, Node.js `node:test`, npm, Go backend, MySQL 8, Redis 7, Playwright, Docker disposable fixtures, JSON/Markdown evidence.
 
@@ -84,6 +84,8 @@ Expected: `baseline broad prefix confirmed`. This is a read-only baseline probe,
 No repository file changes in this task. Do not stage or commit the `/private/tmp` status snapshot.
 
 ### Task 2: Add the proxy boundary test and prove RED
+
+Tasks 2 and 3 below preserve the completed first-pass TDD history. Their original expected key `^/api(?:/|$)` is historical and superseded by Task 3A; do not rerun or rewrite these commits as if they were the final implementation.
 
 **Files:**
 - Create: `vite.config.test.js`
@@ -179,6 +181,8 @@ Expected: one-file commit containing only `vite.config.test.js`. The branch is i
 
 ### Task 3: Apply the minimal proxy-key fix and verify GREEN
 
+This task records the completed first-pass implementation in `717b278`. Its key `^/api(?:/|$)` fixed the `/api-keys` collision but did not cover a raw URL such as `/api?health=1`; Task 3A is mandatory before Task 4.
+
 **Files:**
 - Modify: `vite.config.js`
 - Test: `vite.config.test.js`
@@ -255,6 +259,111 @@ git commit -m "fix: narrow Vite API proxy boundary"
 ```
 
 Expected: one-file commit. `git show --stat HEAD` reports only `vite.config.js`.
+
+### Task 3A: Correct the raw-query boundary after quality review
+
+**Files:**
+- Read: `docs/superpowers/specs/2026-09-04-vite-api-route-proxy-design.md`
+- Modify: `vite.config.test.js`
+- Modify: `vite.config.js`
+
+- [ ] **Step 1: Confirm the reviewed baseline and empty index**
+
+Run:
+
+```bash
+git log --oneline -6
+git merge-base --is-ancestor 8cf9b9b HEAD
+git merge-base --is-ancestor 717b278 HEAD
+git merge-base --is-ancestor 342342c HEAD
+test -z "$(git diff --cached --name-only)"
+test -z "$(git status --porcelain=v1 -- vite.config.test.js vite.config.js)"
+```
+
+Expected: HEAD contains test commit `8cf9b9b`, first-pass implementation `717b278`, and reviewed specification correction `342342c`; the index is empty and both implementation files are clean. The `717b278` key is the first-pass historical state, not the final expected regex.
+
+- [ ] **Step 2: Add the raw-query positive case and final expected source string**
+
+In the existing positive URL array in `vite.config.test.js`, add exactly:
+
+```js
+    '/api?health=1',
+```
+
+Change the final context assertion to:
+
+```js
+  assert.equal(context, '^/api(?:/|\\?|$)')
+```
+
+This JavaScript test literal evaluates to runtime text `^/api(?:/|\?|$)`. Keep the existing positive cases `/api`, `/api/`, `/api/v1/**`, and `/api/public/**`, and keep the negative `/api-keys`, `/api-admin`, arbitrary `/api-*` document routes, and `/application` cases unchanged.
+
+- [ ] **Step 3: Prove the current `717b278` implementation is RED for the query boundary**
+
+Run:
+
+```bash
+node --test vite.config.test.js 2>&1 | tee /private/tmp/vite-api-route-fix-query-red.log
+```
+
+Expected: exit 1. The boundary test must fail because `/api?health=1 must be proxied` under the current runtime regex `^/api(?:/|$)`. The failure must not be an import, dependency, syntax, target, or hook error. Preserve the raw RED log without replacing the first-pass Task 2 RED evidence.
+
+- [ ] **Step 4: Commit only the query-boundary test**
+
+Run:
+
+```bash
+git add -- vite.config.test.js
+test "$(git diff --cached --name-only)" = "vite.config.test.js"
+git diff --cached --check
+git commit -m "test: cover Vite API query boundary"
+```
+
+Expected: one-file test commit. The branch intentionally remains RED until the next step changes the real configuration.
+
+- [ ] **Step 5: Apply the final minimal proxy-key correction**
+
+In `vite.config.js`, replace only the first-pass proxy key with this JavaScript source string:
+
+```js
+      '^/api(?:/|\\?|$)': {
+```
+
+The string value passed to Vite at runtime is `^/api(?:/|\?|$)`; `\?` in that runtime RegExp matches the literal query delimiter. Do not change target, `changeOrigin`, configure hook, backend, authentication, router, or production configuration.
+
+Expected diff: only `'^/api(?:/|$)'` is removed and `'^/api(?:/|\\?|$)'` is added in `vite.config.js`.
+
+- [ ] **Step 6: Verify targeted GREEN and all frontend gates**
+
+Run:
+
+```bash
+node --test vite.config.test.js 2>&1 | tee /private/tmp/vite-api-route-fix-query-green.log
+npm test 2>&1 | tee /private/tmp/vite-api-route-fix-query-full-test.log
+npm run build 2>&1 | tee /private/tmp/vite-api-route-fix-query-build.log
+git diff --check
+```
+
+Expected: targeted proxy tests pass with `/api?health=1` positive and all existing positives/negatives unchanged; full tests report 0 failures; build succeeds; diff check exits 0. Existing recorded build warnings may remain, but no new error is accepted.
+
+- [ ] **Step 7: Commit only the final configuration correction**
+
+Run:
+
+```bash
+git add -- vite.config.js
+test "$(git diff --cached --name-only)" = "vite.config.js"
+git diff --cached --check
+git commit -m "fix: proxy exact API paths with queries"
+```
+
+Expected: one-file configuration commit; `git show --stat HEAD` names only `vite.config.js`, and the target/hook bytes remain identical to `717b278`.
+
+- [ ] **Step 8: Require fresh specification and quality review before fixture work**
+
+The PM specification reviewer and an independent quality reviewer perform a fresh review of the two new commits against specification `342342c`; they must not reuse the first-pass review result. They rerun the targeted test plus `npm test`, `npm run build`, and `git diff --check`, and verify the source/runtime escaping directly. Record their exact candidate SHAs and explicit `SPEC_PASS` and `QUALITY_PASS` results in `/private/tmp/vite-api-route-fix-query-review.txt`; this temporary file contains no secrets and is not committed.
+
+Expected: both explicit results are PASS. Any `SPEC_FAIL` or `QUALITY_FAIL` stops execution before Task 4. Task 4 may begin only from the reviewed final query-aware candidate; the earlier `717b278` quality failure remains preserved as historical evidence.
 
 ### Task 4: Create a fresh disposable real FE+BE fixture
 
@@ -506,6 +615,9 @@ await page.locator('.profile-page').waitFor({ state: 'visible' })
 const publicProbe = await page.request.get('/api/public/__proxy_probe__')
 if (publicProbe.status() !== 404 || (publicProbe.headers()['content-type'] || '').includes('text/html')) throw new Error('api/public probe did not reach backend')
 
+const queryProbe = await page.request.get('/api?health=1')
+if ((queryProbe.headers()['content-type'] || '').includes('text/html')) throw new Error('api query probe used SPA fallback')
+
 await page.goto('/api-keys')
 await page.locator('.user-trigger').click()
 const logoutResponsePromise = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/auth/logout')
@@ -525,7 +637,8 @@ if (await page.locator('.api-keys-page, .main-layout, .token-list-card').count()
 const result = {
   status: 'PASS', apiKeysDocument: 200, apiKeysHardReload: 'rendered',
   usersRegression: 'rendered', profileRegression: 'rendered',
-  publicApiProxyProbe: 404, logout: 204, cookiesAfterLogout: 0,
+  publicApiProxyProbe: 404, queryApiProxyProbe: queryProbe.status(),
+  logout: 204, cookiesAfterLogout: 0,
   refreshAfterLogout: 401, postLogoutPath: '/login', privateDomAfterLogout: 0,
   modelOrSseInvoked: false, observed,
 }
@@ -555,6 +668,7 @@ Create `docs/agents/validation/vite-api-route-proxy-fix-20260904/writer-results.
 - proxy test and full test/build/diff results;
 - P02/R01 steps and PASS result;
 - `/api/v1/**` and `/api/public/**` proxy evidence;
+- `/api?health=1` reaches the backend rather than SPA fallback;
 - `/api-keys` SPA fallback evidence;
 - `/users` and `/profile` regression evidence;
 - explicit no-model/no-SSE statement;
@@ -593,9 +707,10 @@ Expected: exactly two evidence files committed. Resources remain running.
 PM must verify:
 
 - diff is limited to `vite.config.js` and `vite.config.test.js`;
-- key is exactly `'^/api(?:/|$)'`;
+- JavaScript source key is exactly `'^/api(?:/|\\?|$)'`, producing runtime RegExp text `^/api(?:/|\?|$)`;
 - target, `changeOrigin`, and configure hook are unchanged;
 - test imports the real config;
+- test includes `/api?health=1` as a positive and retains `/api-keys`, `/api-admin`, and arbitrary `/api-*` document routes as negatives;
 - no backend, auth, router, production, model, or SSE change exists;
 - writer evidence matches the approved design.
 
