@@ -17,6 +17,7 @@ test('Vite proxies only the /api path segment', () => {
 
   for (const url of [
     '/api',
+    '/api?health=1',
     '/api/',
     '/api/v1/auth/login',
     '/api/v1/users/me?include=profile',
@@ -35,7 +36,7 @@ test('Vite proxies only the /api path segment', () => {
     assert.equal(matchesViteProxyContext(context, url), false, `${url} must use SPA fallback`)
   }
 
-  assert.equal(context, '^/api(?:/|$)')
+  assert.equal(context, '^/api(?:/|\\?|$)')
 })
 
 test('Vite keeps the existing backend target and proxy hook', () => {
