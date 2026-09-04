@@ -1,8 +1,8 @@
 {
   "document": "PRD-260903 confirmations",
-  "version": "v0.2-design-review-r3-joint-acceptance-20260904-final",
-  "status": "FINAL_ACCEPTANCE_FAIL_PENDING_FIX_AND_CLEANUP",
-  "scope": "设计确认与B1限定切片历史保留；2026-09-04本地FE+BE联合验收最终FAIL：6 PASS_LIMITED_SCOPE、2 FAIL_LOCAL_DEV_ROUTE、18 BLOCKED。无生产批准，fixture等待精确cleanup。",
+  "version": "v0.2-design-review-r3-joint-acceptance-20260904-vite-proxy-remediation",
+  "status": "PARTIAL_ACCEPTANCE_8_LIMITED_18_BLOCKED",
+  "scope": "设计确认与B1限定切片历史保留；Vite本地API路由边界修复后，P02/R01由FAIL_LOCAL_DEV_ROUTE提升为本地PASS_LIMITED_SCOPE。当前8 PASS_LIMITED_SCOPE、0 FAIL、18 BLOCKED；生产HTTPS未运行，完整PRD未通过，fixture等待精确cleanup。",
   "baselines": {
     "frontend": "25a66a4ad546a481941dfc6e0cc9bc75da2e631b",
     "backend": "aec1619ee710c80cd71dbe529660e2d12b3fda7b",
@@ -126,6 +126,12 @@
       "revision": "joint-acceptance-20260904-final",
       "status": "FINAL_ACCEPTANCE_FAIL_PENDING_FIX_AND_CLEANUP",
       "note": "PM最终签字。26项：A01/A02/A04/A13/V01/V02共6项PASS_LIMITED_SCOPE；P02/R01因本地Vite /api代理截获/api-keys硬刷新而FAIL_LOCAL_DEV_ROUTE；其余16项BLOCKED_NOT_IMPLEMENTED、P08 BLOCKED_PRODUCT、R02 BLOCKED_ENV。SECOND-PHASE-REPORT仅在早期logout/direct-route解释上supersede CORE-PHASE-REPORT；logout 204、Cookie清空、refresh 401自身通过。资源保留等待精确cleanup。"
+    },
+    {
+      "reviewer": "frontend_project_manager_and_independent_quality_via_root_coordinator",
+      "revision": "vite-api-route-proxy-remediation-c788e788",
+      "status": "PARTIAL_ACCEPTANCE_8_LIMITED_18_BLOCKED",
+      "note": "PM SPEC_PASS及独立QA PASS已归档于Task6 evidence commit 37ae3845。P02/R01仅在保留的本地真实FE+BE环境提升为PASS_LIMITED_SCOPE；/api-keys、/users、/profile硬刷新与退出守卫通过，logout204、Cookie清空、refresh401不变；模型/chat/SSE、生产HTTPS、部署均未运行。18项继续阻塞，完整PRD不通过，资源等待精确cleanup。"
     }
   ],
   "acceptance_matrix": [
@@ -273,9 +279,9 @@
       "prd": "登录、退出、旧链接与刷新",
       "owner": "FE",
       "expected_evidence": "默认/chat、returnTo安全、既有页面回归",
-      "status": "FAIL_LOCAL_DEV_ROUTE",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "latest_evidence": "logout 204、Cookie清空、显式refresh 401通过；/api-keys硬刷新被本地Vite /api前缀代理到BE并404。"
+      "latest_evidence": "本地真实FE+BE复验限定通过：登录后/api-keys初次导航与硬刷新均返回200 HTML并渲染；UI logout 204、Cookie清空、显式refresh 401；退出后直接访问及硬加载返回SPA文档并由守卫落到/login，私有DOM为0。生产HTTPS未运行。"
     },
     {
       "id": "P03",
@@ -354,9 +360,9 @@
       "prd": "既有功能回归",
       "owner": "FE+quality",
       "expected_evidence": "认证、会话、SSE、历史、导出、API Key不回归",
-      "status": "FAIL_LOCAL_DEV_ROUTE",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "latest_evidence": "认证/会话及users-read局部链路可用，但/api-keys菜单直达或硬刷新无法在本地联合环境渲染；model/SSE未覆盖。"
+      "latest_evidence": "本地真实FE+BE复验限定通过：/api-keys文档路由不再被API代理截获；/users与/profile初次导航及硬刷新回归通过；/api?health=1和/api/public/**仍代理到后端非HTML 404。模型、chat、SSE与生产未运行。"
     },
     {
       "id": "R02",
@@ -400,6 +406,28 @@
       "evidence": "docs/agents/validation/joint-acceptance-20260904/FINAL-ACCEPTANCE-REPORT.md",
       "matrix": "docs/agents/validation/joint-acceptance-20260904/acceptance-matrix.json",
       "note": "当前权威状态；不回写或删除历史NOT_RUN表述。"
+    },
+    {
+      "at": "2026-09-04",
+      "status": "PARTIAL_ACCEPTANCE_8_LIMITED_18_BLOCKED",
+      "counts": {
+        "total": 26,
+        "PASS_LIMITED_SCOPE": 8,
+        "FAIL_LOCAL_DEV_ROUTE": 0,
+        "BLOCKED_NOT_IMPLEMENTED": 16,
+        "BLOCKED_PRODUCT": 1,
+        "BLOCKED_ENV": 1,
+        "blocked_total": 18
+      },
+      "evidence": "docs/agents/validation/vite-api-route-proxy-fix-20260904/remediation-report.md",
+      "matrix": "docs/agents/validation/joint-acceptance-20260904/acceptance-matrix.json",
+      "note": "仅P02/R01更新为本地PASS_LIMITED_SCOPE；历史26/26 NOT_RUN与6/2/18失败记录不删除。生产HTTPS未运行，18项仍阻塞。"
     }
-  ]
+  ],
+  "remediation_candidate": {
+    "frontend_runtime": "c788e78848a08c2fa3472812374448f388fb81aa",
+    "backend": "aec1619ee710c80cd71dbe529660e2d12b3fda7b",
+    "writer_evidence": "20ea497ae19a90ca3db949a88bf65e4f369fdb09",
+    "task6_review_evidence": "37ae3845c6ae79b0fcb8a24c42f4730ae15a654d"
+  }
 }

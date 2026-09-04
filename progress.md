@@ -1,5 +1,13 @@
 # 当前验证进度
 
+## 2026-09-04：Vite API 路由补救通过本地限定验收，18项仍阻塞
+
+- P02/R01已由`FAIL_LOCAL_DEV_ROUTE`提升为本地`PASS_LIMITED_SCOPE`：登录后的`/api-keys`初次导航和硬刷新均返回SPA文档并渲染；`/users`、`/profile`硬刷新回归通过；退出后3条私有路由均落到`/login`且无私有DOM。
+- 认证撤销行为未变：UI logout 204、浏览器Cookie清空、显式refresh 401。`/api?health=1`与`/api/public/**`仍到达后端并返回非HTML 404；`/api-keys`不再被API代理截获。
+- PM `SPEC_PASS`与独立QA `PASS`已归档；目标测试2/2、全量134/134、build、diff-check通过。运行候选`c788e788`，writer证据`20ea497`，Task6评审证据`37ae384`。
+- 当前26项为8 `PASS_LIMITED_SCOPE`、0 `FAIL_LOCAL_DEV_ROUTE`、16 `BLOCKED_NOT_IMPLEMENTED`、1 `BLOCKED_PRODUCT`、1 `BLOCKED_ENV`，合计18项阻塞。历史26/26 `NOT_RUN`及6/2/18失败证据原样保留。
+- 本轮未运行模型、chat、SSE、生产HTTPS、生产反向代理、部署或后端改动。结果不是完整PRD或生产验收通过；`web-012`保持`in_progress`，phase为`joint_acceptance_partial_8_limited_18_blocked`。一次性资源继续保留，等待精确cleanup。
+
 ## 2026-09-04：PRD-260903 真实本地联合验收最终FAIL，等待修复与清理
 
 - PM最终签字状态为`FINAL_ACCEPTANCE_FAIL_PENDING_FIX_AND_CLEANUP`。26项当前权威结果：6 `PASS_LIMITED_SCOPE`（A01/A02/A04/A13/V01/V02）、2 `FAIL_LOCAL_DEV_ROUTE`（P02/R01）、16 `BLOCKED_NOT_IMPLEMENTED`、1 `BLOCKED_PRODUCT`（P08）、1 `BLOCKED_ENV`（R02）；合计18项阻塞。

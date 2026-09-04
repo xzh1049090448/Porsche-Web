@@ -1,17 +1,18 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-04T12:43:25+08:00",
-  "overall_status": "FINAL_ACCEPTANCE_FAIL_PENDING_FIX_AND_CLEANUP",
-  "verdict": "FAIL_LOCAL_JOINT_ACCEPTANCE",
+  "generated_at": "2026-09-04T15:20:00+08:00",
+  "overall_status": "PARTIAL_ACCEPTANCE_8_LIMITED_18_BLOCKED",
+  "verdict": "PARTIAL_ACCEPTANCE_8_LIMITED_18_BLOCKED",
   "candidate": {
-    "frontend_head": "25a66a4ad546a481941dfc6e0cc9bc75da2e631b",
-    "backend_head": "aec1619ee710c80cd71dbe529660e2d12b3fda7b"
+    "frontend_head": "c788e78848a08c2fa3472812374448f388fb81aa",
+    "backend_head": "aec1619ee710c80cd71dbe529660e2d12b3fda7b",
+    "frontend_evidence_head": "37ae3845c6ae79b0fcb8a24c42f4730ae15a654d"
   },
   "environment_manifest_before_final_archive_sha256": "d3d1de8b3609721baba3e1f04ca19ef5990aaad2666e63f9aab7786cb6101641",
   "summary": {
     "total": 26,
-    "PASS_LIMITED_SCOPE": 6,
-    "FAIL_LOCAL_DEV_ROUTE": 2,
+    "PASS_LIMITED_SCOPE": 8,
+    "FAIL_LOCAL_DEV_ROUTE": 0,
     "BLOCKED_NOT_IMPLEMENTED": 16,
     "BLOCKED_PRODUCT": 1,
     "BLOCKED_ENV": 1,
@@ -24,8 +25,9 @@
     "final_logout_finding": "Logout itself passed (204, cookies empty, explicit refresh 401); local /api-keys hard reload failed with 404 because the Vite /api proxy prefix intercepted the document route."
   },
   "approval": {
-    "independent_qa": "FAIL",
-    "backend_project_manager": "FINAL_SIGNED",
+    "frontend_project_manager": "SPEC_PASS",
+    "independent_qa": "PASS",
+    "backend_project_manager": "HISTORICAL_FINAL_SIGNED",
     "cleanup": "PENDING_EXACT_INSTRUCTION"
   },
   "items": [
@@ -173,9 +175,9 @@
       "prd": "登录、退出、旧链接与刷新",
       "owner": "FE",
       "expected_evidence": "默认/chat、returnTo安全、既有页面回归",
-      "status": "FAIL_LOCAL_DEV_ROUTE",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "latest_evidence": "logout 204、Cookie清空、显式refresh 401通过；/api-keys硬刷新被本地Vite /api前缀代理到BE并404。"
+      "latest_evidence": "本地真实FE+BE复验限定通过：登录后/api-keys初次导航与硬刷新均返回200 HTML并渲染；UI logout 204、Cookie清空、显式refresh 401；退出后直接访问及硬加载返回SPA文档并由守卫落到/login，私有DOM为0。生产HTTPS未运行。"
     },
     {
       "id": "P03",
@@ -254,9 +256,9 @@
       "prd": "既有功能回归",
       "owner": "FE+quality",
       "expected_evidence": "认证、会话、SSE、历史、导出、API Key不回归",
-      "status": "FAIL_LOCAL_DEV_ROUTE",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "latest_evidence": "认证/会话及users-read局部链路可用，但/api-keys菜单直达或硬刷新无法在本地联合环境渲染；model/SSE未覆盖。"
+      "latest_evidence": "本地真实FE+BE复验限定通过：/api-keys文档路由不再被API代理截获；/users与/profile初次导航及硬刷新回归通过；/api?health=1和/api/public/**仍代理到后端非HTML 404。模型、chat、SSE与生产未运行。"
     },
     {
       "id": "R02",
@@ -273,9 +275,55 @@
     "second_report_sha256": "45726625012f46d046896eeda1f673f9e4e66226c1dbb62719c2f84e364724a7",
     "core_results_sha256": "a62458c278eb4087259f11baef4acf6291cf211938cc814ad3f2e9572dbb8b0e",
     "phase2_results_sha256": "434d63a383da5c69fa0e70ac87464345958e95e155d819466ba79e599c2f3310",
-    "p02_three_contexts_sha256": "7c890fb903f44dc0af1b67da70b2949435551b4f3017b04bdce614b586ef6d37"
+    "p02_three_contexts_sha256": "7c890fb903f44dc0af1b67da70b2949435551b4f3017b04bdce614b586ef6d37",
+    "historical_final_report_sha256": "4147caaef7e745f49126f5689528f580dc8bb1b69e4c2c55d1e59e55324312f2",
+    "writer_report_sha256": "184b20cf7c446c4fc11ae15a02fe8698d8b03296f77ad432b766255f95034b24",
+    "writer_results_sha256": "2b0394077c775257a8e89fc72a94195e4d358dfe0514a6b72445f17522c5115c",
+    "independent_qa_results_sha256": "e822b1655465eb233d4a985f7b77dedfdd1120bce87bd1da1e9599fa7b536286",
+    "independent_qa_manifest_sha256": "a7cf2ba005ebad6ab8dbc08e299aa3af5f01a3404d630f2adb7f5c7af2ce3629"
   },
   "secret_free": true,
   "production_touched": false,
-  "resources_retained": true
+  "resources_retained": true,
+  "acceptance_timeline": [
+    {
+      "at": "2026-09-03",
+      "status": "ALL_NOT_RUN",
+      "counts": {
+        "NOT_RUN": 26
+      },
+      "note": "设计评审及早期B1限定切片阶段；当时26项联合验收均未运行，item historical_status继续保留。"
+    },
+    {
+      "at": "2026-09-04",
+      "status": "FINAL_ACCEPTANCE_FAIL_PENDING_FIX_AND_CLEANUP",
+      "counts": {
+        "total": 26,
+        "PASS_LIMITED_SCOPE": 6,
+        "FAIL_LOCAL_DEV_ROUTE": 2,
+        "BLOCKED_NOT_IMPLEMENTED": 16,
+        "BLOCKED_PRODUCT": 1,
+        "BLOCKED_ENV": 1,
+        "blocked_total": 18
+      },
+      "evidence": "docs/agents/validation/joint-acceptance-20260904/FINAL-ACCEPTANCE-REPORT.md",
+      "note": "原始联合验收失败记录；P02/R01为FAIL_LOCAL_DEV_ROUTE，所有原始证据不可变保留。"
+    },
+    {
+      "at": "2026-09-04",
+      "status": "PARTIAL_ACCEPTANCE_8_LIMITED_18_BLOCKED",
+      "counts": {
+        "total": 26,
+        "PASS_LIMITED_SCOPE": 8,
+        "FAIL_LOCAL_DEV_ROUTE": 0,
+        "BLOCKED_NOT_IMPLEMENTED": 16,
+        "BLOCKED_PRODUCT": 1,
+        "BLOCKED_ENV": 1,
+        "blocked_total": 18
+      },
+      "evidence": "docs/agents/validation/vite-api-route-proxy-fix-20260904/remediation-report.md",
+      "historical_source": "docs/agents/validation/joint-acceptance-20260904/FINAL-ACCEPTANCE-REPORT.md",
+      "note": "仅P02/R01由FAIL_LOCAL_DEV_ROUTE提升为本地PASS_LIMITED_SCOPE；历史26/26 NOT_RUN及6/2/18记录保留。生产HTTPS未运行，18项仍阻塞，完整PRD未通过。"
+    }
+  ]
 }
