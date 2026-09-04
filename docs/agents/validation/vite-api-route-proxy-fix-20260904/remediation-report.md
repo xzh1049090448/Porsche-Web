@@ -39,4 +39,6 @@ writer与独立QA分别创建新浏览器上下文，均确认：
 
 ## 资源状态
 
-本地FE、BE、MySQL与Redis一次性资源仍保留，供Task8按精确ID、名称、标签、端口和私有路径清理。当前`resources retained pending exact cleanup`；未执行prune、volume删除或其他非任务资源操作。
+cleanup：`PASS`。本地FE、BE进程及15174/8000监听已消失；两个精确容器ID、名称和任务标签均为零残留；精确私有目录、生命周期指针和cleanup环境文件均不存在。独立复核确认无关容器、volume和image清理前后计数及SHA-256一致。清理仅覆盖本任务记录的资源，未执行prune、volume删除、image删除、glob删除或其他容器操作。
+
+该清理结论不扩大验收范围。最终状态仍为本地`PARTIAL_ACCEPTANCE_8_LIMITED_18_BLOCKED`，`web-012`仍为`in_progress`，生产HTTPS与生产反向代理仍未验证。
