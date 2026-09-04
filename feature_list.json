@@ -1,6 +1,6 @@
 {
   "project": "Porsche-Web（大模型聚合平台用户端前端）",
-  "last_updated": "2026-09-03",
+  "last_updated": "2026-09-04",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -39,12 +39,31 @@
       "notes": "2026-09-02：只修改 API Key 复制路径，本地验证及独立规格/质量审查通过。真实 HTTPS 生产验收不在本轮范围；浏览器已发起的原生 clipboard 写入无法撤回。未 push/merge/deploy 或关闭 GitHub issue。"
     },
     {
+      "id": "web-012",
+      "priority": 0,
+      "area": "llm-platform",
+      "title": "PRD-260903：管理员用户管理与公共页面体系",
+      "user_visible_behavior": "形成管理员真实管理、公共页面、路由迁移与金额 Mock 隔离的可实施设计和契约草案。",
+      "status": "in_progress",
+      "phase": "joint_acceptance_failed_pending_fix_and_cleanup",
+      "verification": [
+        "设计评审与独立 review",
+        "文档 JSON parse/hash/diff-check",
+        "A01-A14/P01-P08/V01-V02/R01-R02 后续逐项验收"
+      ],
+      "evidence": [
+        "2026-09-04：B1-D 只读用户列表/详情、认证权限投影、分页回退及 F1/F2 候选闭合；132/132 Node 行为测试、build、writer Chrome 合成 API 矩阵通过。独立 Chrome 在 5177 复验分页/UI、详情错误重试、F1 撤权清理和权限恢复均 PASS；独立质量为本地 FE 候选 VERDICT PASS，offline audit freshness NOT_VERIFIED。",
+        "2026-09-04：真实本地FE+BE联合验收最终FAIL。26项为6 PASS_LIMITED_SCOPE（A01/A02/A04/A13/V01/V02）、2 FAIL_LOCAL_DEV_ROUTE（P02/R01）、18 BLOCKED；logout 204/Cookie清空/refresh 401通过，但本地Vite /api代理截获/api-keys硬刷新并返回404。SECOND仅在该早期logout路由解释上supersede CORE；原始证据保留。最终报告和机器矩阵见docs/agents/validation/joint-acceptance-20260904/。"
+      ],
+      "notes": "历史上本轮联合验收为26/26 NOT_RUN；该表述仅适用于2026-09-04执行前。当前权威结果为联合FAIL：6项限定通过、P02/R01本地开发路由失败、18项阻塞。web-012继续保持唯一in_progress，不得标passing；需修复/调整本地文档路由与API代理边界后重验P02/R01，并分别完成未实现、产品和部署阻塞项。资源等待精确cleanup。"
+    },
+    {
       "id": "web-009",
       "priority": 0,
       "area": "llm-platform",
       "title": "P0 用户名认证与可撤销会话加固",
       "user_visible_behavior": "用户名注册/登录、Cookie 刷新恢复、登出、会话管理和内存 Access Token。",
-      "status": "in_progress",
+      "status": "blocked",
       "verification": [
         "npm test",
         "npm run build",

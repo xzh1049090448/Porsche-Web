@@ -1,0 +1,405 @@
+{
+  "document": "PRD-260903 confirmations",
+  "version": "v0.2-design-review-r3-joint-acceptance-20260904-final",
+  "status": "FINAL_ACCEPTANCE_FAIL_PENDING_FIX_AND_CLEANUP",
+  "scope": "设计确认与B1限定切片历史保留；2026-09-04本地FE+BE联合验收最终FAIL：6 PASS_LIMITED_SCOPE、2 FAIL_LOCAL_DEV_ROUTE、18 BLOCKED。无生产批准，fixture等待精确cleanup。",
+  "baselines": {
+    "frontend": "25a66a4ad546a481941dfc6e0cc9bc75da2e631b",
+    "backend": "aec1619ee710c80cd71dbe529660e2d12b3fda7b",
+    "input_sha256": "58ab6fa63c9e5bcc9704ecc2167c1dfe75b77ff9ca0c8117f834fe88333eb31a"
+  },
+  "confirmed": {
+    "user": [
+      "D01 soft delete only/no restore/username permanently reserved",
+      "D02 amount means monetary balance; Mock allowed; daily call limits unchanged",
+      "D03 USER_CONFIRMED: / is the public home and /chat is the conversation route; recorded from user reply '确认' to the prior assistant question",
+      "D06 USER_CONFIRMED: default pricing is public with a controlled unified visibility switch; recommendation is public by default; recorded from user reply '确认' to the prior assistant question",
+      "SECURITY USER_CONFIRMED: approve the PRD capability/ticket/permission-update security direction for subsequent implementation preparation; this does not freeze DTOs or constitute implementation acceptance; recorded from user reply '确认' to the prior assistant question",
+      "OUT_OF_SCOPE USER_CONFIRMED: retain the stated exclusions for real balance/payment, advanced auth, restore, full settings and custom roles; recorded from user reply '确认' to the prior assistant question"
+    ],
+    "inherited_constraints": [
+      "D04 role hierarchy and Root hard boundaries",
+      "D05 user-specified Vue technology; neither is a new per-item product approval"
+    ],
+    "frontend_developer": [
+      "accepted read-only design coordination",
+      "recommended PublicLayout/AdminLayout split",
+      "recommended Vue prerender plus Go gate",
+      "recommended separate real API and amount Mock entry"
+    ],
+    "backend_project_manager": [
+      "accepted shared account action service plus independent authz direction; Casbin remains candidate",
+      "accepted authz order actor state/selfRoot boundary/visibility/capability/baseline+override with deny precedence",
+      "accepted unknown and production users.quota.adjust always deny direction",
+      "accepted T01 action-verification intent first then POST users transaction, opaque ticket digest, idempotency and outbox direction",
+      "accepted T02 cross-instance switching and Go gate direction",
+      "accepted T03 scoped operation query candidate with original Idempotency-Key, current originating session and latest actor qualification; final contract pending"
+    ],
+    "internal_coordination": [
+      "B1-A agreed_for_implementation: backend-only pure authz evaluator slice; FE has no business change and management entry remains closed",
+      "B1-A RESULT PASS: focused 8 tests plus rerun, full 312 tests with 98 DB/Redis fixture skips and 0 failures, package 15 pass plus 4 no-tests skips, build/vet clean; independent concurrency probe PASS and quality verification PASS; this remains a pure library result",
+      "B1-B1 agreed_for_implementation and delegated: backend-only permission snapshot persistence/loader internal contract; FE has no business change and management entry remains closed",
+      "B1-B1 RESULT PASS_LIMITED_SCOPE: PM SPEC PASS; independent permission_snapshot_verify fresh build/vet/diff/json all 0; real fixture full 456 tests pass, 0 skip, 0 fail; 15 packages pass and 4 no-tests; reverse-lock probe PASS (1.362s). SECURITY_REPORT Critical/High/Medium/Low all none, VERDICT PASS. This is limited to the internal snapshot library and does not freeze HTTP/DTO, permissions_version, or authorize FE wiring.",
+      "B1-B2 RESULT PASS_LIMITED_SCOPE: PM SPEC PASS; independent permission_snapshot_verify VERDICT PASS with Critical/High/Medium/Low none. Fresh fixture JSON: 512 pass, 0 fail, 0 skip; 15 packages pass and 4 no-tests. Strict PUT, session/AuthVersion/event10 and actor-attributed revoke audit are local BE scope only. allowed_models [] remains unrestricted user ACL; it is not Gateway Key ACL. FE has no business change and management entry remains closed."
+    ]
+  },
+  "pending_product": [],
+  "pending_technical": [
+    "Exact admin/public DTO fields and backend revision",
+    "B1-A internal capability set is fixed for its library slice; HTTP capability names, authz version and old endpoint remediation remain pending",
+    "T01 admin creation intent canonical serialization/HMAC and target binding details",
+    "T02 cache invalidation evidence and atomic public policy commit details",
+    "Legal text approval and content owner",
+    "FE/BE/quality written acceptance of the 26-case matrix"
+  ],
+  "reviews": [
+    {
+      "reviewer": "backend_project_manager",
+      "revision": "r2",
+      "status": "ACCEPTED_FOR_USER_REVIEW",
+      "note": "可交用户评审的启动/设计草案，非实施合同；沿用三个 B0 待决总结：最终 capability/旧出口处置、T01 精确字段与绑定、T02 缓存失效和原子 policy commit。"
+    },
+    {
+      "reviewer": "p0_quality_review",
+      "revision": "r2",
+      "status": "ACCEPTED_FOR_USER_REVIEW",
+      "note": "4 文件可作为用户评审启动草案，无阻断性实质矛盾；26/26 NOT_RUN 元数据检查通过，不签实现合同/验收。待决：产品 D03/D06 与 email 现状；B0 精确 capability/DTO/T01/T03；实施前旧出口、凭据、Mock 与价格门禁。"
+    },
+    {
+      "reviewer": "user",
+      "revision": "r3",
+      "status": "USER_CONFIRMED_DESIGN",
+      "note": "用户原话“确认”，对应上轮 assistant 对 D03/D06、能力/票据安全及排除范围的明确提问；D06 采用默认公开价格与受控统一开关建议。此确认不等于 DTO 冻结、实现验收或生产批准；User 无 email 仍是基线差异。"
+    },
+    {
+      "reviewer": "backend_project_manager_and_frontend_coordinator",
+      "revision": "B1-A",
+      "status": "AGREED_FOR_IMPLEMENTATION",
+      "note": "限定为 backend-only internal pure authz slice，不改公共接口 DRAFT，不交认证 projection，不开放 FE 管理入口；首批仅验证可测 policy 规则，不能作为安全失效或实际权限落地证据。计划与设计来源：/Users/xuzhihao/code/Porsche/.worktrees/admin-public-260903/docs/superpowers/plans/2026-09-03-b1a-pure-authz.md 与 specs/2026-09-03-b1a-pure-authz-design.md。24cap、immutable evaluator、四入口、默认 deny/显式 deny 优先及 Root/self/peer 硬边界以 BE 计划为准。"
+    },
+    {
+      "reviewer": "backend_project_manager_and_quality",
+      "revision": "B1-A",
+      "status": "PASS_LIMITED_SCOPE",
+      "note": "B1-A BE 纯库切片及独立 admin_authz_security_verify VERDICT PASS：focused 8 tests/rerun PASS；full 312 pass，98 DB/Redis fixture SKIP，0 fail；package 15 pass、4 no-tests SKIP；build/vet 0；独立并发 probe PASS。代码来源 catalog d4360b588247d478d878e71a70b787785c6a3315a30b8bb5d8312692c6f94628、evaluator 7df94e9ceaa4920526abc444764727801d1a5bbebbd98f56b10f095d44023c6e、tests a7ccfecdf6a9ed7ea4331e61b05e20a2958aaee9da632adeaed8fffb4ab0b63d；BE 仍为 aec1619 + working diff。该 PASS 仅限 policy library，不代表 HTTP/DTO/DB/旧路由/安全失效落地；完整 B1 未完成。"
+    },
+    {
+      "reviewer": "backend_project_manager_and_frontend_coordinator",
+      "revision": "B1-B1",
+      "status": "PASS_LIMITED_SCOPE",
+      "note": "PM SPEC PASS；来源 docs/superpowers/specs/2026-09-03-b1b1-permission-snapshot-design.md 与 plans/2026-09-03-b1b1-permission-snapshot.md。独立 permission_snapshot_verify fresh build/vet/diff/json 均 0，real fixture full 456 tests pass、0 skip、0 fail，15 package pass、4 no-tests，反向锁 probe PASS 1.362s；SECURITY_REPORT Critical/High/Medium/Low 均 none、VERDICT PASS。仅限内部快照库，HTTP/DTO、permissions_version、FE 接线和完整 B1 仍未完成。"
+    },
+    {
+      "reviewer": "backend_project_manager_and_frontend_coordinator",
+      "revision": "B1-B2",
+      "status": "PASS_LIMITED_SCOPE",
+      "note": "PM SPEC PASS；独立 permission_snapshot_verify VERDICT PASS，Critical/High/Medium/Low均none。fresh fixture JSON 512 pass/0 fail/0 skip，15 package pass、4 no-test；focused race与独立HTTP adversarial probe均通过。范围仅既有 PUT /admin/users/:guid 与 UpdateManagedUser 安全收紧：status/plan/用户 ACL 实际变更撤销会话/AuthVersion+1/event10，daily_limit-only审计不撤销；同值/null/{} no-op。用户 ACL [] 明确为unrestricted，且不等同Gateway Key ACL。旧角色授权、旧路由、ticket/idempotency/outbox/Gateway最新user ACL与FE接线仍未完成；26项联合验收保持NOT_RUN。"
+    },
+    {
+      "reviewer": "backend_project_manager_and_frontend_coordinator",
+      "revision": "B1-B3",
+      "status": "PASS_LIMITED_SCOPE",
+      "note": "PM final SPEC PASS and independent VERDICT PASS. Fresh fixture JSON: 544 pass/0 fail/0 skip, 15 package pass/4 no-test; race, build, vet, diff and feature JSON passed; four risk levels zero. Gateway Key reads latest committed owner ACL each request and combines it with Key ACL; unavailable reads map to fixed 503. User allowed_models [] remains unrestricted and the result has no FE wiring. web-012 remains not_started/awaiting_backend_integration; all 26 joint acceptance cases remain NOT_RUN."
+    },
+    {
+      "reviewer": "backend_project_manager_and_root_coordinator",
+      "revision": "B1-C-r1",
+      "status": "AGREED_FOR_IMPLEMENTATION",
+      "note": "Approved spec/plan and security precheck PASS. PM conditional SPEC CODE ALIGNED: no remaining production-code specification gap, conditioned on aligned documentation and real fixture evidence. Backend candidate implemented/frozen; independent final static/no-fixture review completed: VERDICT PARTIAL, no actionable static security defects (all four severity levels zero), all 8 production hashes matched, pure JSON leaves 18 PASS/34 fixture SKIP/0 FAIL; focused race, independent HTTP overlay probe and gofmt/diff/build/vet PASS. Real MySQL/Redis remains strictly NOT_RUN. Evidence archived in backend validation/2026-09-03-b1c-admin-authz-read/independent-static/. Final no-fixture full suite 356 test pass/229 skip/0 fail, 15 package pass/4 no-test; HTTP 1 pass/5 skip/0 fail; build/vet/race passed. Real DB/Redis NOT_RUN awaiting this batch fixture lifecycle authorization. Fresh-service 401 body detail is 认证会话无效, old middleware 401 unchanged; body request_id is overridden by detail-only plus X-Request-ID header on the two matched routes. Hidden targets (missing/non-visible deletion/self/known Root/User) remain 404 even with bad status/AuthVersion; only otherwise-visible corruption is 503 after fresh session validation. web-012 remains not_started/awaiting_backend_integration and 26 joint cases NOT_RUN.",
+      "historical_scope": "Historical stage before final B1-C-r1-final-limited-pass; any NOT_RUN/awaiting/pending statements here are superseded for local B1-C by the final review below."
+    },
+    {
+      "reviewer": "backend_writer_via_root_coordinator",
+      "revision": "B1-C-r1-real-fixture",
+      "status": "WRITER_VALIDATION_PASS_PENDING_INDEPENDENT_PM",
+      "note": "User authorized batch lifecycle via 就行 and 继续. Actual MySQL8.0.46/Redis7.4.11 migration ledger0001–0003 verified; focused83/race107/fresh full627 test PASS, 0FAIL/0SKIP, 15 package PASS/4 no-test; build/vet/diff PASS. Initial harness failures (archived .go package discovery and migration APP_ENV leakage) corrected with no production/identity/assertion/migration changes; fresh JSON is authoritative. All8 production hashes unchanged. PM DOCS ALIGNED/no code gap; final independent real-fixture/PM review pending; exact task fixtures retained for review. No FE business wiring; web-012 remains not_started and 26 joint cases NOT_RUN.",
+      "historical_scope": "Historical stage before final B1-C-r1-final-limited-pass; any NOT_RUN/awaiting/pending statements here are superseded for local B1-C by the final review below."
+    },
+    {
+      "reviewer": "backend_project_manager_and_independent_quality_via_root_coordinator",
+      "revision": "B1-C-r1-final-limited-pass",
+      "status": "PASS_LIMITED_SCOPE",
+      "note": "PM final SPEC_PASS and independent real-fixture VERDICT_PASS; all four security severity levels zero; all8 production hashes matched before/after. Independent focused96 leaf PASS (service72/handler24), race96 leaf PASS, authenticated HTTP boundary overlay1PASS, all0FAIL/0SKIP. Writer fresh full627/focused83/race107PASS, nofail/noskip; build/vet/diffPASS. Exact task MySQL133f7729e687 and Redisf3c304aaec4b verified then stopped/AutoRemoved; exactID/name checks empty; fixture.env, credential files and owned private directory deleted. Artifacts and cleanup evidence archived in backend B1-C validation/real-fixture. Limited to two readonly APIs/local integration; FE business wiring, web-012 and all26 joint PRD cases remain unchanged/NOT_RUN."
+    },
+    {
+      "reviewer": "backend_project_manager_and_independent_quality_via_root_coordinator",
+      "revision": "joint-acceptance-20260904-final",
+      "status": "FINAL_ACCEPTANCE_FAIL_PENDING_FIX_AND_CLEANUP",
+      "note": "PM最终签字。26项：A01/A02/A04/A13/V01/V02共6项PASS_LIMITED_SCOPE；P02/R01因本地Vite /api代理截获/api-keys硬刷新而FAIL_LOCAL_DEV_ROUTE；其余16项BLOCKED_NOT_IMPLEMENTED、P08 BLOCKED_PRODUCT、R02 BLOCKED_ENV。SECOND-PHASE-REPORT仅在早期logout/direct-route解释上supersede CORE-PHASE-REPORT；logout 204、Cookie清空、refresh 401自身通过。资源保留等待精确cleanup。"
+    }
+  ],
+  "acceptance_matrix": [
+    {
+      "id": "A01",
+      "prd": "普通用户直达管理页及接口",
+      "owner": "FE+BE",
+      "expected_evidence": "UI/API拒绝且无管理数据泄露",
+      "status": "PASS_LIMITED_SCOPE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "真实普通用户调用管理列表403；Chrome直达/users显示无权限且无管理行。"
+    },
+    {
+      "id": "A02",
+      "prd": "Admin管理Root/其他Admin/自己",
+      "owner": "FE+BE",
+      "expected_evidence": "硬边界拒绝且不泄露目标",
+      "status": "PASS_LIMITED_SCOPE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "Root自身详情404/Admin详情200；Admin仅见普通用户且自身、Root详情404。"
+    },
+    {
+      "id": "A03",
+      "prd": "Root创建用户与管理员",
+      "owner": "FE+BE",
+      "expected_evidence": "校验、默认权限、审计、intent/ticket/幂等一致；不能创建Root",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "v2创建用户/管理员未实现。"
+    },
+    {
+      "id": "A04",
+      "prd": "搜索分页过滤",
+      "owner": "FE+BE",
+      "expected_evidence": "GUID字符串不失真、软删默认不可见、旧响应不覆盖新筛选",
+      "status": "PASS_LIMITED_SCOPE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "真实HTTP覆盖GUID、分页、role/status/deleted、排序、转义LIKE、非法page；FE最新筛选结果保护通过。"
+    },
+    {
+      "id": "A05",
+      "prd": "编辑伪造role/guid/auth_version",
+      "owner": "FE+BE",
+      "expected_evidence": "请求拒绝且无部分越权修改",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "v2编辑未实现；旧伪造更新拒绝仅为只读/安全子集证据。",
+      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+    },
+    {
+      "id": "A06",
+      "prd": "禁用与启用",
+      "owner": "FE+BE",
+      "expected_evidence": "旧Access/Refresh/Key不可用，启用不恢复旧会话",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "v2禁用/启用及完整Access/Refresh/Key失效链未实现。",
+      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+    },
+    {
+      "id": "A07",
+      "prd": "密码重置/分组/套餐变化",
+      "owner": "FE+BE",
+      "expected_evidence": "旧会话失效、新权益生效、秘密不进日志",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "v2密码重置/分组/套餐变更未实现；已有读取仅为子集。",
+      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+    },
+    {
+      "id": "A08",
+      "prd": "提升/降级/权限覆盖",
+      "owner": "FE+BE",
+      "expected_evidence": "最新能力生效、降级无残留、旧入口不可绕过",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "v2提升/降级/权限写入未实现；catalog/permission read子集通过。",
+      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+    },
+    {
+      "id": "A09",
+      "prd": "金额Mock增减覆盖",
+      "owner": "FE",
+      "expected_evidence": "分单位范围/精度/余额不足/Mock标记正确",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "金额Mock UI/API未实现。"
+    },
+    {
+      "id": "A10",
+      "prd": "模拟调额异常与重复提交",
+      "owner": "FE",
+      "expected_evidence": "成功/失败/超时/冲突可演示且不调用真实写接口",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "模拟调额异常、冲突、超时及重复提交未实现。"
+    },
+    {
+      "id": "A11",
+      "prd": "Mock与生产隔离",
+      "owner": "FE+BE",
+      "expected_evidence": "无真实余额/流水写入，伪造金额动作拒绝，原调用行为不变",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "Mock与生产隔离的完整可执行入口未实现，无法联合验收。"
+    },
+    {
+      "id": "A12",
+      "prd": "软删除及重复删除",
+      "owner": "FE+BE",
+      "expected_evidence": "认证/调用失效、用户名不可复用、无物理删除",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "软删除/恢复写链未实现。"
+    },
+    {
+      "id": "A13",
+      "prd": "Root不可管理保护",
+      "owner": "FE+BE",
+      "expected_evidence": "危险Root操作不出现在真实界面或API",
+      "status": "PASS_LIMITED_SCOPE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "Root真实列表/详情无创建、编辑、删除或Root保护变更控件。"
+    },
+    {
+      "id": "A14",
+      "prd": "操作票据与依赖故障",
+      "owner": "FE+BE",
+      "expected_evidence": "票据绑定/过期/重放及DB/Redis失败关闭；未知状态走operation查询",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "ticket/idempotency/operation query及依赖故障链未实现。"
+    },
+    {
+      "id": "P01",
+      "prd": "匿名打开所有公共页",
+      "owner": "FE+BE",
+      "expected_evidence": "无登录循环，已发布内容可读，未知路径真实404",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "公共页面与发布读取未实现。"
+    },
+    {
+      "id": "P02",
+      "prd": "登录、退出、旧链接与刷新",
+      "owner": "FE",
+      "expected_evidence": "默认/chat、returnTo安全、既有页面回归",
+      "status": "FAIL_LOCAL_DEV_ROUTE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "logout 204、Cookie清空、显式refresh 401通过；/api-keys硬刷新被本地Vite /api前缀代理到BE并404。"
+    },
+    {
+      "id": "P03",
+      "prd": "模型ID含斜杠等字符",
+      "owner": "FE+BE",
+      "expected_evidence": "稳定modelKey详情和刷新准确",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "公共模型详情及稳定modelKey未实现。"
+    },
+    {
+      "id": "P04",
+      "prd": "报价单位与数据缺失",
+      "owner": "FE+BE",
+      "expected_evidence": "缺价不为0，混合单位不伪排序，参考报价提示存在",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "公共报价单位/缺价规则未实现。"
+    },
+    {
+      "id": "P05",
+      "prd": "价格登录可见模式",
+      "owner": "FE+BE",
+      "expected_evidence": "HTML/API/CDN/快照/sitemap无匿名报价泄露，策略切换有门禁",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "匿名报价隐藏全链路未实现。"
+    },
+    {
+      "id": "P06",
+      "prd": "草稿/预览/并发发布/恢复",
+      "owner": "FE+BE",
+      "expected_evidence": "草稿隔离、冲突409、旧版保留、restore生成新版本",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "草稿/预览/并发发布/恢复未实现。"
+    },
+    {
+      "id": "P07",
+      "prd": "富文本与链接注入",
+      "owner": "FE+BE",
+      "expected_evidence": "XSS和危险URL拒绝/净化，禁止任意抓取",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "富文本净化与危险URL规则未实现。"
+    },
+    {
+      "id": "P08",
+      "prd": "内容真实性",
+      "owner": "FE+product",
+      "expected_evidence": "未经证明的价格/40+/100%/MIT不进入生产",
+      "status": "BLOCKED_PRODUCT",
+      "historical_status": "NOT_RUN",
+      "blocker": "生产内容真实性尚需产品批准。"
+    },
+    {
+      "id": "V01",
+      "prd": "视觉对照",
+      "owner": "FE+quality",
+      "expected_evidence": "users/landing/pricing对照差异记录",
+      "status": "PASS_LIMITED_SCOPE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "保存真实填充数据的1440用户列表和Admin详情截图；landing/pricing与原型像素比对未覆盖。"
+    },
+    {
+      "id": "V02",
+      "prd": "响应式/无障碍",
+      "owner": "FE+quality",
+      "expected_evidence": "375/768/1440视口、键盘、对比度、减少动态效果证据",
+      "status": "PASS_LIMITED_SCOPE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "375/768/1440无文档级横向溢出，键盘/焦点/标签/表格角色/减少动态/12.13:1对比度通过；非axe审计。"
+    },
+    {
+      "id": "R01",
+      "prd": "既有功能回归",
+      "owner": "FE+quality",
+      "expected_evidence": "认证、会话、SSE、历史、导出、API Key不回归",
+      "status": "FAIL_LOCAL_DEV_ROUTE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "认证/会话及users-read局部链路可用，但/api-keys菜单直达或硬刷新无法在本地联合环境渲染；model/SSE未覆盖。"
+    },
+    {
+      "id": "R02",
+      "prd": "部署与回滚",
+      "owner": "FE+BE+quality",
+      "expected_evidence": "迁移、缓存、路由刷新、发布/回滚步骤和证据",
+      "status": "BLOCKED_ENV",
+      "historical_status": "NOT_RUN",
+      "blocker": "未执行生产迁移、部署、缓存、路由刷新及回滚演练。"
+    }
+  ],
+  "historical_evidence": "web-009 M3 PARTIAL and generation budget 4/4 are not new evidence. Historical 26/26 NOT_RUN applied before the 2026-09-04 joint run and is preserved in acceptance_timeline; current matrix is authoritative.",
+  "authorization": {
+    "new_generation": false,
+    "production_write": false,
+    "deployment": false,
+    "commit_or_push": false,
+    "automation": false
+  },
+  "acceptance_timeline": [
+    {
+      "at": "2026-09-03",
+      "status": "ALL_NOT_RUN",
+      "counts": {
+        "NOT_RUN": 26
+      },
+      "note": "设计评审及早期B1限定切片阶段；当时26项联合验收均未运行。相关历史review/note原文继续保留。"
+    },
+    {
+      "at": "2026-09-04",
+      "status": "FINAL_ACCEPTANCE_FAIL_PENDING_FIX_AND_CLEANUP",
+      "counts": {
+        "total": 26,
+        "PASS_LIMITED_SCOPE": 6,
+        "FAIL_LOCAL_DEV_ROUTE": 2,
+        "BLOCKED_NOT_IMPLEMENTED": 16,
+        "BLOCKED_PRODUCT": 1,
+        "BLOCKED_ENV": 1,
+        "blocked_total": 18
+      },
+      "evidence": "docs/agents/validation/joint-acceptance-20260904/FINAL-ACCEPTANCE-REPORT.md",
+      "matrix": "docs/agents/validation/joint-acceptance-20260904/acceptance-matrix.json",
+      "note": "当前权威状态；不回写或删除历史NOT_RUN表述。"
+    }
+  ]
+}

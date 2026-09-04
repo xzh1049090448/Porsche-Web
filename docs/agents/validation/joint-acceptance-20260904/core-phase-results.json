@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-09-04T04:22:11.678Z",
+  "rows": [
+    {
+      "id": "A02-root-api",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "Root hierarchy list/detail statuses were 200/404 as required."
+    },
+    {
+      "id": "A01-api",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "Ordinary user list endpoint returned 403 with no response body retained."
+    },
+    {
+      "id": "A02-admin-api",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "Admin saw only user rows; own/Root details were hidden and user detail was visible."
+    },
+    {
+      "id": "A04-api",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "GUID exact search, role/status/deleted, all sort families, escaped wildcard input and invalid page were verified."
+    },
+    {
+      "id": "FE-three-roles",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "All three roles completed UI login and direct /users checks; Root hard reload and UI logout/direct-link guard passed."
+    }
+  ],
+  "failures": [],
+  "secretFree": true
+}

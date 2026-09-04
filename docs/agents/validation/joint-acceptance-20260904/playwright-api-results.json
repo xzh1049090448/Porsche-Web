@@ -1,0 +1,59 @@
+{
+  "generatedAt": "2026-09-04T04:19:51.631Z",
+  "results": [
+    {
+      "id": "A02-root-hierarchy",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "Root list exposed an Admin target; Root self detail remained 404 and Admin detail was 200."
+    },
+    {
+      "id": "A01",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "Ordinary user was denied direct /users data rendering and the read API returned 403."
+    },
+    {
+      "id": "A02-admin-visibility",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "Admin list exposed only user rows; Admin self/Root details were 404 while an ordinary-user detail was 200."
+    },
+    {
+      "id": "A04-api-query-contract",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "Verified GUID exact search, role/status/deleted filters, four sort paths, escaped percent/underscore queries, response shape, and invalid-page 400."
+    },
+    {
+      "id": "A13",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "Root UI offered no destructive Root controls; Root permission target remained hidden (404). No draft write endpoint was exercised."
+    },
+    {
+      "id": "A04-ui-race",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "Rapid consecutive UI filters ended with the second empty result; no old list response overwrote it."
+    },
+    {
+      "id": "V01",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "Captured populated users and detail views; visible boundaries and hierarchy were checked against live fixture data."
+    },
+    {
+      "id": "V02",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "375/768/1440 screenshots, keyboard focus and reduced-motion context passed. Automated axe scan is unavailable in this runtime; only a basic computed-style contrast guard ran."
+    },
+    {
+      "id": "A05-A08-read-safety",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "Existing authentication and authorization read endpoints enforced Root/Admin/user boundaries. Draft write endpoints were not invoked."
+    },
+    {
+      "id": "EXECUTION",
+      "status": "FAIL",
+      "detail": "logout HTTP 401"
+    }
+  ],
+  "failures": [
+    "logout HTTP 401"
+  ],
+  "secretFree": true
+}

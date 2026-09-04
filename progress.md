@@ -1,5 +1,63 @@
 # 当前验证进度
 
+## 2026-09-04：PRD-260903 真实本地联合验收最终FAIL，等待修复与清理
+
+- PM最终签字状态为`FINAL_ACCEPTANCE_FAIL_PENDING_FIX_AND_CLEANUP`。26项当前权威结果：6 `PASS_LIMITED_SCOPE`（A01/A02/A04/A13/V01/V02）、2 `FAIL_LOCAL_DEV_ROUTE`（P02/R01）、16 `BLOCKED_NOT_IMPLEMENTED`、1 `BLOCKED_PRODUCT`（P08）、1 `BLOCKED_ENV`（R02）；合计18项阻塞。
+- logout本身通过：204、浏览器上下文Cookie清空、显式refresh 401，且无私有API Key DOM。失败根因是本地Vite `/api`前缀代理同时截获浏览器文档路由`/api-keys`，硬刷新在Vue路由守卫执行前由后端返回404。该结论不证明生产HTTPS存在同样问题，也不是后端会话撤销失败。
+- `SECOND-PHASE-REPORT.md`仅在早期logout/direct-route解释上supersede `CORE-PHASE-REPORT.md`；CORE、SECOND、raw JSON和截图全部原样保留。最终报告与机器矩阵见`docs/agents/validation/joint-acceptance-20260904/FINAL-ACCEPTANCE-REPORT.md`及`acceptance-matrix.json`。
+- A05–A08读取/拒绝子集有局部证据，但完整写能力未实现，整项仍`BLOCKED_NOT_IMPLEMENTED`。此前“26/26 NOT_RUN”保留为执行前历史时间线，不能覆盖当前结果。
+- `web-012`继续为唯一`in_progress`，联合验收为FAIL，不标passing。业务代码、生产、部署均未变；一次性fixture和前后端进程保持运行，等待精确cleanup。
+
+## 2026-09-04：B1-D FE 只读用户候选通过独立质量与 Chrome 复验
+
+- B1-D r1 `/users`、`/users/:guid`、认证投影和 F1/F2 修复均已闭合为实现候选；PM `b1d_cross_team_spec` 已给候选 CODE SPEC PASS。无写按钮、Mock、金额或分组操作。
+- writer 的合成 API Chrome smoke 通过，包含 F1 重试撤权、F2 详情 401/403/404/503、投影恢复、Root 权限、分页回退、硬刷新与移动布局；`pageErrors` 为空。独立 Chrome 最终复验也通过：5177 上验证分页 delta=2/UI1、详情重试、F1 rows=0、权限恢复24行以及5个预期合成 console errors，独立质量为本地 FE 候选 `VERDICT PASS`；offline audit 新鲜性仍 `NOT_VERIFIED`。证据见 `docs/agents/validation/b1d-20260904/`。
+- 本轮 fresh `npm test` 132/132、`npm run build`、JSON parse 和 `git diff --check` 通过。真实 BE/DB/Redis/100k/联合验证仍 `SKIPPED`，PM 真实联合验收 `NOT_RUN`。`web-009` 保持 blocked（M3 PARTIAL 4/4），`web-012` 是唯一 in_progress，整体 PRD 仍未完成。
+
+## 2026-09-03：前端基线 guard 命名窄修复
+
+- 历史 M3 guard 因 `*.test.cjs` 被 `node --test` 默认发现，且该命令行脚本需要 `argv[2]`，导致基线出现非业务失败。仅改名为 `docs/agents/validation/m3-sse-attempt4-guard.cjs`，原文件字节 SHA-256 `c076cd78baddbfaab9b01ef8c8ccdcc259bd606e8dcfc1b5357810487443259b`、Git blob SHA `0f88f4434de378055deb2404472557e76f8ff03e` 保持一致；三场景 guard 均通过。
+- 修复后 `npm test` `113/113`、`npm run build`（约6.2秒）及 `git diff --check` 均通过；构建仅保留既有 Rollup 注释警告。详见 `docs/agents/validation/2026-09-03-frontend-baseline.md`。
+- 本次仅基线闭环，B1-D 管理只读页面仍等待正式 r1 合同；不改变 web-009 M3 的 blocked/PARTIAL 事实，也不将 web-012 验收标为通过。
+- 按授权执行离线 `init.sh`，安装阶段因工作树缺少 lock/node_modules 且缓存缺少 `@element-plus/icons-vue` registry 响应而以 `ENOTCACHED` 退出码1，未进入 build/启动；`package.json` SHA-256 未变且未生成 lock。详见同目录前端基线报告。
+- 随后临时 npm cache 联网安装在沙箱内因 registry `ENOTFOUND` 阻塞；提升权限重试后工作树仍无 `node_modules`/`package-lock.json`，init 不能记为成功，未伪称锁文件一致。
+- 后续复用根 checkout 同 SHA 的 `package.json` 对应本地依赖完成离线 `init.sh`；当前 lock 为生成产物（SHA-256 `3bd2416355eec0ded6f0346d96f5f8ee5b1ae29fb46b4f541c1429f31eb266b6`），根 lock 为 `4c2415cf83eed94c6222f9dd013860ac28ec095e849b2b2b92ce1f879ee3100c`，原工作树无 lock，故不称锁一致。`npm test` `113/113`、build 及 diff-check 通过；npm 提示4个包的 install scripts 尚未批准。进程清单受权限限制，未设置启动变量，未启动 dev server。
+- 已将上述升级版依赖保存至 `/private/tmp/porsche-admin-generated-lock-working-20260904.json` 与 `/private/tmp/porsche-admin-generated-node_modules-20260904`，再复制根 checkout 的 lock/node_modules 精确重建；当前/root lock SHA 均为 `4c2415cf...3100`，164 个 packages 条目逐项匹配。离线 `init.sh`、`npm test` `113/113`、build、diff-check 均通过；4 个 install scripts 仍为 npm 未批准提示。
+
+## 2026-09-03：B1-C 双只读接口限定通过，隔离fixture已清理
+
+- 后端 `PASS_LIMITED_SCOPE`：PM最终SPEC PASS与独立真实质量VERDICT PASS，四级安全问题均0、8生产hash二次匹配。独立focused96叶子PASS（service72/handler24）、race96叶子PASS、真实HTTP边界overlay1PASS，均0fail/0skip；writer full627/focused83/race107PASS及build/vet/diffPASS。
+- 用户授权的本批测试生命周期已完成，任务MySQL/Redis exact ID/name/label/image复核后stop/AutoRemove，复查均不存在；本批fixture.env、随机凭据与私密目录已删除。报告、迁移ledger、日志及cleanup证据在BE `docs/superpowers/reports/validation/2026-09-03-b1c-admin-authz-read/real-fixture/`。
+- 仅两项GET展示接口获得本地限定通过，合同entry仍AGREED_FOR_IMPLEMENTATION、implementation_status=PASS_LIMITED_SCOPE；overall DRAFT、其他25entry与根合同不变。不开放FE页面或旧权限写入，`web-012`不变，26项联合验收保持NOT_RUN，不涉及生产发布。
+- 下方B1-C无fixture、待授权和待复核段落均已标记历史，不能作为当前阶段状态。
+
+
+## 历史阶段 2026-09-03：B1-C 已完成真实fixture writer验证，待最终复核
+
+- 用户对本批fixture生命周期已授权。后端实际完成MySQL8.0.46/Redis7.4.11、现有0001–0003迁移及隔离验证：focused83、race107、fresh full627 test PASS，0fail/0skip，15 package PASS/4 no-test；build/vet/diff PASS，8生产hash不变。
+- 初次full只因归档.go被扫描和runner迁移APP_ENV外泄失败，证据更名.go.txt保留bytes并限定migration环境后fresh复跑；生产/断言/迁移未变，初次失败历史保留。
+- PM DOCS ALIGNED无代码gap；独立真实fixture与PM最终结果复核待完成，任务fixture保留，go-015仍in_progress。下方静态/无fixture NOT_RUN与awaiting授权记录是历史；当前DB测试已执行，但不代表全PRD联合验收。
+- FE仍仅两项只读合同AGREED，overallDRAFT、其他25entry与根合同不变，web-012不变，26项联合验收NOT_RUN；无业务页面或旧权限写入开放。
+
+
+## 历史阶段 2026-09-03：B1-C r1 两个权限展示只读合同与本地候选
+
+- 仅 `GET /admin/v2/authz/catalog` 与 `GET /admin/v2/users/{guid}/permissions` 达到 `AGREED_FOR_IMPLEMENTATION`；草案版本 `v0.2-draft-r3-b1c-r1`，overall 仍 `DRAFT`，其他25项接口及根 `interface-contract.json` 不变。
+- 后端候选已实现 fresh actor/target/session SHARE 事务、Redis barrier、严格策略读取和 disabled Admin 展示投影。目录仅 active Admin/Root；详情仅 Root 查询非删除 Admin。认证失效401、角色不足403、隐藏目标404、不可用/腐败503，匹配路由参数不规范400；错误body只含 `detail`，请求ID在 `X-Request-ID` header，保留旧middleware401文案。
+- 本轮无 fixture HTTP 验证为1 pass/5 skip/0 fail；纯投影与认证分类测试通过，真实 MySQL/Redis锁/提交/会话/策略测试尚未运行，等待本批隔离fixture生命周期授权。PM conditional SPEC CODE ALIGNED（条件为文档一致及真实fixture）；独立最终静态/无fixture复核已完成，VERDICT PARTIAL：四级安全问题均0、8生产hash匹配、纯JSON叶子18 PASS/34 fixture SKIP/0 FAIL，focused race、HTTP overlay probe及gofmt/diff/build/vet PASS；真实DB严格NOT_RUN，不能写成全批或联合验收通过。最终后端无fixture全量356 test pass/229 skip/0 fail、15 package pass/4 no-test，build/vet/race通过。
+- FE只同步协调文档，不开放页面或旧权限写操作；`web-012` 保持 `not_started/awaiting_backend_integration`，26项联合验收均 `NOT_RUN`。
+
+
+## 2026-09-03：PRD-260903 B1-B3 Gateway Key owner ACL 协调中
+
+- B1-B3 为 `PASS_LIMITED_SCOPE`：PM final SPEC PASS 与独立 VERDICT PASS，fresh JSON 544 pass/0 fail/0 skip；Gateway Key 后续每请求同时满足 Key ACL 与最新 owner 用户 ACL，固定 unavailable 503 生效。用户 `allowed_models: []` 仍是 **unrestricted**。
+- FE 无业务变更。`web-012` 保持 `not_started/awaiting_backend_integration`，26项联合验收保持 `NOT_RUN`，不影响 B1-B2 的 `PASS_LIMITED_SCOPE`。
+
+## 2026-09-03：PRD-260903 B1-B2 后端限定通过同步
+
+- B1-B2 为 `PASS_LIMITED_SCOPE`：PM SPEC PASS，独立 `permission_snapshot_verify` VERDICT PASS（无Critical/High/Medium/Low）；fresh fixture JSON 512 pass、0 fail、0 skip，15 package pass、4 no-test。严格旧 PUT/update 安全收紧不构成 FE 功能交付。
+- 用户 `allowed_models: []` ACL 明确为 **unrestricted**，不等同 Gateway Key ACL；daily limit 0 既有计算不变。旧角色授权、ticket/idempotency/outbox、Key ACL repair、FE 接线和26项联合验收仍未完成；`web-012` 与26项状态保持原状/NOT_RUN。
+
 ## 2026-09-03：首次跨团队对齐材料补齐
 
 - ALIGN-20260903-02：正式请求及后端A1–A8回复已归档；原10端点+11个既有依赖的r2 JSON与完整纪要获后端及前端明确确认。未修改业务代码、运行初始化/业务测试、部署或发模型请求。
@@ -192,3 +250,16 @@
 - 已核实公开入口和JS哈希匹配158a00e，确认服务器新备份目录。
 - 真实Chrome1280/1600普通鼠标菜单及下载跨身份保护PASS；第一次Escape关闭夹具失败与补跑边界已保留。无有效模型生成。详见p0-m3-readiness.md最新节。
 - web-009仍in_progress，完整M3、有效SSE及后端运行源码证明仍未完成。
+
+## web-012：PRD-260903 管理员用户管理与公共页面体系设计协调（2026-09-03）
+
+- 新 FE 工作树 `feature/admin-public-260903` 基线 `25a66a4ad546a481941dfc6e0cc9bc75da2e631b`，BE 同名工作树基线 `aec1619ee710c80cd71dbe529660e2d12b3fda7b`；输入 PRD v0.2 SHA256 `58ab6fa63c9e5bcc9704ecc2167c1dfe75b77ff9ca0c8117f834fe88333eb31a`。
+- 已只读完整核对主 PRD、设计 PRD 与 landing/pricing/users 原型，并形成 `docs/agents/2026-09-03-prd-260903-kickoff.md`、`docs/superpowers/specs/2026-09-03-admin-public-design.md`、独立 `docs/agents/contracts/prd-260903-interface-draft.json` 和角色确认 `docs/agents/validation/prd-260903-confirmations.json`。
+- 设计推荐 B0→B6：契约/设计、授权审计失效底座、账户闭环、管理 UI 联调、公共数据发布快照、公共 SEO/可见性、联合回归。真实管理 API 与金额 Mock 独立入口隔离；金额固定 CNY 合成演示，不触发真实余额/账单/调用。
+- 后端 PM 已书面接受设计方向（非最终契约/实现批准）：共享账户动作服务+独立 authz、拒绝优先和 unknown/生产 quota.adjust always deny；T01 action-verification intent 与 POST users 消费既有 intent/ticket、T02 Vue 预渲染+Go 门禁及跨实例安全切换方向已纳入设计，精确 revision/字段仍待 B0 冻结。
+- 用户已确认 D03（`/` 官网与 `/chat` 迁移）、D06（默认公开价格与受控统一开关）、能力/票据安全措辞及排除范围；D01/D02/D04/D05 已确认。User 无 email 仍为基线差异，法务正文负责人待指定，不阻塞管理底座设计；本确认不等于技术 DTO 冻结或实现验收。
+- 新 26 项 A01-A14/P01-P08/V01-V02/R01-R02 全部 `NOT_RUN`；旧 web-009 保持 `in_progress`、M3 `PARTIAL`、历史生成预算 4/4，不作为本分支新测试证据。无硬日期，按准入依赖推进；本轮不改业务代码、不安装/测试/build、不迁移部署、不调用模型、不 commit/push。
+- r3 用户确认已落盘；web-012 进入 `contract_planning`，仅准备后续经批准的实施，当前不开放新管理 UI/入口。
+- B1-A 内部协调任务已由后端 PM 提出并获前端协调者接受：BE-only 纯 authz evaluator，24cap/immutable snapshot/四入口/默认 deny 等细节以 BE 计划为准；不改公共接口 DRAFT、不交 projection、不开放 FE 管理入口，当前无 passing，等待 BE 测试结果。
+- B1-A 已完成限定 PASS：focused 8 tests/rerun、full 312（98 DB/Redis fixture SKIP、0 fail）、package 15 pass/4 no-tests SKIP、build/vet 0、独立并发 probe 与质量验证 PASS；来源为 BE plan/spec/report。仅限纯库策略，未接 DTO/HTTP/DB/旧路由/安全失效；完整 B1 未完成，web-012 等待后端整合，FE 入口保持关闭。
+- B1-B1 已完成限定 PASS：PM SPEC PASS；permission_snapshot_verify fresh build/vet/diff/json 0，real fixture full 456 pass/0 skip/0 fail，15 package pass/4 no-tests，反向锁 probe PASS 1.362s，SECURITY_REPORT Critical/High/Medium/Low 均 none、VERDICT PASS。仅限内部快照库，未接 HTTP/DTO/FE，`permissions_version` 未冻结，完整 B1 未完成；web-012 保持 `not_started/awaiting_backend_integration`，26 项 PRD 验收仍 `NOT_RUN`。

@@ -1,0 +1,281 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-04T12:43:25+08:00",
+  "overall_status": "FINAL_ACCEPTANCE_FAIL_PENDING_FIX_AND_CLEANUP",
+  "verdict": "FAIL_LOCAL_JOINT_ACCEPTANCE",
+  "candidate": {
+    "frontend_head": "25a66a4ad546a481941dfc6e0cc9bc75da2e631b",
+    "backend_head": "aec1619ee710c80cd71dbe529660e2d12b3fda7b"
+  },
+  "environment_manifest_before_final_archive_sha256": "d3d1de8b3609721baba3e1f04ca19ef5990aaad2666e63f9aab7786cb6101641",
+  "summary": {
+    "total": 26,
+    "PASS_LIMITED_SCOPE": 6,
+    "FAIL_LOCAL_DEV_ROUTE": 2,
+    "BLOCKED_NOT_IMPLEMENTED": 16,
+    "BLOCKED_PRODUCT": 1,
+    "BLOCKED_ENV": 1,
+    "blocked_total": 18
+  },
+  "supersession": {
+    "core_report": "CORE-PHASE-REPORT.md",
+    "second_report": "SECOND-PHASE-REPORT.md",
+    "rule": "SECOND-PHASE-REPORT supersedes CORE-PHASE-REPORT only for the early logout/direct-route interpretation; all raw evidence remains immutable.",
+    "final_logout_finding": "Logout itself passed (204, cookies empty, explicit refresh 401); local /api-keys hard reload failed with 404 because the Vite /api proxy prefix intercepted the document route."
+  },
+  "approval": {
+    "independent_qa": "FAIL",
+    "backend_project_manager": "FINAL_SIGNED",
+    "cleanup": "PENDING_EXACT_INSTRUCTION"
+  },
+  "items": [
+    {
+      "id": "A01",
+      "prd": "普通用户直达管理页及接口",
+      "owner": "FE+BE",
+      "expected_evidence": "UI/API拒绝且无管理数据泄露",
+      "status": "PASS_LIMITED_SCOPE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "真实普通用户调用管理列表403；Chrome直达/users显示无权限且无管理行。"
+    },
+    {
+      "id": "A02",
+      "prd": "Admin管理Root/其他Admin/自己",
+      "owner": "FE+BE",
+      "expected_evidence": "硬边界拒绝且不泄露目标",
+      "status": "PASS_LIMITED_SCOPE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "Root自身详情404/Admin详情200；Admin仅见普通用户且自身、Root详情404。"
+    },
+    {
+      "id": "A03",
+      "prd": "Root创建用户与管理员",
+      "owner": "FE+BE",
+      "expected_evidence": "校验、默认权限、审计、intent/ticket/幂等一致；不能创建Root",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "v2创建用户/管理员未实现。"
+    },
+    {
+      "id": "A04",
+      "prd": "搜索分页过滤",
+      "owner": "FE+BE",
+      "expected_evidence": "GUID字符串不失真、软删默认不可见、旧响应不覆盖新筛选",
+      "status": "PASS_LIMITED_SCOPE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "真实HTTP覆盖GUID、分页、role/status/deleted、排序、转义LIKE、非法page；FE最新筛选结果保护通过。"
+    },
+    {
+      "id": "A05",
+      "prd": "编辑伪造role/guid/auth_version",
+      "owner": "FE+BE",
+      "expected_evidence": "请求拒绝且无部分越权修改",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "v2编辑未实现；旧伪造更新拒绝仅为只读/安全子集证据。",
+      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+    },
+    {
+      "id": "A06",
+      "prd": "禁用与启用",
+      "owner": "FE+BE",
+      "expected_evidence": "旧Access/Refresh/Key不可用，启用不恢复旧会话",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "v2禁用/启用及完整Access/Refresh/Key失效链未实现。",
+      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+    },
+    {
+      "id": "A07",
+      "prd": "密码重置/分组/套餐变化",
+      "owner": "FE+BE",
+      "expected_evidence": "旧会话失效、新权益生效、秘密不进日志",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "v2密码重置/分组/套餐变更未实现；已有读取仅为子集。",
+      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+    },
+    {
+      "id": "A08",
+      "prd": "提升/降级/权限覆盖",
+      "owner": "FE+BE",
+      "expected_evidence": "最新能力生效、降级无残留、旧入口不可绕过",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "v2提升/降级/权限写入未实现；catalog/permission read子集通过。",
+      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+    },
+    {
+      "id": "A09",
+      "prd": "金额Mock增减覆盖",
+      "owner": "FE",
+      "expected_evidence": "分单位范围/精度/余额不足/Mock标记正确",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "金额Mock UI/API未实现。"
+    },
+    {
+      "id": "A10",
+      "prd": "模拟调额异常与重复提交",
+      "owner": "FE",
+      "expected_evidence": "成功/失败/超时/冲突可演示且不调用真实写接口",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "模拟调额异常、冲突、超时及重复提交未实现。"
+    },
+    {
+      "id": "A11",
+      "prd": "Mock与生产隔离",
+      "owner": "FE+BE",
+      "expected_evidence": "无真实余额/流水写入，伪造金额动作拒绝，原调用行为不变",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "Mock与生产隔离的完整可执行入口未实现，无法联合验收。"
+    },
+    {
+      "id": "A12",
+      "prd": "软删除及重复删除",
+      "owner": "FE+BE",
+      "expected_evidence": "认证/调用失效、用户名不可复用、无物理删除",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "软删除/恢复写链未实现。"
+    },
+    {
+      "id": "A13",
+      "prd": "Root不可管理保护",
+      "owner": "FE+BE",
+      "expected_evidence": "危险Root操作不出现在真实界面或API",
+      "status": "PASS_LIMITED_SCOPE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "Root真实列表/详情无创建、编辑、删除或Root保护变更控件。"
+    },
+    {
+      "id": "A14",
+      "prd": "操作票据与依赖故障",
+      "owner": "FE+BE",
+      "expected_evidence": "票据绑定/过期/重放及DB/Redis失败关闭；未知状态走operation查询",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "ticket/idempotency/operation query及依赖故障链未实现。"
+    },
+    {
+      "id": "P01",
+      "prd": "匿名打开所有公共页",
+      "owner": "FE+BE",
+      "expected_evidence": "无登录循环，已发布内容可读，未知路径真实404",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "公共页面与发布读取未实现。"
+    },
+    {
+      "id": "P02",
+      "prd": "登录、退出、旧链接与刷新",
+      "owner": "FE",
+      "expected_evidence": "默认/chat、returnTo安全、既有页面回归",
+      "status": "FAIL_LOCAL_DEV_ROUTE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "logout 204、Cookie清空、显式refresh 401通过；/api-keys硬刷新被本地Vite /api前缀代理到BE并404。"
+    },
+    {
+      "id": "P03",
+      "prd": "模型ID含斜杠等字符",
+      "owner": "FE+BE",
+      "expected_evidence": "稳定modelKey详情和刷新准确",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "公共模型详情及稳定modelKey未实现。"
+    },
+    {
+      "id": "P04",
+      "prd": "报价单位与数据缺失",
+      "owner": "FE+BE",
+      "expected_evidence": "缺价不为0，混合单位不伪排序，参考报价提示存在",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "公共报价单位/缺价规则未实现。"
+    },
+    {
+      "id": "P05",
+      "prd": "价格登录可见模式",
+      "owner": "FE+BE",
+      "expected_evidence": "HTML/API/CDN/快照/sitemap无匿名报价泄露，策略切换有门禁",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "匿名报价隐藏全链路未实现。"
+    },
+    {
+      "id": "P06",
+      "prd": "草稿/预览/并发发布/恢复",
+      "owner": "FE+BE",
+      "expected_evidence": "草稿隔离、冲突409、旧版保留、restore生成新版本",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "草稿/预览/并发发布/恢复未实现。"
+    },
+    {
+      "id": "P07",
+      "prd": "富文本与链接注入",
+      "owner": "FE+BE",
+      "expected_evidence": "XSS和危险URL拒绝/净化，禁止任意抓取",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "historical_status": "NOT_RUN",
+      "blocker": "富文本净化与危险URL规则未实现。"
+    },
+    {
+      "id": "P08",
+      "prd": "内容真实性",
+      "owner": "FE+product",
+      "expected_evidence": "未经证明的价格/40+/100%/MIT不进入生产",
+      "status": "BLOCKED_PRODUCT",
+      "historical_status": "NOT_RUN",
+      "blocker": "生产内容真实性尚需产品批准。"
+    },
+    {
+      "id": "V01",
+      "prd": "视觉对照",
+      "owner": "FE+quality",
+      "expected_evidence": "users/landing/pricing对照差异记录",
+      "status": "PASS_LIMITED_SCOPE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "保存真实填充数据的1440用户列表和Admin详情截图；landing/pricing与原型像素比对未覆盖。"
+    },
+    {
+      "id": "V02",
+      "prd": "响应式/无障碍",
+      "owner": "FE+quality",
+      "expected_evidence": "375/768/1440视口、键盘、对比度、减少动态效果证据",
+      "status": "PASS_LIMITED_SCOPE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "375/768/1440无文档级横向溢出，键盘/焦点/标签/表格角色/减少动态/12.13:1对比度通过；非axe审计。"
+    },
+    {
+      "id": "R01",
+      "prd": "既有功能回归",
+      "owner": "FE+quality",
+      "expected_evidence": "认证、会话、SSE、历史、导出、API Key不回归",
+      "status": "FAIL_LOCAL_DEV_ROUTE",
+      "historical_status": "NOT_RUN",
+      "latest_evidence": "认证/会话及users-read局部链路可用，但/api-keys菜单直达或硬刷新无法在本地联合环境渲染；model/SSE未覆盖。"
+    },
+    {
+      "id": "R02",
+      "prd": "部署与回滚",
+      "owner": "FE+BE+quality",
+      "expected_evidence": "迁移、缓存、路由刷新、发布/回滚步骤和证据",
+      "status": "BLOCKED_ENV",
+      "historical_status": "NOT_RUN",
+      "blocker": "未执行生产迁移、部署、缓存、路由刷新及回滚演练。"
+    }
+  ],
+  "evidence": {
+    "core_report_sha256": "6971e1975c3bffc0fc976ca7cfe56442713a6756c4af393523956ea7aed55929",
+    "second_report_sha256": "45726625012f46d046896eeda1f673f9e4e66226c1dbb62719c2f84e364724a7",
+    "core_results_sha256": "a62458c278eb4087259f11baef4acf6291cf211938cc814ad3f2e9572dbb8b0e",
+    "phase2_results_sha256": "434d63a383da5c69fa0e70ac87464345958e95e155d819466ba79e599c2f3310",
+    "p02_three_contexts_sha256": "7c890fb903f44dc0af1b67da70b2949435551b4f3017b04bdce614b586ef6d37"
+  },
+  "secret_free": true,
+  "production_touched": false,
+  "resources_retained": true
+}
