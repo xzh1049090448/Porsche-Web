@@ -29,7 +29,7 @@
           <el-input ref="reasonInput" v-model="form.reason" type="textarea" maxlength="200" show-word-limit :disabled="busy" @input="actionStore.setReason" />
         </el-form-item>
         <el-form-item prop="password" :label="t('deleteUser.currentPassword')">
-          <el-input ref="passwordInput" v-model="form.password" type="password" autocomplete="current-password" :disabled="busy" @input="actionStore.setPassword" />
+          <el-input ref="passwordInput" v-model="form.password" type="password" autocomplete="off" :disabled="busy" @input="actionStore.setPassword" />
         </el-form-item>
       </el-form>
     </template>
@@ -43,7 +43,7 @@
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useAdminUserActionsStore } from '@/stores/admin-user-actions'
-import { canSubmitUserDelete, focusDeleteError, focusDeleteValidation, isDeleteBusy, settleUserDeleteClosed, settleUserDeleteDialog } from '@/stores/admin-user-actions'
+import { canSubmitUserDelete, clearUserDeleteConfirmationForm, focusDeleteError, focusDeleteValidation, isDeleteBusy, settleUserDeleteClosed, settleUserDeleteDialog } from '@/stores/admin-user-actions'
 import { useI18n } from '@/composables/useI18n'
 
 const emit = defineEmits(['closed'])
@@ -65,11 +65,10 @@ const failureMessage = computed(() => t(`deleteUser.failures.${knownFailures.has
 const submitLabel = computed(() => busy.value ? t(`deleteUser.states.${actionStore.state}`) : t('deleteUser.confirm'))
 
 function clearForm() {
-  form.reason = ''
-  form.password = ''
-  actionStore.setReason('')
-  actionStore.setPassword('')
-  formRef.value?.clearValidate?.()
+  clearUserDeleteConfirmationForm({
+    form, passwordInput, setReason: actionStore.setReason, setPassword: actionStore.setPassword,
+    clearValidate: () => formRef.value?.clearValidate?.(),
+  })
 }
 function requestClose() { const token = actionStore.captureOwnership(); if (token) actionStore.close(token) }
 function onEscape() { requestClose() }

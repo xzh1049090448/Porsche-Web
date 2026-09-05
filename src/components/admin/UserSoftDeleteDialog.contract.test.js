@@ -5,7 +5,7 @@ import { parse as parseSFC } from '@vue/compiler-sfc'
 import { parse as parseTemplate } from '@vue/compiler-dom'
 import { parse as parseScript } from '@babel/parser'
 import { messages } from '../../i18n/messages.js'
-import { canSubmitUserDelete, focusDeleteError, focusDeleteValidation, isDeleteBusy, settleUserDeleteClosed, settleUserDeleteDialog } from '../../stores/admin-user-actions.js'
+import { canSubmitUserDelete, clearUserDeleteConfirmationForm, focusDeleteError, focusDeleteValidation, isDeleteBusy, settleUserDeleteClosed, settleUserDeleteDialog } from '../../stores/admin-user-actions.js'
 
 const source = await readFile(new URL('./UserSoftDeleteDialog.vue', import.meta.url), 'utf8')
 const descriptor = parseSFC(source, { filename: 'UserSoftDeleteDialog.vue' }).descriptor
@@ -63,10 +63,45 @@ test('busy and submit helpers execute the closed state policy and are called by 
 test('compiled field AST identifies the target and requires a non-revealing current password', () => {
   assert.equal(elements.filter(node => node.tag === 'el-descriptions-item').length, 2)
   const password = element('el-input', node => attribute(node, 'type')?.value?.content === 'password')
-  assert.equal(attribute(password, 'autocomplete').value.content, 'current-password')
+  assert.equal(attribute(password, 'autocomplete').value.content, 'off')
   assert.equal(attribute(password, 'show-password'), undefined)
+  assert.equal(directive(password, 'model').exp.content, 'form.password')
+  let readsPasswordFromStore = false
+  walk(script, node => {
+    if (node.type === 'MemberExpression' && node.object?.name === 'actionStore' && node.property?.name === 'password') readsPasswordFromStore = true
+  })
+  assert.equal(readsPasswordFromStore, false)
   const textarea = element('el-input', node => attribute(node, 'type')?.value?.content === 'textarea')
   assert.equal(attribute(textarea, 'maxlength').value.content, '200')
+})
+
+test('open, close, and remount clearing leaves model, native input, and private store password empty', () => {
+  const storeWrites = []
+  const nativePassword = { value: 'browser-managed-secret' }
+  const form = { reason: 'reason', password: '' }
+  const clearValidate = []
+  const clear = () => clearUserDeleteConfirmationForm({
+    form, passwordInput: { value: { input: nativePassword } },
+    setReason: value => storeWrites.push(['reason', value]), setPassword: value => storeWrites.push(['password', value]),
+    clearValidate: () => clearValidate.push(true),
+  })
+  clear()
+  assert.deepEqual(form, { reason: '', password: '' })
+  assert.equal(nativePassword.value, '')
+  assert.deepEqual(storeWrites.slice(-2), [['reason', ''], ['password', '']])
+
+  form.password = 'typed-secret'; nativePassword.value = 'typed-secret'
+  clear()
+  assert.equal(form.password, '')
+  assert.equal(nativePassword.value, '')
+
+  const remounted = { reason: '', password: '' }
+  nativePassword.value = 'restored-secret'
+  clearUserDeleteConfirmationForm({ form: remounted, passwordInput: { value: { input: nativePassword } }, setReason() {}, setPassword: value => storeWrites.push(['remount-password', value]), clearValidate() {} })
+  assert.equal(remounted.password, '')
+  assert.equal(nativePassword.value, '')
+  assert.deepEqual(storeWrites.at(-1), ['remount-password', ''])
+  assert.equal(hasCall('clearUserDeleteConfirmationForm'), true)
 })
 
 test('error and validation focus execute only while their dialog token still owns the next tick', () => {

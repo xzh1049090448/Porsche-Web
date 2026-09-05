@@ -18,6 +18,16 @@ export function canSubmitUserDelete({ state, target } = {}) {
   return [DELETE_STATES.IDLE, DELETE_STATES.FAILED].includes(state) && target?.status !== 'deleted'
 }
 
+export function clearUserDeleteConfirmationForm({ form, passwordInput, setReason, setPassword, clearValidate }) {
+  form.reason = ''
+  form.password = ''
+  const nativePassword = passwordInput?.value?.input ?? passwordInput?.value?.$el?.querySelector?.('input')
+  if (nativePassword && 'value' in nativePassword) nativePassword.value = ''
+  setReason('')
+  setPassword('')
+  clearValidate()
+}
+
 export function focusDeleteError({ token, owns, errorAlert, nextTick }) {
   if (!owns(token)) return false
   nextTick(() => { if (owns(token)) (errorAlert?.value?.$el ?? errorAlert?.value)?.focus?.() })
