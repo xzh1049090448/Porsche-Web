@@ -10,7 +10,7 @@ const post = async (path, body, token) => (await authTransport.post(`${PREFIX}${
 export const register = payload => { authSession.requireAvailable(); return USE_MOCK ? Promise.resolve({ message: '注册成功，请登录' }) : post('/register', payload) }
 export const login = payload => authSession.cookieOperation('login', () => USE_MOCK ? mockApi.loginUsername(payload) : post('/login', payload), { identityChange: true })
 export const refreshSession = () => authSession.ensureSession()
-export const getSelf = () => request.get(`${PREFIX}/self`)
+export const getSelf = () => request.get(`${PREFIX}/self`, { __authProjectionResponse: true })
 
 function expired(token) {
   try { return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).exp * 1000 <= Date.now() }

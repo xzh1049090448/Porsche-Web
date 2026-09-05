@@ -11,6 +11,16 @@ export async function getProfile() {
   return mapUserProfile(raw)
 }
 
+/** Profile data and the auth projection travel together but are never merged. */
+export async function getProfileWithProjection(fallbackContext) {
+  if (USE_MOCK) {
+    const raw = await mockApi.getProfile()
+    return { profile: mapUserProfile(raw), projection: raw, authContext: fallbackContext }
+  }
+  const response = await request.get(`${PREFIX}/me`, { __authProjectionResponse: true })
+  return { profile: mapUserProfile(response.data), projection: response.data, authContext: response.authContext }
+}
+
 export async function updateProfile(data) {
   if (USE_MOCK) return mockApi.updateProfile(data)
   const raw = await request.put(`${PREFIX}/me`, {

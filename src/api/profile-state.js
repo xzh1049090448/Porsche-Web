@@ -7,12 +7,14 @@ export function createProfileState(auth) {
   return {
     value: () => profile,
     subscribe: fn => { listeners.add(fn); return () => listeners.delete(fn) },
-    async load(loader) {
+    async load(loader, { finalSnapshot = false } = {}) {
       const context = auth.capture()
       const result = await loader()
-      auth.assertCurrent(context)
-      set(result)
-      return result
+      const finalContext = finalSnapshot ? result?.authContext : context
+      ;(auth.assertSnapshot ?? auth.assertCurrent)(finalContext)
+      const value = finalSnapshot ? result?.value : result
+      set(value)
+      return value
     },
     patch(value) { if (auth.user()) set({ ...profile, ...value }) },
   }

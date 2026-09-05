@@ -35,6 +35,45 @@ test('old response and old 401 cannot cross identity epochs', async () => {
   wait.resolve(new Response('{}'))
   await assert.rejects(pending, /identity_changed/)
 })
+test('a same-identity refresh generation rejects a stale profile response', () => {
+  const auth = createAuthSessionManager({ browser: browserFixture() })
+  auth.setSession(session)
+  const beforeRefresh = auth.capture()
+  auth.setSession({ accessToken: 'new-access', user })
+  assert.throws(() => auth.assertSnapshot(beforeRefresh), /identity_changed/)
+})
+test('fresh profile projection replaces prior capabilities and invalid source clears them', () => {
+  const auth = createAuthSessionManager({ browser: browserFixture() })
+  auth.setSession({ accessToken: 'old', user: { ...user, admin_permissions: ['users.read'], permissions_version: '1' } })
+  auth.replacePermissionProjection(auth.capture(), { admin_permissions: ['users.audit.read'], permissions_version: '2' })
+  assert.deepEqual(auth.user().admin_permissions, ['users.audit.read'])
+  auth.replacePermissionProjection(auth.capture(), { admin_permissions: ['unknown'], permissions_version: '3' })
+  assert.equal('admin_permissions' in auth.user(), false)
+  assert.equal('permissions_version' in auth.user(), false)
+})
+test('an identical projection does not invalidate protected state, but a version change does', () => {
+  const auth = createAuthSessionManager({ browser: browserFixture() })
+  auth.setSession({ accessToken: 'old', user: { ...user, admin_permissions: ['users.read'], permissions_version: '1' } })
+  let invalidations = 0
+  auth.onSnapshotInvalidate(() => { invalidations++ })
+  assert.equal(auth.replacePermissionProjection(auth.capture(), { admin_permissions: ['users.read'], permissions_version: '1' }), false)
+  assert.equal(invalidations, 0)
+  assert.equal(auth.replacePermissionProjection(auth.capture(), { admin_permissions: ['users.read'], permissions_version: '2' }), true)
+  assert.equal(invalidations, 1)
+})
+test('a permission-only update does not make an expired access request skip its one refresh', async () => {
+  let refreshes = 0; let calls = 0
+  const auth = createAuthSessionManager({ browser: browserFixture(), refresh: async () => { refreshes++; return refreshed } })
+  auth.setSession(session)
+  const pending = authenticatedFetch(auth, '/api/v1/users/me', {}, { fetchImpl: async (_url, init) => {
+    calls++
+    return init.headers.get('Authorization') === 'Bearer fresh' ? new Response('{}') : new Response(JSON.stringify({ detail: 'Token无效或已过期' }), { status: 401 })
+  } })
+  auth.replacePermissionProjection(auth.capture(), { admin_permissions: ['users.read'], permissions_version: '1' })
+  await pending
+  assert.equal(refreshes, 1)
+  assert.equal(calls, 2)
+})
 test('cookie operation rechecks shared epoch inside lock before sending', async () => {
   const browser = browserFixture(); const wait = deferred(); let sent = 0
   const auth = createAuthSessionManager({ browser })

@@ -12,13 +12,23 @@ const SESSION_FIELDS = {
 }
 
 const SESSION_USER_FIELDS = ['guid', 'username', 'nickname', 'role', 'status']
+const ADMIN_CAPABILITIES = new Set(['users.read', 'users.create', 'users.edit', 'users.enable', 'users.disable', 'users.reset_password', 'users.sessions.read', 'users.sessions.revoke', 'users.plan.change', 'users.group.change', 'users.quota.adjust', 'users.delete', 'users.deleted.read', 'users.promote', 'users.demote', 'users.permissions.write', 'users.audit.read', 'groups.read', 'groups.write', 'public_content.read', 'public_content.edit', 'public_content.preview', 'public_content.publish', 'public_content.rollback'])
+const MAX_INT64 = '9223372036854775807'
+const decimalAtMostInt64 = value => value === '0' || /^[1-9]\d*$/.test(value) && (value.length < MAX_INT64.length || value.length === MAX_INT64.length && value <= MAX_INT64)
 
 /** Returns only the documented, browser-safe representation of an authenticated user. */
 export function sessionUser(user) {
   if (!user || typeof user !== 'object') return null
-  return Object.fromEntries(SESSION_USER_FIELDS
+  const result = Object.fromEntries(SESSION_USER_FIELDS
     .filter((field) => Object.hasOwn(user, field))
     .map((field) => [field, user[field]]))
+  if (Object.hasOwn(user, 'admin_permissions') || Object.hasOwn(user, 'permissions_version')) {
+    const permissions = user.admin_permissions
+    const version = user.permissions_version
+    const valid = Array.isArray(permissions) && new Set(permissions).size === permissions.length && permissions.every(item => ADMIN_CAPABILITIES.has(item) && item !== 'users.quota.adjust') && typeof version === 'string' && decimalAtMostInt64(version)
+    if (valid) { result.admin_permissions = [...permissions]; result.permissions_version = version }
+  }
+  return result
 }
 
 /** Explicit read-only operations allowed to recover once from an expired Access token. */
@@ -66,13 +76,15 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
   let epoch = 'initial'
   let sharedEpoch = 'initial'
   let generation = 0
+  let permissionRevision = 0
   let refreshPromise = null
   let restorePromise = null
   let logoutPromise = null
   const listeners = new Set()
   const invalidators = new Set()
+  const snapshotInvalidators = new Set()
   const id = () => browser?.id?.() || `${Date.now()}-${Math.random()}`
-  const notify = () => listeners.forEach(fn => fn({ accessToken: accessToken(), user, state, epoch, generation }))
+  const notify = () => listeners.forEach(fn => fn({ accessToken: accessToken(), user, state, epoch, generation, permissionRevision }))
   const accessToken = () => ['signingOut', 'uncertain'].includes(state) ? null : access
   const invalidate = () => { epoch = id(); invalidators.forEach(fn => fn()); notify() }
   const uncertain = () => { if (state === 'uncertain') return; access = null; user = null; state = 'uncertain'; invalidate() }
@@ -95,10 +107,11 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
   }
   function setSession(next) {
     if (user?.guid !== next.user?.guid) invalidate()
-    access = next.accessToken || null; user = sessionUser(next.user); generation++
+    access = next.accessToken || null; user = sessionUser(next.user); generation++; permissionRevision++
+    snapshotInvalidators.forEach(fn => fn())
     state = access && user ? 'authenticated' : 'anonymous'; notify()
   }
-  function capture() { return { epoch, generation, token: accessToken() } }
+  function capture() { return { epoch, generation, permissionRevision, token: accessToken() } }
   function assertCurrent(context) {
     // Storage is authoritative even if BroadcastChannel delivery is delayed.
     let record
@@ -109,6 +122,29 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
     if (record.suppressed) { uncertain(); throw failure('identity_changed') }
     if (record.pending && record.pending.kind !== 'refresh') throw failure('identity_changed')
     if (context.epoch !== epoch || state === 'signingOut' || state === 'uncertain') throw failure('identity_changed')
+  }
+  /** Generation closes same-identity races for private profile and admin data. */
+  function assertSnapshot(context) {
+    assertCurrent(context)
+    if (context.generation !== generation || context.permissionRevision !== permissionRevision) throw failure('identity_changed')
+  }
+  function replacePermissionProjection(context, source) {
+    assertSnapshot(context)
+    if (!user) return false
+    const next = sessionUser({
+      ...user,
+      admin_permissions: source?.admin_permissions,
+      permissions_version: source?.permissions_version,
+    })
+    const same = next?.permissions_version === user.permissions_version
+      && (next?.admin_permissions || []).length === (user.admin_permissions || []).length
+      && (next?.admin_permissions || []).every((value, index) => value === user.admin_permissions?.[index])
+    if (same) return false
+    user = next
+    permissionRevision++
+    snapshotInvalidators.forEach(fn => fn())
+    notify()
+    return true
   }
 
   /** All cookie mutations serialize across tabs. A pending marker survives ambiguous outcomes. */
@@ -174,6 +210,8 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
     assertCurrent(context)
     if (!isSafeAuthRead(config.url, config.method) || config.__authRetried) throw failure('auth_retry_forbidden')
     if (context.generation === generation) await refreshAccess()
+    // Keep the caller's epoch: a different account must never retry the
+    // original request using its freshly issued credentials.
     assertCurrent(context)
     return retry({ ...config, __authRetried: true, __authContext: capture(), headers: { ...(config.headers || {}), Authorization: `Bearer ${accessToken()}` } })
   }
@@ -203,10 +241,11 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
     try { sharedEpoch = read().epoch } catch { /* remain closed */ }
     clearSession()
   })
-  return { accessToken, user: () => user, state: () => state, capture, assertCurrent, setSession, clearSession,
+  return { accessToken, user: () => user, state: () => state, capture, assertCurrent, assertSnapshot, replacePermissionProjection, setSession, clearSession,
     cookieOperation, refreshAndRetry, ensureSession, logout, recover,
     requireAvailable() { const record = read(); if (state === 'uncertain' || record.pending || record.suppressed) throw failure('auth_uncertain') },
     onInvalidate(fn) { invalidators.add(fn); return () => invalidators.delete(fn) },
+    onSnapshotInvalidate(fn) { snapshotInvalidators.add(fn); return () => snapshotInvalidators.delete(fn) },
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) },
   }
 }

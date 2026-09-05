@@ -13,7 +13,14 @@ export function installAuthInterceptors(request, auth, { onUnauthorized, onError
     return config
   })
   request.interceptors.response.use(
-    res => { auth.assertCurrent(res.config.__authContext); return res.data },
+    res => {
+      auth.assertCurrent(res.config.__authContext)
+      // Only projection readers need the context of the final Axios attempt.
+      // Normal callers continue receiving their data value unchanged.
+      return res.config.__authProjectionResponse
+        ? { data: res.data, authContext: res.config.__authContext }
+        : res.data
+    },
     async error => {
       const config = error.config
       if (!config) throw error

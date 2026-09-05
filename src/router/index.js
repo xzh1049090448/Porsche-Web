@@ -7,6 +7,8 @@ const routes = [
   {
     path: '/', component: () => import('@/layouts/MainLayout.vue'), meta: { requiresAuth: true }, children: [
       { path: '', name: 'Chat', component: () => import('@/views/Chat.vue') },
+      { path: 'users', name: 'Users', component: () => import('@/views/Users.vue') },
+      { path: 'users/:guid', name: 'UserDetail', component: () => import('@/views/UserDetail.vue') },
       { path: 'profile', name: 'Profile', component: () => import('@/views/Profile.vue') },
       { path: 'billing', name: 'Billing', component: () => import('@/views/Billing.vue') },
       { path: 'api-keys', name: 'ApiKeys', component: () => import('@/views/ApiKeys.vue') },

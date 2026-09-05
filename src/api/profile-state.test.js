@@ -16,6 +16,31 @@ test('profile statistics remain separate from AuthUser and profile 503 does not 
   auth.clearSession(); assert.equal(profile.value(), null)
 })
 
+test('a stale same-identity profile load cannot replace a refreshed generation', async () => {
+  const auth = createAuthSessionManager({ browser: browserFixture() })
+  auth.setSession({ accessToken: 'old', user: { guid: '1', username: 'alice' } })
+  const profile = createProfileState(auth)
+  let resolve
+  const pending = profile.load(() => new Promise(r => { resolve = r }))
+  auth.setSession({ accessToken: 'new', user: { guid: '1', username: 'alice' } })
+  resolve({ nickname: 'stale' })
+  await assert.rejects(pending, /identity_changed/)
+  assert.equal(profile.value(), null)
+})
+
+test('profile projection display accepts a retried final snapshot but rejects later changes', async () => {
+  const auth = createAuthSessionManager({ browser: browserFixture() })
+  auth.setSession({ accessToken: 'old', user: { guid: '1', username: 'alice' } })
+  const profile = createProfileState(auth)
+  auth.setSession({ accessToken: 'fresh', user: { guid: '1', username: 'alice' } })
+  const final = auth.capture()
+  await profile.load(async () => ({ value: { nickname: 'fresh' }, authContext: final }), { finalSnapshot: true })
+  assert.deepEqual(profile.value(), { nickname: 'fresh' })
+  auth.replacePermissionProjection(auth.capture(), { admin_permissions: ['users.read'], permissions_version: '1' })
+  await assert.rejects(profile.load(async () => ({ value: { nickname: 'stale' }, authContext: final }), { finalSnapshot: true }), /identity_changed/)
+  assert.deepEqual(profile.value(), { nickname: 'fresh' })
+})
+
 
 test('updated profile nickname displays while authentication identity and permissions remain authoritative', () => {
   const authUser = { guid: '1', username: 'alice', nickname: 'Old', role: 1, status: 1 }

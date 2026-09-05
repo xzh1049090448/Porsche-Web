@@ -1,0 +1,55 @@
+<template>
+  <section class="admin-page">
+    <div class="page-heading"><p class="eyebrow">ADMINISTRATION</p><h1>用户管理</h1><p>查看当前有权访问的用户信息。</p></div>
+    <el-alert v-if="!canRead" type="warning" :closable="false" title="暂无用户管理权限" description="权限信息不可用时不会加载用户数据。"><template #default><el-button link type="primary" @click="retryIdentity">重新检查身份</el-button></template></el-alert>
+    <template v-else>
+      <el-card shadow="never" class="filters-card"><el-form class="filters" @submit.prevent="reloadFromFirstPage">
+        <el-form-item label="搜索"><el-input v-model="filters.q" clearable placeholder="用户名、昵称或 GUID" @keyup.enter="reloadFromFirstPage" /></el-form-item>
+        <el-form-item label="角色"><el-select v-model="filters.role" clearable><el-option label="用户" value="user"/><el-option label="管理员" value="admin"/><el-option label="Root" value="root"/></el-select></el-form-item>
+        <el-form-item label="状态"><el-select v-model="filters.status" clearable placeholder="启用及禁用"><el-option label="启用及禁用" value=""/><el-option label="启用" value="active"/><el-option label="禁用" value="disabled"/><el-option label="已删除" value="deleted" :disabled="!canReadDeleted"/></el-select></el-form-item>
+        <el-form-item label="排序"><el-select v-model="filters.sort"><el-option label="GUID" value="guid"/><el-option label="用户名" value="username"/><el-option label="创建时间" value="created_at"/><el-option label="最近登录" value="last_login_at"/></el-select></el-form-item>
+        <el-form-item label="顺序"><el-select v-model="filters.order"><el-option label="降序" value="desc"/><el-option label="升序" value="asc"/></el-select></el-form-item><el-button type="primary" native-type="submit">查询</el-button>
+      </el-form></el-card>
+      <el-alert v-if="store.error" class="error" type="error" show-icon :closable="false" :title="errorTitle" :description="errorDescription"><template #default><el-button link type="primary" @click="reload">重试</el-button></template></el-alert>
+      <el-table v-loading="store.loading" :data="store.rows" row-key="guid" empty-text="暂无用户" class="users-table">
+        <el-table-column prop="guid" label="GUID" min-width="160"><template #default="{ row }"><code>{{ row.guid }}</code></template></el-table-column>
+        <el-table-column label="用户名" min-width="130"><template #default="{ row }">{{ row.username ?? '未设置' }}</template></el-table-column>
+        <el-table-column label="昵称" min-width="130"><template #default="{ row }">{{ row.nickname ?? '未设置' }}</template></el-table-column>
+        <el-table-column label="分组" min-width="100">未接入</el-table-column><el-table-column label="套餐" min-width="110"><template #default="{ row }">{{ planLabel(row.planType) }}</template></el-table-column><el-table-column label="金额额度" min-width="120">未接入</el-table-column>
+        <el-table-column label="角色" width="100"><template #default="{ row }">{{ roleLabel(row.role) }}</template></el-table-column><el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template></el-table-column><el-table-column label="最近登录" min-width="170"><template #default="{ row }">{{ row.lastLoginAt ?? '从未登录' }}</template></el-table-column>
+        <el-table-column label="操作" width="80" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="$router.push(`/users/${row.guid}`)">详情</el-button></template></el-table-column>
+      </el-table>
+      <el-pagination v-model:current-page="filters.page" v-model:page-size="filters.pageSize" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" :total="store.total" @current-change="reloadForPageChange" @size-change="reloadFromFirstPage" />
+    </template>
+  </section>
+</template>
+<script setup>
+import { computed, reactive, watch } from 'vue'
+import { useUserStore } from '@/stores/user'
+import { useAdminUsersStore } from '@/stores/admin-users'
+const userStore = useUserStore(); const store = useAdminUsersStore()
+const canRead = computed(() => userStore.permissionProjection?.capabilities?.includes('users.read') === true)
+const canReadDeleted = computed(() => userStore.permissionProjection?.capabilities?.includes('users.deleted.read') === true)
+const filters = reactive({ page: 1, pageSize: 20, q: '', role: '', status: '', sort: 'guid', order: 'desc' })
+const statusLabel = status => ({ active: '启用', disabled: '禁用', deleted: '已删除' }[status] || status); const statusType = status => ({ active: 'success', disabled: 'warning', deleted: 'info' }[status]); const roleLabel = role => ({ user: '用户', admin: '管理员', root: 'Root' }[role] || role); const planLabel = plan => ({ free: '免费版', professional: '专业版', enterprise: '企业版' }[plan] || plan)
+const errorStatus = computed(() => store.error?.response?.status); const errorTitle = computed(() => ({ 401: '认证会话无效', 403: '无权限访问', 404: '用户不存在', 503: '用户信息暂不可用' }[errorStatus.value] || '用户信息暂不可用')); const errorDescription = computed(() => errorStatus.value === 403 ? '当前身份保持登录状态，可重新检查权限。' : '当前页面数据已清理，请重试。')
+async function reload() {
+  if (!canRead.value) return
+  try {
+    const result = await store.loadList({ ...filters })
+    if (result) filters.page = result.page
+  } catch {}
+}
+function reloadForPageChange(page) {
+  if (store.loading && store.recoveredPage === page) return
+  return reload()
+}
+function reloadFromFirstPage() { filters.page = 1; return reload() }; async function retryIdentity() { try { await userStore.fetchSelf() } catch {} }
+watch(() => store.recoveryRevision, () => {
+  if (store.recoveredPage !== null) filters.page = store.recoveredPage
+})
+watch([canRead, () => userStore.permissionRevision], ([enabled]) => { if (enabled) void reload(); else store.clear() }, { immediate: true })
+</script>
+<style scoped>
+.admin-page{max-width:1400px;margin:0 auto;padding:24px;overflow:auto;height:100%}.page-heading{margin-bottom:24px}.eyebrow{color:var(--text-secondary);font-size:12px;letter-spacing:.12em;margin:0}h1{margin:4px 0;font-size:28px}.filters-card,.error{margin-bottom:16px}.filters{display:flex;flex-wrap:wrap;gap:0 12px}.filters :deep(.el-form-item){margin-right:0}.users-table{width:100%}.el-pagination{margin-top:20px;justify-content:flex-end}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}@media(max-width:768px){.admin-page{padding:16px}.filters{display:block}.filters :deep(.el-form-item){margin-bottom:12px}.users-table{font-size:12px}.el-pagination{justify-content:center}}
+</style>
