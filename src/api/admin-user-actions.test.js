@@ -6,18 +6,19 @@ const targetGuid = '123456789012345678'
 const operationRef = 'op_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 const ticket = 'av_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 const idempotencyKey = 'ik_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+const metadata = (data, status, headers = {}) => ({ data, status, headers: { 'cache-control': 'no-store', 'x-request-id': 'req-action', ...headers } })
 
 function fixture(overrides = {}) {
   const calls = []
   const api = createAdminUserActionsApi({
     post: async (url, body, config) => {
       calls.push({ method: 'post', url, body, config })
-      if (url.endsWith('action-verifications')) return { ticket, expires_at: 1790000300000 }
-      return { operation_ref: operationRef, user: { guid: targetGuid, status: 'deleted' } }
+      if (url.endsWith('action-verifications')) return metadata({ ticket, expires_at: 1790000300000 }, 201)
+      return metadata({ operation_ref: operationRef, user: { guid: targetGuid, status: 'deleted' } }, 200)
     },
     get: async (url, config) => {
       calls.push({ method: 'get', url, config })
-      return { operation_ref: operationRef, scope: 'users.delete', status: 'processing', finished_at: null, failure_code: null }
+      return metadata({ operation_ref: operationRef, scope: 'users.delete', status: 'processing', finished_at: null, failure_code: null }, 200, { 'retry-after': '7' })
     },
     ...overrides,
   })
@@ -38,8 +39,8 @@ test('Execute receives the caller key and sends exactly one ticket and key heade
 
 test('Query uses only the original key header and literal users.delete scope', async () => {
   const { api, calls } = fixture()
-  assert.deepEqual(await api.queryUserDelete({ idempotencyKey }), { operationRef, scope: 'users.delete', status: 'processing', finishedAt: null, failureCode: null, retryAfter: null })
-  assert.deepEqual(calls[0], { method: 'get', url: '/admin/v2/operations?scope=users.delete', config: { headers: { 'Idempotency-Key': idempotencyKey } } })
+  assert.deepEqual(await api.queryUserDelete({ idempotencyKey }), { operationRef, scope: 'users.delete', status: 'processing', finishedAt: null, failureCode: null, retryAfter: 7 })
+  assert.deepEqual(calls[0], { method: 'get', url: '/admin/v2/operations?scope=users.delete', config: { 'Idempotency-Key': idempotencyKey } })
 })
 
 test('Issue and Execute never retry a 401 or ambiguous network failure', async () => {
@@ -61,15 +62,15 @@ test('strictly validates exact Issue, Execute, and Query response keys', async (
   const validExecute = { operation_ref: operationRef, user: { guid: targetGuid, status: 'deleted' } }
   const validQuery = { operation_ref: operationRef, scope: 'users.delete', status: 'succeeded', finished_at: 1790000000000, failure_code: null }
   for (const response of [{ ...validIssue, extra: true }, { expires_at: validIssue.expires_at }, { ...validIssue, expires_at: 1.5 }]) {
-    const api = createAdminUserActionsApi({ post: async () => response, get: async () => validQuery })
+    const api = createAdminUserActionsApi({ post: async () => metadata(response, 201), get: async () => metadata(validQuery, 200) })
     await assert.rejects(api.issueUserDelete({ targetGuid, expectedAuthVersion: 7, reason: 'x', currentPassword: 'p' }), /invalid_action_response/)
   }
   for (const response of [{ ...validExecute, extra: true }, { ...validExecute, user: { ...validExecute.user, extra: true } }, { ...validExecute, user: { guid: '2', status: 'deleted' } }]) {
-    const api = createAdminUserActionsApi({ post: async () => response, get: async () => validQuery })
+    const api = createAdminUserActionsApi({ post: async () => metadata(response, 200), get: async () => metadata(validQuery, 200) })
     await assert.rejects(api.executeUserDelete({ targetGuid, expectedAuthVersion: 7, reason: 'x', ticket, idempotencyKey }), /invalid_action_response/)
   }
   for (const response of [{ ...validQuery, extra: true }, { ...validQuery, scope: 'other' }, { ...validQuery, status: 'processing', finished_at: 1 }]) {
-    const api = createAdminUserActionsApi({ post: async () => validExecute, get: async () => response })
+    const api = createAdminUserActionsApi({ post: async () => metadata(validExecute, 200), get: async () => metadata(response, 200) })
     await assert.rejects(api.queryUserDelete({ idempotencyKey }), /invalid_action_response/)
   }
 })
@@ -104,10 +105,34 @@ test('only a valid 429 Retry-After enters the public error and invalid envelopes
 
 test('Query exposes only a bounded processing Retry-After value', async () => {
   const body = { operation_ref: operationRef, scope: 'users.delete', status: 'processing', finished_at: null, failure_code: null }
-  const api = createAdminUserActionsApi({ post: async () => {}, get: async () => ({ data: body, headers: { 'retry-after': '7' } }) })
+  const api = createAdminUserActionsApi({ post: async () => {}, get: async () => metadata(body, 200, { 'retry-after': '7' }) })
   assert.equal((await api.queryUserDelete({ idempotencyKey })).retryAfter, 7)
-  const invalid = createAdminUserActionsApi({ post: async () => {}, get: async () => ({ data: body, headers: { 'retry-after': '31' } }) })
+  const invalid = createAdminUserActionsApi({ post: async () => {}, get: async () => metadata(body, 200, { 'retry-after': '31' }) })
   await assert.rejects(invalid.queryUserDelete({ idempotencyKey }), /invalid_action_response/)
+})
+
+test('requires exact HTTP success status, no-store, request ID, and processing Retry-After metadata', async () => {
+  const issue = { ticket, expires_at: 1790000300000 }
+  const execute = { operation_ref: operationRef, user: { guid: targetGuid, status: 'deleted' } }
+  const processing = { operation_ref: operationRef, scope: 'users.delete', status: 'processing', finished_at: null, failure_code: null }
+  for (const result of [metadata(issue, 200), { data: issue, status: 201, headers: { 'x-request-id': 'req' } }, { data: issue, status: 201, headers: { 'cache-control': 'no-store', 'x-request-id': '' } }]) {
+    const api = createAdminUserActionsApi({ post: async () => result, get: async () => metadata(processing, 200, { 'retry-after': '1' }) })
+    await assert.rejects(api.issueUserDelete({ targetGuid, expectedAuthVersion: 7, reason: 'reason', currentPassword: 'password' }), /invalid_action_response/)
+  }
+  const executeApi = createAdminUserActionsApi({ post: async () => metadata(execute, 201), get: async () => {} })
+  await assert.rejects(executeApi.executeUserDelete({ targetGuid, expectedAuthVersion: 7, reason: 'reason', ticket, idempotencyKey }), /invalid_action_response/)
+  for (const result of [metadata(processing, 200), metadata(processing, 201, { 'retry-after': '1' })]) {
+    const api = createAdminUserActionsApi({ post: async () => {}, get: async () => result })
+    await assert.rejects(api.queryUserDelete({ idempotencyKey }), /invalid_action_response/)
+  }
+})
+
+test('requires operation_ref on commit unknown and forbids Retry-After on legacy 401', () => {
+  const unknownWithoutRef = { error: { code: 'operation_commit_unknown', message: '请求无法完成', type: 'admin_action_error', request_id: 'req-1' } }
+  assert.equal(mapAdminActionError({ response: { status: 503, headers: {}, data: unknownWithoutRef } }).code, 'request_failed')
+  assert.equal(mapAdminActionError({ response: { status: 401, headers: { 'retry-after': '1' }, data: { detail: '未登录' } } }).code, 'request_failed')
+  const blankRequestID = { error: { code: 'action_dependency_unavailable', message: '请求无法完成', type: 'admin_action_error', request_id: '  ' } }
+  assert.equal(mapAdminActionError({ response: { status: 503, headers: {}, data: blankRequestID } }).code, 'request_failed')
 })
 
 test('rejects noncanonical caller headers and invalid Unicode reasons before transport', async () => {

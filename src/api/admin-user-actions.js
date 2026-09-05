@@ -35,11 +35,20 @@ function validateHeader(value, prefix) {
   if (!validOpaque(value, prefix)) throw new Error('invalid_action_request')
 }
 
-function issueResponse(raw) {
+function responseMetadata(result, status) {
+  if (!exactKeys(result, ['data', 'status', 'headers']) || result.status !== status
+      || headerValue(result.headers, 'Cache-Control') !== 'no-store') invalidResponse()
+  const requestID = headerValue(result.headers, 'X-Request-ID')
+  if (requestID == null || requestID.trim() === '') invalidResponse()
+  return result
+}
+function issueResponse(result) {
+  const { data: raw } = responseMetadata(result, 201)
   if (!exactKeys(raw, ['ticket', 'expires_at']) || !validOpaque(raw.ticket, 'av_') || !validTimestamp(raw.expires_at)) invalidResponse()
   return { ticket: raw.ticket, expiresAt: raw.expires_at }
 }
-function executeResponse(raw, targetGuid) {
+function executeResponse(result, targetGuid) {
+  const { data: raw } = responseMetadata(result, 200)
   if (!exactKeys(raw, ['operation_ref', 'user']) || !validOpaque(raw.operation_ref, 'op_')
       || !exactKeys(raw.user, ['guid', 'status']) || raw.user.guid !== targetGuid || raw.user.status !== 'deleted') invalidResponse()
   return { operationRef: raw.operation_ref, user: { guid: raw.user.guid, status: raw.user.status } }
@@ -49,11 +58,8 @@ function headerValue(headers, name) {
   const value = typeof headers.get === 'function' ? headers.get(name) : headers[name] ?? headers[name.toLowerCase()]
   return typeof value === 'string' ? value : null
 }
-function unpack(result) {
-  return result && exactKeys(result, ['data', 'headers']) ? result : { data: result, headers: null }
-}
 function queryResponse(result) {
-  const { data: raw, headers } = unpack(result)
+  const { data: raw, headers } = responseMetadata(result, 200)
   if (!exactKeys(raw, ['operation_ref', 'scope', 'status', 'finished_at', 'failure_code']) || !validOpaque(raw.operation_ref, 'op_') || raw.scope !== 'users.delete') invalidResponse()
   const terminal = raw.status === 'succeeded' || raw.status === 'failed'
   if (!['processing', 'succeeded', 'failed', 'pending_recovery'].includes(raw.status)
@@ -61,7 +67,9 @@ function queryResponse(result) {
       || (raw.status === 'failed' ? !FAILURE_CODES.has(raw.failure_code) : raw.failure_code !== null)) invalidResponse()
   const retryText = headerValue(headers, 'Retry-After')
   const retryAfter = retryText == null ? null : Number(retryText)
-  if (retryText != null && (raw.status !== 'processing' || !/^\d+$/.test(retryText) || !Number.isInteger(retryAfter) || retryAfter < 1 || retryAfter > 30)) invalidResponse()
+  if (raw.status === 'processing'
+    ? retryText == null || !/^\d+$/.test(retryText) || !Number.isInteger(retryAfter) || retryAfter < 1 || retryAfter > 30
+    : retryText != null) invalidResponse()
   return { operationRef: raw.operation_ref, scope: raw.scope, status: raw.status, finishedAt: raw.finished_at, failureCode: raw.failure_code, retryAfter }
 }
 
@@ -71,20 +79,21 @@ function publicFailure(code, message, status, operationRef, retryAfter) {
 export function mapAdminActionError(error) {
   const status = Number.isInteger(error?.response?.status) ? error.response.status : null
   const body = error?.response?.data
-  if (status === 401 && exactKeys(body, ['detail']) && ['未登录', 'Token无效或已过期'].includes(body.detail)) {
+  const retryText = headerValue(error?.response?.headers, 'Retry-After')
+  if (status === 401 && retryText == null && exactKeys(body, ['detail']) && ['未登录', 'Token无效或已过期'].includes(body.detail)) {
     return publicFailure('authentication_failed', body.detail, status, null, null)
   }
   const payload = body?.error
-  const retryText = headerValue(error?.response?.headers, 'Retry-After')
   const retry = retryText && /^[1-9]\d*$/.test(retryText) ? Number(retryText) : null
   const retryValid = status === 429 ? Number.isSafeInteger(retry) : retryText == null
   const envelopeValid = exactKeys(body, ['error']) && exactKeys(payload, payload?.operation_ref === undefined
     ? ['code', 'message', 'type', 'request_id']
     : ['code', 'message', 'type', 'request_id', 'operation_ref'])
     && payload.type === 'admin_action_error' && payload.message === '请求无法完成'
-    && typeof payload.request_id === 'string' && payload.request_id.length > 0
+    && typeof payload.request_id === 'string' && payload.request_id.trim().length > 0
     && STATUS_CODES.get(status)?.has(payload.code)
     && retryValid
+    && (payload.code !== 'operation_commit_unknown' || payload.operation_ref !== undefined)
     && (payload.operation_ref === undefined || (payload.code === 'operation_commit_unknown' && validOpaque(payload.operation_ref, 'op_')))
   if (!envelopeValid) return publicFailure('request_failed', '请求失败，请稍后重试', status, null, null)
   return publicFailure(payload.code, payload.message, status, payload.operation_ref ?? null, status === 429 ? retry : null)
@@ -107,16 +116,16 @@ export function createAdminUserActionsApi({ post, get }) {
     },
     async queryUserDelete({ idempotencyKey }) {
       validateHeader(idempotencyKey, 'ik_')
-      try { return queryResponse(await get('/admin/v2/operations?scope=users.delete', { headers: { 'Idempotency-Key': idempotencyKey } })) }
+      try { return queryResponse(await get('/admin/v2/operations?scope=users.delete', { 'Idempotency-Key': idempotencyKey })) }
       catch (error) { if (error instanceof InvalidActionResponse) throw error; throw mapAdminActionError(error) }
     },
   })
 }
 
 async function productionApi() {
-  const { adminActionTransport, adminActionQuery } = await import('./request.js')
+  const { adminActionPost, adminActionQuery } = await import('./request.js')
   return createAdminUserActionsApi({
-    post: async (path, body, config) => (await adminActionTransport.post(path, body, config)).data,
+    post: adminActionPost,
     get: adminActionQuery,
   })
 }
