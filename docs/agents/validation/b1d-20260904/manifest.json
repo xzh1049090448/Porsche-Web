@@ -49,7 +49,7 @@
     "root-detail.png": "2c2d512259dfc2802bc6609fe18453e5afa7eeaf155c532968880ce8b20a9c40",
     "mobile.png": "a97ae5d65763d121c7f1f304df36f83b6d8f91f6b26725b1a35a5f5d6af34aed",
     "npm-test.log": "8b456b8ab0137323ab8191ed4fcb3c819e968b2c58153ccad7fdf314cb3b2fa3",
-    "npm-build.log": "cf27b2f16534ec60caf2bdc7911a62fd185c080641cd508b38777d66ea905de4",
+    "npm-build.log": "fb65f99d27541319ce3447e36efeda4111913897fddada876e7e5eee386ae278",
     "git-diff-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "review_status": { "pm_candidate_code_spec": "PASS", "independent_quality": "PASS", "independent_browser": "PASS", "offline_audit_freshness": "NOT_VERIFIED", "pm_real_joint_acceptance": "NOT_RUN" },
