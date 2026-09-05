@@ -76,6 +76,8 @@ const statusLabel = computed(() => ({ active: '启用', disabled: '禁用', dele
 const planLabel = computed(() => ({ free: '免费版', professional: '专业版', enterprise: '企业版' }[store.selected?.planType] || store.selected?.planType))
 
 async function load() {
+  cancelDeleteRefresh()
+  if (deleteToken && actionStore.owns(deleteToken)) actionStore.close(deleteToken)
   const guid = route.params.guid
   if (!canRead.value || !/^[1-9]\d{0,18}$/.test(guid) || (guid.length === 19 && guid > '9223372036854775807')) {
     store.clear()
@@ -90,27 +92,44 @@ async function retryIdentity() {
 
 let deleteTrigger = null
 const pageHeading = ref(null)
+let deleteToken = null
+let deleteRefreshRequest = 0
+let deleteRefreshAbort = null
+function cancelDeleteRefresh() { deleteRefreshRequest++; deleteRefreshAbort?.abort(); deleteRefreshAbort = null }
 function openDelete(target, event) {
   deleteTrigger = event?.currentTarget ?? document.activeElement
-  actionStore.open(target, { onSucceeded: onDeleteSucceeded, onConflict: onDeleteConflict, onUnauthorized })
+  deleteToken = actionStore.open(target, { onSucceeded: onDeleteSucceeded, onConflict: onDeleteConflict, onUnauthorized })
 }
-function onDeleteSucceeded({ guid }) {
-  reconcileDeletedDetail({ state: store, guid })
+function onDeleteSucceeded({ guid }, token) {
+  if (!actionStore.owns(token) || route.params.guid !== guid || store.selected?.guid !== guid) return false
+  return reconcileDeletedDetail({ state: store, guid })
 }
-async function onDeleteConflict(guid) {
-  return refreshDeleteTargetFailClosed({
-    guid, loadTarget: getAdminUser,
+async function onDeleteConflict(guid, token) {
+  const requestId = ++deleteRefreshRequest
+  deleteRefreshAbort?.abort()
+  deleteRefreshAbort = new AbortController()
+  const routeGuid = route.params.guid
+  const selectedGuid = store.selected?.guid
+  const isContextCurrent = () => requestId === deleteRefreshRequest && route.params.guid === routeGuid && routeGuid === guid
+    && store.selected?.guid === selectedGuid && selectedGuid === guid && actionStore.owns(token)
+  try { return await refreshDeleteTargetFailClosed({
+    guid, token, loadTarget: targetGuid => getAdminUser(targetGuid, { signal: deleteRefreshAbort.signal }), isContextCurrent,
     canManage: target => canDeleteAdminUser({ actorRole: userStore.user?.role, capabilities: userStore.permissionProjection?.capabilities, target }),
-    replaceTarget: target => { store.selected = target; return actionStore.updateTarget(target) }, invalidateTarget: actionStore.invalidateTarget,
+    replaceTarget: (owner, target) => {
+      if (!isContextCurrent() || !actionStore.updateTarget(owner, target)) return false
+      if (!isContextCurrent()) return false
+      store.selected = target
+      return true
+    }, invalidateTarget: actionStore.invalidateTarget,
     onUnauthorized, onUnavailable: () => ElMessage.warning(t('deleteUser.targetRefreshFailed')),
-  })
+  }) } finally { if (requestId === deleteRefreshRequest) deleteRefreshAbort = null }
 }
 function onUnauthorized() { userStore.clearSession(); store.clear() }
-function restoreDeleteFocus() { const trigger = deleteTrigger; deleteTrigger = null; restoreDeleteTriggerFocus({ trigger, fallback: pageHeading.value, nextTick }) }
+function restoreDeleteFocus() { const trigger = deleteTrigger; deleteTrigger = null; deleteToken = null; restoreDeleteTriggerFocus({ trigger, fallback: pageHeading.value, nextTick }) }
 
 onMounted(load)
 watch([() => route.params.guid, canRead, () => userStore.permissionRevision], load)
-onBeforeUnmount(() => { actionStore.dispose(); restoreDeleteFocus() })
+onBeforeUnmount(() => { cancelDeleteRefresh(); if (deleteToken) actionStore.dispose(deleteToken); restoreDeleteFocus() })
 </script>
 
 <style scoped>

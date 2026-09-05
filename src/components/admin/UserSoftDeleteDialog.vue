@@ -43,7 +43,7 @@
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useAdminUserActionsStore } from '@/stores/admin-user-actions'
-import { canSubmitUserDelete, focusDeleteError, isDeleteBusy } from '@/stores/admin-user-actions'
+import { canSubmitUserDelete, focusDeleteError, isDeleteBusy, settleUserDeleteClosed, settleUserDeleteDialog } from '@/stores/admin-user-actions'
 import { useI18n } from '@/composables/useI18n'
 
 const emit = defineEmits(['closed'])
@@ -71,25 +71,34 @@ function clearForm() {
   actionStore.setPassword('')
   formRef.value?.clearValidate?.()
 }
-function requestClose() { actionStore.close() }
+function requestClose() { const token = actionStore.captureOwnership(); if (token) actionStore.close(token) }
 function onEscape() { requestClose() }
-function onClosed() { clearForm(); emit('closed') }
+function onClosed() {
+  const current = actionStore.captureOwnership()
+  settleUserDeleteClosed({ currentToken: current, clearForm, emitClosed: () => emit('closed') })
+}
 function focusReason() { nextTick(() => reasonInput.value?.focus?.()) }
 function focusError() { focusDeleteError({ errorAlert, nextTick }) }
 async function submit() {
   if (!canSubmit.value) return
+  const token = actionStore.captureOwnership()
+  if (!token) return
   try { await formRef.value?.validate?.() } catch {
     nextTick(() => (form.reason.trim() ? passwordInput.value : reasonInput.value)?.focus?.())
     return
   }
+  if (!actionStore.owns(token)) return
   actionStore.setReason(form.reason)
   actionStore.setPassword(form.password)
   form.password = ''
-  const result = await actionStore.submit()
-  if (result?.state === 'succeeded') actionStore.close()
-  else if (result?.state === 'failed' || result?.state === 'pending_recovery') focusError()
+  const result = await actionStore.submit(token)
+  settleUserDeleteDialog({ token, result, owns: actionStore.owns, close: actionStore.close, focusError })
 }
-watch(() => actionStore.isOpen, open => { if (!open) clearForm() })
+watch(() => actionStore.dialogRevision, () => {
+  clearForm()
+  if (actionStore.isOpen) focusReason()
+})
+watch(() => actionStore.isOpen, open => { if (!open && !actionStore.captureOwnership()) clearForm() })
 </script>
 
 <style scoped>

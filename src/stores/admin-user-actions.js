@@ -3,7 +3,7 @@ import { reactive, toRefs } from 'vue'
 import { createUserDeleteWorkflow, DELETE_STATES } from '../api/admin-user-actions-state.js'
 import { issueUserDelete, executeUserDelete, queryUserDelete } from '../api/admin-user-actions.js'
 
-const SAFE_INITIAL = Object.freeze({ open: false, target: null, state: DELETE_STATES.IDLE, operationRef: null, failureCode: null })
+const SAFE_INITIAL = Object.freeze({ open: false, dialogRevision: 0, target: null, state: DELETE_STATES.IDLE, operationRef: null, failureCode: null })
 
 export function canDeleteAdminUser({ actorRole, capabilities, target } = {}) {
   if (!Array.isArray(capabilities) || !capabilities.includes('users.delete') || !target || target.status === 'deleted') return false
@@ -15,11 +15,25 @@ export function canDeleteAdminUser({ actorRole, capabilities, target } = {}) {
 export const isDeleteBusy = state => ['verifying', 'submitting', 'querying'].includes(state)
 
 export function canSubmitUserDelete({ state, target } = {}) {
-  return !isDeleteBusy(state) && state !== DELETE_STATES.PENDING_RECOVERY && target?.status !== 'deleted'
+  return [DELETE_STATES.IDLE, DELETE_STATES.FAILED].includes(state) && target?.status !== 'deleted'
 }
 
 export function focusDeleteError({ errorAlert, nextTick }) {
   nextTick(() => (errorAlert?.value?.$el ?? errorAlert?.value)?.focus?.())
+}
+
+export function settleUserDeleteDialog({ token, result, owns, close, focusError }) {
+  if (!owns(token)) return false
+  if (result?.state === DELETE_STATES.SUCCEEDED) close(token)
+  else if (result?.state === DELETE_STATES.FAILED || result?.state === DELETE_STATES.PENDING_RECOVERY) focusError()
+  return true
+}
+
+export function settleUserDeleteClosed({ currentToken, clearForm, emitClosed }) {
+  if (currentToken) return false
+  clearForm()
+  emitClosed()
+  return true
 }
 
 export function restoreDeleteTriggerFocus({ trigger, fallback, nextTick }) {
@@ -44,18 +58,21 @@ export function reconcileDeletedDetail({ state, guid }) {
   return true
 }
 
-export async function refreshDeleteTargetFailClosed({ guid, loadTarget, canManage, replaceTarget, invalidateTarget, onUnauthorized, onUnavailable }) {
+export async function refreshDeleteTargetFailClosed({ guid, token, loadTarget, isContextCurrent = () => true, canManage, replaceTarget, invalidateTarget, onUnauthorized, onUnavailable }) {
+  if (!isContextCurrent(token, guid)) return false
   let target
   try {
-    target = await loadTarget(guid)
+    target = await loadTarget(guid, token)
   } catch (error) {
-    invalidateTarget(guid)
+    if (!isContextCurrent(token, guid)) return false
+    invalidateTarget(token, guid)
     if (error?.response?.status === 401 || error?.status === 401) onUnauthorized()
     onUnavailable()
     return false
   }
-  if (!target || target.guid !== guid || !canManage(target) || !replaceTarget(target)) {
-    invalidateTarget(guid)
+  if (!isContextCurrent(token, guid)) return false
+  if (!target || target.guid !== guid || !canManage(target) || !replaceTarget(token, target)) {
+    invalidateTarget(token, guid)
     onUnavailable()
     return false
   }
@@ -74,6 +91,8 @@ export function createAdminUserActionsCoordinator({ api, createWorkflow = create
   let unsubscribe = null
   let reason = ''
   let password = ''
+  let ownership = null
+  let nextOwnership = 0
   let callbacks = { onSucceeded, onConflict, onUnauthorized }
 
   const clearPrivate = () => { reason = ''; password = '' }
@@ -87,63 +106,77 @@ export function createAdminUserActionsCoordinator({ api, createWorkflow = create
     unsubscribe = null
     workflow?.unmount()
     workflow = null
+    ownership = null
     clearPrivate()
   }
-  const close = () => {
+  const owns = token => token != null && token === ownership && workflow != null
+  const captureOwnership = () => ownership
+  const close = (token = ownership) => {
+    if (!owns(token)) return false
+    const dialogRevision = value.dialogRevision
     destroyWorkflow()
-    Object.assign(value, SAFE_INITIAL)
+    Object.assign(value, SAFE_INITIAL, { dialogRevision })
+    return true
   }
   const open = (target, nextCallbacks = {}) => {
     destroyWorkflow()
-    Object.assign(value, SAFE_INITIAL, { open: true, target: safeTarget(target) })
+    const token = Object.freeze({ deleteDialog: ++nextOwnership })
+    ownership = token
+    Object.assign(value, SAFE_INITIAL, { open: true, dialogRevision: value.dialogRevision + 1, target: safeTarget(target) })
     callbacks = {
       onSucceeded: nextCallbacks.onSucceeded ?? onSucceeded,
       onConflict: nextCallbacks.onConflict ?? onConflict,
       onUnauthorized: nextCallbacks.onUnauthorized ?? onUnauthorized,
     }
-    workflow = createWorkflow({ api, randomBytes, now, schedule })
-    unsubscribe = workflow.subscribe(sync)
+    const ownedWorkflow = createWorkflow({ api, randomBytes, now, schedule })
+    workflow = ownedWorkflow
+    unsubscribe = ownedWorkflow.subscribe(snapshot => { if (owns(token) && workflow === ownedWorkflow) sync(snapshot) })
+    return token
   }
   const setReason = input => { reason = typeof input === 'string' ? input : '' }
   const setPassword = input => { password = typeof input === 'string' ? input : '' }
-  const updateTarget = target => {
-    if (!workflow || value.state !== DELETE_STATES.FAILED || target?.guid !== value.target?.guid) return false
+  const updateTarget = (token, target) => {
+    if (!owns(token) || value.state !== DELETE_STATES.FAILED || target?.guid !== value.target?.guid) return false
     value.target = safeTarget(target)
     return true
   }
-  const invalidateTarget = guid => {
-    if (value.target?.guid !== guid) return false
-    close()
+  const invalidateTarget = (token, guid) => {
+    if (!owns(token) || value.target?.guid !== guid) return false
+    close(token)
     return true
   }
-  const submit = async () => {
-    if (!workflow) return null
-    if (value.state === DELETE_STATES.FAILED && !workflow.reset()) return null
+  const submit = async (token = ownership) => {
+    if (!owns(token)) return null
+    const ownedWorkflow = workflow
+    if (value.state === DELETE_STATES.FAILED && !ownedWorkflow.reset()) return null
     if (value.state !== DELETE_STATES.IDLE) return null
-    const normalizedReason = reason.trim()
+    let normalizedReason = reason.trim()
     if ([...normalizedReason].length < 1 || [...normalizedReason].length > 200 || password.length < 1) return null
-    const target = value.target
+    const target = { ...value.target }
     let passwordInput = password
     password = ''
-    const running = workflow.start({ targetGuid: target.guid, expectedAuthVersion: target.authVersion, reason: normalizedReason, currentPassword: passwordInput })
+    const running = ownedWorkflow.start({ targetGuid: target.guid, expectedAuthVersion: target.authVersion, reason: normalizedReason, currentPassword: passwordInput })
     passwordInput = ''
     const result = await running
+    if (!owns(token) || workflow !== ownedWorkflow) { normalizedReason = ''; return result }
     if (result.state === DELETE_STATES.SUCCEEDED) {
       reason = ''
-      await callbacks.onSucceeded({ guid: target.guid, status: 'deleted', operationRef: result.operationRef })
+      await callbacks.onSucceeded({ guid: target.guid, status: 'deleted', operationRef: result.operationRef }, token)
+      if (!owns(token) || workflow !== ownedWorkflow) return result
     } else if (result.state === DELETE_STATES.FAILED) {
       if (result.failureCode === 'authentication_failed') {
         clearPrivate()
-        try { callbacks.onUnauthorized() } finally { close() }
+        try { callbacks.onUnauthorized() } finally { close(token) }
       } else if (['target_version_conflict', 'target_state_conflict', 'action_verification_conflict'].includes(result.failureCode)) {
-        const refreshed = await callbacks.onConflict(target.guid)
-        if (refreshed !== true) invalidateTarget(target.guid)
+        const refreshed = await callbacks.onConflict(target.guid, token)
+        if (!owns(token) || workflow !== ownedWorkflow) return result
+        if (refreshed !== true) invalidateTarget(token, target.guid)
       }
     }
     return result
   }
-  const reset = () => workflow?.reset() ?? false
-  return { state: value, open, close, dispose: close, setReason, setPassword, updateTarget, invalidateTarget, submit, reset }
+  const reset = (token = ownership) => owns(token) ? workflow.reset() : false
+  return { state: value, open, close, dispose: close, owns, captureOwnership, setReason, setPassword, updateTarget, invalidateTarget, submit, reset }
 }
 
 const productionRandomBytes = length => crypto.getRandomValues(new Uint8Array(length))
@@ -162,8 +195,8 @@ export const useAdminUserActionsStore = defineStore('adminUserActions', () => {
     schedule: productionSchedule,
   })
   const refs = toRefs(state)
-  return { isOpen: refs.open, target: refs.target, state: refs.state, operationRef: refs.operationRef, failureCode: refs.failureCode,
-    open: coordinator.open, close: coordinator.close, dispose: coordinator.dispose,
+  return { isOpen: refs.open, dialogRevision: refs.dialogRevision, target: refs.target, state: refs.state, operationRef: refs.operationRef, failureCode: refs.failureCode,
+    open: coordinator.open, close: coordinator.close, dispose: coordinator.dispose, owns: coordinator.owns, captureOwnership: coordinator.captureOwnership,
     setReason: coordinator.setReason, setPassword: coordinator.setPassword, updateTarget: coordinator.updateTarget, invalidateTarget: coordinator.invalidateTarget,
     submit: coordinator.submit, reset: coordinator.reset }
 })

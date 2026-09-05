@@ -5,7 +5,7 @@ import { parse as parseSFC } from '@vue/compiler-sfc'
 import { parse as parseTemplate } from '@vue/compiler-dom'
 import { parse as parseScript } from '@babel/parser'
 import { messages } from '../../i18n/messages.js'
-import { canSubmitUserDelete, focusDeleteError, isDeleteBusy } from '../../stores/admin-user-actions.js'
+import { canSubmitUserDelete, focusDeleteError, isDeleteBusy, settleUserDeleteClosed, settleUserDeleteDialog } from '../../stores/admin-user-actions.js'
 
 const source = await readFile(new URL('./UserSoftDeleteDialog.vue', import.meta.url), 'utf8')
 const descriptor = parseSFC(source, { filename: 'UserSoftDeleteDialog.vue' }).descriptor
@@ -51,6 +51,8 @@ test('busy and submit helpers execute the closed state policy and are called by 
   assert.equal(canSubmitUserDelete({ state: 'idle', target: { status: 'active' } }), true)
   assert.equal(canSubmitUserDelete({ state: 'querying', target: { status: 'active' } }), false)
   assert.equal(canSubmitUserDelete({ state: 'pending_recovery', target: { status: 'active' } }), false)
+  assert.equal(canSubmitUserDelete({ state: 'unknown', target: { status: 'active' } }), false)
+  assert.equal(canSubmitUserDelete({ state: 'succeeded', target: { status: 'active' } }), false)
   assert.equal(canSubmitUserDelete({ state: 'idle', target: { status: 'deleted' } }), false)
   assert.equal(hasCall('isDeleteBusy', 'state'), true)
   assert.equal(hasCall('canSubmitUserDelete'), true)
@@ -73,6 +75,24 @@ test('error focus helper executes against the rendered alert and is called by th
   focusDeleteError({ errorAlert: { value: { $el: focusable } }, nextTick: callback => { calls.push('tick'); callback() } })
   assert.deepEqual(calls, ['tick', 'focus'])
   assert.equal(hasCall('focusDeleteError'), true)
+})
+
+test('late component settlement cannot close or focus a newer dialog', () => {
+  const effects = []
+  settleUserDeleteDialog({ token: 'old', result: { state: 'succeeded' }, owns: () => false, close: () => effects.push('close'), focusError: () => effects.push('focus') })
+  assert.deepEqual(effects, [])
+  settleUserDeleteDialog({ token: 'current', result: { state: 'succeeded' }, owns: token => token === 'current', close: token => effects.push(['close', token]), focusError: () => effects.push('focus') })
+  assert.deepEqual(effects, [['close', 'current']])
+  assert.equal(hasCall('settleUserDeleteDialog'), true)
+})
+
+test('a late closed event cannot clear or emit against a newer dialog', () => {
+  const effects = []
+  assert.equal(settleUserDeleteClosed({ currentToken: 'dialog-b', clearForm: () => effects.push('clear'), emitClosed: () => effects.push('emit') }), false)
+  assert.deepEqual(effects, [])
+  assert.equal(settleUserDeleteClosed({ currentToken: null, clearForm: () => effects.push('clear'), emitClosed: () => effects.push('emit') }), true)
+  assert.deepEqual(effects, ['clear', 'emit'])
+  assert.equal(hasCall('settleUserDeleteClosed'), true)
 })
 
 test('Chinese and English messages state irreversible soft-delete, username retention, credential invalidation, and recovery guidance', () => {

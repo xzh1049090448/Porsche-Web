@@ -70,7 +70,7 @@ test('close and dispose clear private input and cancel the owned workflow', () =
   f.coordinator.setPassword('private password')
   f.coordinator.close()
   assert.equal(f.workflows[0].unmounted, true)
-  assert.deepEqual(f.coordinator.state, { open: false, target: null, state: 'idle', operationRef: null, failureCode: null })
+  assert.deepEqual(f.coordinator.state, { open: false, dialogRevision: 1, target: null, state: 'idle', operationRef: null, failureCode: null })
   assert.doesNotMatch(JSON.stringify(f.coordinator.state), /private reason|private password/)
 })
 
@@ -135,9 +135,9 @@ test('a known failure can retry only after explicit submit and a conflict target
     }),
     async onConflict() { return true }, onSucceeded() {}, onUnauthorized() {},
   })
-  coordinator.open(target()); coordinator.setReason('reason'); coordinator.setPassword('first-password')
+  const token = coordinator.open(target()); coordinator.setReason('reason'); coordinator.setPassword('first-password')
   await coordinator.submit()
-  assert.equal(coordinator.updateTarget({ ...target(), authVersion: 8 }), true)
+  assert.equal(coordinator.updateTarget(token, { ...target(), authVersion: 8 }), true)
   coordinator.setPassword('second-password')
   await coordinator.submit()
   assert.deepEqual(starts.map(call => call.expectedAuthVersion), [7, 8])
@@ -149,6 +149,81 @@ test('a conflict callback must affirm a fresh target or the coordinator fails cl
   f.coordinator.open(target(), { onConflict: async () => false })
   f.coordinator.setReason('private reason'); f.coordinator.setPassword('private password')
   await f.coordinator.submit()
-  assert.deepEqual(f.coordinator.state, { open: false, target: null, state: 'idle', operationRef: null, failureCode: null })
+  assert.deepEqual(f.coordinator.state, { open: false, dialogRevision: 1, target: null, state: 'idle', operationRef: null, failureCode: null })
   assert.equal(f.workflows[0].unmounted, true)
+})
+
+test('a late success from dialog A cannot reconcile or close reopened same-GUID dialog B', async () => {
+  const a = deferred()
+  const reconciled = []
+  const workflows = []
+  const coordinator = createAdminUserActionsCoordinator({
+    api: {}, randomBytes: () => new Uint8Array(32), now: () => 1, schedule: () => () => {},
+    createWorkflow: () => {
+      const index = workflows.length
+      const workflow = { start: () => index === 0 ? a.promise : new Promise(() => {}), reset: () => true, unmount() {}, subscribe(fn) { fn({ state: 'idle', operationRef: null, failure: null }); return () => {} } }
+      workflows.push(workflow)
+      return workflow
+    },
+    onSucceeded: value => reconciled.push(value), onConflict: async () => true, onUnauthorized() {},
+  })
+  const tokenA = coordinator.open(target())
+  coordinator.setReason('reason'); coordinator.setPassword('password')
+  const runningA = coordinator.submit(tokenA)
+  coordinator.close(tokenA)
+  const tokenB = coordinator.open(target())
+  a.resolve({ state: 'succeeded', operationRef: 'op_old', failureCode: null })
+  await runningA
+  assert.notEqual(tokenA, tokenB)
+  assert.equal(coordinator.owns(tokenB), true)
+  assert.equal(coordinator.state.open, true)
+  assert.deepEqual(reconciled, [])
+})
+
+test('a late conflict callback from A cannot replace or invalidate reopened same-GUID dialog B', async () => {
+  const refresh = deferred()
+  let coordinator
+  coordinator = createAdminUserActionsCoordinator({
+    api: {}, randomBytes: () => new Uint8Array(32), now: () => 1, schedule: () => () => {},
+    createWorkflow: () => ({
+      start: async () => ({ state: 'failed', operationRef: null, failureCode: 'target_version_conflict' }), reset: () => true,
+      unmount() {}, subscribe(fn) { fn({ state: 'idle', operationRef: null, failure: null }); return () => {} },
+    }),
+    async onConflict(guid, token) {
+      const fresh = await refresh.promise
+      return coordinator.owns(token) && coordinator.updateTarget(token, fresh)
+    },
+    onSucceeded() {}, onUnauthorized() {},
+  })
+  const tokenA = coordinator.open(target())
+  coordinator.setReason('reason'); coordinator.setPassword('password')
+  const runningA = coordinator.submit(tokenA)
+  await new Promise(resolve => setImmediate(resolve))
+  coordinator.close(tokenA)
+  const tokenB = coordinator.open(target())
+  refresh.resolve({ ...target(), authVersion: 99 })
+  await runningA
+  assert.equal(coordinator.owns(tokenB), true)
+  assert.equal(coordinator.state.target.authVersion, 7)
+  assert.equal(coordinator.state.open, true)
+})
+
+test('opening B while A success reconciliation is pending preserves B ownership', async () => {
+  const reconcile = deferred()
+  let callbackStarted
+  const started = new Promise(resolve => { callbackStarted = resolve })
+  const coordinator = createAdminUserActionsCoordinator({
+    api: {}, randomBytes: () => new Uint8Array(32), now: () => 1, schedule: () => () => {},
+    createWorkflow: () => ({ start: async () => ({ state: 'succeeded', operationRef: 'op_old', failureCode: null }), reset: () => true, unmount() {}, subscribe(fn) { fn({ state: 'idle', operationRef: null, failure: null }); return () => {} } }),
+    async onSucceeded() { callbackStarted(); await reconcile.promise }, onConflict: async () => true, onUnauthorized() {},
+  })
+  const tokenA = coordinator.open(target())
+  coordinator.setReason('reason'); coordinator.setPassword('password')
+  const runningA = coordinator.submit(tokenA)
+  await started
+  const tokenB = coordinator.open(target())
+  reconcile.resolve()
+  await runningA
+  assert.equal(coordinator.owns(tokenB), true)
+  assert.equal(coordinator.state.open, true)
 })

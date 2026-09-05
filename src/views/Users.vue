@@ -41,6 +41,8 @@ const filters = reactive({ page: 1, pageSize: 20, q: '', role: '', status: '', s
 const statusLabel = status => ({ active: '启用', disabled: '禁用', deleted: '已删除' }[status] || status); const statusType = status => ({ active: 'success', disabled: 'warning', deleted: 'info' }[status]); const roleLabel = role => ({ user: '用户', admin: '管理员', root: 'Root' }[role] || role); const planLabel = plan => ({ free: '免费版', professional: '专业版', enterprise: '企业版' }[plan] || plan)
 const errorStatus = computed(() => store.error?.response?.status); const errorTitle = computed(() => ({ 401: '认证会话无效', 403: '无权限访问', 404: '用户不存在', 503: '用户信息暂不可用' }[errorStatus.value] || '用户信息暂不可用')); const errorDescription = computed(() => errorStatus.value === 403 ? '当前身份保持登录状态，可重新检查权限。' : '当前页面数据已清理，请重试。')
 async function reload() {
+  listContextRevision++
+  if (deleteToken && actionStore.owns(deleteToken)) actionStore.close(deleteToken)
   if (!canRead.value) return
   try {
     const result = await store.loadList({ ...filters })
@@ -56,27 +58,39 @@ const canDeleteTarget = target => userStore.permissionProjection?.capabilities?.
   && canDeleteAdminUser({ actorRole: userStore.user?.role, capabilities: userStore.permissionProjection.capabilities, target })
 let deleteTrigger = null
 const pageHeading = ref(null)
+let deleteToken = null
+let listContextRevision = 0
 function openDelete(target, event) {
   deleteTrigger = event?.currentTarget ?? document.activeElement
-  actionStore.open(target, { onSucceeded: onDeleteSucceeded, onConflict: onDeleteConflict, onUnauthorized })
+  deleteToken = actionStore.open(target, { onSucceeded: onDeleteSucceeded, onConflict: onDeleteConflict, onUnauthorized })
 }
-async function onDeleteSucceeded({ guid }) {
+async function onDeleteSucceeded({ guid }, token) {
+  if (!actionStore.owns(token)) return false
   await reconcileDeletedList({ state: store, filters, guid, reload })
+  return actionStore.owns(token)
 }
-async function onDeleteConflict(guid) {
+async function onDeleteConflict(guid, token) {
+  const contextRevision = listContextRevision
   return refreshDeleteTargetFailClosed({
-    guid, loadTarget: getAdminUser,
-    canManage: target => canDeleteTarget(target), replaceTarget: actionStore.updateTarget, invalidateTarget: actionStore.invalidateTarget,
+    guid, token, loadTarget: getAdminUser, isContextCurrent: () => listContextRevision === contextRevision && actionStore.owns(token),
+    canManage: target => canDeleteTarget(target),
+    replaceTarget: (owner, target) => {
+      if (listContextRevision !== contextRevision || !actionStore.updateTarget(owner, target)) return false
+      const index = store.rows.findIndex(row => row.guid === guid)
+      if (index >= 0) store.rows[index] = target
+      return true
+    },
+    invalidateTarget: actionStore.invalidateTarget,
     onUnauthorized, onUnavailable: () => ElMessage.warning(t('deleteUser.targetRefreshFailed')),
   })
 }
 function onUnauthorized() { userStore.clearSession(); store.clear() }
-function restoreDeleteFocus() { const trigger = deleteTrigger; deleteTrigger = null; restoreDeleteTriggerFocus({ trigger, fallback: pageHeading.value, nextTick }) }
+function restoreDeleteFocus() { const trigger = deleteTrigger; deleteTrigger = null; deleteToken = null; restoreDeleteTriggerFocus({ trigger, fallback: pageHeading.value, nextTick }) }
 watch(() => store.recoveryRevision, () => {
   if (store.recoveredPage !== null) filters.page = store.recoveredPage
 })
 watch([canRead, () => userStore.permissionRevision], ([enabled]) => { if (enabled) void reload(); else store.clear() }, { immediate: true })
-onBeforeUnmount(() => { actionStore.dispose(); restoreDeleteFocus() })
+onBeforeUnmount(() => { if (deleteToken) actionStore.dispose(deleteToken); restoreDeleteFocus() })
 </script>
 <style scoped>
 .admin-page{max-width:1400px;margin:0 auto;padding:24px;overflow:auto;height:100%}.page-heading{margin-bottom:24px}.eyebrow{color:var(--text-secondary);font-size:12px;letter-spacing:.12em;margin:0}h1{margin:4px 0;font-size:28px}.filters-card,.error{margin-bottom:16px}.filters{display:flex;flex-wrap:wrap;gap:0 12px}.filters :deep(.el-form-item){margin-right:0}.users-table{width:100%}.el-pagination{margin-top:20px;justify-content:flex-end}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}@media(max-width:768px){.admin-page{padding:16px}.filters{display:block}.filters :deep(.el-form-item){margin-bottom:12px}.users-table{font-size:12px}.el-pagination{justify-content:center}}
