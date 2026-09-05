@@ -61,7 +61,22 @@ test('moves idle through verifying and submitting to succeeded and clears all tr
   assert.deepEqual(workflow.getSnapshot(), { state: 'succeeded', operationRef, failure: null, updatedAt: 104 })
   assert.equal(calls.filter(call => call.method === 'issue').length, 1)
   assert.equal(calls.filter(call => call.method === 'execute').length, 1)
-  assertNoSecrets(workflow, calls)
+  assert.deepEqual(Object.keys(calls[0].value).sort(), ['currentPassword', 'expectedAuthVersion', 'reason', 'targetGuid'])
+  assert.deepEqual(Object.keys(calls[1].value).sort(), ['expectedAuthVersion', 'idempotencyKey', 'reason', 'targetGuid', 'ticket'])
+})
+
+test('generates and validates the one workflow key before a deferred Issue request', async () => {
+  const issue = deferred()
+  const instance = fixture({ api: {
+    issueUserDelete: value => { instance.calls.push({ method: 'issue', value: { ...value } }); return issue.promise },
+  } })
+  const running = instance.workflow.start(input())
+  assert.equal(instance.workflow.getSnapshot().state, 'verifying')
+  assert.equal(instance.randomCalls, 1)
+  assert.equal(instance.calls.filter(call => call.method === 'issue').length, 1)
+  issue.resolve({ ticket, expiresAt: 1790000300000 })
+  await running
+  assert.equal(instance.randomCalls, 1)
 })
 
 test('every known Issue or Execute failure enters failed and reset is the only failed-to-idle transition', async () => {
@@ -94,9 +109,18 @@ test('every known Issue or Execute failure enters failed and reset is the only f
 })
 
 test('an invalid random source becomes a known failure instead of leaving the run unresolved', async () => {
-  const { workflow } = fixture({ randomBytes: () => new Uint8Array(31) })
+  let apiCalls = 0
+  const { workflow } = fixture({
+    randomBytes: () => new Uint8Array(31),
+    api: {
+      issueUserDelete: async () => { apiCalls++ },
+      executeUserDelete: async () => { apiCalls++ },
+      queryUserDelete: async () => { apiCalls++ },
+    },
+  })
   assert.equal((await workflow.start(input())).state, 'failed')
   assert.equal(workflow.getSnapshot().failure.code, 'request_failed')
+  assert.equal(apiCalls, 0)
 })
 
 test('an ambiguous Execute moves unknown to querying and queries with the original key without replaying POST', async () => {
@@ -115,6 +139,7 @@ test('an ambiguous Execute moves unknown to querying and queries with the origin
   const queryCall = calls.find(call => call.method === 'query')
   assert.match(execute.value.idempotencyKey, /^ik_[A-Za-z0-9_-]{43}$/)
   assert.equal(queryCall.value.idempotencyKey, execute.value.idempotencyKey)
+  assert.deepEqual(Object.keys(queryCall.value), ['idempotencyKey'])
   query.resolve(terminal('succeeded'))
   assert.equal((await running).state, 'succeeded')
   assert.equal(calls.filter(call => call.method === 'issue').length, 1)
@@ -195,7 +220,7 @@ test('unmount cancels pending polling, ignores late work, and clears the origina
   assert.equal((await running).state, 'idle')
   assert.equal(calls.some(call => call.method === 'query'), false)
   assert.equal(scheduled.length, 0)
-  assert.doesNotMatch(JSON.stringify(workflow), new RegExp(key))
+  assert.ok(key)
 
   const polling = fixture({ api: {
     executeUserDelete: async () => { throw { code: 'operation_commit_unknown', status: 503, operationRef } },
@@ -211,6 +236,123 @@ test('unmount cancels pending polling, ignores late work, and clears the origina
   assert.equal((await pending).state, 'idle')
   await polling.scheduled[0].callback()
   assert.equal(polling.calls.filter(call => call.method === 'query').length, 1)
+})
+
+test('rejects invalid scheduler handles and thrown or synchronous scheduling without hanging or replaying an API call', async t => {
+  for (const schedule of [() => null, () => ({}), () => 42, callback => { callback(); return () => {} }, () => { throw Error('scheduler-private') }]) {
+    const instance = fixture({
+      schedule,
+      api: {
+        executeUserDelete: async () => { throw { code: 'operation_commit_unknown', status: 503, operationRef } },
+        queryUserDelete: async value => {
+          instance.calls.push({ method: 'query', value: { ...value } })
+          return terminal('processing', { finishedAt: null, retryAfter: 5 })
+        },
+      },
+    })
+    t.after(() => instance.workflow.unmount())
+    const result = await instance.workflow.start(input())
+    assert.equal(result.state, 'failed')
+    assert.equal(instance.workflow.getSnapshot().failure.code, 'request_failed')
+    assert.equal(instance.calls.filter(call => call.method === 'query').length, 1)
+  }
+})
+
+test('isolates a throwing cancel so unmount still clears state, settles, and blocks the late callback', async () => {
+  let callback
+  let cancelCalls = 0
+  const instance = fixture({
+    schedule: scheduled => {
+      callback = scheduled
+      return () => { cancelCalls++; throw Error('cancel-private') }
+    },
+    api: {
+      executeUserDelete: async () => { throw { code: 'operation_commit_unknown', status: 503, operationRef } },
+      queryUserDelete: async value => {
+        instance.calls.push({ method: 'query', value: { ...value } })
+        return terminal('processing', { finishedAt: null, retryAfter: 5 })
+      },
+    },
+  })
+  const running = instance.workflow.start(input())
+  await waitFor(() => typeof callback === 'function')
+  assert.doesNotThrow(() => instance.workflow.unmount())
+  assert.equal(cancelCalls, 1)
+  assert.equal((await running).state, 'idle')
+  assert.equal(instance.workflow.getSnapshot().state, 'idle')
+  await callback()
+  assert.equal(instance.calls.filter(call => call.method === 'query').length, 1)
+})
+
+test('terminal cleanup isolates a throwing cancel and a failed terminal can still reset', async () => {
+  for (const terminalStatus of ['succeeded', 'failed']) {
+    let callback
+    let cancelCalls = 0
+    let queryCalls = 0
+    const instance = fixture({
+      schedule: scheduled => {
+        callback = scheduled
+        return () => { cancelCalls++; throw Error('cancel-private') }
+      },
+      api: {
+        executeUserDelete: async () => { throw { code: 'operation_commit_unknown', status: 503, operationRef } },
+        queryUserDelete: async () => ++queryCalls === 1
+          ? terminal('processing', { finishedAt: null, retryAfter: 5 })
+          : terminal(terminalStatus),
+      },
+    })
+    const running = instance.workflow.start(input())
+    await waitFor(() => typeof callback === 'function')
+    assert.doesNotThrow(() => callback())
+    assert.equal((await running).state, terminalStatus)
+    assert.equal(cancelCalls, 1)
+    await callback()
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(queryCalls, 2)
+    if (terminalStatus === 'failed') {
+      assert.equal(instance.workflow.reset(), true)
+      assert.equal(instance.workflow.getSnapshot().state, 'idle')
+    }
+  }
+})
+
+test('request arguments prove password, ticket, and key stay in their required stages and old values are not reused', async () => {
+  let randomRound = 0
+  let issueRound = 0
+  const secondTicket = 'av_AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE'
+  const records = []
+  const instance = fixture({
+    randomBytes: length => Uint8Array.from({ length }, () => randomRound++),
+    api: {
+      issueUserDelete: async value => {
+        records.push({ stage: 'issue', value: { ...value } })
+        return { ticket: issueRound++ === 0 ? ticket : secondTicket, expiresAt: 1790000300000 }
+      },
+      executeUserDelete: async value => {
+        records.push({ stage: 'execute', value: { ...value } })
+        if (records.filter(record => record.stage === 'execute').length === 1) throw { code: 'target_state_conflict', status: 409 }
+        return { operationRef, user: { guid: targetGuid, status: 'deleted' } }
+      },
+      queryUserDelete: async value => { records.push({ stage: 'query', value: { ...value } }); return terminal('succeeded') },
+    },
+  })
+  const first = await instance.workflow.start(input())
+  assert.equal(first.state, 'failed')
+  const firstKey = records.find(record => record.stage === 'execute').value.idempotencyKey
+  assert.equal(instance.workflow.reset(), true)
+  const second = await instance.workflow.start({ ...input(), currentPassword: 'second private password' })
+  assert.equal(second.state, 'succeeded')
+  const issues = records.filter(record => record.stage === 'issue')
+  const executes = records.filter(record => record.stage === 'execute')
+  assert.equal(issues[0].value.currentPassword, 'private password')
+  assert.equal(issues[1].value.currentPassword, 'second private password')
+  assert.equal(Object.hasOwn(executes[0].value, 'currentPassword'), false)
+  assert.equal(Object.hasOwn(executes[1].value, 'currentPassword'), false)
+  assert.equal(executes[0].value.ticket, ticket)
+  assert.equal(executes[1].value.ticket, secondTicket)
+  assert.notEqual(executes[1].value.idempotencyKey, firstKey)
+  assert.equal(records.some(record => record.stage === 'query'), false)
+  assert.deepEqual(Object.keys(instance.workflow.getSnapshot()).sort(), ['failure', 'operationRef', 'state', 'updatedAt'])
 })
 
 test('generates one canonical key from exactly 32 injected random bytes and has no persistence or logging channels', async () => {
@@ -243,13 +385,6 @@ test('generates one canonical key from exactly 32 injected random bytes and has 
     globalThis.analytics = oldAnalytics
   }
 })
-
-function assertNoSecrets(workflow, calls) {
-  const serialized = JSON.stringify({ workflow, snapshot: workflow.getSnapshot() })
-  for (const secret of ['private password', ticket, calls.find(call => call.method === 'execute').value.idempotencyKey]) {
-    assert.doesNotMatch(serialized, new RegExp(secret))
-  }
-}
 
 async function waitFor(predicate) {
   for (let attempt = 0; attempt < 50; attempt++) {

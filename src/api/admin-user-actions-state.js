@@ -56,6 +56,10 @@ function boundedRetrySeconds(value) {
   return Math.min(30, Math.max(1, Number.isInteger(value) ? value : 1))
 }
 
+/**
+ * Creates one memory-only workflow. schedule(callback, delayMs) must return a
+ * cancellation function and must not invoke callback before returning.
+ */
 export function createUserDeleteWorkflow({ api, randomBytes, now, schedule }) {
   if (!api || typeof api.issueUserDelete !== 'function' || typeof api.executeUserDelete !== 'function'
       || typeof api.queryUserDelete !== 'function' || typeof randomBytes !== 'function'
@@ -97,10 +101,12 @@ export function createUserDeleteWorkflow({ api, randomBytes, now, schedule }) {
   const clearSchedule = () => {
     const cancel = cancelScheduled
     cancelScheduled = null
-    if (typeof cancel === 'function') cancel()
-    else if (cancel && typeof cancel.cancel === 'function') cancel.cancel()
+    if (typeof cancel === 'function') {
+      try { cancel() } catch { /* cancellation cannot retain workflow secrets */ }
+    }
   }
   const complete = next => {
+    generation++
     clearSchedule()
     clearTransient()
     if (!disposed && state !== next) transition(next)
@@ -125,10 +131,32 @@ export function createUserDeleteWorkflow({ api, randomBytes, now, schedule }) {
       if (result.status === 'processing') {
         transition(DELETE_STATES.QUERYING)
         const delay = boundedRetrySeconds(result.retryAfter) * 1000
-        cancelScheduled = schedule(() => {
-          cancelScheduled = null
-          if (!disposed && runGeneration === generation) void query(runGeneration)
-        }, delay)
+        clearSchedule()
+        let invokedSynchronously = false
+        let scheduling = true
+        let cancel
+        try {
+          cancel = schedule(() => {
+            if (scheduling) {
+              invokedSynchronously = true
+              return
+            }
+            if (!disposed && runGeneration === generation) void query(runGeneration)
+          }, delay)
+        } catch {
+          generation++
+          return fail(null)
+        } finally {
+          scheduling = false
+        }
+        if (typeof cancel !== 'function' || invokedSynchronously) {
+          if (typeof cancel === 'function') {
+            try { cancel() } catch { /* invalid scheduler is already failing closed */ }
+          }
+          generation++
+          return fail(null)
+        }
+        cancelScheduled = cancel
         return null
       }
       if (result.status === 'succeeded') return complete(DELETE_STATES.SUCCEEDED)
@@ -154,6 +182,11 @@ export function createUserDeleteWorkflow({ api, randomBytes, now, schedule }) {
     userInput = null
     transition(DELETE_STATES.VERIFYING)
     try {
+      idempotencyKey = createIdempotencyKey(randomBytes)
+    } catch {
+      return fail(null)
+    }
+    try {
       const issued = await api.issueUserDelete({ ...activeIntent, currentPassword: activePassword })
       activePassword = null
       if (disposed || runGeneration !== generation) return complete(DELETE_STATES.IDLE)
@@ -164,11 +197,6 @@ export function createUserDeleteWorkflow({ api, randomBytes, now, schedule }) {
       return fail(error)
     }
 
-    try {
-      idempotencyKey = createIdempotencyKey(randomBytes)
-    } catch {
-      return fail(null)
-    }
     transition(DELETE_STATES.SUBMITTING)
     try {
       const result = await api.executeUserDelete({ ...activeIntent, ticket, idempotencyKey })
