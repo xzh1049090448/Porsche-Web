@@ -47,7 +47,6 @@ export function createAdminActionRequest({ auth, baseURL = '', fetchImpl = fetch
   })
 }
 const adminActionRequest = createAdminActionRequest({ auth: authSession, baseURL: options.baseURL, axiosOptions: options })
-export const adminActionTransport = adminActionRequest.transport
 export const adminActionPost = adminActionRequest.post
 export const adminActionQuery = adminActionRequest.query
 const request = axios.create(options)

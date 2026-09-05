@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import axios from 'axios'
 import { installAuthInterceptors } from './auth-request-policy.js'
-import { createAuthSessionManager } from './auth-session.js'
+import { createAuthSessionManager, isSafeAuthRead } from './auth-session.js'
 import { createAdminUsersState } from './admin-users-state.js'
 import { browserFixture } from './auth-test-browser.js'
 
@@ -120,4 +120,32 @@ test('production action request wiring preserves Query headers and refreshes onl
   assert.equal(issued.status, 201)
   assert.equal(issued.headers.get('cache-control'), 'no-store')
   assert.equal(issued.headers.get('x-request-id'), 'req-issue')
+})
+
+test('production operation Query wiring never refreshes nonexact URLs', async () => {
+  const { createAdminActionRequest } = await import('./request.js')
+  const key = 'ik_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+  const invalidURLs = [
+    '/admin/v2/operations',
+    '/admin/v2/operations?scope=other',
+    '/admin/v2/operations?scope=users.delete&extra=1',
+    '/admin/v2/operations?scope=users.delete&scope=users.delete',
+    '/admin/v2/operations?extra=1&scope=users.delete',
+    '/admin/v2/operations?scope=users%2Edelete',
+    '/admin/v2/operations?scope=users.delete%23fragment',
+    '/admin/v2/operations?scope=users.delete&',
+  ]
+  for (const path of invalidURLs) {
+    let refreshes = 0; let fetches = 0
+    const auth = createAuthSessionManager({ browser: browserFixture(), refresh: async () => { refreshes++; throw Error('must not refresh') } })
+    auth.setSession({ accessToken: 'old', user: { guid: '1' } })
+    const actions = createAdminActionRequest({ auth, baseURL: 'https://api.example', fetchImpl: async () => {
+      fetches++
+      return new Response(JSON.stringify({ detail: 'Token无效或已过期' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
+    } })
+    await assert.rejects(actions.query(path, { 'Idempotency-Key': key }))
+    assert.equal(fetches, 1, path)
+    assert.equal(refreshes, 0, path)
+  }
+  assert.equal(isSafeAuthRead('/admin/v2/operations?scope=users.delete#client-only'), true)
 })

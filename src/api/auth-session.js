@@ -34,7 +34,9 @@ export function sessionUser(user) {
 /** Explicit read-only operations allowed to recover once from an expired Access token. */
 export function isSafeAuthRead(url = '', method = 'GET') {
   if (method.toUpperCase() !== 'GET') return false
-  const path = new URL(url, 'https://local.invalid').pathname
+  const parsed = new URL(url, 'https://local.invalid')
+  const path = parsed.pathname
+  if (path === '/admin/v2/operations') return parsed.search === '?scope=users.delete'
   return [
     /^\/api\/v1\/users\/me(?:\/usage)?$/,
     /^\/api\/v1\/auth\/(?:self|sessions)$/,
@@ -43,7 +45,6 @@ export function isSafeAuthRead(url = '', method = 'GET') {
     /^\/api\/v1\/billing\/(?:plans|usage|orders|invoices)(?:\/[^/]+)?$/,
     /^\/api\/v1\/billing\/analytics\/(?:access|summary|models|export|charts\/[^/]+)$/,
     /^\/api\/v1\/tokens(?:\/[^/]+)?$/,
-    /^\/admin\/v2\/operations$/,
   ].some(pattern => pattern.test(path))
 }
 
