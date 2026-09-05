@@ -14,6 +14,75 @@ function interfaceByName(document, name) {
   return entry
 }
 
+function backendPath(path) {
+  return path.replaceAll('{guid}', ':guid')
+}
+
+function normalizedIssue(entry, replay) {
+  return {
+    method: entry.method,
+    path: backendPath(entry.path),
+    request_headers: entry.headers.request,
+    response_headers: entry.headers.response,
+    body_limit_bytes: entry.request.body_limit_bytes,
+    body_rule: entry.request.body_rule,
+    field_rules: entry.request.field_rules,
+    request_example: entry.request.example,
+    response_status: entry.response.status,
+    response_example: entry.response.example,
+    ticket_ttl_seconds: entry.response.ticket_ttl_seconds,
+    post_replay_count: replay,
+  }
+}
+
+function normalizedExecute(entry, replay) {
+  return {
+    method: entry.method,
+    path: backendPath(entry.path),
+    request_headers: entry.headers.request,
+    response_headers: entry.headers.response,
+    body_limit_bytes: entry.request.body_limit_bytes,
+    body_rule: entry.request.body_rule,
+    field_rules: entry.request.field_rules,
+    request_example: entry.request.example,
+    response_status: entry.response.status,
+    response_example: entry.response.example,
+    success_semantics: entry.response.success_semantics,
+    processing_response_allowed: entry.response.processing_allowed,
+    post_replay_count: replay,
+  }
+}
+
+function normalizedQuery(entry, replay) {
+  return {
+    method: entry.method,
+    path: backendPath(entry.path),
+    request_headers: entry.headers.request,
+    response_headers: entry.headers.response,
+    query_rule: entry.request.query_rule,
+    response_status: entry.response.status,
+    response_examples: entry.response.examples,
+    get_replay_after_refresh: replay,
+    requires_exact_adapter: entry.request.requires_exact_adapter,
+    requires_original_scope_key: entry.request.requires_original_scope_key,
+    triggers_callback: entry.request.triggers_callback,
+    consumes_begin_rate_limit: entry.request.consumes_begin_rate_limit,
+  }
+}
+
+function normalizedLegacy(entry) {
+  return {
+    method: entry.method,
+    path: backendPath(entry.path),
+    request_headers: entry.headers.request,
+    response_headers: entry.headers.response,
+    response_status: entry.response.status,
+    response_example: entry.response.example,
+    target_lookup: entry.request.target_lookup,
+    database_or_redis_write: entry.request.database_or_redis_write,
+  }
+}
+
 test('A14 contract requires the explicit backend contract path', async () => {
   const path = process.env.A14_BACKEND_CONTRACT
   assert.ok(path, 'missing_A14_BACKEND_CONTRACT')
@@ -35,31 +104,14 @@ test('frontend A14 contract exactly matches the frozen backend contract', async 
   const query = interfaceByName(frontend, 'operation_query')
   const legacy = interfaceByName(frontend, 'legacy_admin_user_delete')
 
-  assert.deepEqual(issue.request.example, backend.endpoints.issue.request_example)
-  assert.deepEqual(issue.response.example, backend.endpoints.issue.response_example)
-  assert.deepEqual(issue.headers, {
-    request: backend.endpoints.issue.request_headers,
-    response: backend.endpoints.issue.response_headers,
-  })
-  assert.equal(issue.response.status, backend.endpoints.issue.response_status)
-
-  assert.deepEqual(execute.request.example, backend.endpoints.execute.request_example)
-  assert.deepEqual(execute.response.example, backend.endpoints.execute.response_example)
-  assert.deepEqual(execute.headers, {
-    request: backend.endpoints.execute.request_headers,
-    response: backend.endpoints.execute.response_headers,
-  })
-  assert.equal(execute.response.status, backend.endpoints.execute.response_status)
-
-  assert.deepEqual(query.response.examples, backend.endpoints.query.response_examples)
-  assert.deepEqual(query.headers, {
-    request: backend.endpoints.query.request_headers,
-    response: backend.endpoints.query.response_headers,
-  })
-  assert.equal(query.response.status, backend.endpoints.query.response_status)
+  assert.deepEqual(normalizedIssue(issue, frontend.common.a14_replay_limits.issue_post), backend.endpoints.issue)
+  assert.deepEqual(normalizedExecute(execute, frontend.common.a14_replay_limits.execute_post), backend.endpoints.execute)
+  assert.deepEqual(normalizedQuery(query, frontend.common.a14_replay_limits.query_get_after_refresh), backend.endpoints.query)
+  assert.deepEqual(normalizedLegacy(legacy), backend.endpoints.legacy_delete)
   assert.deepEqual(query.response.statuses, backend.operation_statuses)
   assert.deepEqual(query.response.failure_codes, backend.failure_codes)
 
+  assert.deepEqual(frontend.common.a14_v2_user_read, backend.v2_user_read)
   assert.deepEqual(frontend.security_notes.a14_users_delete, backend.security_properties)
   assert.deepEqual(frontend.common.a14_replay_limits, {
     issue_post: backend.endpoints.issue.post_replay_count,
