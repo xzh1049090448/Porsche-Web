@@ -125,11 +125,17 @@ async function onDeleteConflict(guid, token) {
   }) } finally { if (requestId === deleteRefreshRequest) deleteRefreshAbort = null }
 }
 function onUnauthorized() { userStore.clearSession(); store.clear() }
-function restoreDeleteFocus() { const trigger = deleteTrigger; deleteTrigger = null; deleteToken = null; restoreDeleteTriggerFocus({ trigger, fallback: pageHeading.value, nextTick }) }
+function restoreDeleteFocus() {
+  const token = deleteToken
+  const trigger = deleteTrigger
+  deleteTrigger = null
+  if (!token) return
+  restoreDeleteTriggerFocus({ token, canRestore: owner => deleteToken === owner && !actionStore.captureOwnership(), trigger, fallback: pageHeading.value, nextTick })
+}
 
 onMounted(load)
 watch([() => route.params.guid, canRead, () => userStore.permissionRevision], load)
-onBeforeUnmount(() => { cancelDeleteRefresh(); if (deleteToken) actionStore.dispose(deleteToken); restoreDeleteFocus() })
+onBeforeUnmount(() => { cancelDeleteRefresh(); if (deleteToken) actionStore.dispose(deleteToken); deleteToken = null; deleteTrigger = null })
 </script>
 
 <style scoped>

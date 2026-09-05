@@ -85,12 +85,18 @@ async function onDeleteConflict(guid, token) {
   })
 }
 function onUnauthorized() { userStore.clearSession(); store.clear() }
-function restoreDeleteFocus() { const trigger = deleteTrigger; deleteTrigger = null; deleteToken = null; restoreDeleteTriggerFocus({ trigger, fallback: pageHeading.value, nextTick }) }
+function restoreDeleteFocus() {
+  const token = deleteToken
+  const trigger = deleteTrigger
+  deleteTrigger = null
+  if (!token) return
+  restoreDeleteTriggerFocus({ token, canRestore: owner => deleteToken === owner && !actionStore.captureOwnership(), trigger, fallback: pageHeading.value, nextTick })
+}
 watch(() => store.recoveryRevision, () => {
   if (store.recoveredPage !== null) filters.page = store.recoveredPage
 })
 watch([canRead, () => userStore.permissionRevision], ([enabled]) => { if (enabled) void reload(); else store.clear() }, { immediate: true })
-onBeforeUnmount(() => { if (deleteToken) actionStore.dispose(deleteToken); restoreDeleteFocus() })
+onBeforeUnmount(() => { if (deleteToken) actionStore.dispose(deleteToken); deleteToken = null; deleteTrigger = null })
 </script>
 <style scoped>
 .admin-page{max-width:1400px;margin:0 auto;padding:24px;overflow:auto;height:100%}.page-heading{margin-bottom:24px}.eyebrow{color:var(--text-secondary);font-size:12px;letter-spacing:.12em;margin:0}h1{margin:4px 0;font-size:28px}.filters-card,.error{margin-bottom:16px}.filters{display:flex;flex-wrap:wrap;gap:0 12px}.filters :deep(.el-form-item){margin-right:0}.users-table{width:100%}.el-pagination{margin-top:20px;justify-content:flex-end}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}@media(max-width:768px){.admin-page{padding:16px}.filters{display:block}.filters :deep(.el-form-item){margin-bottom:12px}.users-table{font-size:12px}.el-pagination{justify-content:center}}

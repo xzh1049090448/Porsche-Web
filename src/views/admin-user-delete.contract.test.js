@@ -154,13 +154,23 @@ test('a deferred list refresh cannot replace a target after page context changes
   assert.deepEqual(events, [])
 })
 
-test('focus restoration executes against a connected trigger or stable fallback', () => {
+test('focus restoration executes against a connected trigger or stable fallback only while A still owns restoration', () => {
   for (const connected of [true, false]) {
     const calls = []
+    const queued = []
+    let owner = 'dialog-a'
     restoreDeleteTriggerFocus({
+      token: 'dialog-a', canRestore: token => token === owner,
       trigger: { isConnected: connected, focus: () => calls.push('trigger') }, fallback: { focus: () => calls.push('fallback') },
-      nextTick: callback => { calls.push('tick'); callback() },
+      nextTick: callback => queued.push(callback),
     })
-    assert.deepEqual(calls, ['tick', connected ? 'trigger' : 'fallback'])
+    owner = 'dialog-b'
+    queued.forEach(callback => callback())
+    assert.deepEqual(calls, [])
+
+    owner = 'dialog-a'
+    restoreDeleteTriggerFocus({ token: 'dialog-a', canRestore: token => token === owner,
+      trigger: { isConnected: connected, focus: () => calls.push('trigger') }, fallback: { focus: () => calls.push('fallback') }, nextTick: callback => callback() })
+    assert.deepEqual(calls, [connected ? 'trigger' : 'fallback'])
   }
 })

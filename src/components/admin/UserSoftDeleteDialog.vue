@@ -43,7 +43,7 @@
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useAdminUserActionsStore } from '@/stores/admin-user-actions'
-import { canSubmitUserDelete, focusDeleteError, isDeleteBusy, settleUserDeleteClosed, settleUserDeleteDialog } from '@/stores/admin-user-actions'
+import { canSubmitUserDelete, focusDeleteError, focusDeleteValidation, isDeleteBusy, settleUserDeleteClosed, settleUserDeleteDialog } from '@/stores/admin-user-actions'
 import { useI18n } from '@/composables/useI18n'
 
 const emit = defineEmits(['closed'])
@@ -77,14 +77,19 @@ function onClosed() {
   const current = actionStore.captureOwnership()
   settleUserDeleteClosed({ currentToken: current, clearForm, emitClosed: () => emit('closed') })
 }
-function focusReason() { nextTick(() => reasonInput.value?.focus?.()) }
-function focusError() { focusDeleteError({ errorAlert, nextTick }) }
+function focusReason() {
+  const token = actionStore.captureOwnership()
+  if (!token) return
+  nextTick(() => { if (actionStore.owns(token)) reasonInput.value?.focus?.() })
+}
+function focusError(token) { focusDeleteError({ token, owns: actionStore.owns, errorAlert, nextTick }) }
 async function submit() {
   if (!canSubmit.value) return
   const token = actionStore.captureOwnership()
   if (!token) return
   try { await formRef.value?.validate?.() } catch {
-    nextTick(() => (form.reason.trim() ? passwordInput.value : reasonInput.value)?.focus?.())
+    if (!actionStore.owns(token)) return
+    focusDeleteValidation({ token, owns: actionStore.owns, hasReason: Boolean(form.reason.trim()), reasonInput, passwordInput, nextTick })
     return
   }
   if (!actionStore.owns(token)) return

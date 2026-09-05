@@ -5,7 +5,7 @@ import { parse as parseSFC } from '@vue/compiler-sfc'
 import { parse as parseTemplate } from '@vue/compiler-dom'
 import { parse as parseScript } from '@babel/parser'
 import { messages } from '../../i18n/messages.js'
-import { canSubmitUserDelete, focusDeleteError, isDeleteBusy, settleUserDeleteClosed, settleUserDeleteDialog } from '../../stores/admin-user-actions.js'
+import { canSubmitUserDelete, focusDeleteError, focusDeleteValidation, isDeleteBusy, settleUserDeleteClosed, settleUserDeleteDialog } from '../../stores/admin-user-actions.js'
 
 const source = await readFile(new URL('./UserSoftDeleteDialog.vue', import.meta.url), 'utf8')
 const descriptor = parseSFC(source, { filename: 'UserSoftDeleteDialog.vue' }).descriptor
@@ -69,12 +69,47 @@ test('compiled field AST identifies the target and requires a non-revealing curr
   assert.equal(attribute(textarea, 'maxlength').value.content, '200')
 })
 
-test('error focus helper executes against the rendered alert and is called by the component', () => {
+test('error and validation focus execute only while their dialog token still owns the next tick', () => {
   const calls = []
+  const queued = []
+  let owner = 'dialog-a'
   const focusable = { focus: () => calls.push('focus') }
-  focusDeleteError({ errorAlert: { value: { $el: focusable } }, nextTick: callback => { calls.push('tick'); callback() } })
-  assert.deepEqual(calls, ['tick', 'focus'])
+  focusDeleteError({ token: 'dialog-a', owns: token => token === owner, errorAlert: { value: { $el: focusable } }, nextTick: callback => queued.push(callback) })
+  focusDeleteValidation({ token: 'dialog-a', owns: token => token === owner, hasReason: false, reasonInput: { value: focusable }, passwordInput: { value: focusable }, nextTick: callback => queued.push(callback) })
+  owner = 'dialog-b'
+  queued.forEach(callback => callback())
+  assert.deepEqual(calls, [])
   assert.equal(hasCall('focusDeleteError'), true)
+  assert.equal(hasCall('focusDeleteValidation'), true)
+})
+
+test('a deferred validation rejection from A cannot schedule focus after B opens', async () => {
+  let rejectValidation
+  const validation = new Promise((resolve, reject) => { rejectValidation = reject })
+  const calls = []
+  let owner = 'dialog-a'
+  async function rejectedLikeComponent() {
+    try { await validation } catch {
+      if (owner !== 'dialog-a') return
+      focusDeleteValidation({ token: 'dialog-a', owns: token => token === owner, hasReason: false, reasonInput: { value: { focus: () => calls.push('focus') } }, passwordInput: {}, nextTick: callback => calls.push(callback) })
+    }
+  }
+  const running = rejectedLikeComponent()
+  owner = 'dialog-b'
+  rejectValidation(new Error('invalid'))
+  await running
+  assert.deepEqual(calls, [])
+  let guardedCatch = false
+  walk(script, node => {
+    if (node.type !== 'CatchClause') return
+    let owns = false; let focus = false
+    walk(node.body, child => {
+      if (child.type === 'CallExpression' && child.callee?.type === 'MemberExpression' && child.callee.object?.name === 'actionStore' && child.callee.property?.name === 'owns') owns = true
+      if (child.type === 'CallExpression' && child.callee?.name === 'focusDeleteValidation') focus = true
+    })
+    guardedCatch ||= owns && focus
+  })
+  assert.equal(guardedCatch, true)
 })
 
 test('late component settlement cannot close or focus a newer dialog', () => {

@@ -18,14 +18,24 @@ export function canSubmitUserDelete({ state, target } = {}) {
   return [DELETE_STATES.IDLE, DELETE_STATES.FAILED].includes(state) && target?.status !== 'deleted'
 }
 
-export function focusDeleteError({ errorAlert, nextTick }) {
-  nextTick(() => (errorAlert?.value?.$el ?? errorAlert?.value)?.focus?.())
+export function focusDeleteError({ token, owns, errorAlert, nextTick }) {
+  if (!owns(token)) return false
+  nextTick(() => { if (owns(token)) (errorAlert?.value?.$el ?? errorAlert?.value)?.focus?.() })
+  return true
+}
+
+export function focusDeleteValidation({ token, owns, hasReason, reasonInput, passwordInput, nextTick }) {
+  if (!owns(token)) return false
+  nextTick(() => {
+    if (owns(token)) (hasReason ? passwordInput?.value : reasonInput?.value)?.focus?.()
+  })
+  return true
 }
 
 export function settleUserDeleteDialog({ token, result, owns, close, focusError }) {
   if (!owns(token)) return false
   if (result?.state === DELETE_STATES.SUCCEEDED) close(token)
-  else if (result?.state === DELETE_STATES.FAILED || result?.state === DELETE_STATES.PENDING_RECOVERY) focusError()
+  else if (result?.state === DELETE_STATES.FAILED || result?.state === DELETE_STATES.PENDING_RECOVERY) focusError(token)
   return true
 }
 
@@ -36,8 +46,12 @@ export function settleUserDeleteClosed({ currentToken, clearForm, emitClosed }) 
   return true
 }
 
-export function restoreDeleteTriggerFocus({ trigger, fallback, nextTick }) {
-  nextTick(() => (trigger?.isConnected ? trigger : fallback?.$el ?? fallback)?.focus?.())
+export function restoreDeleteTriggerFocus({ token, canRestore, trigger, fallback, nextTick }) {
+  if (!canRestore(token)) return false
+  nextTick(() => {
+    if (canRestore(token)) (trigger?.isConnected ? trigger : fallback?.$el ?? fallback)?.focus?.()
+  })
+  return true
 }
 
 export async function reconcileDeletedList({ state, filters, guid, reload }) {
