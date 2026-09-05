@@ -7,6 +7,7 @@
     "vite_session": "11611",
     "lock_sha256": "4c2415cf83eed94c6222f9dd013860ac28ec095e849b2b2b92ce1f879ee3100c"
   },
+  "integrity_scope": "This manifest describes the historical dirty B1-D candidate at frontend_head 25a66a4ad546a481941dfc6e0cc9bc75da2e631b. The progress.md and feature_list.json hashes are historical candidate hashes, not hashes from the later checkpoint tree. Fresh checkpoint verification ran 134/134 after the older raw 132-test artifact; acceptance conclusions are unchanged.",
   "commands": {
     "npm_test": { "command": "npm test", "exit_code": 0, "result": "132 pass, 0 fail, 0 skipped", "raw_log": "npm-test.log" },
     "npm_run_build": { "command": "npm run build", "exit_code": 0, "result": "Vite build completed in 4.94 s; existing warnings only", "raw_log": "npm-build.log" },
