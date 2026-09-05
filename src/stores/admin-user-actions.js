@@ -28,6 +28,12 @@ export function clearUserDeleteConfirmationForm({ form, passwordInput, setReason
   clearValidate()
 }
 
+export function scheduleUserDeleteMountClear({ token, owns, clearForm, nextTick }) {
+  if (!owns(token)) return false
+  nextTick(() => { if (owns(token)) clearForm() })
+  return true
+}
+
 export function focusDeleteError({ token, owns, errorAlert, nextTick }) {
   if (!owns(token)) return false
   nextTick(() => { if (owns(token)) (errorAlert?.value?.$el ?? errorAlert?.value)?.focus?.() })

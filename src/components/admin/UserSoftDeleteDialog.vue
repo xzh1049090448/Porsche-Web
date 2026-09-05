@@ -41,9 +41,9 @@
 </template>
 
 <script setup>
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useAdminUserActionsStore } from '@/stores/admin-user-actions'
-import { canSubmitUserDelete, clearUserDeleteConfirmationForm, focusDeleteError, focusDeleteValidation, isDeleteBusy, settleUserDeleteClosed, settleUserDeleteDialog } from '@/stores/admin-user-actions'
+import { canSubmitUserDelete, clearUserDeleteConfirmationForm, focusDeleteError, focusDeleteValidation, isDeleteBusy, scheduleUserDeleteMountClear, settleUserDeleteClosed, settleUserDeleteDialog } from '@/stores/admin-user-actions'
 import { useI18n } from '@/composables/useI18n'
 
 const emit = defineEmits(['closed'])
@@ -103,6 +103,11 @@ watch(() => actionStore.dialogRevision, () => {
   if (actionStore.isOpen) focusReason()
 })
 watch(() => actionStore.isOpen, open => { if (!open && !actionStore.captureOwnership()) clearForm() })
+onMounted(() => {
+  const token = actionStore.captureOwnership()
+  if (token) scheduleUserDeleteMountClear({ token, owns: actionStore.owns, clearForm, nextTick })
+  else clearForm()
+})
 </script>
 
 <style scoped>

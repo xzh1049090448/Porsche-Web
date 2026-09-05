@@ -5,7 +5,7 @@ import { parse as parseSFC } from '@vue/compiler-sfc'
 import { parse as parseTemplate } from '@vue/compiler-dom'
 import { parse as parseScript } from '@babel/parser'
 import { messages } from '../../i18n/messages.js'
-import { canSubmitUserDelete, clearUserDeleteConfirmationForm, focusDeleteError, focusDeleteValidation, isDeleteBusy, settleUserDeleteClosed, settleUserDeleteDialog } from '../../stores/admin-user-actions.js'
+import { canSubmitUserDelete, clearUserDeleteConfirmationForm, createAdminUserActionsCoordinator, focusDeleteError, focusDeleteValidation, isDeleteBusy, scheduleUserDeleteMountClear, settleUserDeleteClosed, settleUserDeleteDialog } from '../../stores/admin-user-actions.js'
 
 const source = await readFile(new URL('./UserSoftDeleteDialog.vue', import.meta.url), 'utf8')
 const descriptor = parseSFC(source, { filename: 'UserSoftDeleteDialog.vue' }).descriptor
@@ -102,6 +102,38 @@ test('open, close, and remount clearing leaves model, native input, and private 
   assert.equal(nativePassword.value, '')
   assert.deepEqual(storeWrites.at(-1), ['remount-password', ''])
   assert.equal(hasCall('clearUserDeleteConfirmationForm'), true)
+})
+
+test('an already-open store remount clears after native ref mount without closing or replacing its token', () => {
+  const coordinator = createAdminUserActionsCoordinator({
+    api: {}, randomBytes: () => new Uint8Array(32), now: () => 1, schedule: () => () => {},
+    createWorkflow: () => ({ start: async () => null, reset: () => true, unmount() {}, subscribe(fn) { fn({ state: 'idle', operationRef: null, failure: null }); return () => {} } }),
+  })
+  const token = coordinator.open({ guid: '42', username: 'user', role: 'user', status: 'active', authVersion: 7 })
+  let privatePassword = 'store-secret'
+  coordinator.setPassword(privatePassword)
+  const form = { reason: 'reason', password: 'model-secret' }
+  const passwordInput = { value: null }
+  const nativePassword = { value: 'browser-secret' }
+  const queued = []
+  scheduleUserDeleteMountClear({ token, owns: coordinator.owns, nextTick: callback => queued.push(callback), clearForm: () => clearUserDeleteConfirmationForm({
+    form, passwordInput, setReason: coordinator.setReason,
+    setPassword: value => { privatePassword = value; coordinator.setPassword(value) }, clearValidate() {},
+  }) })
+  passwordInput.value = { input: nativePassword }
+  queued.forEach(callback => callback())
+  assert.deepEqual(form, { reason: '', password: '' })
+  assert.equal(nativePassword.value, '')
+  assert.equal(privatePassword, '')
+  assert.equal(coordinator.state.open, true)
+  assert.equal(coordinator.owns(token), true)
+
+  let mountedBinding = false
+  walk(script, node => {
+    if (node.type !== 'CallExpression' || node.callee?.name !== 'onMounted') return
+    walk(node, child => { if (child.type === 'CallExpression' && child.callee?.name === 'scheduleUserDeleteMountClear') mountedBinding = true })
+  })
+  assert.equal(mountedBinding, true)
 })
 
 test('error and validation focus execute only while their dialog token still owns the next tick', () => {
