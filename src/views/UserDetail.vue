@@ -51,9 +51,11 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useAdminUsersStore } from '@/stores/admin-users'
-import { useAdminUserActionsStore, canDeleteAdminUser } from '@/stores/admin-user-actions'
+import { useAdminUserActionsStore, canDeleteAdminUser, reconcileDeletedDetail, refreshDeleteTargetFailClosed, restoreDeleteTriggerFocus } from '@/stores/admin-user-actions'
+import { getAdminUser } from '@/api/admin-users'
 import UserSoftDeleteDialog from '@/components/admin/UserSoftDeleteDialog.vue'
 import { useI18n } from '@/composables/useI18n'
+import { ElMessage } from 'element-plus'
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -93,15 +95,18 @@ function openDelete(target, event) {
   actionStore.open(target, { onSucceeded: onDeleteSucceeded, onConflict: onDeleteConflict, onUnauthorized })
 }
 function onDeleteSucceeded({ guid }) {
-  if (store.selected?.guid === guid) {
-    store.selected = { ...store.selected, status: 'deleted' }
-    store.permissions = null
-    store.catalog = null
-  }
+  reconcileDeletedDetail({ state: store, guid })
 }
-async function onDeleteConflict(guid) { await load(); if (store.selected?.guid === guid) actionStore.updateTarget(store.selected) }
+async function onDeleteConflict(guid) {
+  return refreshDeleteTargetFailClosed({
+    guid, loadTarget: getAdminUser,
+    canManage: target => canDeleteAdminUser({ actorRole: userStore.user?.role, capabilities: userStore.permissionProjection?.capabilities, target }),
+    replaceTarget: target => { store.selected = target; return actionStore.updateTarget(target) }, invalidateTarget: actionStore.invalidateTarget,
+    onUnauthorized, onUnavailable: () => ElMessage.warning(t('deleteUser.targetRefreshFailed')),
+  })
+}
 function onUnauthorized() { userStore.clearSession(); store.clear() }
-function restoreDeleteFocus() { const trigger = deleteTrigger; deleteTrigger = null; nextTick(() => (trigger?.isConnected ? trigger : pageHeading.value?.$el ?? pageHeading.value)?.focus?.()) }
+function restoreDeleteFocus() { const trigger = deleteTrigger; deleteTrigger = null; restoreDeleteTriggerFocus({ trigger, fallback: pageHeading.value, nextTick }) }
 
 onMounted(load)
 watch([() => route.params.guid, canRead, () => userStore.permissionRevision], load)

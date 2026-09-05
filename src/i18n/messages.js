@@ -261,6 +261,7 @@ export const messages = {
       cancel: '取消',
       pendingRecovery: '系统无法自动确认最终结果，请联系管理员并提供操作编号。请勿重复提交。',
       operationReference: '操作编号',
+      targetRefreshFailed: '目标用户已变更或无法安全刷新，本次操作已取消。请重新打开确认。',
       states: { verifying: '正在验证', submitting: '正在提交', querying: '正在确认结果' },
       failures: {
         authentication_failed: '认证会话已失效，请重新登录后再确认。',
@@ -545,6 +546,7 @@ export const messages = {
       cancel: 'Cancel',
       pendingRecovery: 'The final result cannot be confirmed automatically. Contact an administrator with the operation reference. Do not submit again.',
       operationReference: 'Operation reference',
+      targetRefreshFailed: 'The target changed or could not be refreshed safely. This attempt was cancelled. Open the dialog again to review the latest state.',
       states: { verifying: 'Verifying', submitting: 'Submitting', querying: 'Confirming result' },
       failures: {
         authentication_failed: 'Your session expired. Sign in again before confirming.',

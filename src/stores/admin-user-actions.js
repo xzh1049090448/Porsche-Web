@@ -12,6 +12,56 @@ export function canDeleteAdminUser({ actorRole, capabilities, target } = {}) {
   return false
 }
 
+export const isDeleteBusy = state => ['verifying', 'submitting', 'querying'].includes(state)
+
+export function canSubmitUserDelete({ state, target } = {}) {
+  return !isDeleteBusy(state) && state !== DELETE_STATES.PENDING_RECOVERY && target?.status !== 'deleted'
+}
+
+export function focusDeleteError({ errorAlert, nextTick }) {
+  nextTick(() => (errorAlert?.value?.$el ?? errorAlert?.value)?.focus?.())
+}
+
+export function restoreDeleteTriggerFocus({ trigger, fallback, nextTick }) {
+  nextTick(() => (trigger?.isConnected ? trigger : fallback?.$el ?? fallback)?.focus?.())
+}
+
+export async function reconcileDeletedList({ state, filters, guid, reload }) {
+  const rows = state.rows.filter(row => row.guid !== guid)
+  state.rows = rows
+  state.total = Math.max(0, state.total - 1)
+  if (rows.length === 0 && filters.page > 1) {
+    filters.page--
+    await reload()
+  }
+}
+
+export function reconcileDeletedDetail({ state, guid }) {
+  if (state.selected?.guid !== guid) return false
+  state.selected = { ...state.selected, status: 'deleted' }
+  state.permissions = null
+  state.catalog = null
+  return true
+}
+
+export async function refreshDeleteTargetFailClosed({ guid, loadTarget, canManage, replaceTarget, invalidateTarget, onUnauthorized, onUnavailable }) {
+  let target
+  try {
+    target = await loadTarget(guid)
+  } catch (error) {
+    invalidateTarget(guid)
+    if (error?.response?.status === 401 || error?.status === 401) onUnauthorized()
+    onUnavailable()
+    return false
+  }
+  if (!target || target.guid !== guid || !canManage(target) || !replaceTarget(target)) {
+    invalidateTarget(guid)
+    onUnavailable()
+    return false
+  }
+  return true
+}
+
 function safeTarget(target) {
   if (!target || typeof target.guid !== 'string' || !Number.isInteger(target.authVersion)) throw new TypeError('invalid_delete_target')
   return Object.freeze({ guid: target.guid, username: typeof target.username === 'string' ? target.username : null, role: target.role, status: target.status, authVersion: target.authVersion })
@@ -61,6 +111,11 @@ export function createAdminUserActionsCoordinator({ api, createWorkflow = create
     value.target = safeTarget(target)
     return true
   }
+  const invalidateTarget = guid => {
+    if (value.target?.guid !== guid) return false
+    close()
+    return true
+  }
   const submit = async () => {
     if (!workflow) return null
     if (value.state === DELETE_STATES.FAILED && !workflow.reset()) return null
@@ -81,13 +136,14 @@ export function createAdminUserActionsCoordinator({ api, createWorkflow = create
         clearPrivate()
         try { callbacks.onUnauthorized() } finally { close() }
       } else if (['target_version_conflict', 'target_state_conflict', 'action_verification_conflict'].includes(result.failureCode)) {
-        await callbacks.onConflict(target.guid)
+        const refreshed = await callbacks.onConflict(target.guid)
+        if (refreshed !== true) invalidateTarget(target.guid)
       }
     }
     return result
   }
   const reset = () => workflow?.reset() ?? false
-  return { state: value, open, close, dispose: close, setReason, setPassword, updateTarget, submit, reset }
+  return { state: value, open, close, dispose: close, setReason, setPassword, updateTarget, invalidateTarget, submit, reset }
 }
 
 const productionRandomBytes = length => crypto.getRandomValues(new Uint8Array(length))
@@ -108,6 +164,6 @@ export const useAdminUserActionsStore = defineStore('adminUserActions', () => {
   const refs = toRefs(state)
   return { isOpen: refs.open, target: refs.target, state: refs.state, operationRef: refs.operationRef, failureCode: refs.failureCode,
     open: coordinator.open, close: coordinator.close, dispose: coordinator.dispose,
-    setReason: coordinator.setReason, setPassword: coordinator.setPassword, updateTarget: coordinator.updateTarget,
+    setReason: coordinator.setReason, setPassword: coordinator.setPassword, updateTarget: coordinator.updateTarget, invalidateTarget: coordinator.invalidateTarget,
     submit: coordinator.submit, reset: coordinator.reset }
 })

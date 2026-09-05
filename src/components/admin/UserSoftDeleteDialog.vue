@@ -35,7 +35,7 @@
     </template>
     <template #footer>
       <el-button @click="requestClose">{{ t('deleteUser.cancel') }}</el-button>
-      <el-button type="danger" :loading="busy" :disabled="busy || actionStore.state === 'pending_recovery' || actionStore.target?.status === 'deleted'" @click="submit">{{ submitLabel }}</el-button>
+      <el-button type="danger" :loading="busy" :disabled="!canSubmit" @click="submit">{{ submitLabel }}</el-button>
     </template>
   </el-dialog>
 </template>
@@ -43,6 +43,7 @@
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useAdminUserActionsStore } from '@/stores/admin-user-actions'
+import { canSubmitUserDelete, focusDeleteError, isDeleteBusy } from '@/stores/admin-user-actions'
 import { useI18n } from '@/composables/useI18n'
 
 const emit = defineEmits(['closed'])
@@ -53,7 +54,8 @@ const reasonInput = ref(null)
 const passwordInput = ref(null)
 const errorAlert = ref(null)
 const form = reactive({ reason: '', password: '' })
-const busy = computed(() => ['verifying', 'submitting', 'querying'].includes(actionStore.state))
+const busy = computed(() => isDeleteBusy(actionStore.state))
+const canSubmit = computed(() => canSubmitUserDelete({ state: actionStore.state, target: actionStore.target }))
 const rules = computed(() => ({
   reason: [{ required: true, whitespace: true, message: t('deleteUser.reasonRequired'), trigger: 'blur' }],
   password: [{ required: true, message: t('deleteUser.passwordRequired'), trigger: 'blur' }],
@@ -73,9 +75,9 @@ function requestClose() { actionStore.close() }
 function onEscape() { requestClose() }
 function onClosed() { clearForm(); emit('closed') }
 function focusReason() { nextTick(() => reasonInput.value?.focus?.()) }
-function focusError() { nextTick(() => errorAlert.value?.$el?.focus?.()) }
+function focusError() { focusDeleteError({ errorAlert, nextTick }) }
 async function submit() {
-  if (busy.value || actionStore.state === 'pending_recovery') return
+  if (!canSubmit.value) return
   try { await formRef.value?.validate?.() } catch {
     nextTick(() => (form.reason.trim() ? passwordInput.value : reasonInput.value)?.focus?.())
     return

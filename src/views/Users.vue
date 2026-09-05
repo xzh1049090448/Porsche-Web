@@ -28,9 +28,11 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { useAdminUsersStore } from '@/stores/admin-users'
-import { useAdminUserActionsStore, canDeleteAdminUser } from '@/stores/admin-user-actions'
+import { useAdminUserActionsStore, canDeleteAdminUser, reconcileDeletedList, refreshDeleteTargetFailClosed, restoreDeleteTriggerFocus } from '@/stores/admin-user-actions'
+import { getAdminUser } from '@/api/admin-users'
 import UserSoftDeleteDialog from '@/components/admin/UserSoftDeleteDialog.vue'
 import { useI18n } from '@/composables/useI18n'
+import { ElMessage } from 'element-plus'
 const userStore = useUserStore(); const store = useAdminUsersStore(); const actionStore = useAdminUserActionsStore(); const { t } = useI18n()
 const canRead = computed(() => userStore.permissionProjection?.capabilities?.includes('users.read') === true)
 const canReadDeleted = computed(() => userStore.permissionProjection?.capabilities?.includes('users.deleted.read') === true)
@@ -59,14 +61,17 @@ function openDelete(target, event) {
   actionStore.open(target, { onSucceeded: onDeleteSucceeded, onConflict: onDeleteConflict, onUnauthorized })
 }
 async function onDeleteSucceeded({ guid }) {
-  const remaining = store.rows.filter(row => row.guid !== guid)
-  store.total = Math.max(0, store.total - 1)
-  store.rows = remaining
-  if (remaining.length === 0 && filters.page > 1) { filters.page--; await reload() }
+  await reconcileDeletedList({ state: store, filters, guid, reload })
 }
-async function onDeleteConflict(guid) { await reload(); actionStore.updateTarget(store.rows.find(row => row.guid === guid)) }
+async function onDeleteConflict(guid) {
+  return refreshDeleteTargetFailClosed({
+    guid, loadTarget: getAdminUser,
+    canManage: target => canDeleteTarget(target), replaceTarget: actionStore.updateTarget, invalidateTarget: actionStore.invalidateTarget,
+    onUnauthorized, onUnavailable: () => ElMessage.warning(t('deleteUser.targetRefreshFailed')),
+  })
+}
 function onUnauthorized() { userStore.clearSession(); store.clear() }
-function restoreDeleteFocus() { const trigger = deleteTrigger; deleteTrigger = null; nextTick(() => (trigger?.isConnected ? trigger : pageHeading.value)?.focus?.()) }
+function restoreDeleteFocus() { const trigger = deleteTrigger; deleteTrigger = null; restoreDeleteTriggerFocus({ trigger, fallback: pageHeading.value, nextTick }) }
 watch(() => store.recoveryRevision, () => {
   if (store.recoveredPage !== null) filters.page = store.recoveredPage
 })

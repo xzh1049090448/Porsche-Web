@@ -31,7 +31,7 @@ function fixture({ terminal = { state: 'succeeded', operationRef: 'op_safe', fai
       return workflow
     },
     onSucceeded: value => reconciled.push(value),
-    onConflict: value => refreshed.push(value),
+    onConflict: value => { refreshed.push(value); return true },
     onUnauthorized: () => { unauthorized++ },
   })
   return { coordinator, starts, workflows, reconciled, refreshed, get unauthorized() { return unauthorized } }
@@ -133,7 +133,7 @@ test('a known failure can retry only after explicit submit and a conflict target
       unmount() {},
       subscribe(fn) { listeners.add(fn); fn(snapshot); return () => listeners.delete(fn) },
     }),
-    async onConflict() {}, onSucceeded() {}, onUnauthorized() {},
+    async onConflict() { return true }, onSucceeded() {}, onUnauthorized() {},
   })
   coordinator.open(target()); coordinator.setReason('reason'); coordinator.setPassword('first-password')
   await coordinator.submit()
@@ -142,4 +142,13 @@ test('a known failure can retry only after explicit submit and a conflict target
   await coordinator.submit()
   assert.deepEqual(starts.map(call => call.expectedAuthVersion), [7, 8])
   assert.deepEqual(starts.map(call => call.currentPassword), ['first-password', 'second-password'])
+})
+
+test('a conflict callback must affirm a fresh target or the coordinator fails closed', async () => {
+  const f = fixture({ terminal: { state: 'failed', operationRef: null, failureCode: 'target_version_conflict', status: 409 } })
+  f.coordinator.open(target(), { onConflict: async () => false })
+  f.coordinator.setReason('private reason'); f.coordinator.setPassword('private password')
+  await f.coordinator.submit()
+  assert.deepEqual(f.coordinator.state, { open: false, target: null, state: 'idle', operationRef: null, failureCode: null })
+  assert.equal(f.workflows[0].unmounted, true)
 })
