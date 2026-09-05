@@ -68,17 +68,18 @@ export function buildAdminUsersQuery(filters = {}) {
 
 export function mapUserReadDto(raw) {
   if (!raw || typeof raw !== 'object' || !validGuid(raw.guid)) throw new Error('invalid_guid')
-  if (!exactKeys(raw, ['guid', 'username', 'nickname', 'email', 'group', 'plan_type', 'role', 'status', 'created_at', 'last_login_at'])) throw new Error('invalid_user')
+  if (!exactKeys(raw, ['guid', 'username', 'nickname', 'email', 'group', 'plan_type', 'role', 'status', 'auth_version', 'created_at', 'last_login_at'])) throw new Error('invalid_user')
   if (
       !Object.hasOwn(raw, 'username') || ![null].includes(raw.username) && typeof raw.username !== 'string'
       || !Object.hasOwn(raw, 'nickname') || ![null].includes(raw.nickname) && typeof raw.nickname !== 'string'
       || raw.email !== null || raw.group !== null
       || !['free', 'professional', 'enterprise'].includes(raw.plan_type)
       || !['user', 'admin'].includes(raw.role) || !STATUSES.has(raw.status)
+      || !Number.isInteger(raw.auth_version) || raw.auth_version < 1 || raw.auth_version > MAX_INT32
       || !utcRfc3339(raw.created_at)
       || !(raw.last_login_at === null || utcRfc3339(raw.last_login_at))) throw new Error('invalid_user')
   return { guid: raw.guid, username: raw.username ?? null, nickname: raw.nickname ?? null, email: null, group: null,
-    planType: raw.plan_type, role: raw.role, status: raw.status, createdAt: raw.created_at, lastLoginAt: raw.last_login_at }
+    planType: raw.plan_type, role: raw.role, status: raw.status, authVersion: raw.auth_version, createdAt: raw.created_at, lastLoginAt: raw.last_login_at }
 }
 
 export function mapPermissionProjection(raw) {
