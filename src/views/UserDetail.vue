@@ -1,6 +1,6 @@
 <template>
   <section class="admin-page">
-    <el-page-header content="用户详情" @back="$router.push('/users')" />
+    <el-page-header ref="pageHeading" content="用户详情" tabindex="-1" @back="$router.push('/users')" />
 
     <el-alert v-if="!canRead" type="warning" :closable="false" title="暂无用户管理权限" description="权限信息不可用时不会加载用户详情。">
       <template #default><el-button link type="primary" @click="retryIdentity">重新检查身份</el-button></template>
@@ -13,7 +13,7 @@
     <template v-else-if="store.selected">
       <el-card shadow="never">
         <template #header>
-          <div class="title"><span>{{ store.selected.username || '未设置用户名' }}</span><el-tag>{{ statusLabel }}</el-tag></div>
+          <div class="title"><span>{{ store.selected.username || '未设置用户名' }}</span><span><el-tag>{{ statusLabel }}</el-tag><el-button v-if="canDeleteTarget" type="danger" plain @click="openDelete(store.selected, $event)">{{ t('deleteUser.confirm') }}</el-button></span></div>
         </template>
         <el-descriptions :column="2" border>
           <el-descriptions-item label="GUID">{{ store.selected.guid }}</el-descriptions-item>
@@ -42,20 +42,29 @@
         </el-table>
       </el-card>
     </template>
+    <UserSoftDeleteDialog @closed="restoreDeleteFocus" />
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useAdminUsersStore } from '@/stores/admin-users'
+import { useAdminUserActionsStore, canDeleteAdminUser } from '@/stores/admin-user-actions'
+import UserSoftDeleteDialog from '@/components/admin/UserSoftDeleteDialog.vue'
+import { useI18n } from '@/composables/useI18n'
 
 const route = useRoute()
 const userStore = useUserStore()
 const store = useAdminUsersStore()
+const actionStore = useAdminUserActionsStore()
+const { t } = useI18n()
 const canRead = computed(() => userStore.permissionProjection?.capabilities?.includes('users.read') === true)
-const showPermissions = computed(() => canRead.value && store.selected?.role === 'admin' && userStore.user?.role === 'root')
+const deleteCapability = 'users.delete'
+const canDeleteTarget = computed(() => userStore.permissionProjection?.capabilities?.includes(deleteCapability) === true
+  && canDeleteAdminUser({ actorRole: userStore.user?.role, capabilities: userStore.permissionProjection.capabilities, target: store.selected }))
+const showPermissions = computed(() => canRead.value && store.selected?.status !== 'deleted' && store.selected?.role === 'admin' && userStore.user?.role === 'root')
 const permissionUnavailable = computed(() => showPermissions.value && !store.permissions)
 const permissionRows = computed(() => store.permissions?.capabilities || [])
 const detailStatus = computed(() => store.detailError?.response?.status)
@@ -77,8 +86,26 @@ async function retryIdentity() {
   try { await userStore.fetchSelf() } catch {}
 }
 
+let deleteTrigger = null
+const pageHeading = ref(null)
+function openDelete(target, event) {
+  deleteTrigger = event?.currentTarget ?? document.activeElement
+  actionStore.open(target, { onSucceeded: onDeleteSucceeded, onConflict: onDeleteConflict, onUnauthorized })
+}
+function onDeleteSucceeded({ guid }) {
+  if (store.selected?.guid === guid) {
+    store.selected = { ...store.selected, status: 'deleted' }
+    store.permissions = null
+    store.catalog = null
+  }
+}
+async function onDeleteConflict(guid) { await load(); if (store.selected?.guid === guid) actionStore.updateTarget(store.selected) }
+function onUnauthorized() { userStore.clearSession(); store.clear() }
+function restoreDeleteFocus() { const trigger = deleteTrigger; deleteTrigger = null; nextTick(() => (trigger?.isConnected ? trigger : pageHeading.value?.$el ?? pageHeading.value)?.focus?.()) }
+
 onMounted(load)
 watch([() => route.params.guid, canRead, () => userStore.permissionRevision], load)
+onBeforeUnmount(() => { actionStore.dispose(); restoreDeleteFocus() })
 </script>
 
 <style scoped>

@@ -1,6 +1,6 @@
 <template>
   <section class="admin-page">
-    <div class="page-heading"><p class="eyebrow">ADMINISTRATION</p><h1>用户管理</h1><p>查看当前有权访问的用户信息。</p></div>
+    <div ref="pageHeading" class="page-heading" tabindex="-1"><p class="eyebrow">ADMINISTRATION</p><h1>用户管理</h1><p>查看当前有权访问的用户信息。</p></div>
     <el-alert v-if="!canRead" type="warning" :closable="false" title="暂无用户管理权限" description="权限信息不可用时不会加载用户数据。"><template #default><el-button link type="primary" @click="retryIdentity">重新检查身份</el-button></template></el-alert>
     <template v-else>
       <el-card shadow="never" class="filters-card"><el-form class="filters" @submit.prevent="reloadFromFirstPage">
@@ -17,19 +17,24 @@
         <el-table-column label="昵称" min-width="130"><template #default="{ row }">{{ row.nickname ?? '未设置' }}</template></el-table-column>
         <el-table-column label="分组" min-width="100">未接入</el-table-column><el-table-column label="套餐" min-width="110"><template #default="{ row }">{{ planLabel(row.planType) }}</template></el-table-column><el-table-column label="金额额度" min-width="120">未接入</el-table-column>
         <el-table-column label="角色" width="100"><template #default="{ row }">{{ roleLabel(row.role) }}</template></el-table-column><el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template></el-table-column><el-table-column label="最近登录" min-width="170"><template #default="{ row }">{{ row.lastLoginAt ?? '从未登录' }}</template></el-table-column>
-        <el-table-column label="操作" width="80" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="$router.push(`/users/${row.guid}`)">详情</el-button></template></el-table-column>
+        <el-table-column label="操作" width="150" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="$router.push(`/users/${row.guid}`)">详情</el-button><el-button v-if="canDeleteTarget(row)" link type="danger" @click="openDelete(row, $event)">{{ t('deleteUser.confirm') }}</el-button></template></el-table-column>
       </el-table>
       <el-pagination v-model:current-page="filters.page" v-model:page-size="filters.pageSize" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" :total="store.total" @current-change="reloadForPageChange" @size-change="reloadFromFirstPage" />
     </template>
+    <UserSoftDeleteDialog @closed="restoreDeleteFocus" />
   </section>
 </template>
 <script setup>
-import { computed, reactive, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { useAdminUsersStore } from '@/stores/admin-users'
-const userStore = useUserStore(); const store = useAdminUsersStore()
+import { useAdminUserActionsStore, canDeleteAdminUser } from '@/stores/admin-user-actions'
+import UserSoftDeleteDialog from '@/components/admin/UserSoftDeleteDialog.vue'
+import { useI18n } from '@/composables/useI18n'
+const userStore = useUserStore(); const store = useAdminUsersStore(); const actionStore = useAdminUserActionsStore(); const { t } = useI18n()
 const canRead = computed(() => userStore.permissionProjection?.capabilities?.includes('users.read') === true)
 const canReadDeleted = computed(() => userStore.permissionProjection?.capabilities?.includes('users.deleted.read') === true)
+const deleteCapability = 'users.delete'
 const filters = reactive({ page: 1, pageSize: 20, q: '', role: '', status: '', sort: 'guid', order: 'desc' })
 const statusLabel = status => ({ active: '启用', disabled: '禁用', deleted: '已删除' }[status] || status); const statusType = status => ({ active: 'success', disabled: 'warning', deleted: 'info' }[status]); const roleLabel = role => ({ user: '用户', admin: '管理员', root: 'Root' }[role] || role); const planLabel = plan => ({ free: '免费版', professional: '专业版', enterprise: '企业版' }[plan] || plan)
 const errorStatus = computed(() => store.error?.response?.status); const errorTitle = computed(() => ({ 401: '认证会话无效', 403: '无权限访问', 404: '用户不存在', 503: '用户信息暂不可用' }[errorStatus.value] || '用户信息暂不可用')); const errorDescription = computed(() => errorStatus.value === 403 ? '当前身份保持登录状态，可重新检查权限。' : '当前页面数据已清理，请重试。')
@@ -45,10 +50,28 @@ function reloadForPageChange(page) {
   return reload()
 }
 function reloadFromFirstPage() { filters.page = 1; return reload() }; async function retryIdentity() { try { await userStore.fetchSelf() } catch {} }
+const canDeleteTarget = target => userStore.permissionProjection?.capabilities?.includes(deleteCapability) === true
+  && canDeleteAdminUser({ actorRole: userStore.user?.role, capabilities: userStore.permissionProjection.capabilities, target })
+let deleteTrigger = null
+const pageHeading = ref(null)
+function openDelete(target, event) {
+  deleteTrigger = event?.currentTarget ?? document.activeElement
+  actionStore.open(target, { onSucceeded: onDeleteSucceeded, onConflict: onDeleteConflict, onUnauthorized })
+}
+async function onDeleteSucceeded({ guid }) {
+  const remaining = store.rows.filter(row => row.guid !== guid)
+  store.total = Math.max(0, store.total - 1)
+  store.rows = remaining
+  if (remaining.length === 0 && filters.page > 1) { filters.page--; await reload() }
+}
+async function onDeleteConflict(guid) { await reload(); actionStore.updateTarget(store.rows.find(row => row.guid === guid)) }
+function onUnauthorized() { userStore.clearSession(); store.clear() }
+function restoreDeleteFocus() { const trigger = deleteTrigger; deleteTrigger = null; nextTick(() => (trigger?.isConnected ? trigger : pageHeading.value)?.focus?.()) }
 watch(() => store.recoveryRevision, () => {
   if (store.recoveredPage !== null) filters.page = store.recoveredPage
 })
 watch([canRead, () => userStore.permissionRevision], ([enabled]) => { if (enabled) void reload(); else store.clear() }, { immediate: true })
+onBeforeUnmount(() => { actionStore.dispose(); restoreDeleteFocus() })
 </script>
 <style scoped>
 .admin-page{max-width:1400px;margin:0 auto;padding:24px;overflow:auto;height:100%}.page-heading{margin-bottom:24px}.eyebrow{color:var(--text-secondary);font-size:12px;letter-spacing:.12em;margin:0}h1{margin:4px 0;font-size:28px}.filters-card,.error{margin-bottom:16px}.filters{display:flex;flex-wrap:wrap;gap:0 12px}.filters :deep(.el-form-item){margin-right:0}.users-table{width:100%}.el-pagination{margin-top:20px;justify-content:flex-end}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}@media(max-width:768px){.admin-page{padding:16px}.filters{display:block}.filters :deep(.el-form-item){margin-bottom:12px}.users-table{font-size:12px}.el-pagination{justify-content:center}}
