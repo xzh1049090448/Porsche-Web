@@ -79,6 +79,27 @@ test('generates and validates the one workflow key before a deferred Issue reque
   assert.equal(instance.randomCalls, 1)
 })
 
+test('throwing subscribers at verifying and terminal cannot block settlement or other subscribers', async () => {
+  const { workflow } = fixture()
+  const seen = []
+  const unhandled = []
+  const onUnhandled = reason => unhandled.push(reason)
+  process.on('unhandledRejection', onUnhandled)
+  try {
+    workflow.subscribe(snapshot => {
+      if (snapshot.state === 'verifying' || snapshot.state === 'succeeded') throw Error(`listener-${snapshot.state}`)
+    })
+    workflow.subscribe(snapshot => seen.push(snapshot.state))
+    const result = await workflow.start(input())
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(result.state, 'succeeded')
+    assert.deepEqual(seen, ['idle', 'verifying', 'submitting', 'succeeded'])
+    assert.deepEqual(unhandled, [])
+  } finally {
+    process.off('unhandledRejection', onUnhandled)
+  }
+})
+
 test('every known Issue or Execute failure enters failed and reset is the only failed-to-idle transition', async () => {
   const knownFailures = [
     ['authentication_failed', 401], ['invalid_admin_action_request', 400],
@@ -217,7 +238,9 @@ test('unmount cancels pending polling, ignores late work, and clears the origina
   const key = calls.find(call => call.method === 'execute').value.idempotencyKey
   workflow.unmount()
   execute.reject({ code: 'operation_commit_unknown', status: 503, operationRef })
-  assert.equal((await running).state, 'idle')
+  assert.deepEqual(await running, { state: 'failed', operationRef: null, failureCode: 'workflow_disposed' })
+  assert.equal(workflow.getSnapshot().state, 'failed')
+  assert.equal(workflow.getSnapshot().failure.code, 'workflow_disposed')
   assert.equal(calls.some(call => call.method === 'query'), false)
   assert.equal(scheduled.length, 0)
   assert.ok(key)
@@ -233,7 +256,7 @@ test('unmount cancels pending polling, ignores late work, and clears the origina
   await waitFor(() => polling.scheduled.length === 1)
   polling.workflow.unmount()
   assert.equal(polling.scheduled[0].cancelled, true)
-  assert.equal((await pending).state, 'idle')
+  assert.equal((await pending).failureCode, 'workflow_disposed')
   await polling.scheduled[0].callback()
   assert.equal(polling.calls.filter(call => call.method === 'query').length, 1)
 })
@@ -278,10 +301,23 @@ test('isolates a throwing cancel so unmount still clears state, settles, and blo
   await waitFor(() => typeof callback === 'function')
   assert.doesNotThrow(() => instance.workflow.unmount())
   assert.equal(cancelCalls, 1)
-  assert.equal((await running).state, 'idle')
-  assert.equal(instance.workflow.getSnapshot().state, 'idle')
+  assert.equal((await running).failureCode, 'workflow_disposed')
+  assert.equal(instance.workflow.getSnapshot().state, 'failed')
   await callback()
   assert.equal(instance.calls.filter(call => call.method === 'query').length, 1)
+})
+
+test('unmount clears a completed active run and later start returns only the disposed failure', async () => {
+  const { workflow } = fixture()
+  const completed = await workflow.start(input())
+  assert.equal(completed.state, 'succeeded')
+  assert.equal(completed.operationRef, operationRef)
+  workflow.unmount()
+  const afterUnmount = await workflow.start(input())
+  assert.deepEqual(afterUnmount, { state: 'failed', operationRef: null, failureCode: 'workflow_disposed' })
+  assert.equal(workflow.getSnapshot().state, afterUnmount.state)
+  assert.equal(workflow.getSnapshot().operationRef, afterUnmount.operationRef)
+  assert.equal(workflow.getSnapshot().failure.code, afterUnmount.failureCode)
 })
 
 test('terminal cleanup isolates a throwing cancel and a failed terminal can still reset', async () => {
@@ -312,6 +348,78 @@ test('terminal cleanup isolates a throwing cancel and a failed terminal can stil
     if (terminalStatus === 'failed') {
       assert.equal(instance.workflow.reset(), true)
       assert.equal(instance.workflow.getSnapshot().state, 'idle')
+    }
+  }
+})
+
+test('a scheduled callback is single-consume and a late competing Query cannot disturb its terminal result', async () => {
+  const first = deferred()
+  const second = deferred()
+  let callback
+  let queryCalls = 0
+  const unhandled = []
+  const onUnhandled = reason => unhandled.push(reason)
+  process.on('unhandledRejection', onUnhandled)
+  try {
+    const instance = fixture({
+      schedule: scheduled => { callback = scheduled; return () => {} },
+      api: {
+        executeUserDelete: async () => { throw { code: 'operation_commit_unknown', status: 503, operationRef } },
+        queryUserDelete: async () => {
+          queryCalls++
+          if (queryCalls === 1) return terminal('processing', { finishedAt: null, retryAfter: 5 })
+          return queryCalls === 2 ? first.promise : second.promise
+        },
+      },
+    })
+    const running = instance.workflow.start(input())
+    await waitFor(() => typeof callback === 'function')
+    callback()
+    callback()
+    await new Promise(resolve => setImmediate(resolve))
+    first.resolve(terminal('succeeded'))
+    assert.equal((await running).state, 'succeeded')
+    if (queryCalls > 2) second.reject(Error('late-query-private'))
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(queryCalls, 2)
+    assert.equal(instance.workflow.getSnapshot().state, 'succeeded')
+    assert.deepEqual(unhandled, [])
+  } finally {
+    process.off('unhandledRejection', onUnhandled)
+  }
+})
+
+test('late resolution or rejection from an in-flight Query after unmount is silently discarded', async () => {
+  for (const outcome of ['resolve', 'reject']) {
+    const pendingQuery = deferred()
+    let callback
+    let queryCalls = 0
+    const unhandled = []
+    const onUnhandled = reason => unhandled.push(reason)
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      const instance = fixture({
+        schedule: scheduled => { callback = scheduled; return () => {} },
+        api: {
+          executeUserDelete: async () => { throw { code: 'operation_commit_unknown', status: 503, operationRef } },
+          queryUserDelete: async () => ++queryCalls === 1
+            ? terminal('processing', { finishedAt: null, retryAfter: 5 })
+            : pendingQuery.promise,
+        },
+      })
+      const running = instance.workflow.start(input())
+      await waitFor(() => typeof callback === 'function')
+      callback()
+      await waitFor(() => queryCalls === 2)
+      instance.workflow.unmount()
+      if (outcome === 'resolve') pendingQuery.resolve(terminal('succeeded'))
+      else pendingQuery.reject(Error('late-query-private'))
+      assert.equal((await running).failureCode, 'workflow_disposed')
+      await new Promise(resolve => setImmediate(resolve))
+      assert.equal(instance.workflow.getSnapshot().failure.code, 'workflow_disposed')
+      assert.deepEqual(unhandled, [])
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
     }
   }
 })

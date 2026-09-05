@@ -76,6 +76,7 @@ export function createUserDeleteWorkflow({ api, randomBytes, now, schedule }) {
   let activeRun = null
   let resolveRun = null
   let cancelScheduled = null
+  let queryInFlight = false
   let disposed = false
   let generation = 0
   const listeners = new Set()
@@ -84,7 +85,9 @@ export function createUserDeleteWorkflow({ api, randomBytes, now, schedule }) {
   const publicResult = () => Object.freeze({ state, operationRef, failureCode: failure?.code ?? null })
   const notify = () => {
     const value = snapshot()
-    for (const listener of listeners) listener(value)
+    for (const listener of listeners) {
+      try { listener(value) } catch { /* observers cannot control workflow state */ }
+    }
   }
   const transition = next => {
     if (!TRANSITIONS[state].has(next)) throw new Error('invalid_user_delete_transition')
@@ -107,6 +110,7 @@ export function createUserDeleteWorkflow({ api, randomBytes, now, schedule }) {
   }
   const complete = next => {
     generation++
+    queryInFlight = false
     clearSchedule()
     clearTransient()
     if (!disposed && state !== next) transition(next)
@@ -123,16 +127,18 @@ export function createUserDeleteWorkflow({ api, randomBytes, now, schedule }) {
   }
 
   const query = async runGeneration => {
-    if (disposed || runGeneration !== generation) return complete(DELETE_STATES.IDLE)
+    if (disposed || runGeneration !== generation || queryInFlight) return null
+    queryInFlight = true
     try {
       const result = await api.queryUserDelete({ idempotencyKey })
-      if (disposed || runGeneration !== generation) return complete(DELETE_STATES.IDLE)
+      if (disposed || runGeneration !== generation) return null
       operationRef = result.operationRef
       if (result.status === 'processing') {
         transition(DELETE_STATES.QUERYING)
         const delay = boundedRetrySeconds(result.retryAfter) * 1000
         clearSchedule()
         let invokedSynchronously = false
+        let consumed = false
         let scheduling = true
         let cancel
         try {
@@ -141,6 +147,8 @@ export function createUserDeleteWorkflow({ api, randomBytes, now, schedule }) {
               invokedSynchronously = true
               return
             }
+            if (consumed) return
+            consumed = true
             if (!disposed && runGeneration === generation) void query(runGeneration)
           }, delay)
         } catch {
@@ -167,8 +175,10 @@ export function createUserDeleteWorkflow({ api, randomBytes, now, schedule }) {
       if (result.status === 'pending_recovery') return complete(DELETE_STATES.PENDING_RECOVERY)
       return fail(null)
     } catch (error) {
-      if (disposed || runGeneration !== generation) return complete(DELETE_STATES.IDLE)
+      if (disposed || runGeneration !== generation) return null
       return fail(error)
+    } finally {
+      queryInFlight = false
     }
   }
 
@@ -216,8 +226,9 @@ export function createUserDeleteWorkflow({ api, randomBytes, now, schedule }) {
   }
 
   const start = userInput => {
+    if (disposed) return Promise.resolve(publicResult())
     if (activeRun) return activeRun
-    if (disposed || state !== DELETE_STATES.IDLE) return Promise.resolve(publicResult())
+    if (state !== DELETE_STATES.IDLE) return Promise.resolve(publicResult())
     const runGeneration = ++generation
     activeRun = new Promise(resolve => { resolveRun = resolve })
     void run(runGeneration, userInput)
@@ -239,21 +250,24 @@ export function createUserDeleteWorkflow({ api, randomBytes, now, schedule }) {
     generation++
     clearSchedule()
     clearTransient()
-    failure = null
+    queryInFlight = false
+    failure = safeFailure({ code: 'workflow_disposed', message: '请求失败，请稍后重试' })
     operationRef = null
-    state = DELETE_STATES.IDLE
+    state = DELETE_STATES.FAILED
     updatedAt = now()
     listeners.clear()
     const resolve = resolveRun
     resolveRun = null
-    if (resolve) resolve(publicResult())
+    const result = publicResult()
+    activeRun = null
+    if (resolve) resolve(result)
   }
 
   const subscribe = listener => {
     if (typeof listener !== 'function') throw new TypeError('invalid_user_delete_listener')
     if (disposed) return () => {}
     listeners.add(listener)
-    listener(snapshot())
+    try { listener(snapshot()) } catch { /* observers cannot control workflow state */ }
     return () => listeners.delete(listener)
   }
 
