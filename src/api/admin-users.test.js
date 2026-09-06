@@ -20,14 +20,17 @@ test('omits the default active and disabled status and rejects an overlong searc
 })
 
 test('maps UserReadDTO and rejects unsafe or incomplete values', () => {
-  const dto = mapUserReadDto({ guid: '9223372036854775807', username: null, nickname: null, email: null, group: null, plan_type: 'free', role: 'user', status: 'active', auth_version: 7, created_at: '2026-09-03T00:00:00Z', last_login_at: null })
-  assert.deepEqual(dto, { guid: '9223372036854775807', username: null, nickname: null, email: null, group: null, planType: 'free', role: 'user', status: 'active', authVersion: 7, createdAt: '2026-09-03T00:00:00Z', lastLoginAt: null })
+  const dto = mapUserReadDto({ guid: '9223372036854775807', username: null, nickname: null, email: null, group: 'default', plan_type: 'free', role: 'user', status: 'active', auth_version: 7, created_at: '2026-09-03T00:00:00Z', last_login_at: null })
+  assert.deepEqual(dto, { guid: '9223372036854775807', username: null, nickname: null, email: null, group: 'default', planType: 'free', role: 'user', status: 'active', authVersion: 7, createdAt: '2026-09-03T00:00:00Z', lastLoginAt: null })
   assert.throws(() => mapUserReadDto({ ...dto, guid: '01' }), /invalid_guid/)
   assert.throws(() => mapUserReadDto({ guid: '1', username: 'x', plan_type: 'hacked', role: 'user', status: 'active', created_at: 'bad', last_login_at: null }), /invalid_user/)
-  assert.throws(() => mapUserReadDto({ guid: '1', username: 'x', nickname: null, email: null, group: null, plan_type: 'free', role: 'user', status: 'active', created_at: '2026-09-03T00:00:00+08:00', last_login_at: null }), /invalid_user/)
-  assert.throws(() => mapUserReadDto({ guid: '1', username: 'x', nickname: null, email: null, group: null, plan_type: 'free', role: 'user', status: 'active', created_at: '2026-09-03T00:00:00Z', last_login_at: null, internal_id: 9 }), /invalid_user/)
+  assert.throws(() => mapUserReadDto({ guid: '1', username: 'x', nickname: null, email: null, group: 'default', plan_type: 'free', role: 'user', status: 'active', created_at: '2026-09-03T00:00:00+08:00', last_login_at: null }), /invalid_user/)
+  assert.throws(() => mapUserReadDto({ guid: '1', username: 'x', nickname: null, email: null, group: 'default', plan_type: 'free', role: 'user', status: 'active', created_at: '2026-09-03T00:00:00Z', last_login_at: null, internal_id: 9 }), /invalid_user/)
   for (const auth_version of [undefined, null, 0, 1.5, 2147483648, '7']) {
-    assert.throws(() => mapUserReadDto({ guid: '1', username: 'x', nickname: null, email: null, group: null, plan_type: 'free', role: 'user', status: 'active', auth_version, created_at: '2026-09-03T00:00:00Z', last_login_at: null }), /invalid_user/)
+    assert.throws(() => mapUserReadDto({ guid: '1', username: 'x', nickname: null, email: null, group: 'default', plan_type: 'free', role: 'user', status: 'active', auth_version, created_at: '2026-09-03T00:00:00Z', last_login_at: null }), /invalid_user/)
+  }
+  for (const group of [null, '', 'Default', 'a.b', `a${'b'.repeat(64)}`]) {
+    assert.throws(() => mapUserReadDto({ guid: '1', username: 'x', nickname: null, email: null, group, plan_type: 'free', role: 'user', status: 'active', auth_version: 1, created_at: '2026-09-03T00:00:00Z', last_login_at: null }), /invalid_user/)
   }
 })
 

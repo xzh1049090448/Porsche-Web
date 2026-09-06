@@ -72,13 +72,13 @@ export function mapUserReadDto(raw) {
   if (
       !Object.hasOwn(raw, 'username') || ![null].includes(raw.username) && typeof raw.username !== 'string'
       || !Object.hasOwn(raw, 'nickname') || ![null].includes(raw.nickname) && typeof raw.nickname !== 'string'
-      || raw.email !== null || raw.group !== null
+      || raw.email !== null || typeof raw.group !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/.test(raw.group)
       || !['free', 'professional', 'enterprise'].includes(raw.plan_type)
       || !['user', 'admin'].includes(raw.role) || !STATUSES.has(raw.status)
       || !Number.isInteger(raw.auth_version) || raw.auth_version < 1 || raw.auth_version > MAX_INT32
       || !utcRfc3339(raw.created_at)
       || !(raw.last_login_at === null || utcRfc3339(raw.last_login_at))) throw new Error('invalid_user')
-  return { guid: raw.guid, username: raw.username ?? null, nickname: raw.nickname ?? null, email: null, group: null,
+  return { guid: raw.guid, username: raw.username ?? null, nickname: raw.nickname ?? null, email: null, group: raw.group,
     planType: raw.plan_type, role: raw.role, status: raw.status, authVersion: raw.auth_version, createdAt: raw.created_at, lastLoginAt: raw.last_login_at }
 }
 
