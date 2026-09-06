@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-04T15:20:00+08:00",
-  "overall_status": "PARTIAL_ACCEPTANCE_8_LIMITED_18_BLOCKED",
-  "verdict": "PARTIAL_ACCEPTANCE_8_LIMITED_18_BLOCKED",
+  "generated_at": "2026-09-06T12:59:42+08:00",
+  "overall_status": "PARTIAL_ACCEPTANCE_10_LIMITED_16_BLOCKED",
+  "verdict": "PARTIAL_ACCEPTANCE_10_LIMITED_16_BLOCKED",
   "candidate": {
     "frontend_head": "c788e78848a08c2fa3472812374448f388fb81aa",
     "backend_head": "aec1619ee710c80cd71dbe529660e2d12b3fda7b",
@@ -11,12 +11,12 @@
   "environment_manifest_before_final_archive_sha256": "d3d1de8b3609721baba3e1f04ca19ef5990aaad2666e63f9aab7786cb6101641",
   "summary": {
     "total": 26,
-    "PASS_LIMITED_SCOPE": 8,
+    "PASS_LIMITED_SCOPE": 10,
     "FAIL_LOCAL_DEV_ROUTE": 0,
-    "BLOCKED_NOT_IMPLEMENTED": 16,
+    "BLOCKED_NOT_IMPLEMENTED": 14,
     "BLOCKED_PRODUCT": 1,
     "BLOCKED_ENV": 1,
-    "blocked_total": 18
+    "blocked_total": 16
   },
   "supersession": {
     "core_report": "CORE-PHASE-REPORT.md",
@@ -139,9 +139,19 @@
       "prd": "软删除及重复删除",
       "owner": "FE+BE",
       "expected_evidence": "认证/调用失效、用户名不可复用、无物理删除",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "软删除/恢复写链未实现。"
+      "latest_evidence": "仅users.delete本地联合切片通过：三种允许角色路径完成软删除，默认列表及刷新不可见；物理行保留，旧Access/Refresh/逻辑session/Gateway Key/登录均拒绝，用户名不可复用，重复删除隐藏。恢复写链不在本切片。",
+      "accepted_candidate": {
+        "backend": "811213d557eea7b6b9523a584245252ba4dd7d80",
+        "frontend": "bace6d167b94b693abd6be4c720152dc0eb905bb"
+      },
+      "evidence_paths": [
+        "backend:docs/superpowers/reports/validation/2026-09-05-a14-user-soft-delete/joint-acceptance.md",
+        "backend:docs/superpowers/reports/validation/2026-09-05-a14-user-soft-delete/spec-review.md",
+        "backend:docs/superpowers/reports/validation/2026-09-05-a14-user-soft-delete/quality-review.md",
+        "backend:docs/superpowers/reports/validation/2026-09-05-a14-user-soft-delete/security-review.md"
+      ]
     },
     {
       "id": "A13",
@@ -157,9 +167,19 @@
       "prd": "操作票据与依赖故障",
       "owner": "FE+BE",
       "expected_evidence": "票据绑定/过期/重放及DB/Redis失败关闭；未知状态走operation查询",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "ticket/idempotency/operation query及依赖故障链未实现。"
+      "latest_evidence": "仅users.delete动作的ticket/idempotency/operation Query及依赖失败关闭本地联合切片通过；重放、过期、版本冲突、commit unknown只Query、processing Retry-After、pending、401及网络不确定性均有分层证据。其他7个inactive动作及通用outbox delivery/recovery worker不在本切片。",
+      "accepted_candidate": {
+        "backend": "811213d557eea7b6b9523a584245252ba4dd7d80",
+        "frontend": "bace6d167b94b693abd6be4c720152dc0eb905bb"
+      },
+      "evidence_paths": [
+        "backend:docs/agents/contracts/admin-action-future-contract.json",
+        "backend:docs/superpowers/reports/validation/2026-09-05-a14-user-soft-delete/joint-acceptance.md",
+        "frontend:docs/agents/contracts/prd-260903-interface-draft.json",
+        "frontend:src/api/admin-user-actions-contract.test.js"
+      ]
     },
     {
       "id": "P01",
@@ -324,6 +344,26 @@
       "evidence": "docs/agents/validation/vite-api-route-proxy-fix-20260904/remediation-report.md",
       "historical_source": "docs/agents/validation/joint-acceptance-20260904/FINAL-ACCEPTANCE-REPORT.md",
       "note": "仅P02/R01由FAIL_LOCAL_DEV_ROUTE提升为本地PASS_LIMITED_SCOPE；历史26/26 NOT_RUN及6/2/18记录保留。生产HTTPS未运行，18项仍阻塞，完整PRD未通过。"
+    },
+    {
+      "at": "2026-09-06",
+      "status": "PARTIAL_ACCEPTANCE_10_LIMITED_16_BLOCKED",
+      "counts": {
+        "total": 26,
+        "PASS_LIMITED_SCOPE": 10,
+        "FAIL_LOCAL_DEV_ROUTE": 0,
+        "BLOCKED_NOT_IMPLEMENTED": 14,
+        "BLOCKED_PRODUCT": 1,
+        "BLOCKED_ENV": 1,
+        "blocked_total": 16
+      },
+      "candidate": {
+        "backend": "811213d557eea7b6b9523a584245252ba4dd7d80",
+        "frontend": "bace6d167b94b693abd6be4c720152dc0eb905bb"
+      },
+      "evidence": "backend:docs/superpowers/reports/validation/2026-09-05-a14-user-soft-delete/joint-acceptance.md",
+      "baseline_sha256": "6925173b045e77362b8fc096d68727d602cd261545b24e8f38d60e991f93a241",
+      "note": "仅A12/A14的users.delete联合切片提升为PASS_LIMITED_SCOPE；不代表完整A12恢复、完整A14动作族、完整PRD或release通过。其余24项及历史时间线保持原语义；16项仍阻塞。"
     }
   ]
 }

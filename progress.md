@@ -1,5 +1,12 @@
 # 当前验证进度
 
+## 2026-09-06：A12/A14 users.delete 本地联合切片验收通过
+
+- 前端 `bace6d167b94b693abd6be4c720152dc0eb905bb` 与后端 `811213d557eea7b6b9523a584245252ba4dd7d80` 的 `users.delete` 切片获得三项独立复审 PASS，并将联合矩阵 A12/A14 更新为 `PASS_LIMITED_SCOPE`。A12 仅覆盖软删除、重复删除、用户名不可复用、默认列表遗漏及旧凭据拒绝；恢复写链不在本切片。A14 仅覆盖该动作的 ticket/idempotency/operation Query、commit unknown 与依赖失败关闭。
+- 可见真实 UI 的 Root→User、Root→Admin、授权 Admin→User 三条路径，以及 eligibility、敏感 verifying/submitting/querying 清理和浏览器边界恢复矩阵均通过；生产 adapter 与 Pinia 被实际使用。真实 API-context、数据库终态与服务层证据由后端验证目录绑定。
+- 联合矩阵当前仅由 8 增至 10 个 `PASS_LIMITED_SCOPE`，仍有 16 项阻塞；其余 24 行及历史时间线语义保持不变。其他 7 个管理动作继续 inactive，通用 outbox delivery/recovery worker、公共页面、金额 Mock、完整回归和发布仍不在本切片。本结论不代表完整 PRD 或 release 通过，`web-012` 继续 `in_progress`。
+- 生产迁移、部署、push 与真实业务数据操作未获授权，也未执行。更新前 acceptance matrix SHA-256 为 `6925173b045e77362b8fc096d68727d602cd261545b24e8f38d60e991f93a241`，本文件更新前 SHA-256 为 `21eeb06bc3608554c3bf1ba595897a98c26e4e26b964d6cf2fdd4d66577605cb`。
+
 ## 2026-09-04：Vite API 路由补救通过本地限定验收，18项仍阻塞
 
 - P02/R01已由`FAIL_LOCAL_DEV_ROUTE`提升为本地`PASS_LIMITED_SCOPE`：登录后的`/api-keys`初次导航和硬刷新均返回SPA文档并渲染；`/users`、`/profile`硬刷新回归通过；退出后3条私有路由均落到`/login`且无私有DOM。
