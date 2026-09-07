@@ -102,13 +102,13 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
       return callback({ type: eventName, model: payload.model, ...(eventName === 'model_done' ? { last_seq: payload.last_seq } : { code: state.code }) })
     }
     if (eventName === 'done') {
-      if (payload.status !== 'completed' || typeof payload.conversation_guid !== 'string' || !payload.conversation_guid || expectedModels.some(model => !modelState.get(model)?.terminal)) return protocolError(codes.protocol)
+      if (payload.generation_id !== generationId || payload.status !== 'completed' || typeof payload.conversation_guid !== 'string' || !payload.conversation_guid.trim() || !Number.isSafeInteger(payload.tokens) || payload.tokens < 0 || (payload.total_tokens_used !== undefined && (!Number.isSafeInteger(payload.total_tokens_used) || payload.total_tokens_used < 0)) || expectedModels.some(model => !modelState.get(model)?.terminal) || (expectedModels.length === 1 && modelState.get(expectedModels[0]).status !== 'completed')) return protocolError(codes.protocol)
       if (expectedModels.length > 1) {
         if (!payload.models || typeof payload.models !== 'object' || Array.isArray(payload.models) || Object.keys(payload.models).length !== expectedModels.length || expectedModels.some(model => !Object.prototype.hasOwnProperty.call(payload.models, model))) return protocolError(codes.protocol)
         for (const model of expectedModels) {
           const item = payload.models[model]
           const state = modelState.get(model)
-          if (!item || item.status !== state.status || (state.status === 'completed' && (!Number.isSafeInteger(item.tokens) || item.tokens < 0)) || (state.status === 'failed' && (item.code !== state.code || Object.keys(item).some(key => !['status', 'code'].includes(key))))) return protocolError(codes.protocol)
+          if (!item || item.status !== state.status || (state.status === 'completed' && (!Number.isSafeInteger(item.tokens) || item.tokens < 0 || Object.keys(item).some(key => !['status', 'tokens'].includes(key)))) || (state.status === 'failed' && (item.code !== state.code || Object.keys(item).some(key => !['status', 'code'].includes(key))))) return protocolError(codes.protocol)
         }
       } else if (payload.models !== undefined) return protocolError(codes.protocol)
       globalDone = true
