@@ -3,22 +3,6 @@ const DEFAULT_FRAME = typeof requestAnimationFrame === 'function'
   : (callback => setTimeout(() => callback(Date.now()), 16))
 const DEFAULT_CANCEL = typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame : clearTimeout
 
-const combining = /\p{Mark}/u
-const regional = /\p{Regional_Indicator}/u
-const emoji = /\p{Extended_Pictographic}/u
-
-function mayExtend(cluster) {
-  if (cluster.endsWith('\u200d')) return true
-  if ([...cluster].some(char => regional.test(char))) {
-    return [...cluster].filter(char => regional.test(char)).length % 2 === 1
-  }
-  // Keep a possible base character until the next delta, so a combining mark
-  // or an emoji modifier/ZWJ sequence can never be rendered half-formed.
-  const chars = [...cluster]
-  const last = chars.at(-1) || ''
-  return combining.test(last) || emoji.test(last) || /[A-Za-z]/u.test(last)
-}
-
 export function createGraphemePlayback({
   onDisplay = () => {},
   requestFrame = DEFAULT_FRAME,
@@ -39,9 +23,16 @@ export function createGraphemePlayback({
   let lastReceivedAt = now()
   let lastDisplayAt = lastReceivedAt
   let mode = reducedMotion ? 'catch-up' : 'standard'
+  let modeReason = reducedMotion ? 'reduced-motion' : 'standard'
+  let catchUpStartedAt = null
+  let catchUpDurationMs = 0
+  let maxBatchSize = 0
+  let carryStartedAt = null
 
   function snapshot() {
-    return Object.freeze({ receivedText, displayedText, pendingCount: pending.length + (carry ? 1 : 0), mode, finished, disposed })
+    const current = now()
+    const activeCatchUpMs = catchUpStartedAt === null ? 0 : Math.max(0, current - catchUpStartedAt)
+    return Object.freeze({ receivedText, displayedText, pendingCount: pending.length + (carry ? 1 : 0), mode, modeReason, finished, disposed, catchUpStartedAt, catchUpDurationMs: catchUpDurationMs + activeCatchUpMs, maxBatchSize, boundaryWaitMs: carry ? Math.max(0, current - carryStartedAt) : 0 })
   }
 
   function schedule() {
@@ -52,8 +43,22 @@ export function createGraphemePlayback({
       if (disposed || token !== generation) return
       const remaining = pending.length
       const lag = Math.max(remaining * 25, Number(timestamp) - lastReceivedAt)
-      mode = reducedMotion || lag > targetLagMs ? 'catch-up' : 'standard'
+      const nextMode = reducedMotion || lag > targetLagMs ? 'catch-up' : 'standard'
+      if (nextMode === 'catch-up' && mode !== 'catch-up') {
+        catchUpStartedAt = Number(timestamp) || now()
+        modeReason = reducedMotion ? 'reduced-motion' : 'queue-lag'
+      } else if (nextMode === 'standard' && mode === 'catch-up' && catchUpStartedAt !== null) {
+        catchUpDurationMs += Math.max(0, (Number(timestamp) || now()) - catchUpStartedAt)
+        catchUpStartedAt = null
+        modeReason = 'standard'
+      }
+      mode = nextMode
+      if (mode === 'standard' && (Number(timestamp) || now()) - lastDisplayAt < 25) {
+        schedule()
+        return
+      }
       const amount = mode === 'standard' ? 1 : Math.min(8, Math.max(1, Math.ceil(remaining * 0.1)))
+      maxBatchSize = Math.max(maxBatchSize, amount)
       const batch = pending.splice(0, Math.min(amount, remaining))
       displayedText += batch.join('')
       lastDisplayAt = Number(timestamp) || now()
@@ -64,8 +69,8 @@ export function createGraphemePlayback({
 
   function enqueue(text, force = false) {
     const parts = [...segmenter.segment(text)].map(item => item.segment)
-    if (!force && parts.length && mayExtend(parts.at(-1))) carry = parts.pop()
-    else if (force && parts.length) carry = ''
+    if (!force && parts.length) { carry = parts.pop(); carryStartedAt = now() }
+    else if (force && parts.length) { carry = ''; carryStartedAt = null }
     pending.push(...parts)
     schedule()
   }
@@ -83,7 +88,7 @@ export function createGraphemePlayback({
     finish() {
       if (disposed || finished) return snapshot()
       finished = true
-      if (carry) { enqueue(carry, true); carry = '' }
+      if (carry) { enqueue(carry, true); carry = ''; carryStartedAt = null }
       schedule()
       return snapshot()
     },
@@ -91,14 +96,14 @@ export function createGraphemePlayback({
       if (disposed) return snapshot()
       generation += 1
       if (frameHandle !== null) { cancelFrame(frameHandle); frameHandle = null }
-      pending = []; carry = ''; finished = true
+      pending = []; carry = ''; carryStartedAt = null; finished = true
       return snapshot()
     },
     dispose() {
       if (disposed) return snapshot()
       generation += 1
       if (frameHandle !== null) { cancelFrame(frameHandle); frameHandle = null }
-      pending = []; carry = ''; disposed = true; finished = true
+      pending = []; carry = ''; carryStartedAt = null; disposed = true; finished = true
       return snapshot()
     },
     snapshot,
