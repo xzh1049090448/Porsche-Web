@@ -122,12 +122,13 @@ export function createChatGeneration(options = {}) {
       if (result.conversation_guid !== conversationGuid) return false
       if (mode === 'single') {
         const entry = result.result
-        return !!entry && !Object.prototype.hasOwnProperty.call(result, 'results') && entry.model === models[0].model && entry.status === 'completed' && typeof entry.content === 'string' && Object.keys(entry).every(key => ['model', 'status', 'content', 'assistant_message_guid', 'tokens'].includes(key))
+        return !!entry && !Object.prototype.hasOwnProperty.call(result, 'results') && entry.model === models[0].model && entry.status === 'completed' && typeof entry.assistant_message_guid === 'string' && !!entry.assistant_message_guid.trim() && typeof entry.content === 'string' && Number.isSafeInteger(entry.tokens) && entry.tokens >= 0 && Object.keys(entry).every(key => ['model', 'status', 'content', 'assistant_message_guid', 'tokens'].includes(key))
       }
-      return Array.isArray(result.results) && !Object.prototype.hasOwnProperty.call(result, 'result') && result.results.length === models.length && result.results.every((entry, index) => entry && entry.model === models[index].model && (entry.status === 'completed' || entry.status === 'failed') && Object.keys(entry).every(key => entry.status === 'completed' ? ['model', 'status', 'content', 'assistant_message_guid', 'tokens'].includes(key) : ['model', 'status', 'code'].includes(key)) && (entry.status !== 'completed' || typeof entry.content === 'string'))
+      return Array.isArray(result.results) && !Object.prototype.hasOwnProperty.call(result, 'result') && result.results.length === models.length && result.results.every((entry, index) => entry && entry.model === models[index].model && (entry.status === 'completed' || entry.status === 'failed') && Object.keys(entry).every(key => entry.status === 'completed' ? ['model', 'status', 'content', 'assistant_message_guid', 'tokens'].includes(key) : ['model', 'status', 'code'].includes(key)) && (entry.status === 'completed' ? typeof entry.assistant_message_guid === 'string' && !!entry.assistant_message_guid.trim() && typeof entry.content === 'string' && Number.isSafeInteger(entry.tokens) && entry.tokens >= 0 : STABLE_CODES.has(entry.code) && !!entry.code))
     }
     if (!['cancelled', 'failed', 'cancelling', 'committing', 'running'].includes(result.status)) return false
-    return (result.conversation_guid === null || result.conversation_guid === undefined) && !Object.prototype.hasOwnProperty.call(result, 'result') && !Object.prototype.hasOwnProperty.call(result, 'results')
+    const guidOK = result.conversation_guid === null || (typeof result.conversation_guid === 'string' && !!result.conversation_guid.trim() && result.conversation_guid === conversationGuid)
+    return guidOK && (result.status !== 'failed' || STABLE_CODES.has(result.code)) && !Object.prototype.hasOwnProperty.call(result, 'result') && !Object.prototype.hasOwnProperty.call(result, 'results')
   }
   const resolve = result => {
     if (TERMINAL.has(status)) return snapshot()

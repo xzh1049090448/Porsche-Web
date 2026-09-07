@@ -49,8 +49,8 @@ test('local cancel freezes playback and authoritative outcomes decide terminal s
 
 test('authoritative completed appends only unseen suffix and rejects prefix mismatch', () => {
   const clock = scheduler(); const g = createChatGeneration({ ...base(), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } })
-  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'A')); while (clock.step(0)) {} g.cancelLocalQueue(); g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', mode: 'single', result: { model: 'model-a', status: 'completed', content: 'ABC' } }); assert.equal(g.snapshot().status, 'draining'); while (clock.step(0)) {} assert.equal(g.snapshot().models[0].displayedText, 'ABC')
-  const h = createChatGeneration({ ...base(), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } }); h.handleEvent(meta()); h.handleEvent(delta('model-a', 1, 'XY')); clock.step(1000); h.cancelLocalQueue(); h.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', mode: 'single', result: { model: 'model-a', status: 'completed', content: 'NO' } }); assert.equal(h.snapshot().status, 'failed'); assert.equal(h.snapshot().diagnostics.at(-1).code, 'GENERATION_DATA_ERROR')
+  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'A')); while (clock.step(0)) {} g.cancelLocalQueue(); g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', mode: 'single', result: { model: 'model-a', status: 'completed', assistant_message_guid: 'm-a', content: 'ABC', tokens: 1 } }); assert.equal(g.snapshot().status, 'draining'); while (clock.step(0)) {} assert.equal(g.snapshot().models[0].displayedText, 'ABC')
+  const h = createChatGeneration({ ...base(), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } }); h.handleEvent(meta()); h.handleEvent(delta('model-a', 1, 'XY')); clock.step(1000); h.cancelLocalQueue(); h.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', mode: 'single', result: { model: 'model-a', status: 'completed', assistant_message_guid: 'm-a', content: 'NO', tokens: 1 } }); assert.equal(h.snapshot().status, 'failed'); assert.equal(h.snapshot().diagnostics.at(-1).code, 'GENERATION_DATA_ERROR')
 })
 
 test('dispose is idempotent and callback errors do not escape or leak frames', () => {
@@ -76,7 +76,7 @@ test('terminal states are irreversible and ignore late events and resolutions', 
 
 test('authoritative completed rebuilds pending playback instead of duplicating received text', () => {
   const clock = scheduler(); const g = createChatGeneration({ ...base(), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } })
-  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'AB')); g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', mode: 'single', result: { model: 'model-a', status: 'completed', content: 'ABC' } }); while (clock.step(1000)) {}
+  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'AB')); g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', mode: 'single', result: { model: 'model-a', status: 'completed', assistant_message_guid: 'm-a', content: 'ABC', tokens: 1 } }); while (clock.step(1000)) {}
   assert.equal(g.snapshot().status, 'completed'); assert.equal(g.snapshot().models[0].receivedText, 'ABC'); assert.equal(g.snapshot().models[0].displayedText, 'ABC')
 })
 
@@ -85,4 +85,36 @@ test('model errors and failed compare siblings discard undisplayed queues', () =
   g.handleEvent(meta('gen-1', ['a', 'b'])); g.handleEvent(delta('a', 1, 'AB')); g.handleEvent({ type: 'model_error', generation_id: 'gen-1', model: 'a', code: 'gateway_upstream_error' });
   g.handleEvent(delta('b', 1, 'B')); g.handleEvent(modelDone('b')); g.handleEvent({ type: 'done', generation_id: 'gen-1', status: 'completed', conversation_guid: 'conv-1', total_tokens_used: 1, models: { a: { status: 'failed', code: 'gateway_upstream_error' }, b: { status: 'completed', tokens: 1 } } }); while (clock.step(1000)) {}
   assert.equal(g.snapshot().status, 'completed'); assert.equal(g.snapshot().models[0].displayedText, ''); assert.equal(g.snapshot().models[0].code, 'gateway_upstream_error')
+})
+
+test('status payloads allow only null or the current nonblank conversation GUID', () => {
+  for (const status of ['running', 'cancelling', 'committing', 'cancelled', 'failed']) {
+    const g = createChatGeneration(base());
+    g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-other', mode: 'single', status });
+    assert.equal(g.snapshot().diagnostics.at(-1).code, 'GENERATION_STATUS_ERROR')
+    const h = createChatGeneration(base());
+    h.resolveCancel({ generation_id: 'gen-1', conversation_guid: 1, mode: 'single', status });
+    assert.equal(h.snapshot().diagnostics.at(-1).code, 'GENERATION_STATUS_ERROR')
+    const i = createChatGeneration(base());
+    i.resolveStatus({ generation_id: 'gen-1', conversation_guid: ' ', mode: 'single', status });
+    assert.equal(i.snapshot().diagnostics.at(-1).code, 'GENERATION_STATUS_ERROR')
+    const j = createChatGeneration(base());
+    j.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', mode: 'single', status, ...(status === 'failed' ? { code: 'upstream_error' } : {}) });
+    assert.equal(j.snapshot().status, status === 'cancelled' ? 'cancelled' : status === 'failed' ? 'failed' : 'waiting')
+  }
+})
+
+test('completed status requires exact persisted result fields and stable failure codes', () => {
+  const incomplete = createChatGeneration(base());
+  incomplete.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', mode: 'single', status: 'completed', result: { model: 'model-a', status: 'completed', content: 'x' } });
+  assert.equal(incomplete.snapshot().diagnostics.at(-1).code, 'GENERATION_STATUS_ERROR')
+  const compare = createChatGeneration({ ...base({ mode: 'compare', models: ['a', 'b'] }) });
+  compare.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', mode: 'compare', status: 'completed', results: [
+    { model: 'a', status: 'completed', assistant_message_guid: 'm-a', content: 'a', tokens: 1 },
+    { model: 'b', status: 'failed', code: 'not-stable', content: 'secret' },
+  ] });
+  assert.equal(compare.snapshot().diagnostics.at(-1).code, 'GENERATION_STATUS_ERROR')
+  const failed = createChatGeneration(base());
+  failed.resolveStatus({ generation_id: 'gen-1', conversation_guid: null, mode: 'single', status: 'failed' });
+  assert.equal(failed.snapshot().diagnostics.at(-1).code, 'GENERATION_STATUS_ERROR')
 })
