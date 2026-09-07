@@ -11,6 +11,7 @@ const codes = {
   legacyDone: 'SSE_V2_LEGACY_DONE',
   eof: 'SSE_V2_EOF_WITHOUT_TERMINAL',
   callback: 'SSE_V2_CALLBACK_FAILURE',
+  limit: 'SSE_V2_LIMIT_EXCEEDED',
 }
 const stableModelCodes = new Set(['gateway_upstream_error', 'invalid_request', 'rate_limited', 'cancelled', 'timeout', 'internal_error', 'upstream_error'])
 
@@ -28,7 +29,7 @@ const freezeDeep = value => {
   return value
 }
 
-export function createPlatformSSEv2Parser({ generationId, models, onEvent = () => {}, onError = () => {} } = {}) {
+export function createPlatformSSEv2Parser({ generationId, models, onEvent = () => {}, onError = () => {}, maxBufferBytes = 1024 * 1024, maxEventBytes = 1024 * 1024, maxAcceptedEvents = 100000, maxSeq = 1000000 } = {}) {
   const expectedModels = Array.isArray(models) ? models.map(String) : []
   const decoder = textDecoder()
   let buffer = ''
@@ -43,12 +44,16 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
   let inputStarted = false
   const modelState = new Map()
   const accepted = new Map()
+  const byteLength = value => new TextEncoder().encode(value).byteLength
+  const accept = (key, value) => { if (accepted.size >= maxAcceptedEvents) { notifyError(codes.limit); return false }; accepted.set(key, value); return true }
 
   const notifyError = code => {
     if (errorSent) return
     errorSent = true
     failed = true
     terminal = true
+    buffer = ''
+    accepted.clear()
     try { onError(safeError(code)) } catch { /* callbacks are untrusted */ }
   }
   const callback = event => {
@@ -64,7 +69,8 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
     let payload
     try { payload = JSON.parse(data) } catch { return protocolError(codes.invalidJson) }
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return protocolError(codes.protocol)
-    const key = `${eventName}:${canonical(payload)}`
+    let key
+    try { key = `${eventName}:${canonical(payload)}` } catch { return protocolError(codes.protocol) }
     const duplicateKey = `${eventName}:${payload.model ?? ''}:${payload.seq ?? payload.last_seq ?? ''}`
     if (eventName === 'meta' && metaSeen) return protocolError(codes.protocol)
     if (terminal && globalDone && eventName === 'done' && accepted.get(duplicateKey) === key) return
@@ -77,28 +83,28 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
     if (terminal) return protocolError(codes.afterTerminal)
     if (!metaSeen && eventName !== 'meta') return protocolError(codes.protocol)
     if (eventName === 'meta') {
-      if (metaSeen || payload.schema !== 'platform-chat-sse.v2' || payload.generation_id !== generationId || !Array.isArray(payload.models) || payload.models.length !== expectedModels.length || payload.models.some((m, i) => m !== expectedModels[i])) return protocolError(codes.protocol)
+      if (metaSeen || payload.schema !== 'platform-chat-sse.v2' || payload.generation_id !== generationId || !Array.isArray(payload.models) || payload.models.length !== expectedModels.length || payload.models.some((m, i) => m !== expectedModels[i]) || Object.keys(payload).some(key => !['schema', 'generation_id', 'conversation_guid', 'models'].includes(key))) return protocolError(codes.protocol)
       metaSeen = true
       expectedModels.forEach(model => modelState.set(model, { next: 1, terminal: false }))
-      accepted.set(duplicateKey, key)
-      return callback({ type: 'meta', ...payload })
+      if (!accept(duplicateKey, key)) return
+      return callback({ type: 'meta', schema: payload.schema, generation_id: payload.generation_id, conversation_guid: payload.conversation_guid, models: [...payload.models] })
     }
     if (payload.generation_id !== generationId) return protocolError(codes.protocol)
     if (eventName === 'delta') {
       const state = modelState.get(payload.model)
-      if (!state || state.terminal || typeof payload.delta !== 'string' || payload.delta.length === 0 || !Number.isSafeInteger(payload.seq) || payload.seq !== state.next) return protocolError(codes.sequence)
+      if (!state || state.terminal || typeof payload.delta !== 'string' || payload.delta.length === 0 || !Number.isSafeInteger(payload.seq) || payload.seq > maxSeq || payload.seq !== state.next) return protocolError(codes.sequence)
       state.next += 1
-      accepted.set(duplicateKey, key)
+      if (!accept(duplicateKey, key)) return
       return callback({ type: 'delta', model: payload.model, seq: payload.seq, delta: payload.delta })
     }
     if (eventName === 'model_done' || eventName === 'model_error') {
       const state = modelState.get(payload.model)
       if (!state || state.terminal) return protocolError(codes.protocol)
-      if (eventName === 'model_done' && payload.last_seq !== state.next - 1) return protocolError(codes.sequence)
+      if (eventName === 'model_done' && (!Number.isSafeInteger(payload.last_seq) || payload.last_seq > maxSeq || payload.last_seq !== state.next - 1)) return protocolError(codes.sequence)
       state.terminal = true
       state.status = eventName === 'model_done' ? 'completed' : 'failed'
       state.code = eventName === 'model_error' && stableModelCodes.has(payload.code) ? payload.code : 'upstream_error'
-      accepted.set(duplicateKey, key)
+      if (!accept(duplicateKey, key)) return
       return callback({ type: eventName, model: payload.model, ...(eventName === 'model_done' ? { last_seq: payload.last_seq } : { code: state.code }) })
     }
     if (eventName === 'done') {
@@ -114,7 +120,7 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
       } else if (payload.models !== undefined) return protocolError(codes.protocol)
       globalDone = true
       terminal = true
-      accepted.set(duplicateKey, key)
+      if (!accept(duplicateKey, key)) return
       const sanitized = { type: 'done', generation_id: payload.generation_id, status: payload.status, conversation_guid: payload.conversation_guid, total_tokens_used: payload.total_tokens_used }
       if (expectedModels.length === 1) sanitized.tokens = payload.tokens
       else sanitized.models = payload.models
@@ -122,10 +128,10 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
     }
     if (eventName === 'error') {
       if (typeof payload.code !== 'string') return protocolError(codes.protocol)
-      accepted.set(duplicateKey, key)
+      if (!accept(duplicateKey, key)) return
       return notifyError('SSE_V2_REMOTE_ERROR')
     }
-    accepted.set(duplicateKey, key)
+    if (!accept(duplicateKey, key)) return
   }
   const dispatch = () => {
     while (!failed) {
@@ -133,6 +139,7 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
       if (!match) break
       const raw = buffer.slice(0, match.index)
       buffer = buffer.slice(match.index + match[0].length)
+      if (byteLength(raw) > maxEventBytes) { notifyError(codes.limit); break }
       currentEvent = ''
       dataLines = []
       for (const line of raw.split(/\r\n|\n|\r/)) {
@@ -153,6 +160,7 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
           buffer += value
         } else buffer += decoder.decode(input, { stream: true })
         inputStarted = true
+        if (byteLength(buffer) > maxBufferBytes) return notifyError(codes.limit)
       } catch { return notifyError(codes.framing) }
       dispatch()
     },

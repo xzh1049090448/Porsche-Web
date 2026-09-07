@@ -119,6 +119,23 @@ test('global done callback is sanitized to schema fields only', () => {
   assert.deepEqual(Object.keys(events.find(e => e.type === 'done')).sort(), ['conversation_guid', 'generation_id', 'status', 'tokens', 'total_tokens_used', 'type'])
 })
 
+test('rejects meta extra sensitive fields without callback leakage', () => {
+  const { p, events, errors } = parser()
+  p.push(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: 'g-1', conversation_guid: 'c-1', models: ['a'], prompt: 'secret', Authorization: 'Bearer secret' })}\n\n`)
+  assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR'); assert.equal(events.length, 0)
+})
+
+test('fails closed on configurable framing and accepted-event limits', () => {
+  const open = parser({ maxBufferBytes: 8 }); open.p.push('event: meta'); assert.equal(open.errors[0].code, 'SSE_V2_LIMIT_EXCEEDED')
+  const event = parser({ maxEventBytes: 8 }); event.p.push('event: meta\n\n'); assert.equal(event.errors[0].code, 'SSE_V2_LIMIT_EXCEEDED')
+  const accepted = parser({ maxAcceptedEvents: 0 }); accepted.p.push(meta()); assert.equal(accepted.errors[0].code, 'SSE_V2_LIMIT_EXCEEDED')
+})
+
+test('deeply nested JSON cannot escape parser as a thrown exception', () => {
+  let value = '{}'; for (let i = 0; i < 12000; i += 1) value = `{"x":${value}}`
+  const { p, errors } = parser(); p.push(`event: meta\ndata: ${value}\n\n`); assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR')
+})
+
 test('maps unknown model error codes to stable code and never exposes sensitive fields', () => {
   const { p, events } = parser()
   p.push(meta() + 'event: model_error\ndata: ' + JSON.stringify({ generation_id: 'g-1', model: 'a', code: 'raw upstream https://internal.example', message: 'Authorization: Bearer secret prompt' }) + '\n\n' + done())
