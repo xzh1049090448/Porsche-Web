@@ -282,6 +282,42 @@ test('unsafe failure codes and unsafe operation references never enter snapshots
   assert.doesNotMatch(JSON.stringify(instance.workflow.getSnapshot()), /Str0ng|private/)
 })
 
+test('deleted and expired create replay remain distinct safe failures and clear attempt secrets', async () => {
+  for (const failure of [
+    { code: 'created_user_deleted', status: 410, operationRef },
+    { code: 'operation_expired', status: 410, operationRef: null },
+  ]) {
+    const instance = fixture({ api: {
+      executeAdminUserCreate: async () => { throw { ...failure, password: 'Private!Pass9', ticket: 'av_private', idempotencyKey: 'ik_private' } },
+    } })
+    const result = await instance.workflow.start(adminInput())
+    assert.deepEqual(result, {
+      state: 'failed', operationRef: failure.operationRef, failureCode: failure.code, createdUser: null,
+    })
+    assert.deepEqual(instance.workflow.getSnapshot(), result)
+    assert.doesNotMatch(JSON.stringify(result), /Private|password|ticket|idempotency/i)
+    assert.equal(instance.workflow.reset(), true)
+    assert.deepEqual(instance.workflow.getSnapshot(), { state: 'idle', operationRef: null, failureCode: null, createdUser: null })
+  }
+
+  for (const failure of [
+    { code: 'created_user_deleted', status: 410, operationRef: null },
+    { code: 'created_user_deleted', status: 410, operationRef: 'op_invalid' },
+  ]) {
+    const instance = fixture({ api: { executeAdminUserCreate: async () => { throw failure } } })
+    assert.deepEqual(await instance.workflow.start(userInput()), {
+      state: 'failed', operationRef: null, failureCode: 'request_failed', createdUser: null,
+    })
+  }
+
+  const expiredWithRef = fixture({ api: {
+    executeAdminUserCreate: async () => { throw { code: 'operation_expired', status: 410, operationRef } },
+  } })
+  assert.deepEqual(await expiredWithRef.workflow.start(userInput()), {
+    state: 'failed', operationRef: null, failureCode: 'operation_expired', createdUser: null,
+  })
+})
+
 test('a mismatched created-user result fails closed before entering a snapshot', async () => {
   const instance = fixture({ api: {
     executeAdminUserCreate: async () => ({ operationRef, user: createdAdminUser, permissionsVersion: null }),

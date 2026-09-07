@@ -207,6 +207,24 @@ function secureErrorMetadata(error) {
 
 export function mapAdminUserCreateError(error) {
   const status = Number.isInteger(error?.response?.status) ? error.response.status : null
+  if (status === 410) {
+    const body = error.response.data
+    const payload = body?.error
+    const deleted = payload?.code === 'created_user_deleted'
+    const expired = payload?.code === 'operation_expired'
+    const expectedKeys = deleted
+      ? ['code', 'message', 'type', 'request_id', 'operation_ref']
+      : ['code', 'message', 'type', 'request_id']
+    const valid = (deleted || expired)
+      && exactKeys(body, ['error']) && exactKeys(payload, expectedKeys)
+      && payload.message === '请求无法完成' && payload.type === 'admin_action_error'
+      && typeof payload.request_id === 'string' && payload.request_id.trim() !== ''
+      && (deleted ? validOpaque(payload.operation_ref, 'op_') : payload.operation_ref === undefined)
+      && secureErrorMetadata(error)
+      && headerValue(error.response.headers, 'Retry-After') == null
+    if (!valid) return publicFailure('request_failed', '请求失败，请稍后重试', status, null, null)
+    return publicFailure(payload.code, payload.message, status, deleted ? payload.operation_ref : null, null)
+  }
   const established = mapAdminActionError(error)
   if (established.code !== 'request_failed') {
     return secureErrorMetadata(error) ? established : publicFailure('request_failed', '请求失败，请稍后重试', status, null, null)

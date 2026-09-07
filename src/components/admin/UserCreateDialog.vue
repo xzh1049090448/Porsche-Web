@@ -118,7 +118,7 @@ const canSubmit = computed(() => canSubmitAdminUserCreate({
 }))
 const hasGroupDirectory = computed(() => createStore.capabilities.includes('groups.read'))
 const permissionRows = computed(() => createStore.catalog?.capabilities?.filter(item => item.grantable && !item.root_only && item.available) ?? [])
-const knownFailures = new Set(['username_conflict', 'action_group_not_found', 'policy_version_conflict', 'action_verification_conflict', 'idempotency_conflict', 'authentication_failed'])
+const knownFailures = new Set(['username_conflict', 'action_group_not_found', 'policy_version_conflict', 'action_verification_conflict', 'idempotency_conflict', 'authentication_failed', 'created_user_deleted', 'operation_expired'])
 const weakPasswords = new Set(['password', 'password123', '12345678', 'qwerty123', 'porsche', 'porsche@2026'])
 const failureMessage = computed(() => t(`createUser.failures.${knownFailures.has(createStore.failureCode) ? createStore.failureCode : 'request_failed'}`))
 const submitLabel = computed(() => busy.value ? t(`createUser.states.${createStore.state}`) : t('createUser.submit'))

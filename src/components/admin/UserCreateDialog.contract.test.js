@@ -223,6 +223,19 @@ test('localized announcements distinguish known created identity from recovered 
   }
 })
 
+test('deleted and expired create replay use distinct localized safe failures', () => {
+  assert.match(dialogDescriptor.scriptSetup.content, /knownFailures[\s\S]*created_user_deleted/)
+  assert.match(dialogDescriptor.scriptSetup.content, /knownFailures[\s\S]*operation_expired/)
+  for (const locale of ['zh', 'en']) {
+    const deleted = messages[locale].createUser.failures.created_user_deleted
+    const expired = messages[locale].createUser.failures.operation_expired
+    assert.equal(typeof deleted, 'string')
+    assert.equal(typeof expired, 'string')
+    assert.notEqual(deleted, expired)
+    assert.doesNotMatch(`${deleted} ${expired}`, /\{username\}|\{nickname\}|\{password\}|\{user\}/i)
+  }
+})
+
 test('mounted dialog opens visibly with username focus and restores the trigger after close and success', async () => {
   const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
   const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')

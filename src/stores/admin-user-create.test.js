@@ -498,6 +498,39 @@ test('conflict clears every browser secret and workflow-owned ticket/key before 
   assert.deepEqual(native.map(input => input.value), ['', '', ''])
 })
 
+test('store retains only safe deleted replay state while browser secrets are cleared', async () => {
+  const f = coordinatorFixture({ terminals: [{
+    state: 'failed', operationRef: `op_${'A'.repeat(43)}`, failureCode: 'created_user_deleted', createdUser: null,
+  }] })
+  const token = f.coordinator.open({ actorRole: 'admin', capabilities: ['users.create'] })
+  await f.coordinator.whenPrepared(token)
+  const form = { password: 'First!Pass9', confirmPassword: 'First!Pass9', currentPassword: 'Actor!Pass9' }
+  const native = [{ value: form.password }, { value: form.confirmPassword }, { value: form.currentPassword }]
+  const result = await f.coordinator.submit(token, {
+    username: 'alice', password: form.password, role: 'user', groupGuid: null, planType: 'free', permissionOverrides: [], currentPassword: null,
+  })
+  clearAdminUserCreateSecrets({ form, passwordInputs: native.map(input => ({ value: { input } })) })
+  assert.deepEqual(result, {
+    state: 'failed', operationRef: `op_${'A'.repeat(43)}`, failureCode: 'created_user_deleted', createdUser: null,
+  })
+  assert.equal(f.coordinator.state.failureCode, 'created_user_deleted')
+  assert.equal(f.coordinator.state.operationRef, `op_${'A'.repeat(43)}`)
+  assert.deepEqual(form, { password: '', confirmPassword: '', currentPassword: '' })
+  assert.deepEqual(native.map(input => input.value), ['', '', ''])
+  assert.doesNotMatch(JSON.stringify(f.coordinator.state), /First!Pass9|Actor!Pass9|av_private|ik_private/)
+})
+
+test('store fails closed when an injected workflow omits the deleted replay operation ref', async () => {
+  const f = coordinatorFixture({ terminals: [{ state: 'failed', operationRef: null, failureCode: 'created_user_deleted', createdUser: null }] })
+  const token = f.coordinator.open({ actorRole: 'admin', capabilities: ['users.create'] })
+  await f.coordinator.whenPrepared(token)
+  await f.coordinator.submit(token, {
+    username: 'alice', password: 'First!Pass9', role: 'user', groupGuid: null, planType: 'free', permissionOverrides: [], currentPassword: null,
+  })
+  assert.equal(f.coordinator.state.failureCode, 'request_failed')
+  assert.equal(f.coordinator.state.operationRef, null)
+})
+
 test('coordinator scrubs its handoff object as soon as the workflow takes ownership', async () => {
   const pending = deferred()
   let handedOff

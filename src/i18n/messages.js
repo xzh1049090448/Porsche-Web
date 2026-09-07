@@ -260,7 +260,9 @@ export const messages = {
       failures: {
         username_conflict: '该用户名已被占用，请更换后重试。', action_group_not_found: '所选分组不可用，请重新选择。',
         policy_version_conflict: '权限已变化，请检查最新设置后重试。', action_verification_conflict: '验证信息已过期，请检查后重试。',
-        idempotency_conflict: '本次提交信息发生冲突，请检查后重试。', authentication_failed: '认证会话已失效，请重新登录。', request_failed: '请求无法完成，请检查后重试。',
+        idempotency_conflict: '本次提交信息发生冲突，请检查后重试。', authentication_failed: '认证会话已失效，请重新登录。',
+        created_user_deleted: '该创建记录对应的用户已被删除，原始用户信息不会显示。', operation_expired: '该创建操作记录已过期，无法再查询创建结果。',
+        request_failed: '请求无法完成，请检查后重试。',
       },
     },
     deleteUser: {
@@ -562,7 +564,9 @@ export const messages = {
       failures: {
         username_conflict: 'That username is occupied. Choose another one.', action_group_not_found: 'The selected group is unavailable. Choose again.',
         policy_version_conflict: 'Permissions changed. Review the latest settings and retry.', action_verification_conflict: 'Verification expired. Review and retry.',
-        idempotency_conflict: 'This submission conflicts with the current attempt. Review and retry.', authentication_failed: 'Your authenticated session is invalid. Sign in again.', request_failed: 'The request could not be completed. Review it and retry.',
+        idempotency_conflict: 'This submission conflicts with the current attempt. Review and retry.', authentication_failed: 'Your authenticated session is invalid. Sign in again.',
+        created_user_deleted: 'The user from this creation record was deleted. Original user details are not shown.', operation_expired: 'This creation operation expired, so its result can no longer be queried.',
+        request_failed: 'The request could not be completed. Review it and retry.',
       },
     },
     deleteUser: {

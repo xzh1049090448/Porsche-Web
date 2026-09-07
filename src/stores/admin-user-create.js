@@ -1,6 +1,11 @@
 import { defineStore } from 'pinia'
 import { reactive, toRefs } from 'vue'
-import { createAdminUserCreateWorkflow, ADMIN_USER_CREATE_STATES } from '../api/admin-user-create-state.js'
+import {
+  createAdminUserCreateWorkflow,
+  ADMIN_USER_CREATE_STATES,
+  normalizeAdminUserCreateFailureCode,
+  normalizeAdminUserCreateOperationRef,
+} from '../api/admin-user-create-state.js'
 import { executeAdminUserCreate, issueAdminUserCreateVerification, queryAdminUserCreate } from '../api/admin-user-create.js'
 import { DEFAULT_ADMIN_GROUP_CHOICE, loadAdminGroupChoices } from '../api/admin-groups.js'
 import { getAuthzCatalog } from '../api/admin-users.js'
@@ -221,7 +226,11 @@ export function createAdminUserCreateCoordinator({
   const sync = snapshot => {
     value.state = snapshot.state
     value.operationRef = snapshot.operationRef
-    value.failureCode = snapshot.failureCode ?? null
+    value.failureCode = snapshot.failureCode == null ? null : normalizeAdminUserCreateFailureCode(snapshot.failureCode)
+    if (value.failureCode === 'created_user_deleted') {
+      value.operationRef = normalizeAdminUserCreateOperationRef(snapshot.operationRef)
+      if (value.operationRef == null) value.failureCode = 'request_failed'
+    } else if (value.failureCode === 'operation_expired') value.operationRef = null
     value.createdUser = snapshot.createdUser ?? null
   }
   const abortDirectories = () => {
@@ -449,10 +458,11 @@ export function createAdminUserCreateCoordinator({
       if (result?.state === ADMIN_USER_CREATE_STATES.SUCCEEDED) {
         await callbacks.onSucceeded({ createdUser: result.createdUser ?? null, operationRef: result.operationRef ?? null }, token)
       } else if (result?.state === ADMIN_USER_CREATE_STATES.FAILED) {
-        if (result.failureCode === 'authentication_failed') {
+        const failureCode = normalizeAdminUserCreateFailureCode(result.failureCode)
+        if (failureCode === 'authentication_failed') {
           try { callbacks.onUnauthorized() } finally { close(token) }
-        } else if (CONFLICT_FAILURES.has(result.failureCode)) {
-          await callbacks.onConflict(result.failureCode, token)
+        } else if (CONFLICT_FAILURES.has(failureCode)) {
+          await callbacks.onConflict(failureCode, token)
         }
       }
       return result

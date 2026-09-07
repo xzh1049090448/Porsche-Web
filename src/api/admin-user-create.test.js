@@ -282,6 +282,44 @@ test('commit unknown requires one opaque operation ref and unsafe errors become 
   }
 })
 
+test('maps only exact A03 deleted and expired 410 envelopes', () => {
+  const gone = (code, extra = {}) => mapAdminUserCreateError({ response: {
+    status: extra.status ?? 410,
+    headers: { 'cache-control': 'no-store', 'x-request-id': 'req-gone', ...(extra.headers ?? {}) },
+    data: extra.body ?? { error: {
+      code, message: '请求无法完成', type: 'admin_action_error', request_id: 'req-gone',
+      ...(code === 'created_user_deleted' ? { operation_ref: operationRef } : {}),
+      ...(extra.payload ?? {}),
+    } },
+  } })
+
+  assert.deepEqual(gone('created_user_deleted'), {
+    code: 'created_user_deleted', message: '请求无法完成', status: 410, operationRef, retryAfter: null,
+  })
+  assert.deepEqual(gone('operation_expired'), {
+    code: 'operation_expired', message: '请求无法完成', status: 410, operationRef: null, retryAfter: null,
+  })
+
+  for (const mapped of [
+    gone('created_user_deleted', { body: { error: { code: 'created_user_deleted', message: '请求无法完成', type: 'admin_action_error', request_id: 'req-gone' } } }),
+    gone('created_user_deleted', { payload: { operation_ref: undefined } }),
+    gone('created_user_deleted', { payload: { operation_ref: 'op_invalid' } }),
+    gone('created_user_deleted', { status: 409 }),
+    gone('created_user_deleted', { headers: { 'retry-after': '1' } }),
+    gone('created_user_deleted', { payload: { username: 'private-alice' } }),
+    gone('created_user_deleted', { payload: { user: { nickname: 'private-nickname' } } }),
+    gone('created_user_deleted', { body: { error: { code: 'created_user_deleted', message: '请求无法完成', type: 'admin_action_error', request_id: 'req-gone', operation_ref: operationRef }, response_body: { username: 'private-alice' } } }),
+    gone('operation_expired', { payload: { operation_ref: operationRef } }),
+    gone('operation_expired', { status: 409 }),
+    gone('operation_expired', { headers: { 'retry-after': '1' } }),
+  ]) {
+    assert.deepEqual(mapped, {
+      code: 'request_failed', message: '请求失败，请稍后重试', status: mapped.status, operationRef: null, retryAfter: null,
+    })
+    assert.doesNotMatch(JSON.stringify(mapped), /private|alice|nickname/)
+  }
+})
+
 test('POSTs are attempted once and transport errors cannot impersonate response validation', async () => {
   let attempts = 0
   const raw = Object.assign(new Error('invalid_admin_user_create_response'), { config: { data: 'private-body' } })

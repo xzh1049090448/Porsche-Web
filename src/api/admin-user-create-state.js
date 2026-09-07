@@ -30,7 +30,7 @@ const SAFE_FAILURE_CODES = new Set([
   'action_verification_rejected', 'action_operation_rejected', 'action_group_not_found', 'action_operation_not_found',
   'action_verification_conflict', 'username_conflict', 'idempotency_conflict', 'idempotency_cross_session',
   'action_rejected', 'target_version_conflict', 'policy_version_conflict', 'target_state_conflict', 'consumer_validation_failed',
-  'operation_expired', 'action_inactive', 'action_rate_limited', 'action_dependency_unavailable', 'operation_commit_unknown',
+  'operation_expired', 'created_user_deleted', 'action_inactive', 'action_rate_limited', 'action_dependency_unavailable', 'operation_commit_unknown',
   'request_failed', 'workflow_disposed',
 ])
 const INPUT_KEYS = new Set(['username', 'nickname', 'password', 'role', 'groupGuid', 'planType', 'permissionOverrides', 'currentPassword'])
@@ -55,11 +55,15 @@ function createIdempotencyKey(randomBytes) {
   return `ik_${encoded}`
 }
 
-function safeFailureCode(error) {
-  return SAFE_FAILURE_CODES.has(error?.code) ? error.code : 'request_failed'
+export function normalizeAdminUserCreateFailureCode(code) {
+  return SAFE_FAILURE_CODES.has(code) ? code : 'request_failed'
 }
 
-function safeOperationRef(value) {
+function safeFailureCode(error) {
+  return normalizeAdminUserCreateFailureCode(error?.code)
+}
+
+export function normalizeAdminUserCreateOperationRef(value) {
   return validOpaque(value, 'op_') ? value : null
 }
 
@@ -160,7 +164,9 @@ export function createAdminUserCreateWorkflow({ api, randomBytes, schedule }) {
   const fail = (attempt, error) => {
     if (!owns(attempt)) return null
     failureCode = safeFailureCode(error)
-    operationRef = safeOperationRef(error?.operationRef)
+    operationRef = normalizeAdminUserCreateOperationRef(error?.operationRef)
+    if (failureCode === 'created_user_deleted' && operationRef == null) failureCode = 'request_failed'
+    if (failureCode !== 'created_user_deleted' && failureCode !== 'operation_commit_unknown') operationRef = null
     createdUser = null
     return settle(attempt, ADMIN_USER_CREATE_STATES.FAILED)
   }
@@ -209,7 +215,7 @@ export function createAdminUserCreateWorkflow({ api, randomBytes, schedule }) {
     try {
       const result = await api.queryAdminUserCreate({ scope: attempt.scope, idempotencyKey: attempt.idempotencyKey })
       if (!owns(attempt)) return null
-      operationRef = safeOperationRef(result?.operationRef)
+      operationRef = normalizeAdminUserCreateOperationRef(result?.operationRef)
       if (operationRef == null || result?.scope !== attempt.scope) return fail(attempt, null)
       if (result.status === 'processing') {
         if (attempt.queryAttempts >= MAX_QUERY_ATTEMPTS) return settle(attempt, ADMIN_USER_CREATE_STATES.PENDING_RECOVERY)
@@ -293,7 +299,7 @@ export function createAdminUserCreateWorkflow({ api, randomBytes, schedule }) {
       attempt.ticket = null
       if (!owns(attempt)) return null
       if (!isAmbiguousCreate(error)) return fail(attempt, error)
-      operationRef = safeOperationRef(error?.operationRef)
+      operationRef = normalizeAdminUserCreateOperationRef(error?.operationRef)
       attempt.request = null
       attempt.currentPassword = null
       createdUser = null
