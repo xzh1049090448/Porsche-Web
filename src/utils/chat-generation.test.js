@@ -198,3 +198,16 @@ test('compare direct done requires exact top-level schema and safe total token c
   for (const extra of [{ tokens: 0 }, { secret: 'x' }]) { const g = prepare(); g.handleEvent({ type: 'done', generation_id: 'gen-1', status: 'completed', conversation_guid: 'conv-1', total_tokens_used: 0, models, ...extra }); assert.equal(g.snapshot().status, 'failed') }
   const valid = prepare(); valid.handleEvent({ type: 'done', generation_id: 'gen-1', status: 'completed', conversation_guid: 'conv-1', total_tokens_used: 0, models }); assert.equal(valid.snapshot().status, 'completed')
 })
+
+test('cancel observes FE01 failed snapshot and cancelFrame cleanup errors', () => {
+  const returnedFailed = { push() {}, finish() {}, cancel() { return { failed: true, errorCode: 'PLAYBACK_ERROR' } }, dispose() {}, snapshot: () => ({ displayedText: '', pendingCount: 0, finished: false, disposed: false }) }
+  const g = createChatGeneration({ ...base(), playbackFactory: () => returnedFailed }); g.handleEvent(meta()); g.cancelLocalQueue(); assert.equal(g.snapshot().status, 'failed'); assert.equal(g.snapshot().diagnostics.at(-1).code, 'GENERATION_PLAYER_ERROR')
+  let frame; const h = createChatGeneration({ ...base(), playback: { requestFrame: callback => { frame = callback; return 1 }, cancelFrame: () => { throw new Error('cancel frame') }, now: () => 0 } }); h.handleEvent(meta()); h.handleEvent(delta('model-a', 1, 'AB')); h.cancelLocalQueue(); assert.equal(h.snapshot().status, 'failed'); assert.equal(h.snapshot().diagnostics.at(-1).code, 'GENERATION_PLAYER_ERROR'); assert.ok(frame)
+})
+
+test('dynamic player method getters fail closed on every operation while normal dispose stays valid', () => {
+  const methods = new Set(['push', 'finish', 'cancel', 'dispose']); let throwGetter = false
+  const player = new Proxy({ snapshot: () => ({ displayedText: '', pendingCount: 0, finished: false, disposed: false }) }, { get(target, key) { if (throwGetter && methods.has(key)) throw new Error('dynamic getter'); if (methods.has(key)) return () => ({ failed: false }); return target[key] } })
+  const g = createChatGeneration({ ...base(), playbackFactory: () => player }); g.handleEvent(meta()); throwGetter = true; g.handleEvent(delta('model-a', 1, 'A')); assert.equal(g.snapshot().status, 'failed')
+  const normal = createChatGeneration({ ...base(), playbackFactory: () => ({ push() {}, finish() {}, cancel() {}, dispose() {}, snapshot: () => ({ displayedText: '', pendingCount: 0, finished: false, disposed: true, failed: false, errorCode: null }) }) }); normal.dispose(); assert.equal(normal.snapshot().status, 'disposed')
+})

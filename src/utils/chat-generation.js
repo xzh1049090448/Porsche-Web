@@ -70,13 +70,21 @@ export function createChatGeneration(options = {}) {
   const cleanupPlayer = (item, method = 'cancel') => {
     item.epoch += 1
     const player = item.player; item.player = null
-    if (!player || typeof player[method] !== 'function') return
-    try { player[method]() } catch { diagnostic('GENERATION_CLEANUP_ERROR', item.model) }
+    if (!player) return
+    try { const callback = player[method]; if (typeof callback === 'function') callback.call(player) } catch { diagnostic('GENERATION_CLEANUP_ERROR', item.model) }
   }
   const cleanupAll = method => models.forEach(item => cleanupPlayer(item, method))
   function safePlayerCall(item, method, ...args) {
-    if (!item.player || typeof item.player[method] !== 'function') return true
-    try { item.player[method](...args); return true } catch { if (cleaning) diagnostic('GENERATION_PLAYER_ERROR', item.model); else fail('GENERATION_PLAYER_ERROR', item.model); return false }
+    try {
+      if (!item.player || typeof item.player[method] !== 'function') return true
+      const result = item.player[method](...args)
+      if (method !== 'dispose' && result && (result.failed === true || result.errorCode)) { if (cleaning) diagnostic('GENERATION_PLAYER_ERROR', item.model); else fail('GENERATION_PLAYER_ERROR', item.model); return false }
+      if (method !== 'dispose' && typeof item.player.snapshot === 'function') {
+        const state = item.player.snapshot()
+        if (state && (state.failed === true || state.errorCode)) { if (cleaning) diagnostic('GENERATION_PLAYER_ERROR', item.model); else fail('GENERATION_PLAYER_ERROR', item.model); return false }
+      }
+      return true
+    } catch { if (cleaning) diagnostic('GENERATION_PLAYER_ERROR', item.model); else fail('GENERATION_PLAYER_ERROR', item.model); return false }
   }
   const makePlayer = (item, prefix = '') => {
     const epoch = ++item.epoch
