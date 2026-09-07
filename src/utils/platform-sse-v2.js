@@ -12,6 +12,7 @@ const codes = {
   eof: 'SSE_V2_EOF_WITHOUT_TERMINAL',
   callback: 'SSE_V2_CALLBACK_FAILURE',
 }
+const stableModelCodes = new Set(['gateway_upstream_error', 'invalid_request', 'rate_limited', 'cancelled', 'timeout', 'internal_error', 'upstream_error'])
 
 const safeError = (code) => Object.freeze({ code })
 const canonical = value => {
@@ -29,7 +30,6 @@ const freezeDeep = value => {
 
 export function createPlatformSSEv2Parser({ generationId, models, onEvent = () => {}, onError = () => {} } = {}) {
   const expectedModels = Array.isArray(models) ? models.map(String) : []
-  const modelSet = new Set(expectedModels)
   const decoder = textDecoder()
   let buffer = ''
   let currentEvent = ''
@@ -40,6 +40,7 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
   let finished = false
   let errorSent = false
   let globalDone = false
+  let inputStarted = false
   const modelState = new Map()
   const accepted = new Map()
 
@@ -66,7 +67,9 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
     const key = `${eventName}:${canonical(payload)}`
     const duplicateKey = `${eventName}:${payload.model ?? ''}:${payload.seq ?? payload.last_seq ?? ''}`
     if (eventName === 'meta' && metaSeen) return protocolError(codes.protocol)
-    if (terminal && eventName === 'done') return protocolError(codes.afterTerminal)
+    if (terminal && globalDone && eventName === 'done' && accepted.get(duplicateKey) === key) return
+    if (terminal) return protocolError(codes.afterTerminal)
+    if (eventName === 'delta' && modelState.get(payload.model)?.terminal) return protocolError(codes.afterTerminal)
     if (accepted.has(duplicateKey)) {
       if (accepted.get(duplicateKey) === key) return
       return protocolError(codes.duplicate)
@@ -93,12 +96,21 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
       if (!state || state.terminal) return protocolError(codes.protocol)
       if (eventName === 'model_done' && payload.last_seq !== state.next - 1) return protocolError(codes.sequence)
       state.terminal = true
+      state.status = eventName === 'model_done' ? 'completed' : 'failed'
+      state.code = eventName === 'model_error' && stableModelCodes.has(payload.code) ? payload.code : 'upstream_error'
       accepted.set(duplicateKey, key)
-      return callback({ type: eventName, model: payload.model, ...(eventName === 'model_done' ? { last_seq: payload.last_seq } : { code: typeof payload.code === 'string' ? payload.code : 'model_error' }) })
+      return callback({ type: eventName, model: payload.model, ...(eventName === 'model_done' ? { last_seq: payload.last_seq } : { code: state.code }) })
     }
     if (eventName === 'done') {
-      if (payload.status !== 'completed' || (expectedModels.length > 1 && (!payload.models || typeof payload.models !== 'object'))) return protocolError(codes.protocol)
-      if (expectedModels.length > 1 && expectedModels.some(model => !modelState.get(model)?.terminal || !payload.models[model])) return protocolError(codes.protocol)
+      if (payload.status !== 'completed' || typeof payload.conversation_guid !== 'string' || !payload.conversation_guid || expectedModels.some(model => !modelState.get(model)?.terminal)) return protocolError(codes.protocol)
+      if (expectedModels.length > 1) {
+        if (!payload.models || typeof payload.models !== 'object' || Array.isArray(payload.models) || Object.keys(payload.models).length !== expectedModels.length || expectedModels.some(model => !Object.prototype.hasOwnProperty.call(payload.models, model))) return protocolError(codes.protocol)
+        for (const model of expectedModels) {
+          const item = payload.models[model]
+          const state = modelState.get(model)
+          if (!item || item.status !== state.status || (state.status === 'completed' && (!Number.isSafeInteger(item.tokens) || item.tokens < 0)) || (state.status === 'failed' && (item.code !== state.code || Object.keys(item).some(key => !['status', 'code'].includes(key))))) return protocolError(codes.protocol)
+        }
+      } else if (payload.models !== undefined) return protocolError(codes.protocol)
       globalDone = true
       terminal = true
       accepted.set(duplicateKey, key)
@@ -129,9 +141,15 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
   }
   return {
     push(input) {
-      if (finished || terminal || failed) { if (terminal && !failed && input != null) notifyError(codes.afterTerminal); return }
+      if (finished || failed) return
       if (!(typeof input === 'string' || input instanceof Uint8Array)) return notifyError(codes.invalidInput)
-      try { buffer += typeof input === 'string' ? input : decoder.decode(input, { stream: true }) } catch { return notifyError(codes.framing) }
+      try {
+        if (typeof input === 'string') {
+          const value = !inputStarted && input.startsWith('\ufeff') ? input.slice(1) : input
+          buffer += value
+        } else buffer += decoder.decode(input, { stream: true })
+        inputStarted = true
+      } catch { return notifyError(codes.framing) }
       dispatch()
     },
     finish() {

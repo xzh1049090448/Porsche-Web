@@ -9,8 +9,8 @@ const delta = (model, seq, text, generationId = 'g-1') =>
   `event: delta\ndata: ${JSON.stringify({ generation_id: generationId, model, seq, delta: text })}\n\n`
 const modelDone = (model, lastSeq, generationId = 'g-1') =>
   `event: model_done\ndata: ${JSON.stringify({ generation_id: generationId, model, last_seq: lastSeq })}\n\n`
-const done = (models = { a: { status: 'completed', tokens: 1 } }, generationId = 'g-1') =>
-  `event: done\ndata: ${JSON.stringify({ generation_id: generationId, status: 'completed', conversation_guid: 'c-1', models, tokens: 1 })}\n\n`
+const done = (models = undefined, generationId = 'g-1') =>
+  `event: done\ndata: ${JSON.stringify({ generation_id: generationId, status: 'completed', conversation_guid: 'c-1', ...(models === undefined ? {} : { models }), tokens: 1 })}\n\n`
 
 function parser(options = {}) {
   const events = []
@@ -28,16 +28,16 @@ function parser(options = {}) {
 test('frames CRLF, LF, comments, multi-line data, and multiple events', () => {
   const { p, events, errors } = parser()
   p.push(`: keepalive\r\nevent: meta\r\ndata: {"schema":"platform-chat-sse.v2",\r\ndata: "generation_id":"g-1","conversation_guid":"c-1","models":["a"]}\r\n\r\n`)
-  p.push(delta('a', 1, 'hi') + done())
+  p.push(delta('a', 1, 'hi') + modelDone('a', 1) + done())
   p.finish()
   assert.equal(errors.length, 0)
-  assert.deepEqual(events.map(e => e.type), ['meta', 'delta', 'done'])
+  assert.deepEqual(events.map(e => e.type), ['meta', 'delta', 'model_done', 'done'])
   assert.equal(events[1].delta, 'hi')
 })
 
 test('decodes UTF-8 bytes split inside a multibyte character', () => {
   const { p, events } = parser()
-  const bytes = enc.encode(meta() + delta('a', 1, '中') + done())
+  const bytes = enc.encode(meta() + delta('a', 1, '中') + modelDone('a', 1) + done())
   const marker = bytes.indexOf(enc.encode('中')[0])
   p.push(bytes.slice(0, marker + 1))
   p.push(bytes.slice(marker + 1))
@@ -53,9 +53,28 @@ test('accepts interleaved compare models with independent sequences and terminal
   assert.deepEqual(events.filter(e => e.type === 'delta').map(e => e.model), ['a', 'b', 'a'])
 })
 
+test('requires every single model to terminate before global done', () => {
+  const { p, errors } = parser()
+  p.push(meta() + delta('a', 1, 'x') + done())
+  assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR')
+})
+
+test('requires exact compare terminal models and matching statuses/tokens', () => {
+  const { p, errors } = parser({ models: ['a', 'b'] })
+  p.push(meta(['a', 'b']) + modelDone('a', 0) + 'event: model_error\ndata: ' + JSON.stringify({ generation_id: 'g-1', model: 'b', code: 'gateway_upstream_error' }) + '\n\n' + done({ a: { status: 'completed', tokens: 1 }, b: { status: 'failed', code: 'gateway_upstream_error' }, extra: { status: 'failed', code: 'gateway_upstream_error' } }))
+  assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR')
+})
+
+test('maps unknown model error codes to stable code and never exposes sensitive fields', () => {
+  const { p, events } = parser()
+  p.push(meta() + 'event: model_error\ndata: ' + JSON.stringify({ generation_id: 'g-1', model: 'a', code: 'raw upstream https://internal.example', message: 'Authorization: Bearer secret prompt' }) + '\n\n' + done())
+  assert.equal(events.find(e => e.type === 'model_error').code, 'upstream_error')
+  assert.equal(JSON.stringify(events).includes('Authorization'), false)
+})
+
 test('accepts model_error as one model terminal and emits no error text', () => {
   const { p, events, errors } = parser({ models: ['a', 'b'] })
-  p.push(meta(['a', 'b']) + delta('a', 1, 'A') + modelDone('a', 1) + 'event: model_error\ndata: ' + JSON.stringify({ generation_id: 'g-1', model: 'b', code: 'gateway_upstream_error', request_id: 'req-1' }) + '\n\n' + done({ a: { status: 'completed', tokens: 1 }, b: { status: 'failed', tokens: 0 } }))
+  p.push(meta(['a', 'b']) + delta('a', 1, 'A') + modelDone('a', 1) + 'event: model_error\ndata: ' + JSON.stringify({ generation_id: 'g-1', model: 'b', code: 'gateway_upstream_error', request_id: 'req-1' }) + '\n\n' + done({ a: { status: 'completed', tokens: 1 }, b: { status: 'failed', code: 'gateway_upstream_error' } }))
   p.finish()
   assert.equal(errors.length, 0)
   assert.equal(events.find(e => e.type === 'model_error').code, 'gateway_upstream_error')
@@ -73,18 +92,31 @@ test('rejects missing meta, empty delta, sequence gaps, and invalid JSON with st
     p.push(stream)
     p.finish()
     assert.equal(errors.length, 1)
-    assert.match(errors[0].code, /^SSE_V2_/) 
+    assert.match(errors[0].code, /^SSE_V2_/)
     assert.equal(JSON.stringify(errors[0]).includes(stream), false)
   }
 })
 
 test('deduplicates exact accepted events but rejects conflicting duplicates and events after terminal', () => {
   const { p, events, errors } = parser()
-  p.push(meta() + delta('a', 1, 'x') + delta('a', 1, 'x') + modelDone('a', 1) + modelDone('a', 1) + done() + done())
+  p.push(meta() + delta('a', 1, 'x') + delta('a', 1, 'x') + modelDone('a', 1) + modelDone('a', 1) + done() + done() + 'event: delta\ndata: ' + JSON.stringify({ generation_id: 'g-1', model: 'a', seq: 2, delta: 'late' }) + '\n\n')
   p.finish()
   assert.equal(errors.length, 1)
   assert.equal(events.filter(e => e.type === 'delta').length, 1)
   assert.equal(errors[0].code, 'SSE_V2_EVENT_AFTER_TERMINAL')
+})
+
+test('rejects a delta after model terminal even when it repeats an accepted delta, but deduplicates exact global done', () => {
+  const { p, errors } = parser()
+  p.push(meta() + delta('a', 1, 'x') + modelDone('a', 1) + delta('a', 1, 'x'))
+  assert.equal(errors[0].code, 'SSE_V2_EVENT_AFTER_TERMINAL')
+  const complete = parser(); complete.p.push(meta() + modelDone('a', 0) + done()); complete.p.push(done()); complete.p.finish(); assert.equal(complete.errors.length, 0)
+})
+
+test('string BOM is handled exactly like a byte BOM and trailing whitespace is ignored', () => {
+  const stringParser = parser(); stringParser.p.push('\ufeff' + meta() + modelDone('a', 0) + done() + '  \n'); stringParser.p.finish()
+  const byteParser = parser(); byteParser.p.push(new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode(meta() + modelDone('a', 0) + done() + '  \n')])); byteParser.p.finish()
+  assert.equal(stringParser.errors.length, 0); assert.equal(byteParser.errors.length, 0)
 })
 
 test('rejects a second meta event even when its payload is identical', () => {
@@ -95,10 +127,10 @@ test('rejects a second meta event even when its payload is identical', () => {
 
 test('unknown events are ignored with a safe diagnostic and valid done still completes', () => {
   const { p, events, errors } = parser()
-  p.push(meta() + 'event: future_type\ndata: secret body\n\n' + delta('a', 1, 'x') + done())
+  p.push(meta() + 'event: future_type\ndata: secret body\n\n' + delta('a', 1, 'x') + modelDone('a', 1) + done())
   p.finish()
   assert.equal(errors.length, 0)
-  assert.deepEqual(events.map(e => e.type), ['meta', 'diagnostic', 'delta', 'done'])
+  assert.deepEqual(events.map(e => e.type), ['meta', 'diagnostic', 'delta', 'model_done', 'done'])
   assert.equal(events[1].category, 'unknown_event')
   assert.equal('data' in events[1], false)
 })
