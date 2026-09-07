@@ -21,7 +21,7 @@
           <el-descriptions-item label="角色">{{ store.selected.role === 'admin' ? '管理员' : '用户' }}</el-descriptions-item>
           <el-descriptions-item label="套餐">{{ planLabel }}</el-descriptions-item>
           <el-descriptions-item label="邮箱">未设置</el-descriptions-item>
-          <el-descriptions-item label="分组">未接入</el-descriptions-item>
+          <el-descriptions-item label="分组">{{ store.selected.group }}</el-descriptions-item>
           <el-descriptions-item label="金额额度">未接入</el-descriptions-item>
           <el-descriptions-item label="创建时间">{{ store.selected.createdAt }}</el-descriptions-item>
           <el-descriptions-item label="最近登录">{{ store.selected.lastLoginAt || '从未登录' }}</el-descriptions-item>
