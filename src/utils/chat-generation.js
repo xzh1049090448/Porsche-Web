@@ -70,10 +70,16 @@ export function createChatGeneration(options = {}) {
   const cleanupPlayer = (item, method = 'cancel') => {
     item.epoch += 1
     const player = item.player; item.player = null
-    if (!player) return
-    try { const callback = player[method]; if (typeof callback === 'function') callback.call(player) } catch { diagnostic('GENERATION_CLEANUP_ERROR', item.model) }
+    if (!player) return true
+    try {
+      const callback = player[method]; if (typeof callback !== 'function') return true
+      const result = callback.call(player)
+      if (method !== 'dispose' && result && (result.failed === true || result.errorCode)) return false
+      if (method !== 'dispose') { const state = player.snapshot(); if (state && (state.failed === true || state.errorCode)) return false }
+      return true
+    } catch { diagnostic('GENERATION_CLEANUP_ERROR', item.model); return false }
   }
-  const cleanupAll = method => models.forEach(item => cleanupPlayer(item, method))
+  const cleanupAll = method => models.reduce((ok, item) => cleanupPlayer(item, method) && ok, true)
   function safePlayerCall(item, method, ...args) {
     try {
       if (!item.player || typeof item.player[method] !== 'function') return true
@@ -166,7 +172,7 @@ export function createChatGeneration(options = {}) {
     if (TERMINAL.has(status)) return snapshot()
     if (!validateStatusPayload(result)) { diagnostic('GENERATION_STATUS_ERROR'); return snapshot() }
     if (result.status === 'completed') return applyAuthoritative(result)
-    if (result.status === 'cancelled') { cleanupAll('cancel'); if (!TERMINAL.has(status)) setStatus('cancelled'); return snapshot() }
+    if (result.status === 'cancelled') { const cleaned = cleanupAll('cancel'); if (!cleaned) { status = 'failed'; diagnostic('GENERATION_PLAYER_ERROR') } else if (!TERMINAL.has(status)) setStatus('cancelled'); return snapshot() }
     if (result.status === 'failed') return fail('GENERATION_REMOTE_ERROR')
     if (result.status === 'cancelling' || result.status === 'committing' || result.status === 'running') return snapshot()
     return fail('GENERATION_STATUS_ERROR')

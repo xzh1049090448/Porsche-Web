@@ -211,3 +211,10 @@ test('dynamic player method getters fail closed on every operation while normal 
   const g = createChatGeneration({ ...base(), playbackFactory: () => player }); g.handleEvent(meta()); throwGetter = true; g.handleEvent(delta('model-a', 1, 'A')); assert.equal(g.snapshot().status, 'failed')
   const normal = createChatGeneration({ ...base(), playbackFactory: () => ({ push() {}, finish() {}, cancel() {}, dispose() {}, snapshot: () => ({ displayedText: '', pendingCount: 0, finished: false, disposed: true, failed: false, errorCode: null }) }) }); normal.dispose(); assert.equal(normal.snapshot().status, 'disposed')
 })
+
+test('authoritative cancelled cleanup honors failed snapshots and keeps sibling cleanup attempts', () => {
+  const failedCancel = { push() {}, finish() {}, cancel() { return { failed: true, errorCode: 'PLAYBACK_ERROR' } }, dispose() {}, snapshot: () => ({ failed: true, errorCode: 'PLAYBACK_ERROR', displayedText: '', pendingCount: 0 }) }
+  const single = createChatGeneration({ ...base(), playbackFactory: () => failedCancel }); single.handleEvent(meta()); single.cancelLocalQueue(); single.resolveCancel({ generation_id: 'gen-1', conversation_guid: null, mode: 'single', status: 'cancelled' }); assert.equal(single.snapshot().status, 'failed')
+  let cleaned = 0; const compare = createChatGeneration({ mode: 'compare', generationId: 'gen-1', conversationGuid: 'conv-1', messageKey: 'msg-1', models: ['a', 'b'], playbackFactory: ({ model }) => ({ push() {}, finish() {}, cancel() { cleaned += 1; if (model === 'a') throw new Error('cancel') }, dispose() {}, snapshot: () => ({ failed: false, errorCode: null, displayedText: '', pendingCount: 0 }) }) }); compare.handleEvent(meta('gen-1', ['a', 'b'])); compare.resolveStatus({ generation_id: 'gen-1', conversation_guid: null, mode: 'compare', status: 'cancelled' }); assert.equal(compare.snapshot().status, 'failed'); assert.equal(cleaned, 2)
+  const normal = createChatGeneration(base()); normal.handleEvent(meta()); normal.resolveStatus({ generation_id: 'gen-1', conversation_guid: null, mode: 'single', status: 'cancelled' }); assert.equal(normal.snapshot().status, 'cancelled')
+})
