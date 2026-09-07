@@ -231,3 +231,15 @@ test('runtime removal of an initially valid player method fails closed for push,
     assert.equal(g.snapshot().status, method === 'dispose' ? 'disposed' : 'failed'); assert.ok(g.snapshot().diagnostics.length > 0)
   }
 })
+
+test('authoritative completed rebuild stops on every old-player dispose failure', () => {
+  for (const mode of ['missing', 'throw', 'return', 'snapshot']) {
+    let broken = false; let creations = 0; const target = { push() {}, finish() {}, cancel() {}, dispose() {}, snapshot: () => ({ failed: false, errorCode: null, displayedText: '', pendingCount: 0 }) }
+    const player = new Proxy(target, { get(obj, key) { if (broken && key === 'dispose' && mode === 'missing') return undefined; if (broken && key === 'dispose' && mode === 'throw') return () => { throw new Error('dispose') }; if (broken && key === 'dispose' && mode === 'return') return () => ({ failed: true, errorCode: 'PLAYBACK_ERROR' }); if (broken && key === 'snapshot' && mode === 'snapshot') return () => ({ failed: true, errorCode: 'PLAYBACK_ERROR' }); return obj[key] } })
+    const g = createChatGeneration({ ...base(), playbackFactory: () => { creations += 1; return player } }); g.handleEvent(meta()); broken = true; g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', mode: 'single', status: 'completed', total_tokens_used: 0, result: { model: 'model-a', status: 'completed', assistant_message_guid: 'm', content: '', tokens: 0 } }); assert.equal(g.snapshot().status, 'failed'); assert.equal(g.snapshot().diagnostics.at(-1).code, 'GENERATION_CLEANUP_ERROR'); assert.equal(creations, 1)
+  }
+})
+
+test('compare rebuild cleanup failure fails closed and does not create sibling replacements', () => {
+  const created = []; const g = createChatGeneration({ mode: 'compare', generationId: 'gen-1', conversationGuid: 'conv-1', messageKey: 'msg-1', models: ['a', 'b'], playbackFactory: ({ model }) => { const item = { push() {}, finish() {}, cancel() {}, dispose() {}, snapshot: () => ({ failed: false, errorCode: null, displayedText: '', pendingCount: 0 }) }; if (model === 'a') item.dispose = () => { throw new Error('dispose') }; created.push(model); return item } }); g.handleEvent(meta('gen-1', ['a', 'b'])); g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', mode: 'compare', status: 'completed', total_tokens_used: 0, results: [{ model: 'a', status: 'completed', assistant_message_guid: 'm-a', content: '', tokens: 0 }, { model: 'b', status: 'completed', assistant_message_guid: 'm-b', content: '', tokens: 0 }] }); assert.equal(g.snapshot().status, 'failed'); assert.deepEqual(created, ['a', 'b'])
+})

@@ -149,7 +149,8 @@ export function createChatGeneration(options = {}) {
       if (entry.status === 'failed') { if (!safePlayerCall(item, 'cancel')) return snapshot(); item.terminal = 'failed'; item.code = safeCode(entry.code); continue }
       if (entry.status !== 'completed' || typeof entry.content !== 'string' || !entry.content.startsWith(item.displayedText)) return fail('GENERATION_DATA_ERROR')
       const prefix = item.displayedText; const suffix = entry.content.slice(prefix.length); item.receivedText = entry.content; item.terminal = 'completed'; item.code = null
-      cleanupPlayer(item, 'dispose'); makePlayer(item, prefix); if (status === 'failed' || !item.player) return snapshot()
+      if (!cleanupPlayer(item, 'dispose')) { status = 'failed'; diagnostic('GENERATION_CLEANUP_ERROR', item.model); return snapshot() }
+      makePlayer(item, prefix); if (status === 'failed' || !item.player) return snapshot()
       if (suffix && !safePlayerCall(item, 'push', suffix)) return snapshot(); if (!safePlayerCall(item, 'finish')) return snapshot()
     }
     globalDone = true; setStatus('draining'); maybeComplete(); return snapshot()
