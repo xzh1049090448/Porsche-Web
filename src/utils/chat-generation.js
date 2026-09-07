@@ -38,7 +38,7 @@ export function createChatGeneration(options = {}) {
   const factory = options.playbackFactory || options.createPlayback || createGraphemePlayback
   const scheduler = options.scheduler || {}
   const playbackOptions = { ...(options.playbackOptions || (options.playback && typeof options.playback === 'object' ? options.playback : {})), ...(scheduler.requestFrame ? { requestFrame: scheduler.requestFrame } : {}), ...(scheduler.cancelFrame ? { cancelFrame: scheduler.cancelFrame } : {}), ...(scheduler.now ? { now: scheduler.now } : {}) }
-  const models = options.models.map(model => ({ model, receivedText: '', displayedText: '', lastSeq: 0, terminal: null, code: null, player: null }))
+  const models = options.models.map(model => ({ model, receivedText: '', displayedText: '', lastSeq: 0, terminal: null, code: null, player: null, epoch: 0 }))
 
   const notify = () => { try { change(snapshot()) } catch {} }
   const diagnostic = (code, model) => {
@@ -63,13 +63,23 @@ export function createChatGeneration(options = {}) {
   const setStatus = next => { if (VALID_STATUSES.has(next)) { status = next; notify() } }
   const allDrained = () => models.every(item => { const p = playerSnapshot(item); return p.pendingCount === 0 && (item.terminal === 'failed' || item.displayedText === item.receivedText) })
   const maybeComplete = () => { if (status === 'draining' && globalDone && allDrained()) setStatus('completed') }
+  const cleanupPlayer = (item, method = 'cancel') => {
+    item.epoch += 1
+    const player = item.player; item.player = null
+    if (!player || typeof player[method] !== 'function') return
+    try { player[method]() } catch { diagnostic('GENERATION_CLEANUP_ERROR', item.model) }
+  }
+  const cleanupAll = method => models.forEach(item => cleanupPlayer(item, method))
   const makePlayer = (item, prefix = '') => {
-    const callbacks = { onDisplay: displayed => { item.displayedText = prefix + displayed; notify(); maybeComplete() }, onError: () => { item.terminal = 'failed'; item.code = 'PLAYBACK_ERROR'; if (!TERMINAL.has(status)) setStatus('failed'); diagnostic('GENERATION_PLAYBACK_ERROR', item.model) } }
-    try { item.player = factory({ ...playbackOptions, ...callbacks, model: item.model }) } catch { item.terminal = 'failed'; item.code = 'PLAYBACK_ERROR'; setStatus('failed') }
+    const epoch = ++item.epoch
+    const active = () => !disposed && !TERMINAL.has(status) && status !== 'cancelling' && item.epoch === epoch
+    const callbacks = { onDisplay: displayed => { if (!active()) return; item.displayedText = prefix + displayed; notify(); maybeComplete() }, onError: () => { if (!active()) return; item.terminal = 'failed'; item.code = 'PLAYBACK_ERROR'; fail('GENERATION_PLAYBACK_ERROR', item.model) } }
+    try { item.player = factory({ ...playbackOptions, ...callbacks, model: item.model }) } catch { item.player = null; item.terminal = 'failed'; item.code = 'PLAYBACK_ERROR'; status = 'failed'; diagnostic('GENERATION_PLAYBACK_ERROR', item.model) }
   }
   models.forEach(item => makePlayer(item))
+  if (status === 'failed') cleanupAll('dispose')
 
-  const fail = code => { if (TERMINAL.has(status)) return snapshot(); status = 'failed'; diagnostic(code); return snapshot() }
+  function fail(code, model) { if (TERMINAL.has(status)) return snapshot(); status = 'failed'; cleanupAll('dispose'); diagnostic(code, model); return snapshot() }
   const validIdentity = event => event && event.generation_id === generationId
   const handleEvent = event => {
     if (disposed || TERMINAL.has(status) || status === 'cancelling') return snapshot()
@@ -93,14 +103,16 @@ export function createChatGeneration(options = {}) {
       return snapshot()
     }
     if (event.type === 'done') {
-      if (globalDone || event.status !== 'completed' || event.conversation_guid !== conversationGuid || models.some(item => !item.terminal)) return fail('GENERATION_DONE_ERROR')
+      const modelSummary = event.models
+      const summaryOK = mode === 'single' ? !Object.prototype.hasOwnProperty.call(event, 'models') : modelSummary && typeof modelSummary === 'object' && !Array.isArray(modelSummary) && Object.keys(modelSummary).length === models.length && models.every(item => { const entry = modelSummary[item.model]; return entry && entry.status === item.terminal && (entry.status === 'completed' ? Number.isSafeInteger(entry.tokens) && entry.tokens >= 0 && Object.keys(entry).every(key => ['status', 'tokens'].includes(key)) : entry.status === 'failed' && STABLE_CODES.has(entry.code) && Object.keys(entry).every(key => ['status', 'code'].includes(key))) })
+      if (globalDone || event.status !== 'completed' || event.conversation_guid !== conversationGuid || models.some(item => !item.terminal) || !summaryOK) return fail('GENERATION_DONE_ERROR')
       if (mode === 'single' && models[0].terminal !== 'completed') return fail('GENERATION_DONE_ERROR')
       globalDone = true; models.forEach(item => { if (item.terminal === 'completed') item.player.finish() }); setStatus('draining'); maybeComplete(); return snapshot()
     }
     if (event.type === 'error') return fail('GENERATION_REMOTE_ERROR')
     diagnostic('GENERATION_UNKNOWN_EVENT'); return snapshot()
   }
-  const cancelLocalQueue = () => { if (status === 'waiting' || status === 'receiving') { models.forEach(item => item.player.cancel()); setStatus('cancelling') } return snapshot() }
+  const cancelLocalQueue = () => { if (status === 'waiting' || status === 'receiving') { for (const item of models) { if (status === 'failed') break; try { item.player?.cancel() } catch { fail('GENERATION_CLEANUP_ERROR', item.model) } } if (status !== 'failed') setStatus('cancelling') } return snapshot() }
   const applyAuthoritative = result => {
     if (!result || result.status !== 'completed') return fail('GENERATION_DATA_ERROR')
     const entries = mode === 'single' ? [result.result || (Array.isArray(result.results) ? result.results[0] : null)] : result.results
@@ -111,7 +123,7 @@ export function createChatGeneration(options = {}) {
       if (entry.status === 'failed') { item.player.cancel(); item.terminal = 'failed'; item.code = safeCode(entry.code); continue }
       if (entry.status !== 'completed' || typeof entry.content !== 'string' || !entry.content.startsWith(item.displayedText)) return fail('GENERATION_DATA_ERROR')
       const prefix = item.displayedText; const suffix = entry.content.slice(prefix.length); item.receivedText = entry.content; item.terminal = 'completed'; item.code = null
-      item.player.dispose(); item.player = null; makePlayer(item, prefix)
+      cleanupPlayer(item, 'dispose'); makePlayer(item, prefix)
       if (suffix) item.player.push(suffix); item.player.finish()
     }
     globalDone = true; setStatus('draining'); maybeComplete(); return snapshot()
@@ -134,12 +146,12 @@ export function createChatGeneration(options = {}) {
     if (TERMINAL.has(status)) return snapshot()
     if (!validateStatusPayload(result)) { diagnostic('GENERATION_STATUS_ERROR'); return snapshot() }
     if (result.status === 'completed') return applyAuthoritative(result)
-    if (result.status === 'cancelled') { models.forEach(item => item.player.cancel()); setStatus('cancelled'); return snapshot() }
+    if (result.status === 'cancelled') { cleanupAll('cancel'); if (!TERMINAL.has(status)) setStatus('cancelled'); return snapshot() }
     if (result.status === 'failed') return fail('GENERATION_REMOTE_ERROR')
     if (result.status === 'cancelling' || result.status === 'committing' || result.status === 'running') return snapshot()
     return fail('GENERATION_STATUS_ERROR')
   }
-  const dispose = () => { if (disposed) return snapshot(); disposed = true; models.forEach(item => item.player.dispose()); status = 'disposed'; diagnostics = []; return snapshot() }
+  const dispose = () => { if (disposed) return snapshot(); cleanupAll('dispose'); disposed = true; status = 'disposed'; return snapshot() }
 
   return { snapshot, handleEvent, onEvent: handleEvent, pushEvent: handleEvent, cancelLocalQueue, resolveCancel: resolve, resolveStatus: resolve, eof: () => fail('GENERATION_EOF'), fail: code => fail(code === 'transport' ? 'GENERATION_TRANSPORT_ERROR' : 'GENERATION_PARSER_ERROR'), dispose }
 }

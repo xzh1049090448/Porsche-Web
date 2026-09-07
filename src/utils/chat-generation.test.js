@@ -129,3 +129,29 @@ test('authoritative completed requires a safe nonnegative total token count, inc
   valid.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', mode: 'single', status: 'completed', total_tokens_used: 0, result: { model: 'model-a', status: 'completed', assistant_message_guid: 'm-a', content: '', tokens: 0 } });
   assert.equal(valid.snapshot().status, 'completed')
 })
+
+test('fail closes every player, keeps displayed prefixes, and prevents later frames', () => {
+  const clock = scheduler(); const g = createChatGeneration({ ...base(), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } })
+  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'AB')); clock.step(1000); g.fail('transport'); const failed = g.snapshot();
+  assert.equal(failed.status, 'failed'); assert.equal(failed.models[0].displayedText, 'A'); assert.equal(failed.models[0].pendingCount, 0); while (clock.step(2000)) {} assert.equal(g.snapshot().models[0].displayedText, 'A')
+})
+
+test('stale player callbacks cannot mutate after authoritative rebuild or disposal', () => {
+  let oldDisplay; let oldError; const factory = ({ onDisplay, onError }) => { oldDisplay = onDisplay; oldError = onError; return { push() {}, finish() {}, cancel() {}, dispose() {}, snapshot: () => ({ displayedText: '', pendingCount: 0, finished: false, disposed: false }) } }
+  const g = createChatGeneration({ ...base(), playbackFactory: factory }); g.handleEvent(meta()); g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', mode: 'single', status: 'completed', total_tokens_used: 0, result: { model: 'model-a', status: 'completed', assistant_message_guid: 'm-a', content: '', tokens: 0 } }); oldDisplay('stale'); oldError('stale'); assert.equal(g.snapshot().models[0].displayedText, '')
+  g.dispose(); oldDisplay('later'); assert.equal(g.snapshot().status, 'disposed'); assert.equal(g.snapshot().models[0].displayedText, '')
+})
+
+test('factory and cleanup failures stay fail-closed while sibling cleanup continues', () => {
+  let disposed = 0; const factory = ({ model }) => { if (model === 'bad') throw new Error('secret'); return { push() {}, finish() {}, cancel() {}, dispose() { disposed += 1; throw new Error('cleanup') }, snapshot: () => ({ displayedText: '', pendingCount: 0, finished: false, disposed: false }) } }
+  const g = createChatGeneration({ mode: 'compare', generationId: 'gen-1', conversationGuid: 'conv-1', messageKey: 'msg-1', models: ['bad', 'good'], playbackFactory: factory }); assert.equal(g.snapshot().status, 'failed'); g.dispose(); assert.equal(disposed, 1); assert.equal(g.snapshot().status, 'disposed')
+})
+
+test('cancel local queue keeps fail-closed failure instead of overwriting with cancelling', () => {
+  const factory = ({ model }) => ({ push() {}, finish() {}, cancel() { if (model === 'bad') throw new Error('boom') }, dispose() {}, snapshot: () => ({ displayedText: '', pendingCount: 0, finished: false, disposed: false }) })
+  const g = createChatGeneration({ ...base({ models: ['bad'] }), playbackFactory: factory }); g.handleEvent({ ...meta(), models: ['bad'] }); g.cancelLocalQueue(); assert.equal(g.snapshot().status, 'failed')
+})
+
+test('compare done rejects mismatched model status and token metadata defensively', () => {
+  const g = createChatGeneration({ mode: 'compare', generationId: 'gen-1', conversationGuid: 'conv-1', messageKey: 'msg-1', models: ['a', 'b'] }); g.handleEvent(meta('gen-1', ['a', 'b'])); g.handleEvent({ type: 'model_done', generation_id: 'gen-1', model: 'a', last_seq: 0 }); g.handleEvent({ type: 'model_done', generation_id: 'gen-1', model: 'b', last_seq: 0 }); g.handleEvent({ type: 'done', generation_id: 'gen-1', status: 'completed', conversation_guid: 'conv-1', total_tokens_used: 0, models: { a: { status: 'completed', tokens: '0' }, b: { status: 'completed', tokens: 0 } } }); assert.equal(g.snapshot().status, 'failed')
+})
