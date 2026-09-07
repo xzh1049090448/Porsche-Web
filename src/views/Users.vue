@@ -1,6 +1,10 @@
 <template>
   <section class="admin-page">
-    <div ref="pageHeading" class="page-heading" tabindex="-1"><p class="eyebrow">ADMINISTRATION</p><h1>用户管理</h1><p>查看当前有权访问的用户信息。</p></div>
+    <div ref="pageHeading" class="page-heading" tabindex="-1">
+      <div><p class="eyebrow">ADMINISTRATION</p><h1>用户管理</h1><p>查看当前有权访问的用户信息。</p></div>
+      <el-button v-if="canCreate" type="primary" @click="openCreate($event)">{{ t('createUser.open') }}</el-button>
+    </div>
+    <p class="sr-only" role="status" aria-live="polite" aria-atomic="true">{{ createAnnouncement }}</p>
     <el-alert v-if="!canRead" type="warning" :closable="false" title="暂无用户管理权限" description="权限信息不可用时不会加载用户数据。"><template #default><el-button link type="primary" @click="retryIdentity">重新检查身份</el-button></template></el-alert>
     <template v-else>
       <el-card shadow="never" class="filters-card"><el-form class="filters" @submit.prevent="reloadFromFirstPage">
@@ -21,21 +25,26 @@
       </el-table>
       <el-pagination v-model:current-page="filters.page" v-model:page-size="filters.pageSize" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" :total="store.total" @current-change="reloadForPageChange" @size-change="reloadFromFirstPage" />
     </template>
+    <UserCreateDialog @closed="restoreCreateFocus" />
     <UserSoftDeleteDialog @closed="restoreDeleteFocus" />
   </section>
 </template>
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
-import { useAdminUsersStore } from '@/stores/admin-users'
+import { useAdminUsersStore, reconcileCreatedAdminUser } from '@/stores/admin-users'
+import { useAdminUserCreateStore, canOpenAdminUserCreate, restoreAdminUserCreateTriggerFocus } from '@/stores/admin-user-create'
 import { useAdminUserActionsStore, canDeleteAdminUser, reconcileDeletedList, refreshDeleteTargetFailClosed, restoreDeleteTriggerFocus } from '@/stores/admin-user-actions'
 import { getAdminUser } from '@/api/admin-users'
 import UserSoftDeleteDialog from '@/components/admin/UserSoftDeleteDialog.vue'
+import UserCreateDialog from '@/components/admin/UserCreateDialog.vue'
 import { useI18n } from '@/composables/useI18n'
 import { ElMessage } from 'element-plus'
-const userStore = useUserStore(); const store = useAdminUsersStore(); const actionStore = useAdminUserActionsStore(); const { t } = useI18n()
+const userStore = useUserStore(); const store = useAdminUsersStore(); const actionStore = useAdminUserActionsStore(); const createStore = useAdminUserCreateStore(); const { t } = useI18n()
 const canRead = computed(() => userStore.permissionProjection?.capabilities?.includes('users.read') === true)
 const canReadDeleted = computed(() => userStore.permissionProjection?.capabilities?.includes('users.deleted.read') === true)
+const canCreate = computed(() => userStore.permissionProjection?.capabilities?.includes('users.create') === true
+  && canOpenAdminUserCreate({ actorRole: userStore.user?.role, capabilities: userStore.permissionProjection.capabilities }))
 const deleteCapability = 'users.delete'
 const filters = reactive({ page: 1, pageSize: 20, q: '', role: '', status: '', sort: 'guid', order: 'desc' })
 const statusLabel = status => ({ active: '启用', disabled: '禁用', deleted: '已删除' }[status] || status); const statusType = status => ({ active: 'success', disabled: 'warning', deleted: 'info' }[status]); const roleLabel = role => ({ user: '用户', admin: '管理员', root: 'Root' }[role] || role); const planLabel = plan => ({ free: '免费版', professional: '专业版', enterprise: '企业版' }[plan] || plan)
@@ -57,9 +66,40 @@ function reloadFromFirstPage() { filters.page = 1; return reload() }; async func
 const canDeleteTarget = target => userStore.permissionProjection?.capabilities?.includes(deleteCapability) === true
   && canDeleteAdminUser({ actorRole: userStore.user?.role, capabilities: userStore.permissionProjection.capabilities, target })
 let deleteTrigger = null
+let createTrigger = null
 const pageHeading = ref(null)
+const createAnnouncement = ref('')
 let deleteToken = null
+let createToken = null
 let listContextRevision = 0
+function openCreate(event) {
+  if (!canCreate.value) return
+  createAnnouncement.value = ''
+  createTrigger = event?.currentTarget ?? document.activeElement
+  createToken = createStore.open({ actorRole: userStore.user?.role, capabilities: userStore.permissionProjection.capabilities }, {
+    onSucceeded: onCreateSucceeded,
+    onConflict: onCreateConflict,
+    onUnauthorized,
+  })
+}
+async function onCreateSucceeded({ createdUser }, token) {
+  if (!createStore.owns(token)) return false
+  await reconcileCreatedAdminUser({ state: store, filters, createdUser, reload })
+  if (!createStore.owns(token)) return false
+  createAnnouncement.value = createdUser
+    ? t('createUser.successKnown', { username: createdUser.username, guid: createdUser.guid })
+    : t('createUser.successRecovered')
+  ElMessage.success(createAnnouncement.value)
+  return true
+}
+async function onCreateConflict(code, token) {
+  if (!createStore.owns(token)) return false
+  if (!['policy_version_conflict', 'action_verification_conflict', 'idempotency_cross_session'].includes(code)) return true
+  try { await userStore.fetchSelf() } catch {}
+  if (!createStore.owns(token) || !canCreate.value) return false
+  if (createStore.role === 'admin') await createStore.refreshCatalog(token)
+  return createStore.owns(token)
+}
 function openDelete(target, event) {
   deleteTrigger = event?.currentTarget ?? document.activeElement
   deleteToken = actionStore.open(target, { onSucceeded: onDeleteSucceeded, onConflict: onDeleteConflict, onUnauthorized })
@@ -92,12 +132,25 @@ function restoreDeleteFocus() {
   if (!token) return
   restoreDeleteTriggerFocus({ token, canRestore: owner => deleteToken === owner && !actionStore.captureOwnership(), trigger, fallback: pageHeading.value, nextTick })
 }
+function restoreCreateFocus() {
+  const token = createToken
+  const trigger = createTrigger
+  createTrigger = null
+  if (!token) return
+  restoreAdminUserCreateTriggerFocus({ token, canRestore: owner => createToken === owner && !createStore.captureOwnership(), trigger, fallback: pageHeading.value, nextTick })
+}
 watch(() => store.recoveryRevision, () => {
   if (store.recoveredPage !== null) filters.page = store.recoveredPage
 })
 watch([canRead, () => userStore.permissionRevision], ([enabled]) => { if (enabled) void reload(); else store.clear() }, { immediate: true })
-onBeforeUnmount(() => { if (deleteToken) actionStore.dispose(deleteToken); deleteToken = null; deleteTrigger = null })
+watch(canCreate, enabled => { if (!enabled && createToken && createStore.owns(createToken)) createStore.close(createToken) })
+watch(() => userStore.permissionRevision, () => { if (createToken && createStore.owns(createToken)) createStore.close(createToken) })
+onBeforeUnmount(() => {
+  if (createToken) createStore.dispose(createToken)
+  if (deleteToken) actionStore.dispose(deleteToken)
+  createToken = null; createTrigger = null; deleteToken = null; deleteTrigger = null
+})
 </script>
 <style scoped>
-.admin-page{max-width:1400px;margin:0 auto;padding:24px;overflow:auto;height:100%}.page-heading{margin-bottom:24px}.eyebrow{color:var(--text-secondary);font-size:12px;letter-spacing:.12em;margin:0}h1{margin:4px 0;font-size:28px}.filters-card,.error{margin-bottom:16px}.filters{display:flex;flex-wrap:wrap;gap:0 12px}.filters :deep(.el-form-item){margin-right:0}.users-table{width:100%}.el-pagination{margin-top:20px;justify-content:flex-end}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}@media(max-width:768px){.admin-page{padding:16px}.filters{display:block}.filters :deep(.el-form-item){margin-bottom:12px}.users-table{font-size:12px}.el-pagination{justify-content:center}}
+.admin-page{max-width:1400px;margin:0 auto;padding:24px;overflow:auto;height:100%}.page-heading{margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:16px}.eyebrow{color:var(--text-secondary);font-size:12px;letter-spacing:.12em;margin:0}h1{margin:4px 0;font-size:28px}.filters-card,.error{margin-bottom:16px}.filters{display:flex;flex-wrap:wrap;gap:0 12px}.filters :deep(.el-form-item){margin-right:0}.users-table{width:100%}.el-pagination{margin-top:20px;justify-content:flex-end}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}@media(max-width:768px){.admin-page{padding:16px}.page-heading{align-items:flex-start}.filters{display:block}.filters :deep(.el-form-item){margin-bottom:12px}.users-table{font-size:12px}.el-pagination{justify-content:center}}
 </style>
