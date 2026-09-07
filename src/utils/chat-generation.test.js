@@ -155,3 +155,19 @@ test('cancel local queue keeps fail-closed failure instead of overwriting with c
 test('compare done rejects mismatched model status and token metadata defensively', () => {
   const g = createChatGeneration({ mode: 'compare', generationId: 'gen-1', conversationGuid: 'conv-1', messageKey: 'msg-1', models: ['a', 'b'] }); g.handleEvent(meta('gen-1', ['a', 'b'])); g.handleEvent({ type: 'model_done', generation_id: 'gen-1', model: 'a', last_seq: 0 }); g.handleEvent({ type: 'model_done', generation_id: 'gen-1', model: 'b', last_seq: 0 }); g.handleEvent({ type: 'done', generation_id: 'gen-1', status: 'completed', conversation_guid: 'conv-1', total_tokens_used: 0, models: { a: { status: 'completed', tokens: '0' }, b: { status: 'completed', tokens: 0 } } }); assert.equal(g.snapshot().status, 'failed')
 })
+
+test('player operation exceptions fail closed without escaping across terminal paths', () => {
+  const throwing = operation => ({ push() { if (operation === 'push') throw new Error('push secret') }, finish() { if (operation === 'finish') throw new Error('finish secret') }, cancel() { if (operation === 'cancel') throw new Error('cancel secret') }, dispose() {}, snapshot: () => ({ displayedText: '', pendingCount: 0, finished: false, disposed: false }) })
+  for (const [event, operation] of [
+    [{ type: 'model_error', generation_id: 'gen-1', model: 'model-a', code: 'timeout' }, 'cancel'],
+    [{ type: 'model_done', generation_id: 'gen-1', model: 'model-a', last_seq: 1 }, 'finish'],
+  ]) {
+    const g = createChatGeneration({ ...base(), playbackFactory: () => throwing(operation) }); g.handleEvent(meta()); if (event.type === 'model_done') g.handleEvent(delta('model-a', 1, 'A')); assert.doesNotThrow(() => g.handleEvent(event)); assert.equal(g.snapshot().status, 'failed')
+  }
+  const done = createChatGeneration({ ...base(), playbackFactory: () => throwing('finish') }); done.handleEvent(meta()); done.handleEvent(delta('model-a', 1, 'A')); done.handleEvent({ type: 'model_done', generation_id: 'gen-1', model: 'model-a', last_seq: 1 }); assert.doesNotThrow(() => done.handleEvent({ type: 'done', generation_id: 'gen-1', status: 'completed', conversation_guid: 'conv-1', total_tokens_used: 0 })); assert.equal(done.snapshot().status, 'failed')
+})
+
+test('authoritative player failures fail closed during sibling cancel, rebuild, push, and finish', () => {
+  let calls = 0; const factory = ({ model }) => { calls += 1; if (model === 'bad') return { push() { throw new Error('push') }, finish() { throw new Error('finish') }, cancel() { throw new Error('cancel') }, dispose() {}, snapshot: () => ({ displayedText: '', pendingCount: 0, finished: false, disposed: false }) }; if (calls > 2) throw new Error('rebuild'); return { push() {}, finish() {}, cancel() {}, dispose() {}, snapshot: () => ({ displayedText: '', pendingCount: 0, finished: false, disposed: false }) } }
+  const g = createChatGeneration({ mode: 'compare', generationId: 'gen-1', conversationGuid: 'conv-1', messageKey: 'msg-1', models: ['bad', 'good'], playbackFactory: factory }); g.handleEvent(meta('gen-1', ['bad', 'good'])); assert.doesNotThrow(() => g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', mode: 'compare', status: 'completed', total_tokens_used: 0, results: [{ model: 'bad', status: 'failed', code: 'timeout' }, { model: 'good', status: 'completed', assistant_message_guid: 'm', content: 'x', tokens: 0 }] })); assert.equal(g.snapshot().status, 'failed')
+})
