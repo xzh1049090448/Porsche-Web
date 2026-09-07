@@ -67,7 +67,7 @@ export function createChatGeneration(options = {}) {
   const setStatus = next => { if (VALID_STATUSES.has(next)) { status = next; notify() } }
   const allDrained = () => models.every(item => { const p = playerSnapshot(item); return p.pendingCount === 0 && (item.terminal === 'failed' || item.displayedText === item.receivedText) })
   const maybeComplete = () => { if (status === 'draining' && globalDone && allDrained()) setStatus('completed') }
-  const cleanupPlayer = (item, method = 'cancel') => {
+  const cleanupPlayer = (item, method = 'cancel', report = true) => {
     item.epoch += 1
     const player = item.player; item.player = null
     if (!player) return true
@@ -77,9 +77,9 @@ export function createChatGeneration(options = {}) {
       if (result && (result.failed === true || result.errorCode)) { item.terminal = 'failed'; item.code = 'PLAYBACK_ERROR'; return false }
       const state = player.snapshot(); if (state && (state.failed === true || state.errorCode)) { item.terminal = 'failed'; item.code = 'PLAYBACK_ERROR'; return false }
       return true
-    } catch { item.terminal = 'failed'; item.code = 'PLAYBACK_ERROR'; diagnostic('GENERATION_CLEANUP_ERROR', item.model); return false }
+    } catch { item.terminal = 'failed'; item.code = 'PLAYBACK_ERROR'; if (report) diagnostic('GENERATION_CLEANUP_ERROR', item.model); return false }
   }
-  const cleanupAll = method => models.reduce((ok, item) => cleanupPlayer(item, method) && ok, true)
+  const cleanupAll = (method, report = true) => models.reduce((ok, item) => cleanupPlayer(item, method, report) && ok, true)
   function safePlayerCall(item, method, ...args) {
     try {
       if (!item.player || typeof item.player[method] !== 'function') { fail('GENERATION_PLAYER_ERROR', item.model); return false }
@@ -143,13 +143,19 @@ export function createChatGeneration(options = {}) {
     if (!result || result.status !== 'completed') return fail('GENERATION_DATA_ERROR')
     const entries = mode === 'single' ? [result.result || (Array.isArray(result.results) ? result.results[0] : null)] : result.results
     if (!Array.isArray(entries) || entries.length !== models.length) return fail('GENERATION_DATA_ERROR')
+    const plans = []
     for (let i = 0; i < models.length; i++) {
       const item = models[i]; const entry = entries[i]
       if (!entry || entry.model !== item.model) return fail('GENERATION_DATA_ERROR')
-      if (entry.status === 'failed') { if (!safePlayerCall(item, 'cancel')) return snapshot(); item.terminal = 'failed'; item.code = safeCode(entry.code); continue }
+      if (entry.status === 'failed') { plans.push({ item, entry, failed: true }); continue }
       if (entry.status !== 'completed' || typeof entry.content !== 'string' || !entry.content.startsWith(item.displayedText)) return fail('GENERATION_DATA_ERROR')
-      const prefix = item.displayedText; const suffix = entry.content.slice(prefix.length); item.receivedText = entry.content; item.terminal = 'completed'; item.code = null
-      if (!cleanupPlayer(item, 'dispose')) { status = 'failed'; diagnostic('GENERATION_CLEANUP_ERROR', item.model); return snapshot() }
+      plans.push({ item, entry, prefix: item.displayedText, suffix: entry.content.slice(item.displayedText.length) })
+    }
+    if (!cleanupAll('dispose', false)) { status = 'failed'; diagnostic('GENERATION_CLEANUP_ERROR'); return snapshot() }
+    for (const plan of plans) {
+      const { item, entry } = plan
+      if (plan.failed) { item.terminal = 'failed'; item.code = safeCode(entry.code); continue }
+      const { prefix, suffix } = plan; item.receivedText = entry.content; item.terminal = 'completed'; item.code = null
       makePlayer(item, prefix); if (status === 'failed' || !item.player) return snapshot()
       if (suffix && !safePlayerCall(item, 'push', suffix)) return snapshot(); if (!safePlayerCall(item, 'finish')) return snapshot()
     }
