@@ -132,6 +132,19 @@ test('rejects missing, null, numeric, and blank meta conversation GUIDs', () => 
   }
 })
 
+test('requires model_error code to be a nonblank string before normalization', () => {
+  for (const code of [undefined, null, 42, '   ']) {
+    const payload = { generation_id: 'g-1', model: 'a' }; if (code !== undefined) payload.code = code
+    const { p, errors } = parser(); p.push(meta() + `event: model_error\ndata: ${JSON.stringify(payload)}\n\n`); assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR')
+  }
+})
+
+test('requires meta to be the first protocol event, while comments remain ignorable', () => {
+  const before = parser(); before.p.push('event: future\ndata: {}\n\n'); assert.equal(before.errors[0].code, 'SSE_V2_PROTOCOL_ERROR')
+  const comments = parser(); comments.p.push(': keepalive\n\n' + meta() + modelDone('a', 0) + done()); assert.equal(comments.errors.length, 0)
+  const after = parser(); after.p.push(meta() + 'event: future\ndata: secret\n\n' + modelDone('a', 0) + done()); assert.equal(after.errors.length, 0)
+})
+
 test('fails closed on configurable framing and accepted-event limits', () => {
   const open = parser({ maxBufferBytes: 8 }); open.p.push('event: meta'); assert.equal(open.errors[0].code, 'SSE_V2_LIMIT_EXCEEDED')
   const event = parser({ maxEventBytes: 8 }); event.p.push('event: meta\n\n'); assert.equal(event.errors[0].code, 'SSE_V2_LIMIT_EXCEEDED')

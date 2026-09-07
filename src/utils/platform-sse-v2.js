@@ -67,6 +67,7 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
     if (data === '[DONE]') return protocolError(codes.legacyDone)
     if (!['meta', 'delta', 'model_done', 'model_error', 'done', 'error'].includes(eventName)) {
       if (terminal) return protocolError(codes.afterTerminal)
+      if (!metaSeen) return protocolError(codes.protocol)
       return callback({ type: 'diagnostic', category: 'unknown_event' })
     }
     let payload
@@ -103,6 +104,7 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
     if (eventName === 'model_done' || eventName === 'model_error') {
       const state = modelState.get(payload.model)
       if (!state || state.terminal) return protocolError(codes.protocol)
+      if (eventName === 'model_error' && (typeof payload.code !== 'string' || !payload.code.trim())) return protocolError(codes.protocol)
       if (eventName === 'model_done' && (!Number.isSafeInteger(payload.last_seq) || payload.last_seq > maxSeq || payload.last_seq !== state.next - 1)) return protocolError(codes.sequence)
       state.terminal = true
       state.status = eventName === 'model_done' ? 'completed' : 'failed'
