@@ -171,3 +171,22 @@ test('authoritative player failures fail closed during sibling cancel, rebuild, 
   let calls = 0; const factory = ({ model }) => { calls += 1; if (model === 'bad') return { push() { throw new Error('push') }, finish() { throw new Error('finish') }, cancel() { throw new Error('cancel') }, dispose() {}, snapshot: () => ({ displayedText: '', pendingCount: 0, finished: false, disposed: false }) }; if (calls > 2) throw new Error('rebuild'); return { push() {}, finish() {}, cancel() {}, dispose() {}, snapshot: () => ({ displayedText: '', pendingCount: 0, finished: false, disposed: false }) } }
   const g = createChatGeneration({ mode: 'compare', generationId: 'gen-1', conversationGuid: 'conv-1', messageKey: 'msg-1', models: ['bad', 'good'], playbackFactory: factory }); g.handleEvent(meta('gen-1', ['bad', 'good'])); assert.doesNotThrow(() => g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', mode: 'compare', status: 'completed', total_tokens_used: 0, results: [{ model: 'bad', status: 'failed', code: 'timeout' }, { model: 'good', status: 'completed', assistant_message_guid: 'm', content: 'x', tokens: 0 }] })); assert.equal(g.snapshot().status, 'failed')
 })
+
+test('proxy player getters and snapshot aggregation fail closed without escaping', () => {
+  const bad = new Proxy({}, { get() { throw new Error('secret getter') } }); const g = createChatGeneration({ ...base(), playbackFactory: () => bad }); assert.equal(g.snapshot().status, 'failed'); assert.doesNotThrow(() => g.snapshot())
+  const snapshotBad = new Proxy({ push() {}, finish() {}, cancel() {}, dispose() {}, snapshot() { throw new Error('snapshot') } }, { get(target, key) { return target[key] } }); const h = createChatGeneration({ ...base(), playbackFactory: () => snapshotBad }); h.handleEvent(meta()); assert.doesNotThrow(() => h.snapshot()); assert.equal(h.snapshot().status, 'failed')
+})
+
+test('cancel freezes all epochs before invoking player cancel callbacks', () => {
+  let generation; const player = { push() {}, finish() {}, cancel() { generation.handleEvent({ type: 'delta', generation_id: 'gen-1', model: 'model-a', seq: 1, delta: 'late' }) }, dispose() {}, snapshot: () => ({ displayedText: '', pendingCount: 0, finished: false, disposed: false }) }; generation = createChatGeneration({ ...base(), playbackFactory: () => player }); generation.handleEvent(meta()); generation.cancelLocalQueue(); assert.equal(generation.snapshot().status, 'cancelling'); assert.equal(generation.snapshot().models[0].receivedText, '')
+})
+
+test('invalid player interfaces fail before any terminal path can drain', () => {
+  const invalid = createChatGeneration({ ...base(), playbackFactory: () => ({ push() {}, finish() {}, cancel() {}, dispose() {}, snapshot: 1 }) }); assert.equal(invalid.snapshot().status, 'failed')
+})
+
+test('single direct done validates safe tokens and exact sanitized fields', () => {
+  const make = done => { const g = createChatGeneration(base()); g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'A')); g.handleEvent({ type: 'model_done', generation_id: 'gen-1', model: 'model-a', last_seq: 1 }); g.handleEvent(done); return g.snapshot().status }
+  const common = { type: 'done', generation_id: 'gen-1', status: 'completed', conversation_guid: 'conv-1', tokens: 0, total_tokens_used: 0 }
+  assert.equal(make({ ...common, tokens: -1 }), 'failed'); assert.equal(make({ ...common, tokens: 1.5 }), 'failed'); assert.equal(make({ ...common, total_tokens_used: '0' }), 'failed'); assert.equal(make({ ...common, tokens: 0, total_tokens_used: 0 }), 'draining')
+})
