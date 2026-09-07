@@ -33,7 +33,7 @@ test('validates event identity and sequences before queueing', () => {
 
 test('compare models remain independent and done drains playback', () => {
   const clock = scheduler(); const g = createChatGeneration({ ...base({ mode: 'compare', models: ['a', 'b'] }), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } })
-  g.handleEvent(meta('gen-1', ['a', 'b'])); g.handleEvent(delta('a', 1, 'A')); g.handleEvent(delta('b', 1, 'B')); g.handleEvent(modelDone('a')); g.handleEvent({ ...modelDone('b'), last_seq: 1 }); g.handleEvent({ ...done(), models: { a: { status: 'completed', tokens: 1 }, b: { status: 'completed', tokens: 1 } } })
+  g.handleEvent(meta('gen-1', ['a', 'b'])); g.handleEvent(delta('a', 1, 'A')); g.handleEvent(delta('b', 1, 'B')); g.handleEvent(modelDone('a')); g.handleEvent({ ...modelDone('b'), last_seq: 1 }); g.handleEvent({ type: 'done', generation_id: 'gen-1', status: 'completed', conversation_guid: 'conv-1', total_tokens_used: 2, models: { a: { status: 'completed', tokens: 1 }, b: { status: 'completed', tokens: 1 } } })
   assert.equal(g.snapshot().status, 'draining'); while (clock.step(1000)) {} assert.equal(g.snapshot().status, 'completed'); assert.equal(g.snapshot().models[0].displayedText, 'A'); assert.equal(g.snapshot().models[1].displayedText, 'B')
 })
 
@@ -189,4 +189,12 @@ test('single direct done validates safe tokens and exact sanitized fields', () =
   const make = done => { const g = createChatGeneration(base()); g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'A')); g.handleEvent({ type: 'model_done', generation_id: 'gen-1', model: 'model-a', last_seq: 1 }); g.handleEvent(done); return g.snapshot().status }
   const common = { type: 'done', generation_id: 'gen-1', status: 'completed', conversation_guid: 'conv-1', tokens: 0, total_tokens_used: 0 }
   assert.equal(make({ ...common, tokens: -1 }), 'failed'); assert.equal(make({ ...common, tokens: 1.5 }), 'failed'); assert.equal(make({ ...common, total_tokens_used: '0' }), 'failed'); assert.equal(make({ ...common, tokens: 0, total_tokens_used: 0 }), 'draining')
+})
+
+test('compare direct done requires exact top-level schema and safe total token count', () => {
+  const prepare = () => { const g = createChatGeneration({ mode: 'compare', generationId: 'gen-1', conversationGuid: 'conv-1', messageKey: 'msg-1', models: ['a', 'b'] }); g.handleEvent(meta('gen-1', ['a', 'b'])); g.handleEvent({ type: 'model_done', generation_id: 'gen-1', model: 'a', last_seq: 0 }); g.handleEvent({ type: 'model_done', generation_id: 'gen-1', model: 'b', last_seq: 0 }); return g }
+  const models = { a: { status: 'completed', tokens: 0 }, b: { status: 'completed', tokens: 0 } }
+  for (const total_tokens_used of [undefined, '0', -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) { const g = prepare(); g.handleEvent({ type: 'done', generation_id: 'gen-1', status: 'completed', conversation_guid: 'conv-1', total_tokens_used, models }); assert.equal(g.snapshot().status, 'failed') }
+  for (const extra of [{ tokens: 0 }, { secret: 'x' }]) { const g = prepare(); g.handleEvent({ type: 'done', generation_id: 'gen-1', status: 'completed', conversation_guid: 'conv-1', total_tokens_used: 0, models, ...extra }); assert.equal(g.snapshot().status, 'failed') }
+  const valid = prepare(); valid.handleEvent({ type: 'done', generation_id: 'gen-1', status: 'completed', conversation_guid: 'conv-1', total_tokens_used: 0, models }); assert.equal(valid.snapshot().status, 'completed')
 })

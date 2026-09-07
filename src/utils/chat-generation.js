@@ -115,8 +115,9 @@ export function createChatGeneration(options = {}) {
     if (event.type === 'done') {
       const modelSummary = event.models
       const singleFieldsOK = mode !== 'single' || Object.keys(event).every(key => ['type', 'generation_id', 'status', 'conversation_guid', 'tokens', 'total_tokens_used'].includes(key)) && Number.isSafeInteger(event.tokens) && event.tokens >= 0 && Number.isSafeInteger(event.total_tokens_used) && event.total_tokens_used >= 0
+      const compareFieldsOK = mode !== 'compare' || Object.keys(event).every(key => ['type', 'generation_id', 'status', 'conversation_guid', 'total_tokens_used', 'models'].includes(key)) && Number.isSafeInteger(event.total_tokens_used) && event.total_tokens_used >= 0
       const summaryOK = mode === 'single' ? !Object.prototype.hasOwnProperty.call(event, 'models') : modelSummary && typeof modelSummary === 'object' && !Array.isArray(modelSummary) && Object.keys(modelSummary).length === models.length && models.every(item => { const entry = modelSummary[item.model]; return entry && entry.status === item.terminal && (entry.status === 'completed' ? Number.isSafeInteger(entry.tokens) && entry.tokens >= 0 && Object.keys(entry).every(key => ['status', 'tokens'].includes(key)) : entry.status === 'failed' && STABLE_CODES.has(entry.code) && Object.keys(entry).every(key => ['status', 'code'].includes(key))) })
-      if (globalDone || event.status !== 'completed' || event.conversation_guid !== conversationGuid || models.some(item => !item.terminal) || !summaryOK || !singleFieldsOK) return fail('GENERATION_DONE_ERROR')
+      if (globalDone || event.status !== 'completed' || event.conversation_guid !== conversationGuid || models.some(item => !item.terminal) || !summaryOK || !singleFieldsOK || !compareFieldsOK) return fail('GENERATION_DONE_ERROR')
       if (mode === 'single' && models[0].terminal !== 'completed') return fail('GENERATION_DONE_ERROR')
       globalDone = true; for (const item of models) { if (item.terminal === 'completed' && !safePlayerCall(item, 'finish')) return snapshot() }; setStatus('draining'); maybeComplete(); return snapshot()
     }
