@@ -157,6 +157,12 @@ test('dialog is controlled, traps focus, handles Escape, and exposes lifecycle h
 })
 
 test('form has password confirmation and conditional administrator verification without money or token inputs', () => {
+  const form = element(dialogElements, 'el-form')
+  const submitButton = element(dialogElements, 'el-button', node => attribute(node, 'native-type')?.value?.content === 'submit')
+  assert.equal(attribute(form, 'id').value.content, 'admin-user-create-form')
+  assert.equal(attribute(submitButton, 'native-type').value.content, 'submit')
+  assert.equal(attribute(submitButton, 'form').value.content, 'admin-user-create-form')
+  assert.equal(directive(submitButton, 'on', 'click'), undefined)
   const modelBindings = dialogElements.flatMap(node => node.props)
     .filter(prop => prop.type === 7 && prop.name === 'model').map(prop => prop.exp?.content)
   for (const field of ['form.username', 'form.nickname', 'form.password', 'form.confirmPassword', 'form.role', 'form.groupGuid', 'form.planType', 'form.currentPassword']) {
@@ -279,7 +285,7 @@ test('mounted dialog opens visibly with username focus and restores the trigger 
     entry.props.onClick({ currentTarget: entry })
     await flushView()
     store.submit = async owner => ({ state: store.owns(owner) ? 'succeeded' : 'failed', createdUser: null })
-    mounted.findAll(node => node.type === 'button').at(-1).props.onClick()
+    mounted.find(node => node.props.id === 'admin-user-create-form').props.onSubmit({ preventDefault() {} })
     await flushView()
     assert.equal(store.isOpen, false)
     assert.equal(mounted.active(), entry)

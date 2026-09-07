@@ -17,7 +17,7 @@
     </el-alert>
     <el-alert v-else-if="createStore.failureCode" ref="errorAlert" tabindex="-1" type="error" :closable="false" show-icon :title="failureMessage" />
 
-    <el-form ref="formRef" :model="form" :rules="rules" label-position="top" scroll-to-error @submit.prevent="submit">
+    <el-form id="admin-user-create-form" ref="formRef" :model="form" :rules="rules" label-position="top" scroll-to-error @submit.prevent="submit">
       <el-form-item prop="username" :label="t('createUser.username')">
         <el-input ref="usernameInput" v-model="form.username" autocomplete="off" maxlength="20" :disabled="busy" />
       </el-form-item>
@@ -82,7 +82,7 @@
 
     <template #footer>
       <el-button @click="requestClose">{{ t('createUser.cancel') }}</el-button>
-      <el-button type="primary" :loading="busy" :disabled="!canSubmit" @click="submit">{{ submitLabel }}</el-button>
+      <el-button type="primary" native-type="submit" form="admin-user-create-form" :loading="busy" :disabled="!canSubmit">{{ submitLabel }}</el-button>
     </template>
   </el-dialog>
 </template>

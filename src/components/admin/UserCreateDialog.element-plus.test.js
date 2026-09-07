@@ -8,7 +8,7 @@ import { createServer } from 'vite'
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://local.test/users', pretendToBeVisual: true })
 const browserGlobals = [
   'window', 'document', 'navigator', 'Node', 'NodeFilter', 'Element', 'HTMLElement', 'HTMLInputElement', 'SVGElement',
-  'Event', 'CustomEvent', 'KeyboardEvent', 'FocusEvent', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame',
+  'Event', 'CustomEvent', 'KeyboardEvent', 'MouseEvent', 'FocusEvent', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame',
 ]
 for (const key of browserGlobals) {
   const value = ['getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame'].includes(key)
@@ -146,7 +146,7 @@ test('real Element Plus dialog traps focus, closes on Escape, and restores focus
   }
 })
 
-test('real Element Plus form focuses confirmation and actor-password errors before a keyboard-style native submit succeeds', async () => {
+test('real Element Plus form focuses confirmation and actor-password errors before one submit-button click succeeds', async () => {
   let state = null
 
   try {
@@ -163,27 +163,25 @@ test('real Element Plus form focuses confirmation and actor-password errors befo
     const confirmPassword = passwordInputs[1]
     const currentPassword = state.wrapper.get('input[autocomplete="current-password"]')
     const username = state.wrapper.get('input[maxlength="20"]')
-    const form = state.wrapper.get('form')
+    const submitButton = state.wrapper.get('button[type="submit"][form="admin-user-create-form"]')
     await username.setValue('alice')
     await passwordInputs[0].setValue('Str0ng!Pass')
     await confirmPassword.setValue('Different!Pass')
     username.element.focus()
-    form.element.requestSubmit()
+    submitButton.element.click()
     await flushDialog()
     assert.equal(state.submitCalls, 0)
     assert.equal(document.activeElement, confirmPassword.element, `expected confirmation focus, got ${document.activeElement?.tagName}.${document.activeElement?.className}`)
 
     await confirmPassword.setValue('Str0ng!Pass')
     username.element.focus()
-    form.element.requestSubmit()
+    submitButton.element.click()
     await flushDialog()
     assert.equal(document.activeElement, currentPassword.element, `expected actor-password focus, got ${document.activeElement?.tagName}.${document.activeElement?.className}`)
     assert.equal(state.submitCalls, 0)
 
     await currentPassword.setValue('Actor!Pass9')
-    currentPassword.element.focus()
-    currentPassword.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }))
-    form.element.requestSubmit()
+    submitButton.element.click()
     await flushDialog()
     assert.equal(state.submitCalls, 1)
     assert.equal(state.store.isOpen, false)
