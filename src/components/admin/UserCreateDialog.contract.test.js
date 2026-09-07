@@ -197,6 +197,16 @@ test('Users exposes create only through users.create, owns restore focus, and an
   assert.equal(scriptCalls(usersScript, 'restoreAdminUserCreateTriggerFocus'), true)
 })
 
+test('Users renders the persisted business group in the refreshed list', () => {
+  const groupColumn = element(usersElements, 'el-table-column', node => attribute(node, 'label')?.value?.content === '分组')
+  assert.ok(groupColumn)
+  let rendersGroup = false
+  walk(groupColumn, node => {
+    if (node.type === 5 && node.content?.content === 'row.group') rendersGroup = true
+  })
+  assert.equal(rendersGroup, true)
+})
+
 test('Users sends permission revisions and permission failures through one synchronous fail-closed refresh', () => {
   assert.match(usersDescriptor.scriptSetup.content, /refreshCreateAuthorization\('permission_revision'/)
   assert.match(usersDescriptor.scriptSetup.content, /watch\(\(\) => userStore\.permissionRevision,[\s\S]*flush:\s*'sync'/)
