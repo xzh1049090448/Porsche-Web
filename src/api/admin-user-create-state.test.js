@@ -11,6 +11,7 @@ const createdUser = Object.freeze({
 const createdAdminUser = Object.freeze({
   ...createdUser, username: 'admin-alice', nickname: 'Admin Alice', role: 'admin',
 })
+const firstGeneratedKey = 'ik_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8'
 
 const userInput = (overrides = {}) => ({
   username: '  alice  ', nickname: '  Alice  ', password: 'Str0ng!Pass', role: 'user',
@@ -48,9 +49,16 @@ function fixture(overrides = {}) {
     },
     executeAdminUserCreate: async value => {
       calls.push({ method: 'create', value })
+      const user = Object.freeze({
+        ...createdUser,
+        username: value.request.username,
+        nickname: value.request.nickname,
+        role: value.request.role,
+        planType: value.request.plan_type,
+      })
       return {
         operationRef,
-        user: value.request.role === 'admin' ? createdAdminUser : createdUser,
+        user,
         permissionsVersion: value.request.role === 'admin' ? '1' : null,
       }
     },
@@ -143,6 +151,71 @@ test('duplicate clicks share one logical attempt and cannot duplicate verificati
   issue.resolve({ ticket, expiresAt: 1790000300000 })
   assert.equal((await first).state, 'succeeded')
   assert.equal(instance.calls.filter(call => call.method === 'create').length, 1)
+})
+
+test('ordinary synchronous subscriber restart keeps attempt promises, keys, and secrets isolated', async () => {
+  const instance = fixture()
+  let restarted = false
+  let secondPromise
+  instance.workflow.subscribe(snapshot => {
+    if (!restarted && snapshot.state === 'submitting') {
+      restarted = true
+      assert.equal(instance.workflow.reset(), true)
+      secondPromise = instance.workflow.start(userInput({
+        username: 'second-user', nickname: 'Second User', password: 'Second!Pass',
+      }))
+    }
+  })
+
+  const firstPromise = instance.workflow.start(userInput({
+    username: 'first-user', nickname: 'First User', password: 'First!Pass',
+  }))
+  assert.ok(secondPromise)
+  assert.notEqual(firstPromise, secondPromise)
+  assert.deepEqual(await firstPromise, { state: 'idle', operationRef: null, failureCode: null, createdUser: null })
+  assert.equal((await secondPromise).state, 'succeeded')
+
+  const creates = instance.calls.filter(call => call.method === 'create')
+  assert.equal(creates.length, 1)
+  assert.equal(creates[0].value.request.username, 'second-user')
+  assert.equal(creates[0].value.request.password, 'Second!Pass')
+  assert.notEqual(creates[0].value.idempotencyKey, firstGeneratedKey)
+  assert.equal(instance.randomCalls, 2)
+})
+
+test('administrator synchronous subscriber restart cannot cross verification secrets or attempts', async () => {
+  const instance = fixture()
+  let restarted = false
+  let secondPromise
+  instance.workflow.subscribe(snapshot => {
+    if (!restarted && snapshot.state === 'verifying') {
+      restarted = true
+      assert.equal(instance.workflow.reset(), true)
+      secondPromise = instance.workflow.start(adminInput({
+        username: 'second-admin', nickname: 'Second Admin', password: 'Second!Pass', currentPassword: 'Second!Current9',
+      }))
+    }
+  })
+
+  const firstPromise = instance.workflow.start(adminInput({
+    username: 'first-admin', nickname: 'First Admin', password: 'First!Pass', currentPassword: 'First!Current9',
+  }))
+  assert.ok(secondPromise)
+  assert.notEqual(firstPromise, secondPromise)
+  assert.deepEqual(await firstPromise, { state: 'idle', operationRef: null, failureCode: null, createdUser: null })
+  assert.equal((await secondPromise).state, 'succeeded')
+
+  const issues = instance.calls.filter(call => call.method === 'issue')
+  const creates = instance.calls.filter(call => call.method === 'create')
+  assert.equal(issues.length, 1)
+  assert.equal(creates.length, 1)
+  assert.equal(issues[0].value.request.username, 'second-admin')
+  assert.equal(issues[0].value.request.password, 'Second!Pass')
+  assert.equal(issues[0].value.currentPassword, 'Second!Current9')
+  assert.equal(creates[0].value.request, issues[0].value.request)
+  assert.equal(creates[0].value.ticket, ticket)
+  assert.notEqual(creates[0].value.idempotencyKey, firstGeneratedKey)
+  assert.equal(instance.randomCalls, 2)
 })
 
 test('bounded polling clamps delays and succeeds without replaying POST', async () => {

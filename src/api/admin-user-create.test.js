@@ -5,6 +5,7 @@ import {
   mapAdminUserCreateError,
   normalizeAdminUserCreateRequest,
 } from './admin-user-create.js'
+import { ADMIN_CAPABILITY_DEFINITIONS } from './admin-users.js'
 
 const operationRef = `op_${'A'.repeat(43)}`
 const ticket = `av_${'A'.repeat(43)}`
@@ -119,6 +120,8 @@ test('rejects unsafe or noncanonical create input before transport', async () =>
     { username: 'alice', password: 'Str0ng!Pass', role: 'root' },
     { username: 'alice', password: 'Str0ng!Pass', role: 'user', groupGuid: '01' },
     { username: 'alice', password: 'Str0ng!Pass', role: 'user', planType: 'paid' },
+    { username: 'alice', password: 'Str0ng!Pass', role: 'user', planType: null },
+    { username: 'alice', password: 'Str0ng!Pass', role: 'user', permissionOverrides: null },
     { username: 'alice', password: 'Str0ng!Pass', role: 'user', permissionOverrides: [{ capability: 'users.read', effect: 'allow' }] },
     { username: 'admin-alice', password: 'Str0ng!Pass', role: 'admin', permissionOverrides: [{ capability: 'users.quota.adjust', effect: 'allow' }] },
     { username: 'admin-alice', password: 'Str0ng!Pass', role: 'admin', permissionOverrides: [{ capability: 'users.read', effect: 'allow' }, { capability: 'users.read', effect: 'deny' }] },
@@ -130,6 +133,22 @@ test('rejects unsafe or noncanonical create input before transport', async () =>
   await assert.rejects(api.executeAdminUserCreate({ request: { ...ordinaryRequest(), extra: true }, idempotencyKey }), /invalid_admin_user_create_request/)
   await assert.rejects(api.queryAdminUserCreate({ scope: 'users.delete', idempotencyKey }), /invalid_admin_user_create_request/)
   assert.equal(transports, 0)
+})
+
+test('create validation does not trust mutable exported capability metadata', () => {
+  const quota = ADMIN_CAPABILITY_DEFINITIONS.find(item => item.name === 'users.quota.adjust')
+  const original = { grantable: quota.grantable, rootOnly: quota.rootOnly, available: quota.available }
+  try {
+    quota.grantable = true
+    quota.rootOnly = false
+    quota.available = true
+    assert.throws(() => normalizeAdminUserCreateRequest({
+      username: 'admin-alice', password: 'Str0ng!Pass', role: 'admin',
+      permissionOverrides: [{ capability: 'users.quota.adjust', effect: 'allow' }],
+    }), /invalid_admin_user_create_request/)
+  } finally {
+    Object.assign(quota, original)
+  }
 })
 
 test('administrator verification sends the exact normalized intent and no action headers', async () => {

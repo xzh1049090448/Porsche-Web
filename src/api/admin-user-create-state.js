@@ -96,68 +96,79 @@ export function createAdminUserCreateWorkflow({ api, randomBytes, schedule }) {
   let operationRef = null
   let failureCode = null
   let createdUser = null
-  let activeRequest = null
-  let currentPassword = null
-  let ticket = null
-  let idempotencyKey = null
-  let scope = null
-  let activeRun = null
-  let resolveRun = null
-  let cancelScheduled = null
-  let queryInFlight = false
-  let queryAttempts = 0
+  let activeAttempt = null
   let disposed = false
   let generation = 0
   const listeners = new Set()
 
   const snapshot = () => Object.freeze({ state, operationRef, failureCode, createdUser })
-  const notify = () => {
-    const value = snapshot()
+  const owns = attempt => !disposed && activeAttempt === attempt && !attempt.aborted && !attempt.settled
+    && attempt.generation === generation
+  const notify = (expectedGeneration, value = snapshot()) => {
+    if (generation !== expectedGeneration) return false
     for (const listener of listeners) {
       try { listener(value) } catch { /* observers cannot control workflow state */ }
+      if (generation !== expectedGeneration) return false
     }
+    return true
   }
-  const transition = next => {
+  const transition = (attempt, next) => {
+    if (!owns(attempt)) return false
     if (!TRANSITIONS[state].has(next)) throw new Error('invalid_admin_user_create_transition')
     state = next
-    notify()
+    return notify(attempt.generation) && owns(attempt)
   }
-  const clearTransient = () => {
-    activeRequest = null
-    currentPassword = null
-    ticket = null
-    idempotencyKey = null
-    scope = null
-    queryAttempts = 0
+  const clearAttempt = attempt => {
+    attempt.request = null
+    attempt.currentPassword = null
+    attempt.ticket = null
+    attempt.idempotencyKey = null
+    attempt.scope = null
+    attempt.queryAttempts = 0
+    attempt.queryInFlight = false
   }
-  const clearSchedule = () => {
-    const cancel = cancelScheduled
-    cancelScheduled = null
+  const takeSchedule = attempt => {
+    const cancel = attempt.cancelScheduled
+    attempt.cancelScheduled = null
+    return cancel
+  }
+  const cancelSchedule = attempt => {
+    const cancel = takeSchedule(attempt)
     if (typeof cancel === 'function') {
       try { cancel() } catch { /* cancellation cannot retain workflow secrets */ }
     }
   }
-  const settle = next => {
+  const settle = (attempt, next) => {
+    if (!owns(attempt)) return null
+    if (!TRANSITIONS[state].has(next)) throw new Error('invalid_admin_user_create_transition')
+    attempt.settled = true
     generation++
-    queryInFlight = false
-    clearSchedule()
-    clearTransient()
-    if (!disposed && state !== next) transition(next)
+    const notificationGeneration = generation
+    const cancel = takeSchedule(attempt)
+    clearAttempt(attempt)
+    state = next
     const value = snapshot()
-    const resolve = resolveRun
-    resolveRun = null
+    const resolve = attempt.resolve
+    attempt.resolve = null
     if (resolve) resolve(value)
+    if (typeof cancel === 'function') {
+      try { cancel() } catch { /* terminal state and cleared secrets are already fixed */ }
+    }
+    notify(notificationGeneration, value)
     return value
   }
-  const fail = error => {
+  const fail = (attempt, error) => {
+    if (!owns(attempt)) return null
     failureCode = safeFailureCode(error)
     operationRef = safeOperationRef(error?.operationRef)
     createdUser = null
-    return settle(ADMIN_USER_CREATE_STATES.FAILED)
+    return settle(attempt, ADMIN_USER_CREATE_STATES.FAILED)
   }
 
-  const scheduleNextQuery = (runGeneration, delay) => {
-    clearSchedule()
+  const scheduleNextQuery = (attempt, delay) => {
+    if (!owns(attempt)) return null
+    cancelSchedule(attempt)
+    if (!owns(attempt)) return null
     let invokedSynchronously = false
     let consumed = false
     let scheduling = true
@@ -170,10 +181,10 @@ export function createAdminUserCreateWorkflow({ api, randomBytes, schedule }) {
         }
         if (consumed) return
         consumed = true
-        if (!disposed && runGeneration === generation) void query(runGeneration)
+        if (owns(attempt)) void query(attempt)
       }, delay)
     } catch {
-      return fail(null)
+      return fail(attempt, null)
     } finally {
       scheduling = false
     }
@@ -181,47 +192,51 @@ export function createAdminUserCreateWorkflow({ api, randomBytes, schedule }) {
       if (typeof cancel === 'function') {
         try { cancel() } catch { /* invalid scheduler is already failing closed */ }
       }
-      return fail(null)
+      return fail(attempt, null)
     }
-    cancelScheduled = cancel
+    if (!owns(attempt)) {
+      try { cancel() } catch { /* abandoned attempts cannot retain callbacks */ }
+      return null
+    }
+    attempt.cancelScheduled = cancel
     return null
   }
 
-  const query = async runGeneration => {
-    if (disposed || runGeneration !== generation || queryInFlight) return null
-    queryInFlight = true
-    queryAttempts++
+  const query = async attempt => {
+    if (!owns(attempt) || attempt.queryInFlight) return null
+    attempt.queryInFlight = true
+    attempt.queryAttempts++
     try {
-      const result = await api.queryAdminUserCreate({ scope, idempotencyKey })
-      if (disposed || runGeneration !== generation) return null
+      const result = await api.queryAdminUserCreate({ scope: attempt.scope, idempotencyKey: attempt.idempotencyKey })
+      if (!owns(attempt)) return null
       operationRef = safeOperationRef(result?.operationRef)
-      if (operationRef == null || result?.scope !== scope) return fail(null)
+      if (operationRef == null || result?.scope !== attempt.scope) return fail(attempt, null)
       if (result.status === 'processing') {
-        if (queryAttempts >= MAX_QUERY_ATTEMPTS) return settle(ADMIN_USER_CREATE_STATES.PENDING_RECOVERY)
-        transition(ADMIN_USER_CREATE_STATES.QUERYING)
-        return scheduleNextQuery(runGeneration, boundedRetrySeconds(result.retryAfter) * 1000)
+        if (attempt.queryAttempts >= MAX_QUERY_ATTEMPTS) return settle(attempt, ADMIN_USER_CREATE_STATES.PENDING_RECOVERY)
+        if (!transition(attempt, ADMIN_USER_CREATE_STATES.QUERYING)) return null
+        return scheduleNextQuery(attempt, boundedRetrySeconds(result.retryAfter) * 1000)
       }
-      if (result.status === 'succeeded') return settle(ADMIN_USER_CREATE_STATES.SUCCEEDED)
+      if (result.status === 'succeeded') return settle(attempt, ADMIN_USER_CREATE_STATES.SUCCEEDED)
       if (result.status === 'failed') {
         failureCode = safeFailureCode({ code: result.failureCode })
         createdUser = null
-        return settle(ADMIN_USER_CREATE_STATES.FAILED)
+        return settle(attempt, ADMIN_USER_CREATE_STATES.FAILED)
       }
-      if (result.status === 'pending_recovery') return settle(ADMIN_USER_CREATE_STATES.PENDING_RECOVERY)
-      return fail(null)
+      if (result.status === 'pending_recovery') return settle(attempt, ADMIN_USER_CREATE_STATES.PENDING_RECOVERY)
+      return fail(attempt, null)
     } catch (error) {
-      if (disposed || runGeneration !== generation) return null
-      return fail(error)
+      if (!owns(attempt)) return null
+      return fail(attempt, error)
     } finally {
-      queryInFlight = false
+      attempt.queryInFlight = false
     }
   }
 
-  const run = async (runGeneration, input) => {
+  const run = async (attempt, input) => {
     try {
       if (!input || typeof input !== 'object' || Array.isArray(input)
           || Object.keys(input).some(key => !INPUT_KEYS.has(key))) throw null
-      activeRequest = normalizeAdminUserCreateRequest({
+      attempt.request = normalizeAdminUserCreateRequest({
         username: input.username,
         nickname: input.nickname,
         password: input.password,
@@ -230,104 +245,143 @@ export function createAdminUserCreateWorkflow({ api, randomBytes, schedule }) {
         planType: input.planType,
         permissionOverrides: input.permissionOverrides,
       })
-      currentPassword = input.currentPassword ?? null
-      if (activeRequest.role === 'admin' && (typeof currentPassword !== 'string' || currentPassword.length === 0)) throw null
-      if (activeRequest.role === 'user') currentPassword = null
-      scope = activeRequest.role === 'admin' ? 'users.create_admin' : 'users.create'
-      idempotencyKey = createIdempotencyKey(randomBytes)
+      attempt.currentPassword = input.currentPassword ?? null
+      if (attempt.request.role === 'admin' && (typeof attempt.currentPassword !== 'string' || attempt.currentPassword.length === 0)) throw null
+      if (attempt.request.role === 'user') attempt.currentPassword = null
+      attempt.scope = attempt.request.role === 'admin' ? 'users.create_admin' : 'users.create'
+      attempt.idempotencyKey = createIdempotencyKey(randomBytes)
     } catch (error) {
       input = null
-      return fail(error)
+      return fail(attempt, error)
     }
     input = null
 
-    if (activeRequest.role === 'admin') {
-      transition(ADMIN_USER_CREATE_STATES.VERIFYING)
+    if (attempt.request.role === 'admin') {
+      if (!transition(attempt, ADMIN_USER_CREATE_STATES.VERIFYING)) return null
       try {
-        const issued = await api.issueAdminUserCreateVerification({ request: activeRequest, currentPassword })
-        currentPassword = null
-        if (disposed || runGeneration !== generation) return null
-        ticket = issued?.ticket
+        const issued = await api.issueAdminUserCreateVerification({
+          request: attempt.request, currentPassword: attempt.currentPassword,
+        })
+        attempt.currentPassword = null
+        if (!owns(attempt)) return null
+        attempt.ticket = issued?.ticket
       } catch (error) {
-        currentPassword = null
-        if (disposed || runGeneration !== generation) return null
-        return fail(error)
+        attempt.currentPassword = null
+        if (!owns(attempt)) return null
+        return fail(attempt, error)
       }
     }
 
-    transition(ADMIN_USER_CREATE_STATES.SUBMITTING)
+    if (!transition(attempt, ADMIN_USER_CREATE_STATES.SUBMITTING)) return null
     try {
-      const result = await api.executeAdminUserCreate({ request: activeRequest, ticket, idempotencyKey })
-      ticket = null
-      if (disposed || runGeneration !== generation) return null
+      const result = await api.executeAdminUserCreate({
+        request: attempt.request, ticket: attempt.ticket, idempotencyKey: attempt.idempotencyKey,
+      })
+      attempt.ticket = null
+      if (!owns(attempt)) return null
       if (!exactKeys(result, ['operationRef', 'user', 'permissionsVersion']) || !validOpaque(result.operationRef, 'op_')
-          || (activeRequest.role === 'user' ? result.permissionsVersion !== null : result.permissionsVersion !== '1')) return fail(null)
+          || (attempt.request.role === 'user' ? result.permissionsVersion !== null : result.permissionsVersion !== '1')) return fail(attempt, null)
       let safeUser
-      try { safeUser = safeCreatedUser(result.user) } catch { return fail(null) }
-      if (safeUser.username !== activeRequest.username || safeUser.nickname !== activeRequest.nickname
-          || safeUser.role !== activeRequest.role || safeUser.planType !== activeRequest.plan_type
-          || (activeRequest.group_guid === null && safeUser.group !== 'default')) return fail(null)
+      try { safeUser = safeCreatedUser(result.user) } catch { return fail(attempt, null) }
+      if (safeUser.username !== attempt.request.username || safeUser.nickname !== attempt.request.nickname
+          || safeUser.role !== attempt.request.role || safeUser.planType !== attempt.request.plan_type
+          || (attempt.request.group_guid === null && safeUser.group !== 'default')) return fail(attempt, null)
       operationRef = result.operationRef
       createdUser = safeUser
-      return settle(ADMIN_USER_CREATE_STATES.SUCCEEDED)
+      return settle(attempt, ADMIN_USER_CREATE_STATES.SUCCEEDED)
     } catch (error) {
-      ticket = null
-      if (disposed || runGeneration !== generation) return null
-      if (!isAmbiguousCreate(error)) return fail(error)
+      attempt.ticket = null
+      if (!owns(attempt)) return null
+      if (!isAmbiguousCreate(error)) return fail(attempt, error)
       operationRef = safeOperationRef(error?.operationRef)
-      activeRequest = null
-      currentPassword = null
+      attempt.request = null
+      attempt.currentPassword = null
       createdUser = null
-      transition(ADMIN_USER_CREATE_STATES.UNKNOWN)
-      transition(ADMIN_USER_CREATE_STATES.QUERYING)
-      return query(runGeneration)
+      if (!transition(attempt, ADMIN_USER_CREATE_STATES.UNKNOWN)) return null
+      if (!transition(attempt, ADMIN_USER_CREATE_STATES.QUERYING)) return null
+      return query(attempt)
     }
   }
 
   const start = input => {
     if (disposed) return Promise.resolve(snapshot())
-    if (activeRun) return activeRun
+    if (activeAttempt) return activeAttempt.promise
     if (state !== ADMIN_USER_CREATE_STATES.IDLE) return Promise.resolve(snapshot())
-    const runGeneration = ++generation
-    activeRun = new Promise(resolve => { resolveRun = resolve })
-    void run(runGeneration, input)
-    return activeRun
+    const attempt = {
+      generation: ++generation,
+      request: null,
+      currentPassword: null,
+      ticket: null,
+      idempotencyKey: null,
+      scope: null,
+      promise: null,
+      resolve: null,
+      cancelScheduled: null,
+      queryInFlight: false,
+      queryAttempts: 0,
+      aborted: false,
+      settled: false,
+    }
+    attempt.promise = new Promise(resolve => { attempt.resolve = resolve })
+    activeAttempt = attempt
+    const promise = attempt.promise
+    void run(attempt, input)
+    return promise
   }
 
   const reset = () => {
     if (disposed || state === ADMIN_USER_CREATE_STATES.IDLE) return false
+    const attempt = activeAttempt
     generation++
-    queryInFlight = false
-    clearSchedule()
-    clearTransient()
+    const notificationGeneration = generation
+    activeAttempt = null
+    let cancel = null
+    let resolve = null
+    if (attempt) {
+      attempt.aborted = true
+      cancel = takeSchedule(attempt)
+      clearAttempt(attempt)
+      resolve = attempt.resolve
+      attempt.resolve = null
+    }
     operationRef = null
     failureCode = null
     createdUser = null
     state = ADMIN_USER_CREATE_STATES.IDLE
-    notify()
-    const resolve = resolveRun
-    resolveRun = null
-    activeRun = null
-    if (resolve) resolve(snapshot())
+    const value = snapshot()
+    if (resolve) resolve(value)
+    if (typeof cancel === 'function') {
+      try { cancel() } catch { /* reset state and cleared secrets are already fixed */ }
+    }
+    notify(notificationGeneration, value)
     return true
   }
 
   const unmount = () => {
     if (disposed) return
+    const attempt = activeAttempt
     disposed = true
     generation++
-    queryInFlight = false
-    clearSchedule()
-    clearTransient()
+    activeAttempt = null
+    let cancel = null
+    let resolve = null
+    if (attempt) {
+      attempt.aborted = true
+      cancel = takeSchedule(attempt)
+      clearAttempt(attempt)
+      resolve = attempt.resolve
+      attempt.resolve = null
+    }
     operationRef = null
     failureCode = 'workflow_disposed'
     createdUser = null
     state = ADMIN_USER_CREATE_STATES.FAILED
     listeners.clear()
-    const resolve = resolveRun
-    resolveRun = null
-    activeRun = null
-    if (resolve) resolve(snapshot())
+    const value = snapshot()
+    if (resolve) resolve(value)
+    if (typeof cancel === 'function') {
+      try { cancel() } catch { /* disposed state and cleared secrets are already fixed */ }
+    }
   }
 
   const subscribe = listener => {

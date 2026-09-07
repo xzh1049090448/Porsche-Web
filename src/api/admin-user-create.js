@@ -1,5 +1,5 @@
 import { mapAdminActionError } from './admin-user-actions.js'
-import { ADMIN_CAPABILITY_DEFINITIONS, mapUserReadDto } from './admin-users.js'
+import { mapUserReadDto } from './admin-users.js'
 
 const MAX_INT64 = '9223372036854775807'
 const GUID = /^[1-9]\d{0,18}$/
@@ -10,7 +10,14 @@ const EFFECTS = new Set(['allow', 'deny'])
 const WEAK_PASSWORDS = new Set(['password', 'password123', '12345678', 'qwerty123', 'porsche', 'porsche@2026'])
 const REQUEST_KEYS = ['username', 'nickname', 'password', 'role', 'group_guid', 'plan_type', 'permission_overrides']
 const INPUT_KEYS = new Set(['username', 'nickname', 'password', 'role', 'groupGuid', 'planType', 'permissionOverrides'])
-const CAPABILITY_ORDER = new Map(ADMIN_CAPABILITY_DEFINITIONS.map((item, index) => [item.name, index]))
+const GRANTABLE_CAPABILITIES = Object.freeze([
+  'users.read', 'users.create', 'users.edit', 'users.enable', 'users.disable', 'users.reset_password',
+  'users.sessions.read', 'users.sessions.revoke', 'users.plan.change', 'users.group.change', 'users.delete',
+  'users.deleted.read', 'users.audit.read', 'groups.read', 'public_content.read', 'public_content.edit',
+  'public_content.preview', 'public_content.publish', 'public_content.rollback',
+])
+const GRANTABLE_CAPABILITY_SET = new Set(GRANTABLE_CAPABILITIES)
+const CAPABILITY_ORDER = new Map(GRANTABLE_CAPABILITIES.map((name, index) => [name, index]))
 const CREATE_FAILURES = new Map([
   [400, new Set(['invalid_admin_user_create_request'])],
   [404, new Set(['action_group_not_found'])],
@@ -74,13 +81,12 @@ function normalizePassword(value) {
 }
 
 function normalizeOverrides(value, role) {
-  if (value == null) return Object.freeze([])
+  if (value === undefined) return Object.freeze([])
   if (!Array.isArray(value)) invalidRequest()
   const seen = new Set()
   const normalized = value.map(item => {
     if (!exactKeys(item, ['capability', 'effect']) || typeof item.capability !== 'string' || !EFFECTS.has(item.effect) || seen.has(item.capability)) invalidRequest()
-    const definition = ADMIN_CAPABILITY_DEFINITIONS[CAPABILITY_ORDER.get(item.capability)]
-    if (!definition || !definition.grantable || definition.rootOnly || !definition.available) invalidRequest()
+    if (!GRANTABLE_CAPABILITY_SET.has(item.capability)) invalidRequest()
     seen.add(item.capability)
     return Object.freeze({ capability: item.capability, effect: item.effect })
   })
@@ -99,7 +105,7 @@ export function normalizeAdminUserCreateRequest(input) {
   if (!ROLES.has(input.role)) invalidRequest()
   const groupGuid = input.groupGuid == null ? null : input.groupGuid
   if (groupGuid !== null && !validGuid(groupGuid)) invalidRequest()
-  const planType = input.planType == null ? 'free' : input.planType
+  const planType = input.planType === undefined ? 'free' : input.planType
   if (!PLANS.has(planType)) invalidRequest()
   return Object.freeze({
     username,
