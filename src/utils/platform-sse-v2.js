@@ -53,7 +53,10 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
     failed = true
     terminal = true
     buffer = ''
+    dataLines = []
+    currentEvent = ''
     accepted.clear()
+    modelState.clear()
     try { onError(safeError(code)) } catch { /* callbacks are untrusted */ }
   }
   const callback = event => {
@@ -83,7 +86,7 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
     if (terminal) return protocolError(codes.afterTerminal)
     if (!metaSeen && eventName !== 'meta') return protocolError(codes.protocol)
     if (eventName === 'meta') {
-      if (metaSeen || payload.schema !== 'platform-chat-sse.v2' || payload.generation_id !== generationId || !Array.isArray(payload.models) || payload.models.length !== expectedModels.length || payload.models.some((m, i) => m !== expectedModels[i]) || Object.keys(payload).some(key => !['schema', 'generation_id', 'conversation_guid', 'models'].includes(key))) return protocolError(codes.protocol)
+      if (metaSeen || payload.schema !== 'platform-chat-sse.v2' || payload.generation_id !== generationId || typeof payload.conversation_guid !== 'string' || !payload.conversation_guid.trim() || !Array.isArray(payload.models) || payload.models.length !== expectedModels.length || payload.models.some((m, i) => m !== expectedModels[i]) || Object.keys(payload).some(key => !['schema', 'generation_id', 'conversation_guid', 'models'].includes(key))) return protocolError(codes.protocol)
       metaSeen = true
       expectedModels.forEach(model => modelState.set(model, { next: 1, terminal: false }))
       if (!accept(duplicateKey, key)) return
@@ -160,9 +163,9 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
           buffer += value
         } else buffer += decoder.decode(input, { stream: true })
         inputStarted = true
-        if (byteLength(buffer) > maxBufferBytes) return notifyError(codes.limit)
       } catch { return notifyError(codes.framing) }
       dispatch()
+      if (!failed && byteLength(buffer) > maxBufferBytes) return notifyError(codes.limit)
     },
     finish() {
       if (finished) return

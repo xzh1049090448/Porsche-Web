@@ -125,10 +125,18 @@ test('rejects meta extra sensitive fields without callback leakage', () => {
   assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR'); assert.equal(events.length, 0)
 })
 
+test('rejects missing, null, numeric, and blank meta conversation GUIDs', () => {
+  for (const conversation_guid of [undefined, null, 42, '   ']) {
+    const payload = { schema: 'platform-chat-sse.v2', generation_id: 'g-1', models: ['a'] }; if (conversation_guid !== undefined) payload.conversation_guid = conversation_guid
+    const { p, errors } = parser(); p.push(`event: meta\ndata: ${JSON.stringify(payload)}\n\n`); assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR')
+  }
+})
+
 test('fails closed on configurable framing and accepted-event limits', () => {
   const open = parser({ maxBufferBytes: 8 }); open.p.push('event: meta'); assert.equal(open.errors[0].code, 'SSE_V2_LIMIT_EXCEEDED')
   const event = parser({ maxEventBytes: 8 }); event.p.push('event: meta\n\n'); assert.equal(event.errors[0].code, 'SSE_V2_LIMIT_EXCEEDED')
   const accepted = parser({ maxAcceptedEvents: 0 }); accepted.p.push(meta()); assert.equal(accepted.errors[0].code, 'SSE_V2_LIMIT_EXCEEDED')
+  const many = parser({ maxBufferBytes: 40 }); many.p.push(': a\n\n: b\n\n: c\n\n' + meta() + modelDone('a', 0) + done()); assert.equal(many.errors.length, 0)
 })
 
 test('deeply nested JSON cannot escape parser as a thrown exception', () => {
