@@ -137,6 +137,27 @@ test('catch-up duration freezes when the queue drains', () => {
   assert.equal(second, first)
 })
 
+test('reduced-motion initial catch-up records its active interval', () => {
+  const clock = scheduler();
+  const player = createGraphemePlayback({ reducedMotion: true, requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0 })
+  player.push('x'.repeat(100)); player.finish(); clock.step(100)
+  assert.equal(player.snapshot().mode, 'catch-up')
+  assert.equal(player.snapshot().catchUpStartedAt, 100)
+  assert.equal(player.snapshot().catchUpDurationMs, 0)
+})
+
+test('cancel and dispose close an active catch-up interval and remain frozen', () => {
+  for (const action of ['cancel', 'dispose']) {
+    const clock = scheduler(); let current = 0
+    const player = createGraphemePlayback({ reducedMotion: true, requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => current })
+    player.push('x'.repeat(100)); player.finish(); clock.step(100)
+    current = 500; const active = player.snapshot(); assert.equal(active.catchUpStartedAt, 100)
+    player[action](); const frozen = player.snapshot(); current = 2000
+    assert.equal(player.snapshot().catchUpDurationMs, frozen.catchUpDurationMs)
+    player[action](); assert.equal(player.snapshot().catchUpDurationMs, frozen.catchUpDurationMs)
+  }
+})
+
 test('cancel and dispose ignore a late scheduled frame', () => {
   let callback; let cancelled = 0; const displays = []
   const player = createGraphemePlayback({

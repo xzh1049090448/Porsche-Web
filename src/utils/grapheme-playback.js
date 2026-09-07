@@ -39,6 +39,13 @@ export function createGraphemePlayback({
     return Object.freeze({ receivedText, displayedText, pendingCount: pending.length + (carry ? 1 : 0), mode, modeReason, finished, disposed, catchUpStartedAt, catchUpDurationMs: catchUpDurationMs + activeCatchUpMs, maxBatchSize, boundaryWaitMs: carry ? Math.max(0, current - carryStartedAt) : 0 })
   }
 
+  function closeCatchUp(at) {
+    if (catchUpStartedAt !== null) {
+      catchUpDurationMs += Math.max(0, at - catchUpStartedAt)
+      catchUpStartedAt = null
+    }
+  }
+
   function schedule() {
     if (frameHandle !== null || disposed || pending.length === 0) return
     const token = generation
@@ -49,7 +56,7 @@ export function createGraphemePlayback({
       const remaining = pending.length
       const lag = Math.max(remaining * 25, frameTime - lastReceivedAt)
       const nextMode = reducedMotion || lag > targetLagMs ? 'catch-up' : 'standard'
-      if (nextMode === 'catch-up' && mode !== 'catch-up') {
+      if (nextMode === 'catch-up' && catchUpStartedAt === null) {
         catchUpStartedAt = frameTime
         modeReason = reducedMotion ? 'reduced-motion' : 'queue-lag'
       } else if (nextMode === 'standard' && mode === 'catch-up' && catchUpStartedAt !== null) {
@@ -71,8 +78,7 @@ export function createGraphemePlayback({
       onDisplay(displayedText)
       if (pending.length) schedule()
       else if (mode === 'catch-up' && catchUpStartedAt !== null) {
-        catchUpDurationMs += Math.max(0, frameTime - catchUpStartedAt)
-        catchUpStartedAt = null
+        closeCatchUp(frameTime)
         mode = 'standard'
         modeReason = 'standard'
       }
@@ -106,6 +112,7 @@ export function createGraphemePlayback({
     },
     cancel() {
       if (disposed) return snapshot()
+      closeCatchUp(now())
       generation += 1
       if (frameHandle !== null) { cancelFrame(frameHandle); frameHandle = null }
       pending = []; carry = ''; carryStartedAt = null; finished = true
@@ -113,6 +120,7 @@ export function createGraphemePlayback({
     },
     dispose() {
       if (disposed) return snapshot()
+      closeCatchUp(now())
       generation += 1
       if (frameHandle !== null) { cancelFrame(frameHandle); frameHandle = null }
       pending = []; carry = ''; carryStartedAt = null; disposed = true; finished = true
