@@ -9,6 +9,8 @@ import {
   canOpenAdminUserCreate,
   clearAdminUserCreateSecrets,
   createAdminUserCreateCoordinator,
+  focusAdminUserCreateInvalidField,
+  normalizeAdminUserCreateFormAuthorization,
   reconcileAdminUserCreateConflict,
   restoreAdminUserCreateTriggerFocus,
   settleAdminUserCreateDialog,
@@ -256,6 +258,143 @@ test('policy refresh makes zero forbidden group or catalog requests after a capa
   assert.deepEqual(f.coordinator.state.groups, [DEFAULT_ADMIN_GROUP_CHOICE])
 })
 
+test('permission rejection blocks old Root actions and normalizes a downgraded Admin actor before retry', async () => {
+  let groupCalls = 0
+  let catalogCalls = 0
+  const identity = deferred()
+  const f = coordinatorFixture({
+    loadGroups: async () => { groupCalls++; return [{ guid: '41', key: 'default', displayName: 'Default' }] },
+    loadCatalog: async () => { catalogCalls++; return { capabilities: [] } },
+  })
+  const token = f.coordinator.open({
+    actorRole: 'root',
+    capabilities: ['users.create', 'users.plan.change', 'users.group.change', 'groups.read'],
+  })
+  await f.coordinator.whenPrepared(token)
+  await f.coordinator.setRole(token, 'admin')
+  const refreshing = reconcileAdminUserCreateConflict({
+    code: 'action_operation_rejected', token, createStore: f.coordinator,
+    refreshIdentity: () => identity.promise,
+    currentContext: () => ({ actorRole: 'admin', capabilities: ['users.create'] }),
+  })
+  assert.equal(f.coordinator.state.authorizing, true)
+  assert.deepEqual(f.coordinator.state.groups, [])
+  assert.equal(f.coordinator.state.catalog, null)
+  assert.equal(f.coordinator.submit(token, {
+    username: 'alice', password: 'Str0ng!Pass', role: 'admin', groupGuid: '41', planType: 'professional', permissionOverrides: [], currentPassword: 'Actor!Pass9',
+  }), null)
+  assert.equal(f.workflow.starts.length, 0, 'old Root permissions must issue no verification or create request')
+  identity.resolve()
+  assert.equal(await refreshing, true)
+  assert.equal(f.coordinator.state.authorizing, false)
+  assert.equal(f.coordinator.state.actorRole, 'admin')
+  assert.equal(f.coordinator.state.role, 'user')
+  assert.deepEqual(f.coordinator.state.capabilities, ['users.create'])
+  assert.deepEqual(f.coordinator.state.groups, [DEFAULT_ADMIN_GROUP_CHOICE])
+  assert.equal(f.coordinator.state.catalog, null)
+  assert.deepEqual([groupCalls, catalogCalls], [1, 1], 'downgraded projection must issue no forbidden directory request')
+})
+
+test('authorization refresh closes for lost create capability or actor eligibility without issuing stale requests', async () => {
+  for (const currentContext of [
+    { actorRole: 'admin', capabilities: [] },
+    { actorRole: 'user', capabilities: ['users.create'] },
+  ]) {
+    let groupCalls = 0
+    let catalogCalls = 0
+    const identity = deferred()
+    const f = coordinatorFixture({
+      loadGroups: async () => { groupCalls++; return [{ guid: '41', key: 'default', displayName: 'Default' }] },
+      loadCatalog: async () => { catalogCalls++; return { capabilities: [] } },
+    })
+    const token = f.coordinator.open({ actorRole: 'root', capabilities: ['users.create', 'groups.read'] })
+    await f.coordinator.whenPrepared(token)
+    await f.coordinator.setRole(token, 'admin')
+    assert.deepEqual([groupCalls, catalogCalls], [1, 1])
+
+    const refreshing = reconcileAdminUserCreateConflict({
+      code: 'action_verification_rejected', token, createStore: f.coordinator,
+      refreshIdentity: () => identity.promise, currentContext: () => currentContext,
+    })
+    assert.equal(f.coordinator.submit(token, {
+      username: 'alice', password: 'Str0ng!Pass', role: 'admin', groupGuid: '41', planType: 'free', permissionOverrides: [], currentPassword: 'Actor!Pass9',
+    }), null)
+    assert.equal(f.workflow.starts.length, 0, 'the stale projection must issue no verification or create request')
+    identity.resolve()
+    assert.equal(await refreshing, false)
+    assert.equal(f.coordinator.state.open, false)
+    assert.equal(f.coordinator.captureOwnership(), null)
+    assert.deepEqual([groupCalls, catalogCalls], [1, 1], 'an ineligible identity must issue no directory request')
+  }
+})
+
+test('permission revision and a racing 403 serialize identity refresh and only the newest generation may load directories', async () => {
+  const identityA = deferred()
+  const identityB = deferred()
+  let identityCalls = 0
+  let groupCalls = 0
+  const contexts = [
+    { actorRole: 'root', capabilities: ['users.create', 'groups.read', 'users.plan.change'] },
+    { actorRole: 'admin', capabilities: ['users.create'] },
+  ]
+  const f = coordinatorFixture({
+    loadGroups: async () => { groupCalls++; return [{ guid: '41', key: 'default', displayName: 'Default' }] },
+  })
+  const token = f.coordinator.open({ actorRole: 'root', capabilities: ['users.create', 'groups.read'] })
+  await f.coordinator.whenPrepared(token)
+  const first = reconcileAdminUserCreateConflict({
+    code: 'permission_revision', token, createStore: f.coordinator,
+    refreshIdentity: () => { identityCalls++; return identityA.promise }, currentContext: () => contexts[0],
+  })
+  const second = reconcileAdminUserCreateConflict({
+    code: 'action_verification_rejected', token, createStore: f.coordinator,
+    refreshIdentity: () => { identityCalls++; return identityB.promise }, currentContext: () => contexts[1],
+  })
+  assert.equal(identityCalls, 1, 'the racing 403 must queue behind the active self refresh')
+  identityA.resolve()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(identityCalls, 2)
+  assert.equal(await first, false, 'the older generation must not publish authorization state')
+  assert.equal(groupCalls, 1, 'the older generation must not load a directory')
+  identityB.resolve()
+  assert.equal(await second, true)
+  assert.equal(f.coordinator.state.actorRole, 'admin')
+  assert.deepEqual(f.coordinator.state.capabilities, ['users.create'])
+  assert.deepEqual(f.coordinator.state.groups, [DEFAULT_ADMIN_GROUP_CHOICE])
+  assert.equal(groupCalls, 1, 'the newest projection lacks groups.read and must issue zero new directory requests')
+})
+
+test('authorization normalization removes plan, group, role, and override choices revoked by the fresh projection', () => {
+  const form = { role: 'admin', planType: 'professional', groupGuid: '42' }
+  const effects = { 'users.read': 'allow', 'groups.read': 'deny' }
+  normalizeAdminUserCreateFormAuthorization({
+    form,
+    permissionEffects: effects,
+    actorRole: 'admin',
+    role: 'user',
+    capabilities: ['users.create'],
+    groups: [DEFAULT_ADMIN_GROUP_CHOICE],
+    catalog: null,
+  })
+  assert.deepEqual(form, { role: 'user', planType: 'free', groupGuid: null })
+  assert.deepEqual(effects, {})
+
+  const groupForm = { role: 'user', planType: 'free', groupGuid: '42' }
+  normalizeAdminUserCreateFormAuthorization({
+    form: groupForm,
+    permissionEffects: effects,
+    actorRole: 'admin',
+    role: 'user',
+    capabilities: ['users.create', 'groups.read'],
+    groups: [
+      { guid: '41', key: 'default', displayName: 'Default' },
+      { guid: '42', key: 'team', displayName: 'Team' },
+    ],
+    catalog: null,
+  })
+  assert.equal(groupForm.groupGuid, '41', 'a non-default group is revoked without users.group.change')
+})
+
 test('late group and catalog responses cannot cross dialog ownership or role selection', async () => {
   const groupsA = deferred()
   const catalogA = deferred()
@@ -399,4 +538,25 @@ test('focus restoration is ownership checked at the next tick', () => {
   restoreAdminUserCreateTriggerFocus({ token: 'a', canRestore: token => token === owner,
     trigger: { isConnected: false, focus: () => calls.push('detached') }, fallback: { focus: () => calls.push('fallback') }, nextTick: callback => callback() })
   assert.deepEqual(calls, ['trigger', 'fallback'])
+})
+
+test('Element Plus invalid fields scroll and focus the first failing confirmation or actor-password control', () => {
+  for (const field of ['confirmPassword', 'currentPassword']) {
+    const calls = []
+    const queue = []
+    const controls = {
+      username: { value: { focus: () => calls.push('username') } },
+      [field]: { value: { focus: () => calls.push(field) } },
+    }
+    assert.equal(focusAdminUserCreateInvalidField({
+      token: 'dialog',
+      owns: token => token === 'dialog',
+      invalidFields: { [field]: [{ field }], username: [{ field: 'username' }] },
+      formRef: { value: { scrollToField: value => calls.push(`scroll:${value}`) } },
+      controls,
+      nextTick: callback => queue.push(callback),
+    }), true)
+    queue.forEach(callback => callback())
+    assert.deepEqual(calls, [`scroll:${field}`, field])
+  }
 })

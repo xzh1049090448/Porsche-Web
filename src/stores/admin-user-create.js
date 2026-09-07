@@ -16,6 +16,8 @@ const SAFE_INITIAL = Object.freeze({
   operationRef: null,
   failureCode: null,
   createdUser: null,
+  authorizing: false,
+  authorizationRevision: 0,
   groups: DEFAULT_GROUPS,
   groupsLoading: false,
   groupsError: false,
@@ -27,6 +29,11 @@ const SAFE_INITIAL = Object.freeze({
 const CONFLICT_FAILURES = new Set([
   'username_conflict', 'idempotency_conflict', 'idempotency_cross_session',
   'policy_version_conflict', 'action_verification_conflict', 'action_group_not_found',
+  'action_verification_rejected', 'action_operation_rejected',
+])
+const AUTHORIZATION_REFRESH_REASONS = new Set([
+  'permission_revision', 'policy_version_conflict', 'action_verification_conflict', 'idempotency_cross_session',
+  'action_verification_rejected', 'action_operation_rejected',
 ])
 
 export function canOpenAdminUserCreate({ actorRole, capabilities } = {}) {
@@ -67,6 +74,24 @@ export function buildAdminPermissionOverrides({ role, catalog, effects } = {}) {
   }))
 }
 
+export function normalizeAdminUserCreateFormAuthorization({ form, permissionEffects, actorRole, role, capabilities, groups, catalog } = {}) {
+  if (!form || !permissionEffects || !Array.isArray(capabilities) || !Array.isArray(groups)) return false
+  form.role = availableAdminUserCreateRoles(actorRole).includes(role) ? role : 'user'
+  if (!canChooseAdminUserCreatePlan(capabilities, form.planType)) form.planType = 'free'
+  if (!capabilities.includes('groups.read')) form.groupGuid = null
+  else {
+    const selected = groups.find(group => group.guid === form.groupGuid)
+    if (!canChooseAdminUserCreateGroup(capabilities, selected)) form.groupGuid = groups.find(group => group.key === 'default')?.guid ?? null
+  }
+  for (const name of Object.keys(permissionEffects)) delete permissionEffects[name]
+  if (form.role === 'admin' && catalog?.capabilities) {
+    for (const item of catalog.capabilities) {
+      if (item?.grantable === true && item.root_only === false && item.available === true) permissionEffects[item.name] = 'inherit'
+    }
+  }
+  return true
+}
+
 export const isAdminUserCreateBusy = state => [
   ADMIN_USER_CREATE_STATES.VERIFYING,
   ADMIN_USER_CREATE_STATES.SUBMITTING,
@@ -74,8 +99,9 @@ export const isAdminUserCreateBusy = state => [
   ADMIN_USER_CREATE_STATES.QUERYING,
 ].includes(state)
 
-export function canSubmitAdminUserCreate({ state, role, catalog } = {}) {
+export function canSubmitAdminUserCreate({ state, role, catalog, authorizing = false } = {}) {
   return [ADMIN_USER_CREATE_STATES.IDLE, ADMIN_USER_CREATE_STATES.FAILED].includes(state)
+    && authorizing !== true
     && (role === 'user' || role === 'admin' && catalog != null)
 }
 
@@ -99,6 +125,21 @@ export function clearAdminUserCreateSecrets({ form, passwordInputs = [], clearVa
 export function focusAdminUserCreateError({ token, owns, errorAlert, nextTick }) {
   if (!owns(token)) return false
   nextTick(() => { if (owns(token)) (errorAlert?.value?.$el ?? errorAlert?.value)?.focus?.() })
+  return true
+}
+
+export function focusAdminUserCreateInvalidField({ token, owns, invalidFields, formRef, controls = {}, nextTick } = {}) {
+  if (!owns?.(token) || !invalidFields || typeof invalidFields !== 'object' || Array.isArray(invalidFields)) return false
+  const field = Object.keys(invalidFields).find(name => Array.isArray(invalidFields[name]) && invalidFields[name].length > 0)
+  if (!field) return false
+  nextTick(() => {
+    if (!owns(token)) return
+    formRef?.value?.scrollToField?.(field)
+    const control = controls[field]?.value ?? controls[field]
+    const input = control?.input ?? control?.$el?.querySelector?.('input,button,[tabindex]')
+    const focus = control?.focus ?? input?.focus
+    focus?.call(control?.focus ? control : input)
+  })
   return true
 }
 
@@ -133,17 +174,8 @@ export async function reconcileAdminUserCreateConflict({
 } = {}) {
   if (!createStore?.owns?.(token)) return false
   if (code === 'action_group_not_found') return createStore.refreshGroups(token)
-  if (!['policy_version_conflict', 'action_verification_conflict', 'idempotency_cross_session'].includes(code)) return true
-  createStore.invalidateDirectories(token)
-  try {
-    await refreshIdentity()
-  } catch {
-    const closeDialog = createStore.closeDialog ?? createStore.close
-    closeDialog?.(token)
-    return false
-  }
-  if (!createStore.owns(token)) return false
-  return createStore.refreshAuthorization(token, currentContext())
+  if (!AUTHORIZATION_REFRESH_REASONS.has(code)) return true
+  return createStore.reauthorize(token, { refreshIdentity, currentContext })
 }
 
 export function createAdminUserCreateCoordinator({
@@ -168,6 +200,8 @@ export function createAdminUserCreateCoordinator({
   let groupAbort = null
   let catalogAbort = null
   let catalogRevision = 0
+  let authorizationGeneration = 0
+  let identityRefreshTail = null
   let callbacks = { onSucceeded, onConflict, onUnauthorized }
 
   const owns = token => token != null && token === ownership && workflow != null
@@ -186,6 +220,7 @@ export function createAdminUserCreateCoordinator({
     catalogRevision++
   }
   const destroyWorkflow = () => {
+    authorizationGeneration++
     abortDirectories()
     unsubscribe?.()
     unsubscribe = null
@@ -302,8 +337,8 @@ export function createAdminUserCreateCoordinator({
   }
 
   const whenPrepared = token => owns(token) ? preparedPromise : Promise.resolve(false)
-  const refreshAuthorization = async (token, context) => {
-    if (!owns(token)) return false
+  const refreshAuthorization = async (token, context, expectedGeneration = authorizationGeneration) => {
+    if (!owns(token) || expectedGeneration !== authorizationGeneration) return false
     if (!canOpenAdminUserCreate(context)) {
       close(token)
       return false
@@ -311,6 +346,7 @@ export function createAdminUserCreateCoordinator({
     value.actorRole = context.actorRole
     value.capabilities = Object.freeze([...context.capabilities])
     if (!availableAdminUserCreateRoles(value.actorRole).includes(value.role)) value.role = 'user'
+    value.authorizationRevision++
     if (value.role !== 'admin') {
       catalogAbort?.abort()
       catalogAbort = null
@@ -321,11 +357,36 @@ export function createAdminUserCreateCoordinator({
     }
     const groups = refreshGroups(token)
     const catalog = value.role === 'admin' ? refreshCatalog(token) : Promise.resolve(true)
-    preparedPromise = Promise.all([groups, catalog]).then(results => owns(token) && results.every(Boolean))
+    preparedPromise = Promise.all([groups, catalog]).then(results => {
+      if (!owns(token) || expectedGeneration !== authorizationGeneration) return false
+      value.authorizing = false
+      return results.every(Boolean)
+    })
     return preparedPromise
   }
+  const reauthorize = (token, { refreshIdentity, currentContext } = {}) => {
+    if (!owns(token) || typeof refreshIdentity !== 'function' || typeof currentContext !== 'function') return Promise.resolve(false)
+    const expectedGeneration = ++authorizationGeneration
+    invalidateDirectories(token)
+    value.authorizing = true
+    const refresh = async () => {
+      if (!owns(token) || expectedGeneration !== authorizationGeneration) return false
+      try {
+        await refreshIdentity()
+      } catch {
+        if (owns(token) && expectedGeneration === authorizationGeneration) close(token)
+        return false
+      }
+      if (!owns(token) || expectedGeneration !== authorizationGeneration) return false
+      return refreshAuthorization(token, currentContext(), expectedGeneration)
+    }
+    const running = identityRefreshTail ? identityRefreshTail.catch(() => {}).then(refresh) : refresh()
+    const settled = running.finally(() => { if (identityRefreshTail === settled) identityRefreshTail = null })
+    identityRefreshTail = settled
+    return settled
+  }
   const setRole = async (token, role) => {
-    if (!owns(token) || !availableAdminUserCreateRoles(value.actorRole).includes(role)) return false
+    if (!owns(token) || value.authorizing || !availableAdminUserCreateRoles(value.actorRole).includes(role)) return false
     if (value.role === role) return role === 'user' || value.catalog != null || refreshCatalog(token)
     value.role = role
     value.catalog = null
@@ -394,6 +455,7 @@ export function createAdminUserCreateCoordinator({
     captureOwnership,
     invalidateDirectories,
     whenPrepared,
+    reauthorize,
     refreshAuthorization,
     setRole,
     refreshGroups,
@@ -427,6 +489,7 @@ export const useAdminUserCreateStore = defineStore('adminUserCreate', () => {
     captureOwnership: coordinator.captureOwnership,
     invalidateDirectories: coordinator.invalidateDirectories,
     whenPrepared: coordinator.whenPrepared,
+    reauthorize: coordinator.reauthorize,
     refreshAuthorization: coordinator.refreshAuthorization,
     setRole: coordinator.setRole,
     refreshGroups: coordinator.refreshGroups,

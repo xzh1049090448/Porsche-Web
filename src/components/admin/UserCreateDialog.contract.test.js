@@ -149,6 +149,7 @@ test('dialog is controlled, traps focus, handles Escape, and exposes lifecycle h
   assert.ok(dialog)
   assert.ok(attribute(dialog, 'trap-focus'))
   assert.equal(directive(dialog, 'bind', 'close-on-click-modal').exp.content, 'false')
+  assert.equal(directive(dialog, 'on', 'open-auto-focus').exp.content, 'focusUsername')
   assert.equal(directive(dialog, 'on', 'close').exp.content, 'requestClose')
   assert.equal(directive(dialog, 'on', 'closed').exp.content, 'onClosed')
   assert.equal(directive(dialog, 'on', 'keydown').modifiers[0].content, 'esc')
@@ -190,6 +191,12 @@ test('Users exposes create only through users.create, owns restore focus, and an
   assert.equal(scriptCalls(usersScript, 'restoreAdminUserCreateTriggerFocus'), true)
 })
 
+test('Users sends permission revisions and permission failures through one synchronous fail-closed refresh', () => {
+  assert.match(usersDescriptor.scriptSetup.content, /refreshCreateAuthorization\('permission_revision'/)
+  assert.match(usersDescriptor.scriptSetup.content, /watch\(\(\) => userStore\.permissionRevision,[\s\S]*flush:\s*'sync'/)
+  assert.match(usersDescriptor.scriptSetup.content, /refreshIdentity:\s*refreshCreateIdentity/)
+})
+
 test('localized announcements distinguish known created identity from recovered success', () => {
   for (const locale of ['zh', 'en']) {
     assert.equal(typeof messages[locale].createUser.successKnown, 'string')
@@ -203,6 +210,7 @@ test('localized announcements distinguish known created identity from recovered 
 test('mounted dialog opens visibly with username focus and restores the trigger after close and success', async () => {
   const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
   const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  let app = null
   Object.defineProperty(globalThis, 'document', { configurable: true, value: { documentElement: {}, title: '', activeElement: null } })
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => null, setItem() {}, removeItem() {} } })
   try {
@@ -237,7 +245,7 @@ test('mounted dialog opens visibly with username focus and restores the trigger 
       },
     })
     const pinia = createPinia()
-    const app = mounted.renderer.createApp(Harness)
+    app = mounted.renderer.createApp(Harness)
     app.use(pinia)
     for (const [name, component] of Object.entries({
       'el-dialog': DialogStub,
@@ -275,8 +283,8 @@ test('mounted dialog opens visibly with username focus and restores the trigger 
     await flushView()
     assert.equal(store.isOpen, false)
     assert.equal(mounted.active(), entry)
-    app.unmount()
   } finally {
+    app?.unmount()
     if (originalDocument) Object.defineProperty(globalThis, 'document', originalDocument)
     else delete globalThis.document
     if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage)

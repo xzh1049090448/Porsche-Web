@@ -72,6 +72,7 @@ const createAnnouncement = ref('')
 let deleteToken = null
 let createToken = null
 let listContextRevision = 0
+let createIdentityRefreshDepth = 0
 function openCreate(event) {
   if (!canCreate.value) return
   createAnnouncement.value = ''
@@ -92,15 +93,20 @@ async function onCreateSucceeded({ createdUser }, token) {
   ElMessage.success(createAnnouncement.value)
   return true
 }
-async function onCreateConflict(code, token) {
+async function refreshCreateIdentity() {
+  createIdentityRefreshDepth++
+  try { return await userStore.fetchSelf() } finally { createIdentityRefreshDepth-- }
+}
+function refreshCreateAuthorization(code, token = createToken) {
   return reconcileAdminUserCreateConflict({
     code,
     token,
     createStore,
-    refreshIdentity: () => userStore.fetchSelf(),
+    refreshIdentity: refreshCreateIdentity,
     currentContext: () => ({ actorRole: userStore.user?.role, capabilities: userStore.permissionProjection?.capabilities }),
   })
 }
+async function onCreateConflict(code, token) { return refreshCreateAuthorization(code, token) }
 function openDelete(target, event) {
   deleteTrigger = event?.currentTarget ?? document.activeElement
   deleteToken = actionStore.open(target, { onSucceeded: onDeleteSucceeded, onConflict: onDeleteConflict, onUnauthorized })
@@ -144,7 +150,10 @@ watch(() => store.recoveryRevision, () => {
   if (store.recoveredPage !== null) filters.page = store.recoveredPage
 })
 watch([canRead, () => userStore.permissionRevision], ([enabled]) => { if (enabled) void reload(); else store.clear() }, { immediate: true })
-watch(canCreate, enabled => { if (!enabled && createToken && createStore.owns(createToken)) createStore.closeDialog(createToken) })
+watch(() => userStore.permissionRevision, () => {
+  if (!createIdentityRefreshDepth && createToken && createStore.owns(createToken)) void refreshCreateAuthorization('permission_revision', createToken)
+}, { flush: 'sync' })
+watch(canCreate, enabled => { if (!enabled && createToken && createStore.owns(createToken)) createStore.closeDialog(createToken) }, { flush: 'sync' })
 onBeforeUnmount(() => {
   if (createToken) createStore.disposeDialog(createToken)
   if (deleteToken) actionStore.dispose(deleteToken)
