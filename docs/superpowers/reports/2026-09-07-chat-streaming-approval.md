@@ -33,11 +33,13 @@
 - 响应头必须包含 `text/event-stream; charset=utf-8`、`Cache-Control: no-cache, no-transform`、`X-Accel-Buffering: no`。
 - 错误仅暴露稳定错误码和允许的 request ID，不得暴露提示词、回复正文、Authorization、密钥、上游原文或内部地址。
 
-## 尚待双方决定
+## 已批准的生命周期决策
 
-1. 重复 generation POST 返回现有状态、409，还是重新附着同一 SSE。
-2. compare 使用一个聚合 assistant message GUID，还是每模型独立 message GUID。
-3. 取消/失败是否消耗 daily call quota。
-4. Redis 不可用时是否按建议仅对 v2 返回稳定 503，而旧协议继续兼容。
+用户于 2026-09-07 明确批准以下方案：
 
-这些决定不阻塞 FE-03 纯前端状态层，但阻塞真实 API/store 接入和后端完整生命周期签收。
+1. 重复 `generation_id` POST 返回 `409` 和当前权威状态，不重新附着 SSE，也不再次调用上游。
+2. compare 为每个模型保存独立的 `assistant_message_guid`。
+3. 取消或失败不消耗 daily call quota；已经产生的上游成本进入独立审计，不伪装为成功用量。
+4. Redis 不可用时仅 v2 返回稳定 `503`；旧协议保持现有兼容行为。
+
+该批准允许继续隔离实现和测试，不自动授权 push、merge、部署、生产迁移或真实付费调用。
