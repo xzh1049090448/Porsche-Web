@@ -99,8 +99,20 @@ export const isAdminUserCreateBusy = state => [
   ADMIN_USER_CREATE_STATES.QUERYING,
 ].includes(state)
 
-export function canSubmitAdminUserCreate({ state, role, catalog, authorizing = false } = {}) {
-  return [ADMIN_USER_CREATE_STATES.IDLE, ADMIN_USER_CREATE_STATES.FAILED].includes(state)
+export function canSubmitAdminUserCreate({
+  state, role, catalog, authorizing = false, capabilities, groups,
+  groupsLoading = false, groupsError = false, groupGuid,
+} = {}) {
+  if (!Array.isArray(capabilities) || !capabilities.includes('users.create')) return false
+  const hasDirectory = capabilities.includes('groups.read')
+  const groupReady = hasDirectory
+    ? groupsLoading !== true && groupsError !== true && Array.isArray(groups) && groups.length > 0
+      && typeof groupGuid === 'string'
+      && canChooseAdminUserCreateGroup(capabilities, groups.find(group => group.guid === groupGuid))
+    : groupGuid == null && Array.isArray(groups) && Object.isFrozen(groups) && groups.length === 1
+      && groups[0] === DEFAULT_ADMIN_GROUP_CHOICE
+  return groupReady
+    && [ADMIN_USER_CREATE_STATES.IDLE, ADMIN_USER_CREATE_STATES.FAILED].includes(state)
     && authorizing !== true
     && (role === 'user' || role === 'admin' && catalog != null)
 }
@@ -400,7 +412,11 @@ export function createAdminUserCreateCoordinator({
   }
 
   const validGroupInput = groupGuid => {
-    if (groupGuid == null) return true
+    if (!value.capabilities.includes('groups.read')) {
+      return groupGuid == null && Array.isArray(value.groups) && Object.isFrozen(value.groups)
+        && value.groups.length === 1 && value.groups[0] === DEFAULT_ADMIN_GROUP_CHOICE
+    }
+    if (value.groupsLoading || value.groupsError || groupGuid == null) return false
     const choice = value.groups.find(group => group.guid === groupGuid)
     return canChooseAdminUserCreateGroup(value.capabilities, choice)
   }
@@ -408,7 +424,7 @@ export function createAdminUserCreateCoordinator({
   const submit = (token = ownership, input) => {
     if (!owns(token)) return null
     if (submitPromise) return submitPromise
-    if (!canSubmitAdminUserCreate(value) || !input || input.role !== value.role
+    if (!input || !canSubmitAdminUserCreate({ ...value, groupGuid: input.groupGuid }) || input.role !== value.role
         || !canChooseAdminUserCreatePlan(value.capabilities, input.planType ?? 'free')
         || !validGroupInput(input.groupGuid)) return null
     if (value.role === 'admin') {

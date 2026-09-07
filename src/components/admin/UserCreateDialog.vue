@@ -105,7 +105,17 @@ const errorAlert = ref(null)
 const form = reactive({ username: '', nickname: '', password: '', confirmPassword: '', role: 'user', groupGuid: null, planType: 'free', currentPassword: '' })
 const permissionEffects = reactive({})
 const busy = computed(() => createStore.authorizing || isAdminUserCreateBusy(createStore.state))
-const canSubmit = computed(() => canSubmitAdminUserCreate({ state: createStore.state, role: form.role, catalog: createStore.catalog, authorizing: createStore.authorizing }))
+const canSubmit = computed(() => canSubmitAdminUserCreate({
+  state: createStore.state,
+  role: form.role,
+  catalog: createStore.catalog,
+  authorizing: createStore.authorizing,
+  capabilities: createStore.capabilities,
+  groups: createStore.groups,
+  groupsLoading: createStore.groupsLoading,
+  groupsError: createStore.groupsError,
+  groupGuid: form.groupGuid,
+}))
 const hasGroupDirectory = computed(() => createStore.capabilities.includes('groups.read'))
 const permissionRows = computed(() => createStore.catalog?.capabilities?.filter(item => item.grantable && !item.root_only && item.available) ?? [])
 const knownFailures = new Set(['username_conflict', 'action_group_not_found', 'policy_version_conflict', 'action_verification_conflict', 'idempotency_conflict', 'authentication_failed'])

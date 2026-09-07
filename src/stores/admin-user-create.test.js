@@ -7,6 +7,7 @@ import {
   canChooseAdminUserCreateGroup,
   canChooseAdminUserCreatePlan,
   canOpenAdminUserCreate,
+  canSubmitAdminUserCreate,
   clearAdminUserCreateSecrets,
   createAdminUserCreateCoordinator,
   focusAdminUserCreateInvalidField,
@@ -157,6 +158,46 @@ test('missing groups.read never calls the directory and keeps the immutable omit
   assert.equal(groupCalls, 0)
   assert.deepEqual(f.coordinator.state.groups, [DEFAULT_ADMIN_GROUP_CHOICE])
   assert.equal(Object.isFrozen(f.coordinator.state.groups), true)
+})
+
+test('groups.read fails closed while the directory is pending, failed, empty, or has no selected active item', async () => {
+  const base = {
+    state: 'idle', role: 'user', catalog: null, authorizing: false,
+    capabilities: ['users.create', 'groups.read'], groupsLoading: false, groupsError: false,
+    groups: [{ guid: '41', key: 'default', displayName: 'Default' }], groupGuid: '41',
+  }
+  assert.equal(canSubmitAdminUserCreate(base), true)
+  for (const change of [
+    { groupsLoading: true },
+    { groupsError: true },
+    { groups: [] },
+    { groupGuid: null },
+    { groupGuid: '42' },
+  ]) assert.equal(canSubmitAdminUserCreate({ ...base, ...change }), false)
+
+  assert.equal(canSubmitAdminUserCreate({
+    ...base, capabilities: ['users.create'], groups: Object.freeze([DEFAULT_ADMIN_GROUP_CHOICE]), groupGuid: null,
+  }), true, 'without groups.read the immutable omitted default remains submit-safe')
+})
+
+test('group directory failure and pending state start zero create or verification requests', async () => {
+  const pendingGroups = deferred()
+  const pending = coordinatorFixture({ loadGroups: async () => pendingGroups.promise })
+  const pendingToken = pending.coordinator.open({ actorRole: 'admin', capabilities: ['users.create', 'groups.read'] })
+  const input = { username: 'alice', password: 'Str0ng!Pass', role: 'user', groupGuid: null, planType: 'free', permissionOverrides: [] }
+  assert.equal(pending.coordinator.submit(pendingToken, { ...input }), null)
+  assert.equal(pending.workflow.starts.length, 0)
+  pendingGroups.resolve([])
+  assert.equal(await pending.coordinator.whenPrepared(pendingToken), false)
+  assert.equal(pending.coordinator.submit(pendingToken, { ...input }), null)
+  assert.equal(pending.workflow.starts.length, 0)
+
+  const selected = coordinatorFixture({ loadGroups: async () => [{ guid: '41', key: 'default', displayName: 'Default' }] })
+  const selectedToken = selected.coordinator.open({ actorRole: 'admin', capabilities: ['users.create', 'groups.read'] })
+  await selected.coordinator.whenPrepared(selectedToken)
+  assert.equal(selected.coordinator.submit(selectedToken, { ...input, groupGuid: null }), null)
+  assert.equal(selected.coordinator.submit(selectedToken, { ...input, groupGuid: '42' }), null)
+  assert.equal(selected.workflow.starts.length, 0)
 })
 
 test('policy conflict refreshes identity, current capabilities, groups, and the applicable catalog once', async () => {
