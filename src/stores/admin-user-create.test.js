@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createPinia, setActivePinia } from 'pinia'
 import {
   availableAdminUserCreateRoles,
   buildAdminPermissionOverrides,
@@ -8,8 +9,10 @@ import {
   canOpenAdminUserCreate,
   clearAdminUserCreateSecrets,
   createAdminUserCreateCoordinator,
+  reconcileAdminUserCreateConflict,
   restoreAdminUserCreateTriggerFocus,
   settleAdminUserCreateDialog,
+  useAdminUserCreateStore,
 } from './admin-user-create.js'
 import { DEFAULT_ADMIN_GROUP_CHOICE } from '../api/admin-groups.js'
 import { reconcileCreatedAdminUser } from './admin-users.js'
@@ -71,6 +74,20 @@ function coordinatorFixture(overrides = {}) {
   })
   return { coordinator, succeeded, conflicts, workflow, get unauthorized() { return unauthorized } }
 }
+
+test('Pinia exposes dialog visibility separately from open and close actions', () => {
+  setActivePinia(createPinia())
+  const store = useAdminUserCreateStore()
+  assert.equal(store.isOpen, false)
+  assert.equal(typeof store.openDialog, 'function')
+  assert.equal(typeof store.closeDialog, 'function')
+
+  const token = store.openDialog({ actorRole: 'admin', capabilities: ['users.create'] })
+  assert.ok(token)
+  assert.equal(store.isOpen, true)
+  assert.equal(store.closeDialog(token), true)
+  assert.equal(store.isOpen, false)
+})
 
 test('entry, roles, plans, and groups fail closed against the current projection', () => {
   assert.equal(canOpenAdminUserCreate({ actorRole: 'admin', capabilities: ['users.create'] }), true)
@@ -138,6 +155,105 @@ test('missing groups.read never calls the directory and keeps the immutable omit
   assert.equal(groupCalls, 0)
   assert.deepEqual(f.coordinator.state.groups, [DEFAULT_ADMIN_GROUP_CHOICE])
   assert.equal(Object.isFrozen(f.coordinator.state.groups), true)
+})
+
+test('policy conflict refreshes identity, current capabilities, groups, and the applicable catalog once', async () => {
+  let identityCalls = 0
+  let groupCalls = 0
+  let catalogCalls = 0
+  const nextGroups = deferred()
+  const nextCatalog = deferred()
+  const f = coordinatorFixture({
+    loadGroups: async () => ++groupCalls === 1
+      ? [{ guid: '41', key: 'old-default', displayName: 'Old default' }]
+      : nextGroups.promise,
+    loadCatalog: async () => ++catalogCalls === 1
+      ? { capabilities: [{ name: 'old.permission', grantable: true, root_only: false, available: true }] }
+      : nextCatalog.promise,
+  })
+  const token = f.coordinator.open({ actorRole: 'root', capabilities: ['users.create', 'groups.read'] })
+  await f.coordinator.whenPrepared(token)
+  await f.coordinator.setRole(token, 'admin')
+  assert.equal(f.coordinator.state.groups[0].key, 'old-default')
+  assert.equal(f.coordinator.state.catalog.capabilities[0].name, 'old.permission')
+
+  const refreshing = reconcileAdminUserCreateConflict({
+    code: 'policy_version_conflict',
+    token,
+    createStore: f.coordinator,
+    refreshIdentity: async () => { identityCalls++ },
+    currentContext: () => ({ actorRole: 'root', capabilities: ['users.create', 'groups.read', 'users.plan.change'] }),
+  })
+  assert.deepEqual(f.coordinator.state.groups, [], 'stale group directory must be cleared before refresh settles')
+  assert.equal(f.coordinator.state.catalog, null, 'stale authz catalog must be cleared before refresh settles')
+  nextGroups.resolve([{ guid: '42', key: 'new-default', displayName: 'New default' }])
+  nextCatalog.resolve({ capabilities: [{ name: 'users.read', grantable: true, root_only: false, available: true }] })
+  assert.equal(await refreshing, true)
+  assert.equal(identityCalls, 1)
+  assert.equal(groupCalls, 2)
+  assert.equal(catalogCalls, 2)
+  assert.deepEqual(f.coordinator.state.capabilities, ['users.create', 'groups.read', 'users.plan.change'])
+  assert.equal(f.coordinator.state.groups[0].key, 'new-default')
+  assert.equal(f.coordinator.state.catalog.capabilities[0].name, 'users.read')
+})
+
+test('group-not-found refreshes active groups once and makes zero directory requests without groups.read', async () => {
+  let groupCalls = 0
+  let identityCalls = 0
+  const nextGroups = deferred()
+  const withDirectory = coordinatorFixture({
+    loadGroups: async () => ++groupCalls === 1
+      ? [{ guid: '41', key: 'old-default', displayName: 'Old default' }]
+      : nextGroups.promise,
+  })
+  const directoryToken = withDirectory.coordinator.open({ actorRole: 'admin', capabilities: ['users.create', 'groups.read'] })
+  await withDirectory.coordinator.whenPrepared(directoryToken)
+  const refreshing = reconcileAdminUserCreateConflict({
+    code: 'action_group_not_found', token: directoryToken, createStore: withDirectory.coordinator,
+    refreshIdentity: async () => { identityCalls++ }, currentContext: () => assert.fail('group refresh does not need identity context'),
+  })
+  assert.deepEqual(withDirectory.coordinator.state.groups, [])
+  nextGroups.resolve([{ guid: '42', key: 'new-default', displayName: 'New default' }])
+  assert.equal(await refreshing, true)
+  assert.equal(groupCalls, 2)
+  assert.equal(identityCalls, 0)
+  assert.equal(withDirectory.coordinator.state.groups[0].key, 'new-default')
+
+  let forbiddenCalls = 0
+  const withoutDirectory = coordinatorFixture({ loadGroups: async () => { forbiddenCalls++; return [] } })
+  const defaultToken = withoutDirectory.coordinator.open({ actorRole: 'admin', capabilities: ['users.create'] })
+  await withoutDirectory.coordinator.whenPrepared(defaultToken)
+  assert.equal(await reconcileAdminUserCreateConflict({
+    code: 'action_group_not_found', token: defaultToken, createStore: withoutDirectory.coordinator,
+    refreshIdentity: async () => { identityCalls++ }, currentContext: () => assert.fail('group refresh does not need identity context'),
+  }), true)
+  assert.equal(forbiddenCalls, 0)
+  assert.equal(identityCalls, 0)
+  assert.deepEqual(withoutDirectory.coordinator.state.groups, [DEFAULT_ADMIN_GROUP_CHOICE])
+  assert.equal(Object.isFrozen(withoutDirectory.coordinator.state.groups), true)
+})
+
+test('policy refresh makes zero forbidden group or catalog requests after a capability downgrade', async () => {
+  let groupCalls = 0
+  let catalogCalls = 0
+  const f = coordinatorFixture({
+    loadGroups: async () => { groupCalls++; return [{ guid: '41', key: 'old-default', displayName: 'Old default' }] },
+    loadCatalog: async () => { catalogCalls++; return { capabilities: [] } },
+  })
+  const token = f.coordinator.open({ actorRole: 'root', capabilities: ['users.create', 'groups.read'] })
+  await f.coordinator.whenPrepared(token)
+  await f.coordinator.setRole(token, 'admin')
+  assert.deepEqual([groupCalls, catalogCalls], [1, 1])
+
+  assert.equal(await reconcileAdminUserCreateConflict({
+    code: 'policy_version_conflict', token, createStore: f.coordinator,
+    refreshIdentity: async () => {},
+    currentContext: () => ({ actorRole: 'admin', capabilities: ['users.create'] }),
+  }), true)
+  assert.deepEqual([groupCalls, catalogCalls], [1, 1])
+  assert.equal(f.coordinator.state.role, 'user')
+  assert.equal(f.coordinator.state.catalog, null)
+  assert.deepEqual(f.coordinator.state.groups, [DEFAULT_ADMIN_GROUP_CHOICE])
 })
 
 test('late group and catalog responses cannot cross dialog ownership or role selection', async () => {

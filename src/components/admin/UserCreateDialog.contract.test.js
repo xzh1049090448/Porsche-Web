@@ -1,10 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { parse as parseSFC } from '@vue/compiler-sfc'
+import { compileScript, compileTemplate, parse as parseSFC } from '@vue/compiler-sfc'
 import { parse as parseTemplate } from '@vue/compiler-dom'
 import { parse as parseScript } from '@babel/parser'
+import { createPinia } from 'pinia'
+import { createRenderer, defineComponent, h, nextTick, ref, watch } from 'vue'
 import { messages } from '../../i18n/messages.js'
+import { restoreAdminUserCreateTriggerFocus, useAdminUserCreateStore } from '../../stores/admin-user-create.js'
 
 const dialogSource = await readFile(new URL('./UserCreateDialog.vue', import.meta.url), 'utf8')
 const usersSource = await readFile(new URL('../../views/Users.vue', import.meta.url), 'utf8')
@@ -14,6 +17,115 @@ const dialogTemplate = parseTemplate(dialogDescriptor.template.content)
 const usersTemplate = parseTemplate(usersDescriptor.template.content)
 const dialogScript = parseScript(dialogDescriptor.scriptSetup.content, { sourceType: 'module' })
 const usersScript = parseScript(usersDescriptor.scriptSetup.content, { sourceType: 'module' })
+
+async function loadDialogComponent() {
+  const compiledScript = compileScript(dialogDescriptor, { id: 'user-create-mount', genDefaultAs: '__sfc__' })
+  const compiledTemplate = compileTemplate({
+    id: 'user-create-mount',
+    filename: 'UserCreateDialog.vue',
+    source: dialogDescriptor.template.content,
+    compilerOptions: { bindingMetadata: compiledScript.bindings },
+  })
+  assert.deepEqual(compiledTemplate.errors, [])
+  const i18nStub = `data:text/javascript;base64,${Buffer.from("export function useI18n() { return { t: key => key } }").toString('base64')}`
+  const replacements = new Map([
+    ['vue', new URL('../../../node_modules/vue/index.mjs', import.meta.url).href],
+    ['@/stores/admin-user-create', new URL('../../stores/admin-user-create.js', import.meta.url).href],
+    ['@/composables/useI18n', i18nStub],
+  ])
+  let code = `${compiledScript.content}\n${compiledTemplate.code}\n__sfc__.render = render\nexport default __sfc__`
+  for (const [specifier, replacement] of replacements) {
+    code = code.replaceAll(`from '${specifier}'`, `from '${replacement}'`).replaceAll(`from \"${specifier}\"`, `from \"${replacement}\"`)
+  }
+  return (await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)).default
+}
+
+function mountRenderer() {
+  let activeElement = null
+  const markConnected = (node, connected) => {
+    node.isConnected = connected
+    node.children?.forEach(child => markConnected(child, connected))
+  }
+  const host = {
+    patchProp(node, key, _previous, value) { node.props[key] = value },
+    insert(node, parent, anchor) {
+      node.parent = parent
+      const index = anchor ? parent.children.indexOf(anchor) : -1
+      if (index < 0) parent.children.push(node)
+      else parent.children.splice(index, 0, node)
+      markConnected(node, parent.isConnected)
+    },
+    remove(node) {
+      const index = node.parent?.children.indexOf(node) ?? -1
+      if (index >= 0) node.parent.children.splice(index, 1)
+      markConnected(node, false)
+      node.parent = null
+    },
+    createElement(type) {
+      const node = { type, props: {}, children: [], parent: null, text: '', isConnected: false }
+      node.focus = () => { activeElement = node }
+      return node
+    },
+    createText(text) { return { type: '#text', props: {}, children: [], parent: null, text, isConnected: false } },
+    createComment(text) { return { type: '#comment', props: {}, children: [], parent: null, text, isConnected: false } },
+    setText(node, text) { node.text = text },
+    setElementText(node, text) { node.text = text; node.children = [] },
+    parentNode: node => node.parent,
+    nextSibling(node) { const siblings = node.parent?.children ?? []; return siblings[siblings.indexOf(node) + 1] ?? null },
+    querySelector: () => null,
+    setScopeId() {},
+    cloneNode: node => ({ ...node, props: { ...node.props }, children: [...node.children] }),
+    insertStaticContent(content, parent, anchor) {
+      const node = host.createText(content)
+      host.insert(node, parent, anchor)
+      return [node, node]
+    },
+  }
+  const root = { type: 'root', props: {}, children: [], parent: null, text: '', isConnected: true }
+  const visit = (node, match) => match(node) ? node : node.children?.map(child => visit(child, match)).find(Boolean)
+  const collect = (node, match, values = []) => {
+    if (match(node)) values.push(node)
+    node.children?.forEach(child => collect(child, match, values))
+    return values
+  }
+  return { renderer: createRenderer(host), root, find: match => visit(root, match), findAll: match => collect(root, match), active: () => activeElement }
+}
+
+const Passthrough = defineComponent({
+  inheritAttrs: false,
+  setup(_props, { attrs, expose, slots }) {
+    expose({ clearValidate() {}, scrollToField() {}, validate: async () => true })
+    return () => h('div', attrs, slots.default?.())
+  },
+})
+const InputStub = defineComponent({
+  inheritAttrs: false,
+  props: { modelValue: { default: '' } },
+  setup(props, { attrs, expose }) {
+    const input = ref(null)
+    expose({ input, focus: () => input.value?.focus?.() })
+    return () => h('input', { ...attrs, ref: input, value: props.modelValue })
+  },
+})
+const ButtonStub = defineComponent({
+  inheritAttrs: false,
+  setup(_props, { attrs, slots }) { return () => h('button', attrs, slots.default?.()) },
+})
+const DialogStub = defineComponent({
+  props: { modelValue: Boolean },
+  emits: ['open', 'close', 'closed', 'keydown'],
+  setup(props, { emit, slots }) {
+    watch(() => props.modelValue, (open, wasOpen) => {
+      if (open && !wasOpen) nextTick(() => emit('open'))
+      if (!open && wasOpen) nextTick(() => emit('closed'))
+    })
+    return () => props.modelValue ? h('dialog', { 'data-model-value': props.modelValue }, [slots.default?.(), slots.footer?.()]) : null
+  },
+})
+
+async function flushView() {
+  for (let step = 0; step < 5; step++) await nextTick()
+}
 
 function walk(node, visit) {
   if (!node || typeof node !== 'object') return
@@ -74,6 +186,7 @@ test('Users exposes create only through users.create, owns restore focus, and an
   const live = usersElements.find(node => attribute(node, 'aria-live')?.value?.content === 'polite')
   assert.ok(live)
   assert.equal(scriptCalls(usersScript, 'reconcileCreatedAdminUser'), true)
+  assert.equal(scriptCalls(usersScript, 'reconcileAdminUserCreateConflict'), true)
   assert.equal(scriptCalls(usersScript, 'restoreAdminUserCreateTriggerFocus'), true)
 })
 
@@ -84,5 +197,89 @@ test('localized announcements distinguish known created identity from recovered 
     assert.match(messages[locale].createUser.successKnown, /\{guid\}/)
     assert.equal(typeof messages[locale].createUser.successRecovered, 'string')
     assert.doesNotMatch(messages[locale].createUser.successRecovered, /\{username\}|\{guid\}/)
+  }
+})
+
+test('mounted dialog opens visibly with username focus and restores the trigger after close and success', async () => {
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { documentElement: {}, title: '', activeElement: null } })
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => null, setItem() {}, removeItem() {} } })
+  try {
+    const Dialog = await loadDialogComponent()
+    const mounted = mountRenderer()
+    let token = null
+    let trigger = null
+    let store = null
+    const Harness = defineComponent({
+      setup() {
+        store = useAdminUserCreateStore()
+        return () => h('main', [
+          h('button', {
+            id: 'create-entry',
+            onClick(event) {
+              trigger = event.currentTarget
+              token = store.openDialog({ actorRole: 'admin', capabilities: ['users.create'] })
+            },
+          }, 'open'),
+          h(Dialog, {
+            onClosed() {
+              restoreAdminUserCreateTriggerFocus({
+                token,
+                canRestore: owner => token === owner && !store.captureOwnership(),
+                trigger,
+                fallback: null,
+                nextTick,
+              })
+            },
+          }),
+        ])
+      },
+    })
+    const pinia = createPinia()
+    const app = mounted.renderer.createApp(Harness)
+    app.use(pinia)
+    for (const [name, component] of Object.entries({
+      'el-dialog': DialogStub,
+      'el-form': Passthrough,
+      'el-form-item': Passthrough,
+      'el-input': InputStub,
+      'el-select': Passthrough,
+      'el-option': Passthrough,
+      'el-alert': Passthrough,
+      'el-skeleton': Passthrough,
+      'el-button': ButtonStub,
+    })) app.component(name, component)
+    app.mount(mounted.root)
+    await flushView()
+
+    const entry = mounted.find(node => node.props?.id === 'create-entry')
+    assert.ok(entry)
+    entry.props.onClick({ currentTarget: entry })
+    await flushView()
+    assert.equal(store.isOpen, true)
+    assert.equal(mounted.find(node => node.type === 'dialog')?.props['data-model-value'], true)
+    assert.equal(mounted.active()?.type, 'input')
+
+    const buttons = mounted.findAll(node => node.type === 'button')
+    assert.equal(buttons.length >= 3, true)
+    buttons.at(-2).props.onClick()
+    await flushView()
+    assert.equal(store.isOpen, false)
+    assert.equal(mounted.active(), entry)
+
+    entry.props.onClick({ currentTarget: entry })
+    await flushView()
+    store.submit = async owner => ({ state: store.owns(owner) ? 'succeeded' : 'failed', createdUser: null })
+    mounted.findAll(node => node.type === 'button').at(-1).props.onClick()
+    await flushView()
+    assert.equal(store.isOpen, false)
+    assert.equal(mounted.active(), entry)
+    app.unmount()
+  } finally {
+    if (originalDocument) Object.defineProperty(globalThis, 'document', originalDocument)
+    else delete globalThis.document
+    if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage)
+    else delete globalThis.localStorage
   }
 })

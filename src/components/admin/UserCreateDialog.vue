@@ -147,7 +147,7 @@ function clearForm() {
 }
 function requestClose() {
   const token = createStore.captureOwnership()
-  if (token) createStore.close(token)
+  if (token) createStore.closeDialog(token)
 }
 function onClosed() {
   settleAdminUserCreateClosed({ currentToken: createStore.captureOwnership(), clearForm, emitClosed: () => emit('closed') })
@@ -198,14 +198,19 @@ async function submit() {
   clearSecrets()
   if (!running) return
   const result = await running
-  settleAdminUserCreateDialog({ token, result, owns: createStore.owns, close: createStore.close, focusError })
+  settleAdminUserCreateDialog({ token, result, owns: createStore.owns, close: createStore.closeDialog, focusError })
 }
 
 watch(permissionRows, resetPermissionEffects)
 watch(() => createStore.groups, groups => {
-  if (!createStore.isOpen || !hasGroupDirectory.value || form.groupGuid != null) return
-  form.groupGuid = groups.find(group => group.key === 'default')?.guid ?? null
+  if (!createStore.isOpen) return
+  if (!hasGroupDirectory.value) {
+    form.groupGuid = null
+    return
+  }
+  if (!groups.some(group => group.guid === form.groupGuid)) form.groupGuid = groups.find(group => group.key === 'default')?.guid ?? null
 })
+watch(() => createStore.role, role => { if (form.role !== role) { clearSecrets(); form.role = role; resetPermissionEffects() } })
 watch(() => createStore.dialogRevision, () => {
   clearForm()
   form.role = createStore.role
@@ -222,7 +227,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   clearSecrets()
   const token = createStore.captureOwnership()
-  if (token) createStore.dispose(token)
+  if (token) createStore.disposeDialog(token)
 })
 </script>
 

@@ -33,7 +33,7 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { useAdminUsersStore, reconcileCreatedAdminUser } from '@/stores/admin-users'
-import { useAdminUserCreateStore, canOpenAdminUserCreate, restoreAdminUserCreateTriggerFocus } from '@/stores/admin-user-create'
+import { useAdminUserCreateStore, canOpenAdminUserCreate, reconcileAdminUserCreateConflict, restoreAdminUserCreateTriggerFocus } from '@/stores/admin-user-create'
 import { useAdminUserActionsStore, canDeleteAdminUser, reconcileDeletedList, refreshDeleteTargetFailClosed, restoreDeleteTriggerFocus } from '@/stores/admin-user-actions'
 import { getAdminUser } from '@/api/admin-users'
 import UserSoftDeleteDialog from '@/components/admin/UserSoftDeleteDialog.vue'
@@ -76,7 +76,7 @@ function openCreate(event) {
   if (!canCreate.value) return
   createAnnouncement.value = ''
   createTrigger = event?.currentTarget ?? document.activeElement
-  createToken = createStore.open({ actorRole: userStore.user?.role, capabilities: userStore.permissionProjection.capabilities }, {
+  createToken = createStore.openDialog({ actorRole: userStore.user?.role, capabilities: userStore.permissionProjection.capabilities }, {
     onSucceeded: onCreateSucceeded,
     onConflict: onCreateConflict,
     onUnauthorized,
@@ -93,12 +93,13 @@ async function onCreateSucceeded({ createdUser }, token) {
   return true
 }
 async function onCreateConflict(code, token) {
-  if (!createStore.owns(token)) return false
-  if (!['policy_version_conflict', 'action_verification_conflict', 'idempotency_cross_session'].includes(code)) return true
-  try { await userStore.fetchSelf() } catch {}
-  if (!createStore.owns(token) || !canCreate.value) return false
-  if (createStore.role === 'admin') await createStore.refreshCatalog(token)
-  return createStore.owns(token)
+  return reconcileAdminUserCreateConflict({
+    code,
+    token,
+    createStore,
+    refreshIdentity: () => userStore.fetchSelf(),
+    currentContext: () => ({ actorRole: userStore.user?.role, capabilities: userStore.permissionProjection?.capabilities }),
+  })
 }
 function openDelete(target, event) {
   deleteTrigger = event?.currentTarget ?? document.activeElement
@@ -143,10 +144,9 @@ watch(() => store.recoveryRevision, () => {
   if (store.recoveredPage !== null) filters.page = store.recoveredPage
 })
 watch([canRead, () => userStore.permissionRevision], ([enabled]) => { if (enabled) void reload(); else store.clear() }, { immediate: true })
-watch(canCreate, enabled => { if (!enabled && createToken && createStore.owns(createToken)) createStore.close(createToken) })
-watch(() => userStore.permissionRevision, () => { if (createToken && createStore.owns(createToken)) createStore.close(createToken) })
+watch(canCreate, enabled => { if (!enabled && createToken && createStore.owns(createToken)) createStore.closeDialog(createToken) })
 onBeforeUnmount(() => {
-  if (createToken) createStore.dispose(createToken)
+  if (createToken) createStore.disposeDialog(createToken)
   if (deleteToken) actionStore.dispose(deleteToken)
   createToken = null; createTrigger = null; deleteToken = null; deleteTrigger = null
 })

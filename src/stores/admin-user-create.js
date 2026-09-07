@@ -124,6 +124,28 @@ export function restoreAdminUserCreateTriggerFocus({ token, canRestore, trigger,
   return true
 }
 
+export async function reconcileAdminUserCreateConflict({
+  code,
+  token,
+  createStore,
+  refreshIdentity = async () => {},
+  currentContext = () => null,
+} = {}) {
+  if (!createStore?.owns?.(token)) return false
+  if (code === 'action_group_not_found') return createStore.refreshGroups(token)
+  if (!['policy_version_conflict', 'action_verification_conflict', 'idempotency_cross_session'].includes(code)) return true
+  createStore.invalidateDirectories(token)
+  try {
+    await refreshIdentity()
+  } catch {
+    const closeDialog = createStore.closeDialog ?? createStore.close
+    closeDialog?.(token)
+    return false
+  }
+  if (!createStore.owns(token)) return false
+  return createStore.refreshAuthorization(token, currentContext())
+}
+
 export function createAdminUserCreateCoordinator({
   api,
   createWorkflow = createAdminUserCreateWorkflow,
@@ -178,6 +200,18 @@ export function createAdminUserCreateCoordinator({
     const dialogRevision = value.dialogRevision
     destroyWorkflow()
     Object.assign(value, SAFE_INITIAL, { dialogRevision })
+    return true
+  }
+
+  const invalidateDirectories = token => {
+    if (!owns(token)) return false
+    abortDirectories()
+    value.groups = value.capabilities.includes('groups.read') ? Object.freeze([]) : DEFAULT_GROUPS
+    value.groupsLoading = false
+    value.groupsError = false
+    value.catalog = null
+    value.catalogLoading = false
+    value.catalogError = false
     return true
   }
 
@@ -268,6 +302,28 @@ export function createAdminUserCreateCoordinator({
   }
 
   const whenPrepared = token => owns(token) ? preparedPromise : Promise.resolve(false)
+  const refreshAuthorization = async (token, context) => {
+    if (!owns(token)) return false
+    if (!canOpenAdminUserCreate(context)) {
+      close(token)
+      return false
+    }
+    value.actorRole = context.actorRole
+    value.capabilities = Object.freeze([...context.capabilities])
+    if (!availableAdminUserCreateRoles(value.actorRole).includes(value.role)) value.role = 'user'
+    if (value.role !== 'admin') {
+      catalogAbort?.abort()
+      catalogAbort = null
+      catalogRevision++
+      value.catalog = null
+      value.catalogLoading = false
+      value.catalogError = false
+    }
+    const groups = refreshGroups(token)
+    const catalog = value.role === 'admin' ? refreshCatalog(token) : Promise.resolve(true)
+    preparedPromise = Promise.all([groups, catalog]).then(results => owns(token) && results.every(Boolean))
+    return preparedPromise
+  }
   const setRole = async (token, role) => {
     if (!owns(token) || !availableAdminUserCreateRoles(value.actorRole).includes(role)) return false
     if (value.role === role) return role === 'user' || value.catalog != null || refreshCatalog(token)
@@ -336,7 +392,9 @@ export function createAdminUserCreateCoordinator({
     dispose: close,
     owns,
     captureOwnership,
+    invalidateDirectories,
     whenPrepared,
+    refreshAuthorization,
     setRole,
     refreshGroups,
     refreshCatalog,
@@ -352,6 +410,7 @@ const productionSchedule = (callback, delay) => {
 
 export const useAdminUserCreateStore = defineStore('adminUserCreate', () => {
   const state = reactive({ ...SAFE_INITIAL })
+  const { open: isOpen, ...stateRefs } = toRefs(state)
   const coordinator = createAdminUserCreateCoordinator({
     state,
     api: { issueAdminUserCreateVerification, executeAdminUserCreate, queryAdminUserCreate },
@@ -359,13 +418,16 @@ export const useAdminUserCreateStore = defineStore('adminUserCreate', () => {
     schedule: productionSchedule,
   })
   return {
-    ...toRefs(state),
-    open: coordinator.open,
-    close: coordinator.close,
-    dispose: coordinator.dispose,
+    isOpen,
+    ...stateRefs,
+    openDialog: coordinator.open,
+    closeDialog: coordinator.close,
+    disposeDialog: coordinator.dispose,
     owns: coordinator.owns,
     captureOwnership: coordinator.captureOwnership,
+    invalidateDirectories: coordinator.invalidateDirectories,
     whenPrepared: coordinator.whenPrepared,
+    refreshAuthorization: coordinator.refreshAuthorization,
     setRole: coordinator.setRole,
     refreshGroups: coordinator.refreshGroups,
     refreshCatalog: coordinator.refreshCatalog,
