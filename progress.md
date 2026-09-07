@@ -1,5 +1,12 @@
 # 当前验证进度
 
+## 2026-09-08：A03 创建用户/管理员本地联合切片限定通过
+
+- 联合矩阵仅将 A03 从 `BLOCKED_NOT_IMPLEMENTED` 提升为 `PASS_LIMITED_SCOPE`；代码候选为前端 `9f660a9ca26f5738dd661652596a1e450ff34335`、后端 `3a50144e53268f6ef3ae704699ef9fa851e4a5ee`。A14 及其余 25 行状态不变，当前为 11 `PASS_LIMITED_SCOPE`、0 `FAIL_LOCAL_DEV_ROUTE`、13 `BLOCKED_NOT_IMPLEMENTED`、1 `BLOCKED_PRODUCT`、1 `BLOCKED_ENV`，合计 15 项阻塞。
+- Admin 默认普通用户创建、Root 普通用户/管理员及 allow/deny 覆盖、重复提交单 POST、墓碑冲突脱敏、模糊响应 operation Query 恢复、default 分组刷新/列表/详情、删除后重放 410 无 PII、groups 目录 pending/error/empty 零写均通过。前端测试 275/275；可见 Chrome 13/13。后端 MySQL 8.4.11、Redis 7.4、迁移 `0001`–`0010`，focused 673/610、race 476/427、serial full 1912 PASS/1 SKIP（leaf 1739/1）；唯一 skip 为显式 opt-in 的 100k 性能夹具。
+- `ACTION_SECURITY_HMAC_KEY` v1 尚无 key ID/多 key verifier；仍有可重放的 post-0010 active snapshot 时禁止轮换，除非先交付单独批准的多 key 验证或原子全量 re-HMAC migration。
+- A03 专用 fixture、标签、监听、PID、命名卷及私有临时文件已 exact cleanup 为零，无关容器、镜像和卷不变。`web-012` 继续 `in_progress`；金额余额仍只允许 Mock，真实 ledger/billing/recharge/refund/deduction、生产迁移、部署、生产验收及真实业务账号均 `NOT_RUN`。
+
 ## 2026-09-06：A12/A14 users.delete 本地联合切片验收通过
 
 - 前端 `bace6d167b94b693abd6be4c720152dc0eb905bb` 与后端 `811213d557eea7b6b9523a584245252ba4dd7d80` 的 `users.delete` 切片获得三项独立复审 PASS，并将联合矩阵 A12/A14 更新为 `PASS_LIMITED_SCOPE`。A12 仅覆盖软删除、重复删除、用户名不可复用、默认列表遗漏及旧凭据拒绝；恢复写链不在本切片。A14 仅覆盖该动作的 ticket/idempotency/operation Query、commit unknown 与依赖失败关闭。

@@ -1,22 +1,22 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-06T12:59:42+08:00",
-  "overall_status": "PARTIAL_ACCEPTANCE_10_LIMITED_16_BLOCKED",
-  "verdict": "PARTIAL_ACCEPTANCE_10_LIMITED_16_BLOCKED",
+  "generated_at": "2026-09-08T00:53:33+08:00",
+  "overall_status": "PARTIAL_ACCEPTANCE_11_LIMITED_15_BLOCKED",
+  "verdict": "PARTIAL_ACCEPTANCE_11_LIMITED_15_BLOCKED",
   "candidate": {
-    "frontend_head": "c788e78848a08c2fa3472812374448f388fb81aa",
-    "backend_head": "aec1619ee710c80cd71dbe529660e2d12b3fda7b",
+    "frontend_head": "9f660a9ca26f5738dd661652596a1e450ff34335",
+    "backend_head": "3a50144e53268f6ef3ae704699ef9fa851e4a5ee",
     "frontend_evidence_head": "37ae3845c6ae79b0fcb8a24c42f4730ae15a654d"
   },
   "environment_manifest_before_final_archive_sha256": "d3d1de8b3609721baba3e1f04ca19ef5990aaad2666e63f9aab7786cb6101641",
   "summary": {
     "total": 26,
-    "PASS_LIMITED_SCOPE": 10,
+    "PASS_LIMITED_SCOPE": 11,
     "FAIL_LOCAL_DEV_ROUTE": 0,
-    "BLOCKED_NOT_IMPLEMENTED": 14,
+    "BLOCKED_NOT_IMPLEMENTED": 13,
     "BLOCKED_PRODUCT": 1,
     "BLOCKED_ENV": 1,
-    "blocked_total": 16
+    "blocked_total": 15
   },
   "supersession": {
     "core_report": "CORE-PHASE-REPORT.md",
@@ -28,7 +28,7 @@
     "frontend_project_manager": "SPEC_PASS",
     "independent_qa": "PASS",
     "backend_project_manager": "HISTORICAL_FINAL_SIGNED",
-    "cleanup": "PENDING_EXACT_INSTRUCTION"
+    "cleanup": "CLEANUP_PASS"
   },
   "items": [
     {
@@ -54,9 +54,34 @@
       "prd": "Root创建用户与管理员",
       "owner": "FE+BE",
       "expected_evidence": "校验、默认权限、审计、intent/ticket/幂等一致；不能创建Root",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "v2创建用户/管理员未实现。"
+      "latest_evidence": "Admin仅能按immutable omitted default创建普通用户，Root可创建普通用户与管理员并保存allow/deny覆盖；角色/套餐越权、重复提交、墓碑冲突、模糊响应Query恢复、default分组刷新/详情、删除后重放410无PII及groups目录pending/error/empty零写均通过。",
+      "accepted_candidate": {
+        "backend": "3a50144e53268f6ef3ae704699ef9fa851e4a5ee",
+        "frontend": "9f660a9ca26f5738dd661652596a1e450ff34335"
+      },
+      "environment": {
+        "mysql": "8.4.11",
+        "redis": "7.4",
+        "migration_ledger": "0001-0010"
+      },
+      "test_counts": {
+        "backend_focused": "673 terminal / 610 leaf / 0 skip",
+        "backend_race": "476 terminal / 427 leaf / 0 skip",
+        "backend_full": "1912 terminal pass / 1 skip; 1739 leaf pass / 1 skip",
+        "frontend": "275/275",
+        "visible_chrome": "13/13"
+      },
+      "sole_skip": "TestAdminUsersReadPerformance：显式opt-in 100k synthetic-user performance fixture，本批未授权。",
+      "key_rotation_restriction": "ACTION_SECURITY_HMAC_KEY v1 lacks key ID/multi-key verification; rotation is prohibited while replayable post-0010 active snapshots exist unless a separately approved multi-key verifier or atomic full re-HMAC migration is delivered.",
+      "scope_boundary": "仅本地A03创建切片；金额余额仍为Mock边界，真实ledger/billing/recharge/refund/deduction不在范围；生产迁移、部署、生产验收及真实业务账号均NOT_RUN。",
+      "evidence_paths": [
+        "backend:docs/superpowers/reports/validation/2026-09-06-a03-admin-user-create/canonical-3a50144-9f660a9-final/manifest.json",
+        "backend:docs/superpowers/reports/validation/2026-09-06-a03-admin-user-create/canonical-3a50144-9f660a9-final/browser/browser-acceptance.json",
+        "backend:docs/superpowers/reports/validation/2026-09-06-a03-admin-user-create/canonical-3a50144-9f660a9-final/db/database-evidence.json",
+        "frontend:docs/agents/contracts/prd-260903-interface-draft.json"
+      ]
     },
     {
       "id": "A04",
@@ -304,7 +329,7 @@
   },
   "secret_free": true,
   "production_touched": false,
-  "resources_retained": true,
+  "resources_retained": false,
   "acceptance_timeline": [
     {
       "at": "2026-09-03",
@@ -364,6 +389,37 @@
       "evidence": "backend:docs/superpowers/reports/validation/2026-09-05-a14-user-soft-delete/joint-acceptance.md",
       "baseline_sha256": "6925173b045e77362b8fc096d68727d602cd261545b24e8f38d60e991f93a241",
       "note": "仅A12/A14的users.delete联合切片提升为PASS_LIMITED_SCOPE；不代表完整A12恢复、完整A14动作族、完整PRD或release通过。其余24项及历史时间线保持原语义；16项仍阻塞。"
+    },
+    {
+      "at": "2026-09-08",
+      "status": "PARTIAL_ACCEPTANCE_11_LIMITED_15_BLOCKED",
+      "counts": {
+        "total": 26,
+        "PASS_LIMITED_SCOPE": 11,
+        "FAIL_LOCAL_DEV_ROUTE": 0,
+        "BLOCKED_NOT_IMPLEMENTED": 13,
+        "BLOCKED_PRODUCT": 1,
+        "BLOCKED_ENV": 1,
+        "blocked_total": 15
+      },
+      "candidate": {
+        "backend": "3a50144e53268f6ef3ae704699ef9fa851e4a5ee",
+        "frontend": "9f660a9ca26f5738dd661652596a1e450ff34335"
+      },
+      "evidence": "backend:docs/superpowers/reports/validation/2026-09-06-a03-admin-user-create/canonical-3a50144-9f660a9-final/manifest.json",
+      "note": "仅A03从BLOCKED_NOT_IMPLEMENTED提升为PASS_LIMITED_SCOPE；A14及其余25项状态保持不变。金额仍是Mock边界；生产迁移、部署、生产验收与真实业务账号均NOT_RUN。A03专用fixture和私有临时文件已exact cleanup，应用监听仍为0。"
     }
-  ]
+  ],
+  "code_under_test": {
+    "backend": "3a50144e53268f6ef3ae704699ef9fa851e4a5ee",
+    "frontend": "9f660a9ca26f5738dd661652596a1e450ff34335"
+  },
+  "a03_reviews": {
+    "spec_code": "PASS",
+    "quality_code": "PASS",
+    "security_code": "PASS",
+    "spec_evidence": "PASS",
+    "quality_evidence": "PASS",
+    "security_evidence": "PASS"
+  }
 }
