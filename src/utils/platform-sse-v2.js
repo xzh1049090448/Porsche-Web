@@ -102,7 +102,8 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
       return callback({ type: eventName, model: payload.model, ...(eventName === 'model_done' ? { last_seq: payload.last_seq } : { code: state.code }) })
     }
     if (eventName === 'done') {
-      if (payload.generation_id !== generationId || payload.status !== 'completed' || typeof payload.conversation_guid !== 'string' || !payload.conversation_guid.trim() || !Number.isSafeInteger(payload.tokens) || payload.tokens < 0 || (payload.total_tokens_used !== undefined && (!Number.isSafeInteger(payload.total_tokens_used) || payload.total_tokens_used < 0)) || expectedModels.some(model => !modelState.get(model)?.terminal) || (expectedModels.length === 1 && modelState.get(expectedModels[0]).status !== 'completed')) return protocolError(codes.protocol)
+      const allowed = expectedModels.length === 1 ? ['generation_id', 'status', 'conversation_guid', 'tokens', 'total_tokens_used'] : ['generation_id', 'status', 'conversation_guid', 'total_tokens_used', 'models']
+      if (Object.keys(payload).some(key => !allowed.includes(key)) || payload.generation_id !== generationId || payload.status !== 'completed' || typeof payload.conversation_guid !== 'string' || !payload.conversation_guid.trim() || !Number.isSafeInteger(payload.total_tokens_used) || payload.total_tokens_used < 0 || (expectedModels.length === 1 && (!Number.isSafeInteger(payload.tokens) || payload.tokens < 0)) || expectedModels.some(model => !modelState.get(model)?.terminal) || (expectedModels.length === 1 && modelState.get(expectedModels[0]).status !== 'completed')) return protocolError(codes.protocol)
       if (expectedModels.length > 1) {
         if (!payload.models || typeof payload.models !== 'object' || Array.isArray(payload.models) || Object.keys(payload.models).length !== expectedModels.length || expectedModels.some(model => !Object.prototype.hasOwnProperty.call(payload.models, model))) return protocolError(codes.protocol)
         for (const model of expectedModels) {
@@ -114,7 +115,10 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
       globalDone = true
       terminal = true
       accepted.set(duplicateKey, key)
-      return callback({ type: 'done', ...payload })
+      const sanitized = { type: 'done', generation_id: payload.generation_id, status: payload.status, conversation_guid: payload.conversation_guid, total_tokens_used: payload.total_tokens_used }
+      if (expectedModels.length === 1) sanitized.tokens = payload.tokens
+      else sanitized.models = payload.models
+      return callback(sanitized)
     }
     if (eventName === 'error') {
       if (typeof payload.code !== 'string') return protocolError(codes.protocol)

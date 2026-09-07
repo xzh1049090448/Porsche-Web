@@ -10,7 +10,7 @@ const delta = (model, seq, text, generationId = 'g-1') =>
 const modelDone = (model, lastSeq, generationId = 'g-1') =>
   `event: model_done\ndata: ${JSON.stringify({ generation_id: generationId, model, last_seq: lastSeq })}\n\n`
 const done = (models = undefined, generationId = 'g-1') =>
-  `event: done\ndata: ${JSON.stringify({ generation_id: generationId, status: 'completed', conversation_guid: 'c-1', ...(models === undefined ? {} : { models }), tokens: 1 })}\n\n`
+  `event: done\ndata: ${JSON.stringify({ generation_id: generationId, status: 'completed', conversation_guid: 'c-1', ...(models === undefined ? { tokens: 1 } : { models }), total_tokens_used: 1 })}\n\n`
 
 function parser(options = {}) {
   const events = []
@@ -97,6 +97,26 @@ test('global error never exposes unknown code or sensitive payload', () => {
   p.push(meta() + 'event: error\ndata: ' + JSON.stringify({ generation_id: 'g-1', code: 'raw https://internal.example Authorization: secret', prompt: 'secret' }) + '\n\n')
   assert.equal(errors[0].code, 'SSE_V2_REMOTE_ERROR')
   assert.equal(JSON.stringify(events).includes('internal.example'), false)
+})
+
+test('global done requires total_tokens_used and exact schema keys without sensitive top-level fields', () => {
+  const validSingle = { generation_id: 'g-1', status: 'completed', conversation_guid: 'c-1', tokens: 1, total_tokens_used: 1 }
+  for (const payload of [
+    { ...validSingle, prompt: 'secret' },
+    { ...validSingle, content: 'secret' },
+    { generation_id: 'g-1', status: 'completed', conversation_guid: 'c-1', tokens: 1 },
+  ]) {
+    const { p, errors } = parser(); p.push(meta() + modelDone('a', 0) + `event: done\ndata: ${JSON.stringify(payload)}\n\n`); assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR')
+  }
+  const validCompare = { generation_id: 'g-1', status: 'completed', conversation_guid: 'c-1', total_tokens_used: 1, models: { a: { status: 'completed', tokens: 1 }, b: { status: 'failed', code: 'upstream_error' } } }
+  for (const payload of [{ ...validCompare, tokens: 1 }, { ...validCompare, request_id: 'secret' }]) {
+    const { p, errors } = parser({ models: ['a', 'b'] }); p.push(meta(['a', 'b']) + modelDone('a', 0) + 'event: model_error\ndata: ' + JSON.stringify({ generation_id: 'g-1', model: 'b', code: 'upstream_error' }) + '\n\n' + `event: done\ndata: ${JSON.stringify(payload)}\n\n`); assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR')
+  }
+})
+
+test('global done callback is sanitized to schema fields only', () => {
+  const { p, events } = parser(); p.push(meta() + modelDone('a', 0) + 'event: done\ndata: ' + JSON.stringify({ generation_id: 'g-1', status: 'completed', conversation_guid: 'c-1', tokens: 1, total_tokens_used: 1 }) + '\n\n')
+  assert.deepEqual(Object.keys(events.find(e => e.type === 'done')).sort(), ['conversation_guid', 'generation_id', 'status', 'tokens', 'total_tokens_used', 'type'])
 })
 
 test('maps unknown model error codes to stable code and never exposes sensitive fields', () => {
