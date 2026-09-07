@@ -44,16 +44,45 @@ test('EOF and transport errors fail closed, never success', () => {
 
 test('local cancel freezes playback and authoritative outcomes decide terminal state', () => {
   const clock = scheduler(); const g = createChatGeneration({ ...base(), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } })
-  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'A')); g.cancelLocalQueue(); assert.equal(g.snapshot().status, 'cancelling'); g.handleEvent(delta('model-a', 2, 'B')); assert.equal(g.snapshot().models[0].receivedText, 'A'); g.resolveCancel({ status: 'cancelled' }); assert.equal(g.snapshot().status, 'cancelled')
+  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'A')); g.cancelLocalQueue(); assert.equal(g.snapshot().status, 'cancelling'); g.handleEvent(delta('model-a', 2, 'B')); assert.equal(g.snapshot().models[0].receivedText, 'A'); g.resolveCancel({ generation_id: 'gen-1', conversation_guid: null, mode: 'single', status: 'cancelled' }); assert.equal(g.snapshot().status, 'cancelled')
 })
 
 test('authoritative completed appends only unseen suffix and rejects prefix mismatch', () => {
   const clock = scheduler(); const g = createChatGeneration({ ...base(), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } })
-  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'A')); while (clock.step(0)) {} g.cancelLocalQueue(); g.resolveStatus({ status: 'completed', mode: 'single', results: [{ model: 'model-a', status: 'completed', content: 'ABC' }] }); assert.equal(g.snapshot().status, 'draining'); while (clock.step(0)) {} assert.equal(g.snapshot().models[0].displayedText, 'ABC')
-  const h = createChatGeneration({ ...base(), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } }); h.handleEvent(meta()); h.handleEvent(delta('model-a', 1, 'XY')); clock.step(1000); h.cancelLocalQueue(); h.resolveStatus({ status: 'completed', mode: 'single', results: [{ model: 'model-a', status: 'completed', content: 'NO' }] }); assert.equal(h.snapshot().status, 'failed'); assert.equal(h.snapshot().diagnostics.at(-1).code, 'GENERATION_DATA_ERROR')
+  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'A')); while (clock.step(0)) {} g.cancelLocalQueue(); g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', mode: 'single', result: { model: 'model-a', status: 'completed', content: 'ABC' } }); assert.equal(g.snapshot().status, 'draining'); while (clock.step(0)) {} assert.equal(g.snapshot().models[0].displayedText, 'ABC')
+  const h = createChatGeneration({ ...base(), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } }); h.handleEvent(meta()); h.handleEvent(delta('model-a', 1, 'XY')); clock.step(1000); h.cancelLocalQueue(); h.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', mode: 'single', result: { model: 'model-a', status: 'completed', content: 'NO' } }); assert.equal(h.snapshot().status, 'failed'); assert.equal(h.snapshot().diagnostics.at(-1).code, 'GENERATION_DATA_ERROR')
 })
 
 test('dispose is idempotent and callback errors do not escape or leak frames', () => {
   const clock = scheduler(); const errors = []; const g = createChatGeneration({ ...base(), onChange: () => { throw new Error('secret') }, playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } })
   g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'A')); assert.doesNotThrow(() => g.dispose()); g.dispose(); assert.equal(clock.size, 0); assert.equal(g.snapshot().status, 'disposed'); assert.equal(errors.length, 0); assert.equal(JSON.stringify(g.snapshot()).includes('secret'), false)
+})
+
+test('rejects authoritative payload identity and mode/shape mismatches without changing status', () => {
+  const g = createChatGeneration(base()); g.handleEvent(meta());
+  const before = g.snapshot().status
+  g.resolveStatus({ generation_id: 'wrong', conversation_guid: 'conv-1', status: 'committing', mode: 'single' })
+  assert.equal(g.snapshot().status, before); assert.equal(g.snapshot().diagnostics.at(-1).code, 'GENERATION_STATUS_ERROR')
+  g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', mode: 'single', results: [{ model: 'model-a', status: 'completed', content: 'x' }] })
+  assert.equal(g.snapshot().status, before)
+})
+
+test('terminal states are irreversible and ignore late events and resolutions', () => {
+  const g = createChatGeneration(base()); g.fail('transport');
+  g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', mode: 'single', result: { model: 'model-a', status: 'completed', content: 'x' } })
+  g.handleEvent(meta()); g.resolveCancel({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'cancelled', mode: 'single' })
+  assert.equal(g.snapshot().status, 'failed')
+})
+
+test('authoritative completed rebuilds pending playback instead of duplicating received text', () => {
+  const clock = scheduler(); const g = createChatGeneration({ ...base(), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } })
+  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'AB')); g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', mode: 'single', result: { model: 'model-a', status: 'completed', content: 'ABC' } }); while (clock.step(1000)) {}
+  assert.equal(g.snapshot().status, 'completed'); assert.equal(g.snapshot().models[0].receivedText, 'ABC'); assert.equal(g.snapshot().models[0].displayedText, 'ABC')
+})
+
+test('model errors and failed compare siblings discard undisplayed queues', () => {
+  const clock = scheduler(); const g = createChatGeneration({ mode: 'compare', generationId: 'gen-1', conversationGuid: 'conv-1', messageKey: 'msg-1', models: ['a', 'b'], playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } })
+  g.handleEvent(meta('gen-1', ['a', 'b'])); g.handleEvent(delta('a', 1, 'AB')); g.handleEvent({ type: 'model_error', generation_id: 'gen-1', model: 'a', code: 'gateway_upstream_error' });
+  g.handleEvent(delta('b', 1, 'B')); g.handleEvent(modelDone('b')); g.handleEvent({ type: 'done', generation_id: 'gen-1', status: 'completed', conversation_guid: 'conv-1', total_tokens_used: 1, models: { a: { status: 'failed', code: 'gateway_upstream_error' }, b: { status: 'completed', tokens: 1 } } }); while (clock.step(1000)) {}
+  assert.equal(g.snapshot().status, 'completed'); assert.equal(g.snapshot().models[0].displayedText, ''); assert.equal(g.snapshot().models[0].code, 'gateway_upstream_error')
 })
