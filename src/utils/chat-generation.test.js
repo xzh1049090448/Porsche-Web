@@ -218,3 +218,16 @@ test('authoritative cancelled cleanup honors failed snapshots and keeps sibling 
   let cleaned = 0; const compare = createChatGeneration({ mode: 'compare', generationId: 'gen-1', conversationGuid: 'conv-1', messageKey: 'msg-1', models: ['a', 'b'], playbackFactory: ({ model }) => ({ push() {}, finish() {}, cancel() { cleaned += 1; if (model === 'a') throw new Error('cancel') }, dispose() {}, snapshot: () => ({ failed: false, errorCode: null, displayedText: '', pendingCount: 0 }) }) }); compare.handleEvent(meta('gen-1', ['a', 'b'])); compare.resolveStatus({ generation_id: 'gen-1', conversation_guid: null, mode: 'compare', status: 'cancelled' }); assert.equal(compare.snapshot().status, 'failed'); assert.equal(cleaned, 2)
   const normal = createChatGeneration(base()); normal.handleEvent(meta()); normal.resolveStatus({ generation_id: 'gen-1', conversation_guid: null, mode: 'single', status: 'cancelled' }); assert.equal(normal.snapshot().status, 'cancelled')
 })
+
+test('dispose records cleanup failure while reaching disposed without throwing', () => {
+  const player = { push() {}, finish() {}, cancel() {}, dispose() { return { failed: true, errorCode: 'PLAYBACK_ERROR' } }, snapshot: () => ({ failed: true, errorCode: 'PLAYBACK_ERROR', displayedText: '', pendingCount: 0 }) }
+  const g = createChatGeneration({ ...base(), playbackFactory: () => player }); assert.doesNotThrow(() => g.dispose()); assert.equal(g.snapshot().status, 'disposed'); assert.equal(g.snapshot().diagnostics.at(-1).code, 'GENERATION_CLEANUP_ERROR'); assert.equal(g.snapshot().models[0].terminal, 'failed')
+})
+
+test('runtime removal of an initially valid player method fails closed for push, finish, cancel, and dispose', () => {
+  for (const method of ['push', 'finish', 'cancel', 'dispose']) {
+    const target = { push() {}, finish() {}, cancel() {}, dispose() {}, snapshot: () => ({ failed: false, errorCode: null, displayedText: '', pendingCount: 0 }) }; const player = new Proxy(target, { get(obj, key) { if (key === method) return undefined; return obj[key] } }); const g = createChatGeneration({ ...base(), playbackFactory: () => player }); g.handleEvent(meta());
+    if (method === 'push') g.handleEvent(delta('model-a', 1, 'A')); else if (method === 'finish') { g.handleEvent(delta('model-a', 1, 'A')); g.handleEvent({ type: 'model_done', generation_id: 'gen-1', model: 'model-a', last_seq: 1 }) } else if (method === 'cancel') g.cancelLocalQueue(); else g.dispose();
+    assert.equal(g.snapshot().status, method === 'dispose' ? 'disposed' : 'failed'); assert.ok(g.snapshot().diagnostics.length > 0)
+  }
+})

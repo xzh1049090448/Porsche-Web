@@ -72,17 +72,17 @@ export function createChatGeneration(options = {}) {
     const player = item.player; item.player = null
     if (!player) return true
     try {
-      const callback = player[method]; if (typeof callback !== 'function') return true
+      const callback = player[method]; if (typeof callback !== 'function') { item.terminal = 'failed'; item.code = 'PLAYBACK_ERROR'; return false }
       const result = callback.call(player)
-      if (method !== 'dispose' && result && (result.failed === true || result.errorCode)) return false
-      if (method !== 'dispose') { const state = player.snapshot(); if (state && (state.failed === true || state.errorCode)) return false }
+      if (result && (result.failed === true || result.errorCode)) { item.terminal = 'failed'; item.code = 'PLAYBACK_ERROR'; return false }
+      const state = player.snapshot(); if (state && (state.failed === true || state.errorCode)) { item.terminal = 'failed'; item.code = 'PLAYBACK_ERROR'; return false }
       return true
-    } catch { diagnostic('GENERATION_CLEANUP_ERROR', item.model); return false }
+    } catch { item.terminal = 'failed'; item.code = 'PLAYBACK_ERROR'; diagnostic('GENERATION_CLEANUP_ERROR', item.model); return false }
   }
   const cleanupAll = method => models.reduce((ok, item) => cleanupPlayer(item, method) && ok, true)
   function safePlayerCall(item, method, ...args) {
     try {
-      if (!item.player || typeof item.player[method] !== 'function') return true
+      if (!item.player || typeof item.player[method] !== 'function') { fail('GENERATION_PLAYER_ERROR', item.model); return false }
       const result = item.player[method](...args)
       if (method !== 'dispose' && result && (result.failed === true || result.errorCode)) { if (cleaning) diagnostic('GENERATION_PLAYER_ERROR', item.model); else fail('GENERATION_PLAYER_ERROR', item.model); return false }
       if (method !== 'dispose' && typeof item.player.snapshot === 'function') {
@@ -177,7 +177,7 @@ export function createChatGeneration(options = {}) {
     if (result.status === 'cancelling' || result.status === 'committing' || result.status === 'running') return snapshot()
     return fail('GENERATION_STATUS_ERROR')
   }
-  const dispose = () => { if (disposed) return snapshot(); cleanupAll('dispose'); disposed = true; status = 'disposed'; return snapshot() }
+  const dispose = () => { if (disposed) return snapshot(); const cleaned = cleanupAll('dispose'); disposed = true; status = 'disposed'; if (!cleaned) diagnostic('GENERATION_CLEANUP_ERROR'); return snapshot() }
 
   return { snapshot, handleEvent, onEvent: handleEvent, pushEvent: handleEvent, cancelLocalQueue, resolveCancel: resolve, resolveStatus: resolve, eof: () => fail('GENERATION_EOF'), fail: code => fail(code === 'transport' ? 'GENERATION_TRANSPORT_ERROR' : 'GENERATION_PARSER_ERROR'), dispose }
 }
