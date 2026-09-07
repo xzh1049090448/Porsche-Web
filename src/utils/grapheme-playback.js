@@ -49,6 +49,18 @@ export function createGraphemePlayback({
     }
   }
 
+  function releaseFrame() {
+    const handle = frameHandle
+    frameHandle = null
+    if (handle === null) return false
+    try {
+      cancelFrame(handle)
+      return false
+    } catch {
+      return true
+    }
+  }
+
   function failClosed() {
     if (failed) return
     failed = true
@@ -56,10 +68,7 @@ export function createGraphemePlayback({
     finished = true
     generation += 1
     closeCatchUp(now())
-    if (frameHandle !== null) {
-      try { cancelFrame(frameHandle) } catch {}
-      frameHandle = null
-    }
+    releaseFrame()
     pending = []
     carry = ''
     carryStartedAt = null
@@ -145,16 +154,18 @@ export function createGraphemePlayback({
       if (disposed) return snapshot()
       closeCatchUp(now())
       generation += 1
-      if (frameHandle !== null) { cancelFrame(frameHandle); frameHandle = null }
+      const cleanupFailed = releaseFrame()
       pending = []; carry = ''; carryStartedAt = null; finished = true
+      if (cleanupFailed) failClosed()
       return snapshot()
     },
     dispose() {
       if (disposed) return snapshot()
       closeCatchUp(now())
       generation += 1
-      if (frameHandle !== null) { cancelFrame(frameHandle); frameHandle = null }
+      const cleanupFailed = releaseFrame()
       pending = []; carry = ''; carryStartedAt = null; disposed = true; finished = true
+      if (cleanupFailed) failClosed()
       return snapshot()
     },
     snapshot,

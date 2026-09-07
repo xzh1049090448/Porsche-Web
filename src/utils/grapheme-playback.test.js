@@ -213,3 +213,32 @@ test('synchronous requestFrame errors fail closed and are not rethrown', () => {
   assert.equal(state.failed, true); assert.equal(state.errorCode, 'PLAYBACK_ERROR'); assert.equal(state.pendingCount, 0)
   assert.deepEqual(errors, ['PLAYBACK_ERROR'])
 })
+
+test('cancel and dispose stay fail-closed when cancelFrame throws', () => {
+  for (const mode of ['standard', 'catch-up']) {
+    for (const action of ['cancel', 'dispose']) {
+      const clock = scheduler(); let current = 0
+      const errors = []
+      const player = createGraphemePlayback({
+        reducedMotion: mode === 'catch-up',
+        requestFrame: clock.requestFrame,
+        cancelFrame: () => { throw new Error('scheduler cleanup detail') },
+        onError: code => errors.push(code),
+        now: () => current,
+      })
+      player.push(mode === 'catch-up' ? 'x'.repeat(100) : '你好')
+      if (mode === 'catch-up') player.finish()
+      current = 100
+      assert.doesNotThrow(() => player[action]())
+      const state = player.snapshot()
+      assert.equal(state.finished, true)
+      assert.equal(state.pendingCount, 0)
+      assert.equal(state.catchUpStartedAt, null)
+      assert.equal(state.disposed, action === 'dispose')
+      assert.equal(state.failed, true)
+      assert.equal(state.errorCode, 'PLAYBACK_ERROR')
+      assert.deepEqual(errors, ['PLAYBACK_ERROR'])
+      assert.doesNotThrow(() => player[action]())
+    }
+  }
+})
