@@ -1,13 +1,16 @@
 const DEFAULT_FRAME = typeof requestAnimationFrame === 'function'
   ? requestAnimationFrame
-  : (callback => setTimeout(() => callback(Date.now()), 16))
+  : (callback => setTimeout(() => callback(typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now()), 16))
 const DEFAULT_CANCEL = typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame : clearTimeout
+const DEFAULT_NOW = typeof performance !== 'undefined' && typeof performance.now === 'function'
+  ? () => performance.now()
+  : () => Date.now()
 
 export function createGraphemePlayback({
   onDisplay = () => {},
   requestFrame = DEFAULT_FRAME,
   cancelFrame = DEFAULT_CANCEL,
-  now = () => Date.now(),
+  now = DEFAULT_NOW,
   reducedMotion = false,
   targetLagMs = 500,
 } = {}) {
@@ -28,6 +31,7 @@ export function createGraphemePlayback({
   let catchUpDurationMs = 0
   let maxBatchSize = 0
   let carryStartedAt = null
+  let hasDisplayed = false
 
   function snapshot() {
     const current = now()
@@ -41,19 +45,20 @@ export function createGraphemePlayback({
     frameHandle = requestFrame(timestamp => {
       frameHandle = null
       if (disposed || token !== generation) return
+      const frameTime = Number.isFinite(timestamp) ? timestamp : now()
       const remaining = pending.length
-      const lag = Math.max(remaining * 25, Number(timestamp) - lastReceivedAt)
+      const lag = Math.max(remaining * 25, frameTime - lastReceivedAt)
       const nextMode = reducedMotion || lag > targetLagMs ? 'catch-up' : 'standard'
       if (nextMode === 'catch-up' && mode !== 'catch-up') {
-        catchUpStartedAt = Number(timestamp) || now()
+        catchUpStartedAt = frameTime
         modeReason = reducedMotion ? 'reduced-motion' : 'queue-lag'
       } else if (nextMode === 'standard' && mode === 'catch-up' && catchUpStartedAt !== null) {
-        catchUpDurationMs += Math.max(0, (Number(timestamp) || now()) - catchUpStartedAt)
+        catchUpDurationMs += Math.max(0, frameTime - catchUpStartedAt)
         catchUpStartedAt = null
         modeReason = 'standard'
       }
       mode = nextMode
-      if (mode === 'standard' && (Number(timestamp) || now()) - lastDisplayAt < 25) {
+      if (mode === 'standard' && hasDisplayed && frameTime - lastDisplayAt < 25) {
         schedule()
         return
       }
@@ -61,9 +66,16 @@ export function createGraphemePlayback({
       maxBatchSize = Math.max(maxBatchSize, amount)
       const batch = pending.splice(0, Math.min(amount, remaining))
       displayedText += batch.join('')
-      lastDisplayAt = Number(timestamp) || now()
+      lastDisplayAt = frameTime
+      hasDisplayed = true
       onDisplay(displayedText)
       if (pending.length) schedule()
+      else if (mode === 'catch-up' && catchUpStartedAt !== null) {
+        catchUpDurationMs += Math.max(0, frameTime - catchUpStartedAt)
+        catchUpStartedAt = null
+        mode = 'standard'
+        modeReason = 'standard'
+      }
     })
   }
 

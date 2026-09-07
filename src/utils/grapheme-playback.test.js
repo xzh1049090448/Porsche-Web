@@ -72,11 +72,27 @@ test('standard mode observes a 25ms minimum between display commits', () => {
   const clock = scheduler(); let current = 0; const displays = []
   const player = createGraphemePlayback({ onDisplay: t => displays.push(t), requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => current })
   player.push('AB'); player.finish()
-  assert.equal(clock.step(0), true); assert.deepEqual(displays, [])
-  current = 24; assert.equal(clock.step(24), true); assert.deepEqual(displays, [])
-  current = 25; assert.equal(clock.step(25), true); assert.deepEqual(displays, ['A'])
-  current = 49; assert.equal(clock.step(49), true); assert.deepEqual(displays, ['A'])
-  current = 50; assert.equal(clock.step(50), true); assert.deepEqual(displays, ['A', 'AB'])
+  assert.equal(clock.step(0), true); assert.deepEqual(displays, ['A'])
+  current = 24; assert.equal(clock.step(24), true); assert.deepEqual(displays, ['A'])
+  current = 25; assert.equal(clock.step(25), true); assert.deepEqual(displays, ['A', 'AB'])
+})
+
+test('first confirmed grapheme displays on the next RAF, then later graphemes respect 25ms', () => {
+  const clock = scheduler(); let current = 100; const displays = []
+  const player = createGraphemePlayback({ onDisplay: t => displays.push(t), requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => current })
+  player.push('你好'); player.finish()
+  current = 100; assert.equal(clock.step(100), true); assert.deepEqual(displays, ['你'])
+  current = 124; assert.equal(clock.step(124), true); assert.deepEqual(displays, ['你'])
+  current = 125; assert.equal(clock.step(125), true); assert.deepEqual(displays, ['你', '你好'])
+})
+
+test('default now uses the RAF performance timestamp domain', () => {
+  const clock = scheduler(); const displays = []
+  const player = createGraphemePlayback({ onDisplay: t => displays.push(t), requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame })
+  player.push('你好'); player.finish()
+  const rafTimestamp = globalThis.performance.now()
+  clock.step(rafTimestamp)
+  assert.deepEqual(displays, ['你'])
 })
 
 test('standard mode grows 20 graphemes over 20 distinct frames', () => {
@@ -109,6 +125,16 @@ test('catch-up mode is bounded and visibly incremental', () => {
   assert.equal(player.snapshot().catchUpDurationMs >= 0, true)
   assert.equal(player.snapshot().maxBatchSize, maxBatch)
   assert.equal(typeof player.snapshot().modeReason, 'string')
+})
+
+test('catch-up duration freezes when the queue drains', () => {
+  const clock = scheduler(); let current = 0
+  const player = createGraphemePlayback({ requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => current })
+  player.push('x'.repeat(100)); player.finish()
+  let time = 1000; while (clock.step(time++)) {}
+  current = 2000; const first = player.snapshot().catchUpDurationMs
+  current = 4000; const second = player.snapshot().catchUpDurationMs
+  assert.equal(second, first)
 })
 
 test('cancel and dispose ignore a late scheduled frame', () => {
