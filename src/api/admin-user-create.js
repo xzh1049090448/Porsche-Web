@@ -155,7 +155,7 @@ function createResponse(result, request) {
       || typeof data.user?.username !== 'string' || data.user.username !== request.username || data.user.role !== request.role
       || data.user.nickname !== request.nickname || data.user.plan_type !== request.plan_type
       || (request.group_guid === null && data.user.group !== 'default')
-      || data.user.status !== 'active' || data.user.auth_version !== 1
+      || data.user.status !== 'active' || data.user.auth_version !== 1 || data.user.last_login_at !== null
       || (request.role === 'user' ? data.permissions_version !== null : data.permissions_version !== '1')) invalidResponse()
   let user
   try { user = Object.freeze(mapUserReadDto(data.user)) } catch { invalidResponse() }

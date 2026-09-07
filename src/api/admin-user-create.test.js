@@ -191,6 +191,7 @@ test('requires exact success status, security headers, and response DTOs', async
     metadata({ ...createBody(), user: { ...userDto(), plan_type: 'professional' } }, 201),
     metadata({ ...createBody(), user: { ...userDto(), group: 'other' } }, 201),
     metadata({ ...createBody(), user: { ...userDto(), auth_version: 2 } }, 201),
+    metadata({ ...createBody(), user: { ...userDto(), last_login_at: '2026-09-06T00:00:01Z' } }, 201),
     metadata({ ...createBody(), permissions_version: '1' }, 201),
   ]) {
     const api = createAdminUserCreateApi({ post: async () => result, get: async () => {} })
