@@ -8,6 +8,7 @@ const DEFAULT_NOW = typeof performance !== 'undefined' && typeof performance.now
 
 export function createGraphemePlayback({
   onDisplay = () => {},
+  onError = () => {},
   requestFrame = DEFAULT_FRAME,
   cancelFrame = DEFAULT_CANCEL,
   now = DEFAULT_NOW,
@@ -32,11 +33,13 @@ export function createGraphemePlayback({
   let maxBatchSize = 0
   let carryStartedAt = null
   let hasDisplayed = false
+  let failed = false
+  let errorCode = null
 
   function snapshot() {
     const current = now()
     const activeCatchUpMs = catchUpStartedAt === null ? 0 : Math.max(0, current - catchUpStartedAt)
-    return Object.freeze({ receivedText, displayedText, pendingCount: pending.length + (carry ? 1 : 0), mode, modeReason, finished, disposed, catchUpStartedAt, catchUpDurationMs: catchUpDurationMs + activeCatchUpMs, maxBatchSize, boundaryWaitMs: carry ? Math.max(0, current - carryStartedAt) : 0 })
+    return Object.freeze({ receivedText, displayedText, pendingCount: pending.length + (carry ? 1 : 0), mode, modeReason, finished, disposed, failed, errorCode, catchUpStartedAt, catchUpDurationMs: catchUpDurationMs + activeCatchUpMs, maxBatchSize, boundaryWaitMs: carry ? Math.max(0, current - carryStartedAt) : 0 })
   }
 
   function closeCatchUp(at) {
@@ -46,10 +49,29 @@ export function createGraphemePlayback({
     }
   }
 
+  function failClosed() {
+    if (failed) return
+    failed = true
+    errorCode = 'PLAYBACK_ERROR'
+    finished = true
+    generation += 1
+    closeCatchUp(now())
+    if (frameHandle !== null) {
+      try { cancelFrame(frameHandle) } catch {}
+      frameHandle = null
+    }
+    pending = []
+    carry = ''
+    carryStartedAt = null
+    modeReason = 'error'
+    try { onError(errorCode) } catch {}
+  }
+
   function schedule() {
-    if (frameHandle !== null || disposed || pending.length === 0) return
+    if (frameHandle !== null || disposed || failed || pending.length === 0) return
     const token = generation
-    frameHandle = requestFrame(timestamp => {
+    try {
+      frameHandle = requestFrame(timestamp => {
       frameHandle = null
       if (disposed || token !== generation) return
       const frameTime = Number.isFinite(timestamp) ? timestamp : now()
@@ -75,14 +97,23 @@ export function createGraphemePlayback({
       displayedText += batch.join('')
       lastDisplayAt = frameTime
       hasDisplayed = true
-      onDisplay(displayedText)
+      try {
+        onDisplay(displayedText)
+      } catch {
+        failClosed()
+        return
+      }
       if (pending.length) schedule()
       else if (mode === 'catch-up' && catchUpStartedAt !== null) {
         closeCatchUp(frameTime)
         mode = 'standard'
         modeReason = 'standard'
       }
-    })
+      })
+    } catch {
+      frameHandle = null
+      failClosed()
+    }
   }
 
   function enqueue(text, force = false) {
@@ -95,7 +126,7 @@ export function createGraphemePlayback({
 
   return {
     push(delta = '') {
-      if (disposed || finished || typeof delta !== 'string' || delta === '') return snapshot()
+      if (disposed || finished || failed || typeof delta !== 'string' || delta === '') return snapshot()
       receivedText += delta
       lastReceivedAt = now()
       const input = carry + delta

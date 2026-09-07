@@ -171,3 +171,45 @@ test('cancel and dispose ignore a late scheduled frame', () => {
   player.push('x'); player.dispose(); assert.equal(cancelled, 1); assert.equal(player.snapshot().disposed, true)
   assert.deepEqual(displays, [])
 })
+
+test('standard onDisplay errors fail closed without leaking queued work', () => {
+  const clock = scheduler(); const errors = []
+  const player = createGraphemePlayback({
+    onDisplay: () => { throw new Error('secret display detail') },
+    onError: code => errors.push(code),
+    requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0,
+  })
+  player.push('你好世界'); player.finish(); clock.step(0)
+  const state = player.snapshot()
+  assert.equal(state.failed, true); assert.equal(state.errorCode, 'PLAYBACK_ERROR')
+  assert.equal(state.pendingCount, 0); assert.equal(state.finished, true); assert.equal(clock.size, 0)
+  assert.deepEqual(errors, ['PLAYBACK_ERROR'])
+  assert.equal(state.displayedText, '你')
+})
+
+test('catch-up onDisplay errors close metrics and onError errors do not escape', () => {
+  const clock = scheduler(); const errors = []
+  const player = createGraphemePlayback({
+    reducedMotion: true,
+    onDisplay: () => { throw new Error('secret catch-up detail') },
+    onError: code => { errors.push(code); throw new Error('consumer detail') },
+    requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0,
+  })
+  player.push('x'.repeat(100)); player.finish(); assert.doesNotThrow(() => clock.step(100))
+  const state = player.snapshot()
+  assert.equal(state.failed, true); assert.equal(state.pendingCount, 0); assert.equal(state.catchUpStartedAt, null)
+  assert.equal(clock.size, 0); assert.deepEqual(errors, ['PLAYBACK_ERROR'])
+})
+
+test('synchronous requestFrame errors fail closed and are not rethrown', () => {
+  const errors = []
+  const player = createGraphemePlayback({
+    onError: code => errors.push(code),
+    requestFrame: () => { throw new Error('scheduler detail') },
+    cancelFrame: () => {}, now: () => 0,
+  })
+  assert.doesNotThrow(() => player.push('你好'))
+  const state = player.snapshot()
+  assert.equal(state.failed, true); assert.equal(state.errorCode, 'PLAYBACK_ERROR'); assert.equal(state.pendingCount, 0)
+  assert.deepEqual(errors, ['PLAYBACK_ERROR'])
+})
