@@ -119,7 +119,7 @@ export function createChatGeneration(options = {}) {
   const validateStatusPayload = result => {
     if (!result || typeof result !== 'object' || result.generation_id !== generationId || result.mode !== mode) return false
     if (result.status === 'completed') {
-      if (result.conversation_guid !== conversationGuid) return false
+      if (result.conversation_guid !== conversationGuid || !Number.isSafeInteger(result.total_tokens_used) || result.total_tokens_used < 0) return false
       if (mode === 'single') {
         const entry = result.result
         return !!entry && !Object.prototype.hasOwnProperty.call(result, 'results') && entry.model === models[0].model && entry.status === 'completed' && typeof entry.assistant_message_guid === 'string' && !!entry.assistant_message_guid.trim() && typeof entry.content === 'string' && Number.isSafeInteger(entry.tokens) && entry.tokens >= 0 && Object.keys(entry).every(key => ['model', 'status', 'content', 'assistant_message_guid', 'tokens'].includes(key))

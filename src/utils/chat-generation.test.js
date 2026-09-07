@@ -49,8 +49,8 @@ test('local cancel freezes playback and authoritative outcomes decide terminal s
 
 test('authoritative completed appends only unseen suffix and rejects prefix mismatch', () => {
   const clock = scheduler(); const g = createChatGeneration({ ...base(), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } })
-  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'A')); while (clock.step(0)) {} g.cancelLocalQueue(); g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', mode: 'single', result: { model: 'model-a', status: 'completed', assistant_message_guid: 'm-a', content: 'ABC', tokens: 1 } }); assert.equal(g.snapshot().status, 'draining'); while (clock.step(0)) {} assert.equal(g.snapshot().models[0].displayedText, 'ABC')
-  const h = createChatGeneration({ ...base(), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } }); h.handleEvent(meta()); h.handleEvent(delta('model-a', 1, 'XY')); clock.step(1000); h.cancelLocalQueue(); h.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', mode: 'single', result: { model: 'model-a', status: 'completed', assistant_message_guid: 'm-a', content: 'NO', tokens: 1 } }); assert.equal(h.snapshot().status, 'failed'); assert.equal(h.snapshot().diagnostics.at(-1).code, 'GENERATION_DATA_ERROR')
+  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'A')); while (clock.step(0)) {} g.cancelLocalQueue(); g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', total_tokens_used: 1, mode: 'single', result: { model: 'model-a', status: 'completed', assistant_message_guid: 'm-a', content: 'ABC', tokens: 1 } }); assert.equal(g.snapshot().status, 'draining'); while (clock.step(0)) {} assert.equal(g.snapshot().models[0].displayedText, 'ABC')
+  const h = createChatGeneration({ ...base(), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } }); h.handleEvent(meta()); h.handleEvent(delta('model-a', 1, 'XY')); clock.step(1000); h.cancelLocalQueue(); h.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', total_tokens_used: 1, mode: 'single', result: { model: 'model-a', status: 'completed', assistant_message_guid: 'm-a', content: 'NO', tokens: 1 } }); assert.equal(h.snapshot().status, 'failed'); assert.equal(h.snapshot().diagnostics.at(-1).code, 'GENERATION_DATA_ERROR')
 })
 
 test('dispose is idempotent and callback errors do not escape or leak frames', () => {
@@ -76,7 +76,7 @@ test('terminal states are irreversible and ignore late events and resolutions', 
 
 test('authoritative completed rebuilds pending playback instead of duplicating received text', () => {
   const clock = scheduler(); const g = createChatGeneration({ ...base(), playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } })
-  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'AB')); g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', mode: 'single', result: { model: 'model-a', status: 'completed', assistant_message_guid: 'm-a', content: 'ABC', tokens: 1 } }); while (clock.step(1000)) {}
+  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'AB')); g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', status: 'completed', total_tokens_used: 1, mode: 'single', result: { model: 'model-a', status: 'completed', assistant_message_guid: 'm-a', content: 'ABC', tokens: 1 } }); while (clock.step(1000)) {}
   assert.equal(g.snapshot().status, 'completed'); assert.equal(g.snapshot().models[0].receivedText, 'ABC'); assert.equal(g.snapshot().models[0].displayedText, 'ABC')
 })
 
@@ -117,4 +117,15 @@ test('completed status requires exact persisted result fields and stable failure
   const failed = createChatGeneration(base());
   failed.resolveStatus({ generation_id: 'gen-1', conversation_guid: null, mode: 'single', status: 'failed' });
   assert.equal(failed.snapshot().diagnostics.at(-1).code, 'GENERATION_STATUS_ERROR')
+})
+
+test('authoritative completed requires a safe nonnegative total token count, including zero', () => {
+  for (const total_tokens_used of [undefined, null, '0', -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    const g = createChatGeneration(base());
+    g.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', mode: 'single', status: 'completed', total_tokens_used, result: { model: 'model-a', status: 'completed', assistant_message_guid: 'm-a', content: 'x', tokens: 1 } });
+    assert.equal(g.snapshot().diagnostics.at(-1).code, 'GENERATION_STATUS_ERROR')
+  }
+  const valid = createChatGeneration(base());
+  valid.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', mode: 'single', status: 'completed', total_tokens_used: 0, result: { model: 'model-a', status: 'completed', assistant_message_guid: 'm-a', content: '', tokens: 0 } });
+  assert.equal(valid.snapshot().status, 'completed')
 })
