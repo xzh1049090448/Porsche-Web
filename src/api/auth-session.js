@@ -36,7 +36,7 @@ export function isSafeAuthRead(url = '', method = 'GET') {
   if (method.toUpperCase() !== 'GET') return false
   const parsed = new URL(url, 'https://local.invalid')
   const path = parsed.pathname
-  if (path === '/admin/v2/operations') return parsed.search === '?scope=users.delete'
+  if (path === '/admin/v2/operations') return parsed.search === '?scope=users.delete' || parsed.search === '?scope=users.reset_password'
   return [
     /^\/api\/v1\/users\/me(?:\/usage)?$/,
     /^\/api\/v1\/auth\/(?:self|sessions)$/,

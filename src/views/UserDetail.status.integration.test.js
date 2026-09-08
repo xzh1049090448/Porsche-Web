@@ -31,6 +31,8 @@ const userModule = moduleURL(`export function useUserStore(){ return globalThis.
 const usersModule = moduleURL(`export function useAdminUsersStore(){ return globalThis.__a06View.store }`)
 const actionsModule = moduleURL(`export function useAdminUserActionsStore(){ return globalThis.__a06View.actionStore }; export const canDeleteAdminUser=()=>false; export const reconcileDeletedDetail=()=>false; export const refreshDeleteTargetFailClosed=async()=>false; export const restoreDeleteTriggerFocus=()=>false`)
 const editModule = moduleURL(`export function useAdminUserEditStore(){ return globalThis.__a06View.editStore }; export const canOpenAdminUserEdit=()=>false`)
+const entitlementStoreModule = moduleURL(`export function useAdminUserPasswordResetStore(){ return globalThis.__a06View.entitlementStore }; export function useAdminUserGroupChangeStore(){ return globalThis.__a06View.entitlementStore }; export function useAdminUserPlanChangeStore(){ return globalThis.__a06View.entitlementStore }`)
+const entitlementsModule = moduleURL(`export const canOpenPasswordReset=()=>false; export const canOpenGroupChange=()=>false; export const canOpenPlanChange=()=>false`)
 const apiModule = moduleURL(`export async function getAdminUser(guid, options){ return globalThis.__a06View.getAdminUser(guid, options) }`)
 const i18nModule = moduleURL(`export function useI18n(){ return {t:key=>key} }`)
 const messageModule = moduleURL(`export const ElMessage={warning(){}}`)
@@ -44,8 +46,12 @@ async function loadViewComponent() {
   const replacements = new Map([
     ['vue', vueURL], ['vue-router', routeModule], ['@/stores/user', userModule], ['@/stores/admin-users', usersModule],
     ['@/stores/admin-user-actions', actionsModule], ['@/stores/admin-user-edit', editModule], ['@/stores/admin-user-status', statusModuleURL],
+    ['@/stores/admin-user-password-reset', entitlementStoreModule], ['@/stores/admin-user-group-change', entitlementStoreModule],
+    ['@/stores/admin-user-plan-change', entitlementStoreModule], ['@/stores/admin-user-entitlements', entitlementsModule],
     ['@/api/admin-users', apiModule], ['@/components/admin/UserSoftDeleteDialog.vue', emptyChild], ['@/components/admin/UserNicknameEditDialog.vue', emptyChild],
-    ['@/components/admin/UserStatusDialog.vue', childStub], ['@/composables/useI18n', i18nModule], ['element-plus', messageModule],
+    ['@/components/admin/UserStatusDialog.vue', childStub], ['@/components/admin/UserPasswordResetDialog.vue', emptyChild],
+    ['@/components/admin/UserGroupChangeDialog.vue', emptyChild], ['@/components/admin/UserPlanChangeDialog.vue', emptyChild],
+    ['@/composables/useI18n', i18nModule], ['element-plus', messageModule],
   ])
   let code = `${script.content}\n${template.code}\n__sfc__.render=render\nexport default __sfc__`
   for (const [specifier, replacement] of replacements) code = code.replaceAll(`from '${specifier}'`, `from '${replacement}'`).replaceAll(`from "${specifier}"`, `from "${replacement}"`)
@@ -65,8 +71,9 @@ async function mountHarness({ fetchSelf = async()=>{}, loadDetail, getAdminUser 
     async loadDetail(guid, options){ this.loadCalls++; if (loadDetail) return loadDetail.call(this,guid,options); return this.selected }, clear(){ this.selected=null; this.rows=[]; this.permissions=null } })
   const actionStore = { owns:()=>false, close:()=>false, open:()=>null, dispose(){}, captureOwnership:()=>null, updateTarget:()=>false, invalidateTarget(){} }
   const editStore = { owns:()=>false, close:()=>false, open:()=>null, dispose(){}, updateContext:()=>false }
+  const entitlementStore = { owns:()=>false, close:()=>false, open:()=>null, dispose(){}, updateContext:()=>false, refreshConflict:async()=>false }
   let getCalls=0
-  globalThis.__a06View = { route,userStore,store,actionStore,editStore,stubEvents:[],getAdminUser:async(...args)=>{getCalls++; return getAdminUser(...args)} }
+  globalThis.__a06View = { route,userStore,store,actionStore,editStore,entitlementStore,stubEvents:[],getAdminUser:async(...args)=>{getCalls++; return getAdminUser(...args)} }
   const wrapper = mount(View, { attachTo:document.body, global:{ plugins:[createPinia(),ElementPlus], mocks:{ $router:{push(){}} } } })
   await flush()
   return { wrapper,route,userStore,store,statusStore:useAdminUserStatusStore(),getCalls:()=>getCalls }

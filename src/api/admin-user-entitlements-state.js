@@ -1,0 +1,40 @@
+export const ENTITLEMENT_STATES = Object.freeze({ IDLE:'idle', SUBMITTING:'submitting', SUCCEEDED:'succeeded', CONFLICT:'conflict', FAILED:'failed', DISPOSED:'disposed' })
+const CONFLICTS = new Set(['auth_version_conflict','user_group_conflict','user_plan_conflict'])
+const safeCode = error => typeof error?.code === 'string' ? error.code : 'request_failed'
+
+export function createDirectEntitlementWorkflow({ execute }) {
+  if (typeof execute !== 'function') throw new TypeError('invalid_direct_entitlement_dependencies')
+  let state=ENTITLEMENT_STATES.IDLE, user=null, failureCode=null, active=null, disposed=false, generation=0
+  const listeners=new Set(); const snapshot=()=>Object.freeze({state,user,failureCode})
+  const notify=()=>{ const value=snapshot(); for(const listener of listeners){try{listener(value)}catch{}} return value }
+  const settle=(attempt,next,nextUser=null,code=null)=>{ if(disposed||active!==attempt||attempt.generation!==generation)return snapshot(); state=next;user=nextUser;failureCode=code;active=null;const value=notify();attempt.resolve(value);return value }
+  const start=input=>{
+    if(disposed)return Promise.resolve(snapshot()); if(active)return active.promise; if(state!==ENTITLEMENT_STATES.IDLE)return Promise.resolve(snapshot())
+    const attempt={generation:++generation,resolve:null,promise:null}; attempt.promise=new Promise(resolve=>{attempt.resolve=resolve}); active=attempt;state=ENTITLEMENT_STATES.SUBMITTING;user=null;failureCode=null;notify()
+    void (async()=>execute(input))().then(value=>settle(attempt,ENTITLEMENT_STATES.SUCCEEDED,value),error=>settle(attempt,CONFLICTS.has(error?.code)?ENTITLEMENT_STATES.CONFLICT:ENTITLEMENT_STATES.FAILED,null,safeCode(error)))
+    return attempt.promise
+  }
+  const reset=()=>{ if(disposed||active||![ENTITLEMENT_STATES.CONFLICT,ENTITLEMENT_STATES.FAILED,ENTITLEMENT_STATES.SUCCEEDED].includes(state))return false;state=ENTITLEMENT_STATES.IDLE;user=null;failureCode=null;notify();return true }
+  const dispose=()=>{ if(disposed)return;disposed=true;generation++;const attempt=active;active=null;state=ENTITLEMENT_STATES.DISPOSED;user=null;failureCode='workflow_disposed';listeners.clear();attempt?.resolve(snapshot()) }
+  const subscribe=listener=>{ if(typeof listener!=='function')throw new TypeError('invalid_listener');if(disposed)return()=>{};listeners.add(listener);listener(snapshot());return()=>listeners.delete(listener) }
+  return Object.freeze({start,reset,dispose,getSnapshot:snapshot,subscribe})
+}
+
+const BASE64URL='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+function idempotencyKey(randomBytes){const bytes=randomBytes(32);if(!(bytes instanceof Uint8Array)||bytes.length!==32)throw new Error('invalid_random');let out='';for(let i=0;i<32;i+=3){const left=32-i;const n=(bytes[i]<<16)|((bytes[i+1]??0)<<8)|(bytes[i+2]??0);out+=BASE64URL[(n>>>18)&63]+BASE64URL[(n>>>12)&63];if(left>1)out+=BASE64URL[(n>>>6)&63];if(left>2)out+=BASE64URL[n&63]}return`ik_${out}`}
+export function createPasswordResetWorkflow({api,randomBytes,schedule}){
+  if(!api||!['issuePasswordReset','executePasswordReset','queryPasswordReset'].every(key=>typeof api[key]==='function')||typeof randomBytes!=='function'||typeof schedule!=='function')throw new TypeError('invalid_password_reset_dependencies')
+  let state='idle',failureCode=null,operationRef=null,user=null,targetGuid=null,resultingAuthVersion=null,active=null,disposed=false,generation=0,cancelTimer=null,querying=false
+  let privateValue={newPassword:null,currentPassword:null,ticket:null,idempotencyKey:null};const listeners=new Set()
+  const snapshot=()=>Object.freeze({state,failureCode,operationRef,user,targetGuid,resultingAuthVersion});const privateSnapshot=()=>Object.freeze({...privateValue})
+  const notify=()=>{const value=snapshot();for(const listener of listeners){try{listener(value)}catch{}}return value}
+  const clearSecrets=()=>{privateValue.newPassword=null;privateValue.currentPassword=null;privateValue.ticket=null}
+  const clearAll=()=>{clearSecrets();privateValue.idempotencyKey=null}
+  const finish=(attempt,next,code=null,nextUser=null,result=null)=>{if(disposed||active!==attempt)return snapshot();cancelTimer?.();cancelTimer=null;querying=false;state=next;failureCode=code;user=nextUser;if(result){targetGuid=result.targetGuid??null;resultingAuthVersion=result.resultingAuthVersion??null}if(next==='pending_recovery')clearSecrets();else clearAll();active=null;const value=notify();attempt.resolve(value);return value}
+  const query=async attempt=>{if(disposed||active!==attempt||querying)return;querying=true;try{const result=await api.queryPasswordReset({idempotencyKey:privateValue.idempotencyKey});if(disposed||active!==attempt)return;operationRef=result.operationRef??operationRef;if(result.status==='processing'){state='querying';notify();querying=false;const delay=Math.min(30,Math.max(1,result.retryAfter??1))*1000;cancelTimer=schedule(()=>{cancelTimer=null;void query(attempt)},delay);return}if(result.status==='succeeded')return finish(attempt,'succeeded',null,null,result);if(result.status==='pending_recovery')return finish(attempt,'pending_recovery');return finish(attempt,'failed',result.failureCode??'request_failed')}catch(error){if(active===attempt)finish(attempt,'failed',safeCode(error))}finally{querying=false}}
+  const start=input=>{if(disposed)return Promise.resolve(snapshot());if(active)return active.promise;if(state!=='idle')return Promise.resolve(snapshot());const attempt={generation:++generation,resolve:null,promise:null};attempt.promise=new Promise(resolve=>attempt.resolve=resolve);active=attempt;privateValue={newPassword:input?.newPassword,currentPassword:input?.currentPassword,ticket:null,idempotencyKey:null};const common={targetGuid:input?.targetGuid,expectedAuthVersion:input?.expectedAuthVersion,reason:input?.reason};state='verifying';failureCode=null;operationRef=null;user=null;targetGuid=null;resultingAuthVersion=null;notify();void(async()=>{try{privateValue.idempotencyKey=idempotencyKey(randomBytes);const issued=await api.issuePasswordReset({...common,newPassword:privateValue.newPassword,currentPassword:privateValue.currentPassword});if(active!==attempt)return;privateValue.ticket=issued.ticket;privateValue.currentPassword=null;state='submitting';notify();let result;try{result=await api.executePasswordReset({...common,newPassword:privateValue.newPassword,ticket:privateValue.ticket,idempotencyKey:privateValue.idempotencyKey});privateValue.newPassword=null;privateValue.ticket=null;operationRef=result.operationRef;return finish(attempt,'succeeded',null,null,result)}catch(error){privateValue.newPassword=null;privateValue.ticket=null;if(error?.code==='operation_commit_unknown'||!Number.isInteger(error?.status)){operationRef=error?.operationRef??null;state='querying';notify();return query(attempt)}return finish(attempt,['action_verification_conflict','target_version_conflict','target_state_conflict','policy_version_conflict'].includes(error?.code)?'conflict':'failed',safeCode(error))}}catch(error){clearSecrets();finish(attempt,['action_verification_conflict','target_version_conflict','target_state_conflict','policy_version_conflict'].includes(error?.code)?'conflict':'failed',safeCode(error))}})();return attempt.promise}
+  const reset=()=>{if(disposed||active||!['failed','conflict','succeeded'].includes(state))return false;state='idle';failureCode=null;operationRef=null;user=null;targetGuid=null;resultingAuthVersion=null;clearAll();notify();return true}
+  const dispose=()=>{if(disposed)return;disposed=true;generation++;cancelTimer?.();cancelTimer=null;const attempt=active;active=null;clearAll();state='disposed';failureCode='workflow_disposed';listeners.clear();attempt?.resolve(snapshot())}
+  const subscribe=listener=>{if(typeof listener!=='function')throw new TypeError('invalid_listener');if(disposed)return()=>{};listeners.add(listener);listener(snapshot());return()=>listeners.delete(listener)}
+  return Object.freeze({start,reset,dispose,getSnapshot:snapshot,getPrivateSnapshot:privateSnapshot,subscribe})
+}

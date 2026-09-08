@@ -13,7 +13,7 @@
     <template v-else-if="store.selected">
       <el-card shadow="never">
         <template #header>
-          <div class="title"><span class="title-name">{{ store.selected.username || '未设置用户名' }}</span><span class="title-actions"><el-tag>{{ statusLabel }}</el-tag><el-button v-if="canStatusTarget" :type="nextStatus === 'disabled' ? 'danger' : 'primary'" plain @click="openStatus(store.selected, $event)">{{ nextStatus === 'disabled' ? '禁用' : '启用' }}</el-button><el-button v-if="canDeleteTarget" type="danger" plain @click="openDelete(store.selected, $event)">{{ t('deleteUser.confirm') }}</el-button></span></div>
+          <div class="title"><span class="title-name">{{ store.selected.username || '未设置用户名' }}</span><span class="title-actions"><el-tag>{{ statusLabel }}</el-tag><el-button v-if="canPasswordResetTarget" plain @click="openPasswordReset(store.selected, $event)">重置密码</el-button><el-button v-if="canStatusTarget" :type="nextStatus === 'disabled' ? 'danger' : 'primary'" plain @click="openStatus(store.selected, $event)">{{ nextStatus === 'disabled' ? '禁用' : '启用' }}</el-button><el-button v-if="canDeleteTarget" type="danger" plain @click="openDelete(store.selected, $event)">{{ t('deleteUser.confirm') }}</el-button></span></div>
         </template>
         <el-descriptions :column="2" border>
           <el-descriptions-item label="GUID">{{ store.selected.guid }}</el-descriptions-item>
@@ -21,9 +21,9 @@
             <span class="nickname-row"><span>{{ store.selected.nickname || '未设置' }}</span><el-button v-if="canEditTarget" link type="primary" @click="openEdit(store.selected, $event)">{{ t('editUser.open') }}</el-button></span>
           </el-descriptions-item>
           <el-descriptions-item label="角色">{{ store.selected.role === 'admin' ? '管理员' : '用户' }}</el-descriptions-item>
-          <el-descriptions-item label="套餐">{{ planLabel }}</el-descriptions-item>
+          <el-descriptions-item label="套餐"><span class="nickname-row"><span>{{ planLabel }}</span><el-button v-if="canPlanChangeTarget" link type="primary" @click="openPlanChange(store.selected, $event)">变更</el-button></span></el-descriptions-item>
           <el-descriptions-item label="邮箱">未设置</el-descriptions-item>
-          <el-descriptions-item label="分组">{{ store.selected.group }}</el-descriptions-item>
+          <el-descriptions-item label="分组"><span class="nickname-row"><span>{{ store.selected.group }}</span><el-button v-if="canGroupChangeTarget" link type="primary" @click="openGroupChange(store.selected, $event)">变更</el-button></span></el-descriptions-item>
           <el-descriptions-item label="金额额度">未接入</el-descriptions-item>
           <el-descriptions-item label="创建时间">{{ store.selected.createdAt }}</el-descriptions-item>
           <el-descriptions-item label="最近登录">{{ store.selected.lastLoginAt || '从未登录' }}</el-descriptions-item>
@@ -44,10 +44,13 @@
         </el-table>
       </el-card>
     </template>
-    <p class="sr-only" role="status" aria-live="polite">{{ editAnnouncement }} {{ statusAnnouncement }}</p>
+    <p class="sr-only" role="status" aria-live="polite">{{ editAnnouncement }} {{ statusAnnouncement }} {{ entitlementAnnouncement }}</p>
     <UserStatusDialog :owner="statusToken" @succeeded="onStatusSucceeded" @conflict="onStatusConflict" @failed="onStatusFailed" @closed="restoreStatusFocus" />
     <UserNicknameEditDialog :owner="editToken" @succeeded="onEditSucceeded" @conflict="onEditConflict" @failed="onEditFailed" @closed="restoreEditFocus" />
     <UserSoftDeleteDialog @closed="restoreDeleteFocus" />
+    <UserPasswordResetDialog :owner="passwordResetToken" @succeeded="onPasswordResetSucceeded" @conflict="() => refreshEntitlementConflict('password')" @failed="code => onEntitlementFailed('password', code)" @closed="token => restoreEntitlementFocus('password', token)" />
+    <UserGroupChangeDialog :owner="groupChangeToken" @succeeded="(user, token) => onDirectEntitlementSucceeded('group', user, token)" @conflict="() => refreshEntitlementConflict('group')" @failed="code => onEntitlementFailed('group', code)" @closed="token => restoreEntitlementFocus('group', token)" />
+    <UserPlanChangeDialog :owner="planChangeToken" @succeeded="(user, token) => onDirectEntitlementSucceeded('plan', user, token)" @conflict="() => refreshEntitlementConflict('plan')" @failed="code => onEntitlementFailed('plan', code)" @closed="token => restoreEntitlementFocus('plan', token)" />
   </section>
 </template>
 
@@ -122,10 +125,17 @@ import { useAdminUsersStore } from '@/stores/admin-users'
 import { useAdminUserActionsStore, canDeleteAdminUser, reconcileDeletedDetail, refreshDeleteTargetFailClosed, restoreDeleteTriggerFocus } from '@/stores/admin-user-actions'
 import { useAdminUserEditStore, canOpenAdminUserEdit } from '@/stores/admin-user-edit'
 import { useAdminUserStatusStore, canOpenAdminUserStatus } from '@/stores/admin-user-status'
+import { useAdminUserPasswordResetStore } from '@/stores/admin-user-password-reset'
+import { useAdminUserGroupChangeStore } from '@/stores/admin-user-group-change'
+import { useAdminUserPlanChangeStore } from '@/stores/admin-user-plan-change'
+import { canOpenPasswordReset, canOpenGroupChange, canOpenPlanChange } from '@/stores/admin-user-entitlements'
 import { getAdminUser } from '@/api/admin-users'
 import UserSoftDeleteDialog from '@/components/admin/UserSoftDeleteDialog.vue'
 import UserNicknameEditDialog from '@/components/admin/UserNicknameEditDialog.vue'
 import UserStatusDialog from '@/components/admin/UserStatusDialog.vue'
+import UserPasswordResetDialog from '@/components/admin/UserPasswordResetDialog.vue'
+import UserGroupChangeDialog from '@/components/admin/UserGroupChangeDialog.vue'
+import UserPlanChangeDialog from '@/components/admin/UserPlanChangeDialog.vue'
 import { useI18n } from '@/composables/useI18n'
 import { ElMessage } from 'element-plus'
 
@@ -135,6 +145,9 @@ const store = useAdminUsersStore()
 const actionStore = useAdminUserActionsStore()
 const editStore = useAdminUserEditStore()
 const statusStore = useAdminUserStatusStore()
+const passwordResetStore = useAdminUserPasswordResetStore()
+const groupChangeStore = useAdminUserGroupChangeStore()
+const planChangeStore = useAdminUserPlanChangeStore()
 const detailLoadFlight = createAdminUserDetailLoadSingleflight()
 const { t } = useI18n()
 const canRead = computed(() => userStore.permissionProjection?.capabilities?.includes('users.read') === true)
@@ -152,6 +165,10 @@ const statusRouteCurrent = computed(() => typeof route.params.guid === 'string' 
 const canStatusTarget = computed(() => statusRouteCurrent.value && statusInvalidatedGuid.value !== store.selected?.guid && userStore.permissionProjection?.capabilities?.includes(statusCapability.value) === true
   && canOpenAdminUserStatus({ actorRole:userStore.user?.role, actorGuid:userStore.user?.guid,
   capabilities:userStore.permissionProjection?.capabilities, target:store.selected, status:nextStatus.value }))
+const entitlementInput = computed(() => ({ actorRole:userStore.user?.role, actorGuid:userStore.user?.guid, capabilities:userStore.permissionProjection?.capabilities, target:store.selected }))
+const canPasswordResetTarget = computed(() => statusRouteCurrent.value && canOpenPasswordReset(entitlementInput.value))
+const canGroupChangeTarget = computed(() => statusRouteCurrent.value && canOpenGroupChange(entitlementInput.value))
+const canPlanChangeTarget = computed(() => statusRouteCurrent.value && canOpenPlanChange(entitlementInput.value))
 const showPermissions = computed(() => canRead.value && store.selected?.status !== 'deleted' && store.selected?.role === 'admin' && userStore.user?.role === 'root')
 const permissionUnavailable = computed(() => showPermissions.value && !store.permissions)
 const permissionRows = computed(() => store.permissions?.capabilities || [])
@@ -165,6 +182,7 @@ function closeDetailInteractions() {
   cancelEditRefresh(); if (editToken.value && editStore.owns(editToken.value)) editStore.close(editToken.value)
   cancelStatusRefresh(); if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.close(statusToken.value)
   cancelDeleteRefresh(); if (deleteToken && actionStore.owns(deleteToken)) actionStore.close(deleteToken)
+  closeEntitlementInteractions()
 }
 function load() {
   const guid = route.params.guid
@@ -200,6 +218,7 @@ let deleteRefreshRequest = 0
 let deleteRefreshAbort = null
 function cancelDeleteRefresh() { deleteRefreshRequest++; deleteRefreshAbort?.abort(); deleteRefreshAbort = null }
 function openDelete(target, event) {
+  closeEntitlementInteractions()
   cancelStatusRefresh()
   if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.close(statusToken.value)
   cancelEditRefresh()
@@ -221,6 +240,7 @@ function statusBaseCurrent(token, captured = statusContext) {
     && userStore.identityEpoch === captured.identityEpoch && userStore.permissionRevision === captured.permissionVersion)
 }
 function openStatus(target, event) {
+  closeEntitlementInteractions()
   const intendedStatus = target.status === 'active' ? 'disabled' : target.status === 'disabled' ? 'active' : null
   cancelStatusRefresh(); cancelEditRefresh(); cancelDeleteRefresh()
   if (editToken.value && editStore.owns(editToken.value)) editStore.close(editToken.value)
@@ -316,6 +336,7 @@ function editBaseCurrent(token, captured = editContext) {
     && userStore.identityEpoch === captured.identityEpoch && userStore.permissionRevision === captured.permissionVersion)
 }
 function openEdit(target, event) {
+  closeEntitlementInteractions()
   cancelStatusRefresh()
   if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.close(statusToken.value)
   cancelEditRefresh()
@@ -439,18 +460,96 @@ function restoreDeleteFocus() {
   restoreDeleteTriggerFocus({ token, canRestore: owner => deleteToken === owner && !actionStore.captureOwnership(), trigger, fallback: pageHeading.value, nextTick })
 }
 
+const entitlementAnnouncement = ref('')
+const passwordResetToken = ref(null); const groupChangeToken = ref(null); const planChangeToken = ref(null)
+const entitlementTokens = { password:passwordResetToken, group:groupChangeToken, plan:planChangeToken }
+const entitlementStores = { password:passwordResetStore, group:groupChangeStore, plan:planChangeStore }
+const entitlementPredicates = { password:canOpenPasswordReset, group:canOpenGroupChange, plan:canOpenPlanChange }
+const entitlementContexts = { password:null, group:null, plan:null }
+const entitlementTriggers = { password:null, group:null, plan:null }
+let entitlementRefreshRequest = 0
+function closeEntitlementInteractions(except=null) {
+  entitlementRefreshRequest++
+  for (const kind of ['password','group','plan']) {
+    if (kind === except) continue
+    const token = entitlementTokens[kind].value
+    if (token && entitlementStores[kind].owns(token)) entitlementStores[kind].close(token)
+  }
+}
+function openEntitlement(kind,target,event) {
+  cancelStatusRefresh(); cancelEditRefresh(); cancelDeleteRefresh()
+  if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.close(statusToken.value)
+  if (editToken.value && editStore.owns(editToken.value)) editStore.close(editToken.value)
+  if (deleteToken && actionStore.owns(deleteToken)) actionStore.close(deleteToken)
+  closeEntitlementInteractions(kind)
+  entitlementTriggers[kind] = event?.currentTarget ?? document.activeElement
+  entitlementAnnouncement.value = ''
+  const context = Object.freeze({ targetGuid:target.guid, authVersion:target.authVersion, identityEpoch:userStore.identityEpoch, permissionVersion:userStore.permissionRevision })
+  const token = entitlementStores[kind].open({ actorRole:userStore.user?.role, actorGuid:userStore.user?.guid, capabilities:userStore.permissionProjection?.capabilities,
+    target, routeGuid:route.params.guid, identityEpoch:context.identityEpoch, permissionVersion:context.permissionVersion })
+  if (!token) return false
+  entitlementTokens[kind].value=token; entitlementContexts[kind]=context; return true
+}
+const openPasswordReset=(target,event)=>openEntitlement('password',target,event)
+const openGroupChange=(target,event)=>openEntitlement('group',target,event)
+const openPlanChange=(target,event)=>openEntitlement('plan',target,event)
+function entitlementCurrent(kind,token=entitlementTokens[kind].value,captured=entitlementContexts[kind]) {
+  return Boolean(token && captured && token===entitlementTokens[kind].value && entitlementStores[kind].owns(token) && route.params.guid===captured.targetGuid
+    && userStore.identityEpoch===captured.identityEpoch && userStore.permissionRevision===captured.permissionVersion)
+}
+function applyEntitlementUser(kind,user,token,captured=entitlementContexts[kind]) {
+  if (!entitlementCurrent(kind,token,captured) || !user || user.guid!==captured.targetGuid || user.authVersion!==captured.authVersion+1
+      || store.selected?.guid!==captured.targetGuid || store.selected.authVersion!==captured.authVersion) return false
+  store.selected=user
+  if(Array.isArray(store.rows))store.rows=store.rows.map(row=>row?.guid===captured.targetGuid&&row.authVersion===captured.authVersion?user:row)
+  entitlementAnnouncement.value=`${user.username||user.guid} 的${kind==='group'?'分组':kind==='plan'?'套餐':'密码'}已更新`
+  return true
+}
+function onDirectEntitlementSucceeded(kind,user,token){return applyEntitlementUser(kind,user,token)}
+async function onPasswordResetSucceeded(result,token){
+  const captured=entitlementContexts.password
+  if(!entitlementCurrent('password',token,captured)||result?.targetGuid!==captured.targetGuid||result.resultingAuthVersion!==captured.authVersion+1)return false
+  let fresh;try{fresh=await getAdminUser(captured.targetGuid)}catch{if(passwordResetStore.owns(token))passwordResetStore.close(token);ElMessage.warning('密码已重置，用户详情刷新失败，请手动重试。');return false}
+  const applied=applyEntitlementUser('password',fresh,token,captured)&&fresh.authVersion===result.resultingAuthVersion
+  if(passwordResetStore.owns(token))passwordResetStore.close(token)
+  return applied
+}
+async function refreshEntitlementConflict(kind){
+  const token=entitlementTokens[kind].value,captured=entitlementContexts[kind]
+  if(!entitlementCurrent(kind,token,captured))return false
+  const request=++entitlementRefreshRequest;let fresh
+  const refreshed=await entitlementStores[kind].refreshConflict(token,async guid=>{fresh=await getAdminUser(guid);return fresh})
+  if(request!==entitlementRefreshRequest||!refreshed||!fresh||!entitlementCurrent(kind,token,captured)){if(entitlementStores[kind].owns(token))entitlementStores[kind].close(token);return false}
+  if(store.selected?.guid===captured.targetGuid&&store.selected.authVersion===captured.authVersion){store.selected=fresh;if(Array.isArray(store.rows))store.rows=store.rows.map(row=>row?.guid===captured.targetGuid&&row.authVersion===captured.authVersion?fresh:row)}
+  entitlementContexts[kind]=Object.freeze({...captured,authVersion:fresh.authVersion});return true
+}
+function onEntitlementFailed(kind,code){
+  const token=entitlementTokens[kind].value;if(!entitlementCurrent(kind,token))return false
+  if(code==='authentication_failed'){entitlementStores[kind].close(token);userStore.clearSession();store.clear();return true}
+  if(code==='user_entitlement_forbidden'||code==='action_verification_rejected'||code==='action_operation_rejected'){entitlementStores[kind].close(token);void userStore.fetchSelf().then(()=>load()).catch(()=>{});return true}
+  if(code==='user_not_found'||code==='group_not_found'||code==='action_target_not_found'){entitlementStores[kind].close(token);void load().catch(()=>{});return true}
+  return true
+}
+function restoreEntitlementFocus(kind,token){
+  if(!token||token!==entitlementTokens[kind].value||entitlementStores[kind].owns(token))return false
+  const trigger=entitlementTriggers[kind];entitlementTriggers[kind]=null;entitlementTokens[kind].value=null;entitlementContexts[kind]=null
+  nextTick(()=>{if(!entitlementTokens[kind].value)(trigger?.isConnected?trigger:pageHeading.value?.$el??pageHeading.value)?.focus?.()});return true
+}
+
 onMounted(() => { void load().catch(() => {}) })
 watch(() => route.params.guid, () => { editPermissionRefreshRequest++ })
 watch([() => route.params.guid, canRead, () => userStore.identityEpoch, () => userStore.permissionRevision], () => { void load().catch(() => {}) })
 watch(() => store.selected, target => {
   if (editToken.value && editStore.owns(editToken.value)) editStore.updateContext(editToken.value, { target })
   if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.updateContext(statusToken.value, { target })
+  for(const kind of ['password','group','plan']){const token=entitlementTokens[kind].value;if(token&&entitlementStores[kind].owns(token))entitlementStores[kind].updateContext(token,{target})}
 })
 watch(() => statusStore.isOpen, (open, previous) => { if (!open && previous) cancelStatusRefresh() })
 onBeforeUnmount(() => {
   cancelEditRefresh(); editPermissionRefreshRequest++; if (editToken.value) editStore.dispose(editToken.value); editToken.value = null; editTrigger = null; editContext = null
   cancelStatusRefresh(); if (statusToken.value) statusStore.dispose(statusToken.value); statusToken.value = null; statusTrigger = null; statusContext = null
   cancelDeleteRefresh(); if (deleteToken) actionStore.dispose(deleteToken); deleteToken = null; deleteTrigger = null
+  closeEntitlementInteractions(); for(const kind of ['password','group','plan']){entitlementTokens[kind].value=null;entitlementContexts[kind]=null;entitlementTriggers[kind]=null}
 })
 </script>
 
