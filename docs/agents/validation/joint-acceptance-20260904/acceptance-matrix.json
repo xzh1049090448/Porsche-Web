@@ -1,22 +1,23 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-08T00:53:33+08:00",
-  "overall_status": "PARTIAL_ACCEPTANCE_13_LIMITED_13_BLOCKED",
-  "verdict": "PARTIAL_ACCEPTANCE_13_LIMITED_13_BLOCKED",
+  "generated_at": "2026-09-09T00:12:20+08:00",
+  "overall_status": "PARTIAL_ACCEPTANCE_14_LIMITED_12_BLOCKED",
+  "verdict": "PARTIAL_ACCEPTANCE_14_LIMITED_12_BLOCKED",
   "candidate": {
-    "frontend_head": "9f660a9ca26f5738dd661652596a1e450ff34335",
-    "backend_head": "3a50144e53268f6ef3ae704699ef9fa851e4a5ee",
-    "frontend_evidence_head": "37ae3845c6ae79b0fcb8a24c42f4730ae15a654d"
+    "frontend_head": "41648181ab42fb46fe7d45663e746121956b50b8",
+    "backend_head": "a600a0815b5eab5203333755a2466788fe67d61a",
+    "frontend_evidence_head": "39b79582110347ae11b95e58217b3afe3236b4f7",
+    "backend_evidence_head": "5d5a1e9ee230bcc42fe9fde8d3f9f7badf34b658"
   },
   "environment_manifest_before_final_archive_sha256": "d3d1de8b3609721baba3e1f04ca19ef5990aaad2666e63f9aab7786cb6101641",
   "summary": {
     "total": 26,
-    "PASS_LIMITED_SCOPE": 13,
+    "PASS_LIMITED_SCOPE": 14,
     "FAIL_LOCAL_DEV_ROUTE": 0,
-    "BLOCKED_NOT_IMPLEMENTED": 11,
+    "BLOCKED_NOT_IMPLEMENTED": 10,
     "BLOCKED_PRODUCT": 1,
     "BLOCKED_ENV": 1,
-    "blocked_total": 13
+    "blocked_total": 12
   },
   "supersession": {
     "core_report": "CORE-PHASE-REPORT.md",
@@ -28,7 +29,11 @@
     "frontend_project_manager": "SPEC_PASS",
     "independent_qa": "PASS",
     "backend_project_manager": "HISTORICAL_FINAL_SIGNED",
-    "cleanup": "CLEANUP_PASS"
+    "cleanup": "CLEANUP_PASS",
+    "a07_backend_project_manager": "NOT_OBTAINED",
+    "a07_backend_review": "PASS",
+    "a07_frontend_review": "PASS",
+    "a07_document_review": "PASS"
   },
   "items": [
     {
@@ -147,10 +152,36 @@
       "prd": "密码重置/分组/套餐变化",
       "owner": "FE+BE",
       "expected_evidence": "旧会话失效、新权益生效、秘密不进日志",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "v2密码重置/分组/套餐变更未实现；已有读取仅为子集。",
-      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+      "latest_evidence": "密码重置、分组变更与套餐变更在真实 MySQL/Redis 下通过：旧密码及 Access/Refresh 失效、新密码语义、三会话逐项审计、Key 状态保持、稳定 Query、Bearer 套餐额度、并发、Redis/SQL 回滚；前端三弹窗、pending recovery、409 单飞与 late-owner、401、Escape/focus/375/390 均通过。",
+      "accepted_candidate": {
+        "backend": "a600a0815b5eab5203333755a2466788fe67d61a",
+        "frontend": "41648181ab42fb46fe7d45663e746121956b50b8"
+      },
+      "canonical_evidence_commits": {
+        "backend": "5d5a1e9ee230bcc42fe9fde8d3f9f7badf34b658",
+        "frontend": "39b79582110347ae11b95e58217b3afe3236b4f7"
+      },
+      "contract_sha256": "9e1969b238911b6eee5b6aa85ed364e795a6854f0a026daac5d15e2ab78851be",
+      "environment": {
+        "mysql": "8.0.46",
+        "redis": "7.4.11",
+        "migration_ledger": "0001-0011"
+      },
+      "test_counts": {
+        "backend_full_real": "2188 leaf PASS / 1 opt-in performance SKIP / 0 FAIL",
+        "backend_new_real_race": "6 top-level tests PASS / 0 SKIP",
+        "backend_no_fixture_full_build_vet": "PASS",
+        "frontend": "395/395 PASS / 0 SKIP",
+        "production_build": "PASS",
+        "visible_chrome": "375/390 PASS"
+      },
+      "scope_boundary": "Gateway Key owner plan/quota atomic reload and consumption remains BLOCKED_NOT_IMPLEMENTED. Production migration, deployment, production acceptance, and real business accounts remain NOT_RUN.",
+      "evidence_paths": [
+        "backend:docs/superpowers/reports/validation/2026-09-09-a07-managed-user-entitlements/manifest.json",
+        "frontend:docs/agents/validation/a07-managed-user-entitlements-20260909/manifest.json"
+      ]
     },
     {
       "id": "A08",

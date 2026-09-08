@@ -45,14 +45,15 @@
       "title": "PRD-260903：管理员用户管理与公共页面体系",
       "user_visible_behavior": "形成管理员真实管理、公共页面、路由迁移与金额 Mock 隔离的可实施设计和契约草案。",
       "status": "in_progress",
-      "phase": "joint_acceptance_partial_13_limited_13_blocked",
+      "phase": "joint_acceptance_partial_14_limited_12_blocked",
       "verification": [
         "设计评审与独立 review",
         "文档 JSON parse/hash/diff-check",
         "A01-A14/P01-P08/V01-V02/R01-R02 后续逐项验收",
         "A03 Task12：BE 3a50144e53268f6ef3ae704699ef9fa851e4a5ee / FE 9f660a9ca26f5738dd661652596a1e450ff34335；MySQL 8.4.11、Redis 7.4、ledger 0001–0010、后端focused/race/serial full/build/vet/diff、前端275/275及可见Chrome 13/13",
         "A05 Task8：BE 6bb5400 / FE 5a41f56；r5 backend service/HTTP与r10 visible browser/adversarial/privacy/cleanup通过",
-        "A06：BE 08617d4 / FE 07c7b9e；真实MySQL/Redis、race、no-fixture full、前端364/364、真实挂载13/13、生产构建、375/390 Chrome及双端独立复审通过"
+        "A06：BE 08617d4 / FE 07c7b9e；真实MySQL/Redis、race、no-fixture full、前端364/364、真实挂载13/13、生产构建、375/390 Chrome及双端独立复审通过",
+        "A07：BE a600a08 / FE 4164818；真实 MySQL/Redis、race、回滚、登录/令牌、Bearer 套餐额度、前端 395/395、生产构建、375/390 Chrome 与三项独立复审通过"
       ],
       "evidence": [
         "2026-09-04：B1-D 只读用户列表/详情、认证权限投影、分页回退及 F1/F2 候选闭合；132/132 Node 行为测试、build、writer Chrome 合成 API 矩阵通过。独立 Chrome 在 5177 复验分页/UI、详情错误重试、F1 撤权清理和权限恢复均 PASS；独立质量为本地 FE 候选 VERDICT PASS，offline audit freshness NOT_VERIFIED。",
@@ -60,9 +61,44 @@
         "2026-09-04：Vite API路由边界补救在保留的真实本地FE+BE环境通过writer与独立QA。P02/R01由FAIL_LOCAL_DEV_ROUTE提升为本地PASS_LIMITED_SCOPE；当前8项限定通过、0项本地路由失败、18项阻塞。/api-keys、/users、/profile硬刷新及退出守卫通过，logout 204、Cookie清空、refresh 401保持；生产HTTPS、模型/chat/SSE与部署未运行。证据见docs/agents/validation/vite-api-route-proxy-fix-20260904/。",
         "2026-09-08：A03 users.create/users.create_admin本地联合切片经代码与证据spec/quality/security复审全部PASS，提升为PASS_LIMITED_SCOPE；canonical manifest见backend:docs/superpowers/reports/validation/2026-09-06-a03-admin-user-create/canonical-3a50144-9f660a9-final/manifest.json。唯一skip为TestAdminUsersReadPerformance显式opt-in 100k夹具。fixture及A03私有临时文件exact cleanup为PASS。",
         "2026-09-08：A05 managed-user nickname edit本地联合切片PASS_LIMITED_SCOPE。代码BE 6bb5400/FE 5a41f56；canonical evidence commits BE 76e0d2f/FE 34b23fc；emergency merge heads BE bf53c6a/FE a93893b。生产migration/deploy/business accounts均NOT_RUN。",
-        "2026-09-08：A06 managed-user status本地联合切片PASS_LIMITED_SCOPE。代码BE 08617d4/FE 07c7b9e；canonical evidence commits BE 1677bc5/FE b620552；合同SHA-256 c3662b25500879d67c6811fa270d4a6a39a44db812c7c493d6f02e535940b415。生产migration/deploy/business accounts均NOT_RUN。"
+        "2026-09-08：A06 managed-user status本地联合切片PASS_LIMITED_SCOPE。代码BE 08617d4/FE 07c7b9e；canonical evidence commits BE 1677bc5/FE b620552；合同SHA-256 c3662b25500879d67c6811fa270d4a6a39a44db812c7c493d6f02e535940b415。生产migration/deploy/business accounts均NOT_RUN。",
+        "2026-09-09：A07 managed-user credentials/entitlements 本地联合切片 PASS_LIMITED_SCOPE。候选 BE a600a08/FE 4164818；canonical evidence commits BE 5d5a1e9ee230bcc42fe9fde8d3f9f7badf34b658/FE 39b79582110347ae11b95e58217b3afe3236b4f7；合同 SHA-256 9e1969b238911b6eee5b6aa85ed364e795a6854f0a026daac5d15e2ab78851be。Gateway Key plan/quota 消费仍 BLOCKED_NOT_IMPLEMENTED，生产均 NOT_RUN。"
       ],
-      "notes": "当前权威本地结果为13 PASS_LIMITED_SCOPE、0 FAIL_LOCAL_DEV_ROUTE、11 BLOCKED_NOT_IMPLEMENTED、1 BLOCKED_PRODUCT、1 BLOCKED_ENV，合计13项阻塞。本次仅A06提升；其余25行保持原状态。web-012继续in_progress。金额余额仍仅为Mock边界，真实ledger/billing/recharge/refund/deduction、生产迁移、部署、生产验收和真实业务账号均NOT_RUN。ACTION_SECURITY_HMAC_KEY v1 lacks key ID/multi-key verification; rotation is prohibited while replayable post-0010 active snapshots exist unless a separately approved multi-key verifier or atomic full re-HMAC migration is delivered."
+      "notes": "当前权威本地结果为 14 PASS_LIMITED_SCOPE、0 FAIL_LOCAL_DEV_ROUTE、10 BLOCKED_NOT_IMPLEMENTED、1 BLOCKED_PRODUCT、1 BLOCKED_ENV，合计 12 项阻塞。本次仅 A07 提升；其余 25 行保持原状态。web-012 继续 in_progress。Gateway Key owner plan/quota 原子重载与消费仍 BLOCKED_NOT_IMPLEMENTED；金额余额仍仅为 Mock 边界；真实 ledger/billing/recharge/refund/deduction、生产迁移、部署、生产验收和真实业务账号均 NOT_RUN。ACTION_SECURITY_HMAC_KEY v1 lacks key ID/multi-key verification; rotation is prohibited while replayable post-0010 active snapshots exist unless a separately approved multi-key verifier or atomic full re-HMAC migration is delivered.",
+      "a07_joint_acceptance": {
+        "status": "PASS_LIMITED_SCOPE",
+        "code_under_test": {
+          "backend": "a600a0815b5eab5203333755a2466788fe67d61a",
+          "frontend": "41648181ab42fb46fe7d45663e746121956b50b8"
+        },
+        "canonical_evidence_commits": {
+          "backend": "5d5a1e9ee230bcc42fe9fde8d3f9f7badf34b658",
+          "frontend": "39b79582110347ae11b95e58217b3afe3236b4f7"
+        },
+        "contract_sha256": "9e1969b238911b6eee5b6aa85ed364e795a6854f0a026daac5d15e2ab78851be",
+        "environment": {
+          "mysql": "8.0.46",
+          "redis": "7.4.11",
+          "migration_ledger": "0001-0011"
+        },
+        "tests": {
+          "backend_real_mysql_redis": "PASS",
+          "backend_real_race_login_token_quota_concurrency": "PASS / 0 SKIP",
+          "backend_real_race_rollback": "PASS / 0 SKIP",
+          "backend_no_fixture_full": "PASS",
+          "backend_build_vet_gofmt_diff": "PASS",
+          "frontend_full": "395/395 PASS / 0 SKIP",
+          "frontend_production_build": "PASS",
+          "chrome_375_390": "PASS"
+        },
+        "reviews": {
+          "backend": "PASS",
+          "frontend": "PASS",
+          "documents": "PASS"
+        },
+        "scope_boundary": "仅本地 A07 password reset、group change、plan change 切片。Gateway Key owner plan/quota 原子重载与消费仍为 BLOCKED_NOT_IMPLEMENTED；生产 migration、deploy、production acceptance 与真实 business accounts 均 NOT_RUN。",
+        "evidence": "backend:docs/superpowers/reports/validation/2026-09-09-a07-managed-user-entitlements/manifest.json"
+      }
     },
     {
       "id": "web-009",
