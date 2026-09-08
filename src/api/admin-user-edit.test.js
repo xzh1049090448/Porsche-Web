@@ -61,7 +61,7 @@ test('maps stable A05 failures without transport details and never replays a mut
     let calls = 0
     const api = createAdminUserEditApi({ patch: async () => {
       calls++
-      throw failureEnvelope(status)
+      return failureEnvelope(status).response
     } })
     await assert.rejects(api.patchAdminUserEdit({ targetGuid: rawUser.guid, nickname: null, expectedAuthVersion: 7 }), error => error.code === code && error.status === status && !('response' in error))
     assert.equal(calls, 1)
@@ -72,6 +72,17 @@ test('maps stable A05 failures without transport details and never replays a mut
     await assert.rejects(api.patchAdminUserEdit({ targetGuid: rawUser.guid, nickname: 'Alice', expectedAuthVersion: 7 }), value => value.code === 'request_failed' && value.status === null && !value.message.includes('secret'))
     assert.equal(calls, 1)
   }
+})
+
+test('transport throws are always generic even when they imitate internal response validation', async () => {
+  const privateError = Object.assign(new Error('invalid_admin_user_edit_response'), { response: failureEnvelope(503).response, private: 'nickname-private' })
+  const api = createAdminUserEditApi({ patch: async () => { throw privateError } })
+  await assert.rejects(api.patchAdminUserEdit({ targetGuid: rawUser.guid, nickname: null, expectedAuthVersion: 7 }), error => {
+    assert.equal(error.code, 'request_failed')
+    assert.equal(error.status, null)
+    assert.doesNotMatch(JSON.stringify(error), /private|invalid_admin/)
+    return true
+  })
 })
 
 test('requires the exact frozen error envelope and never exposes transport details', () => {
@@ -102,7 +113,10 @@ test('production transport sends exactly one PATCH through an injected authentic
 
   let failures = 0
   await assert.rejects(patchAdminUserEdit({ targetGuid: rawUser.guid, nickname: null, expectedAuthVersion: 7 }, {
-    authenticatedFetch: async () => { failures++; throw failureEnvelope(401) },
+    authenticatedFetch: async () => {
+      failures++
+      return new Response(JSON.stringify(failureEnvelope(401).response.data), { status: 401, headers })
+    },
   }), error => error.code === 'authentication_failed')
   assert.equal(failures, 1)
 })

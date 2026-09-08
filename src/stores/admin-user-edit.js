@@ -31,7 +31,7 @@ function safeOwnership(input, target) {
 }
 
 export function canOpenAdminUserEdit({ actorRole, actorGuid, capabilities, target } = {}) {
-  if (!Array.isArray(capabilities) || !capabilities.includes('users.edit') || !target || !validGuid(target.guid) || target.status === 'deleted' || target.guid === actorGuid
+  if (!validGuid(actorGuid) || !Array.isArray(capabilities) || !capabilities.includes('users.edit') || !target || !validGuid(target.guid) || target.status === 'deleted' || target.guid === actorGuid
       || !Number.isInteger(target.authVersion) || target.authVersion < 1 || target.authVersion > MAX_INT32) return false
   return actorRole === 'admin' ? target.role === 'user' : actorRole === 'root' ? target.role === 'user' || target.role === 'admin' : false
 }

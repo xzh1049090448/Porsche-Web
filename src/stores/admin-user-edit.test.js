@@ -13,6 +13,9 @@ test('edit eligibility fails closed for capability, hierarchy, self, Root, delet
   for (const context of [
     { actorRole: 'admin', actorGuid: '2', capabilities: [], target },
     { actorRole: 'admin', actorGuid: target.guid, capabilities: ['users.edit'], target },
+    { actorRole: 'admin', actorGuid: '02', capabilities: ['users.edit'], target },
+    { actorRole: 'admin', actorGuid: 2, capabilities: ['users.edit'], target },
+    { actorRole: 'admin', actorGuid: { guid: '2' }, capabilities: ['users.edit'], target },
     { actorRole: 'admin', actorGuid: '2', capabilities: ['users.edit'], target: { ...target, role: 'admin' } },
     { actorRole: 'root', actorGuid: '2', capabilities: ['users.edit'], target: { ...target, role: 'root' } },
     { actorRole: 'root', actorGuid: '2', capabilities: ['users.edit'], target: { ...target, status: 'deleted' } },

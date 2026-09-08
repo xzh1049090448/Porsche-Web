@@ -64,15 +64,15 @@ export function createAdminUserEditApi({ patch }) {
   return Object.freeze({
     async patchAdminUserEdit(input) {
       const request = normalizeAdminUserEditRequest(input)
+      let result
       try {
-        return validateSuccess(await patch(`/admin/v2/users/${encodeURIComponent(request.targetGuid)}`, {
+        result = await patch(`/admin/v2/users/${encodeURIComponent(request.targetGuid)}`, {
           nickname: request.nickname,
           expected_auth_version: request.expectedAuthVersion,
-        }, { headers: { 'Content-Type': 'application/json' } }))
-      } catch (error) {
-        if (error?.message === 'invalid_admin_user_edit_response') throw error
-        throw mapAdminUserEditError(error)
-      }
+        }, { headers: { 'Content-Type': 'application/json' } })
+      } catch { throw publicFailure('request_failed', null) }
+      if (result?.status !== 200) throw mapAdminUserEditError({ response: result })
+      return validateSuccess(result)
     },
   })
 }
@@ -87,7 +87,6 @@ function createProductionPatch({ authenticatedFetch }) {
     })
     let data
     try { data = await response.json() } catch { data = null }
-    if (!response.ok) throw { response: { status: response.status, data, headers: response.headers } }
     return { data, status: response.status, headers: response.headers }
   }
 }
