@@ -5,6 +5,7 @@ import { parse as parseSFC } from '@vue/compiler-sfc'
 import { parse as parseTemplate } from '@vue/compiler-dom'
 import { parse as parseScript } from '@babel/parser'
 import { canDeleteAdminUser, reconcileDeletedDetail, reconcileDeletedList, refreshDeleteTargetFailClosed, restoreDeleteTriggerFocus } from '../stores/admin-user-actions.js'
+import { messages } from '../i18n/messages.js'
 
 const sources = await Promise.all(['Users.vue', 'UserDetail.vue'].map(name => readFile(new URL(`./${name}`, import.meta.url), 'utf8')))
 const templates = sources.map((source, index) => parseTemplate(parseSFC(source, { filename: index ? 'UserDetail.vue' : 'Users.vue' }).descriptor.template.content))
@@ -58,6 +59,21 @@ test('view scripts execute the tested reconciliation, direct-detail refresh, and
     assert.equal(directDetail, true)
     assert.equal(calls(script, 'restoreDeleteTriggerFocus').length, 1)
   }
+})
+
+test('list delete success replaces the prior create announcement with localized delete feedback', () => {
+  for (const locale of ['zh', 'en']) {
+    assert.equal(typeof messages[locale].deleteUser.successKnown, 'string')
+    assert.match(messages[locale].deleteUser.successKnown, /\{username\}/)
+    assert.match(messages[locale].deleteUser.successKnown, /\{guid\}/)
+  }
+  const listSource = sources[0]
+  const handler = listSource.slice(
+    listSource.indexOf('async function onDeleteSucceeded'),
+    listSource.indexOf('async function onDeleteConflict'),
+  )
+  assert.match(handler, /createAnnouncement\.value\s*=\s*t\('deleteUser\.successKnown'/)
+  assert.match(handler, /ElMessage\.success\(createAnnouncement\.value\)/)
 })
 
 test('list reconciliation removes only the committed row and preserves page filters and sort', async () => {
