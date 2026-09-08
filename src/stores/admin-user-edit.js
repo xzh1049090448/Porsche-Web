@@ -101,6 +101,10 @@ export function createAdminUserEditCoordinator({ api = { patchAdminUserEdit }, c
     }).finally(() => { if (workflow === owned) activePromise = null })
     return activePromise
   }
+  const reset = token => {
+    if (!current(token) || activePromise || value.state !== ADMIN_USER_EDIT_STATES.FAILED) return false
+    return workflow.reset()
+  }
   const refreshConflict = async (token, loadTarget) => {
     if (!current(token) || !value.requiresTargetRefresh || typeof loadTarget !== 'function') return false
     let next; try { next = safeTarget(await loadTarget(value.target.guid)) } catch { return false }
@@ -108,7 +112,7 @@ export function createAdminUserEditCoordinator({ api = { patchAdminUserEdit }, c
     context = Object.freeze({ ...context, targetGuid: next.guid, expectedAuthVersion: next.authVersion, targetSnapshot: next })
     value.target = next; value.requiresTargetRefresh = false; workflow.reset(); return true
   }
-  return { state: value, open, close, dispose: close, owns, updateContext, submit, refreshConflict }
+  return { state: value, open, close, dispose: close, owns, updateContext, submit, reset, refreshConflict }
 }
 
 export const useAdminUserEditStore = defineStore('adminUserEdit', () => {
@@ -116,5 +120,5 @@ export const useAdminUserEditStore = defineStore('adminUserEdit', () => {
   const coordinator = createAdminUserEditCoordinator({ state })
   const refs = toRefs(state)
   return { isOpen: refs.open, dialogRevision: refs.dialogRevision, target: refs.target, state: refs.state, user: refs.user, failureCode: refs.failureCode, requiresTargetRefresh: refs.requiresTargetRefresh,
-    open: coordinator.open, close: coordinator.close, dispose: coordinator.dispose, owns: coordinator.owns, updateContext: coordinator.updateContext, submit: coordinator.submit, refreshConflict: coordinator.refreshConflict }
+    open: coordinator.open, close: coordinator.close, dispose: coordinator.dispose, owns: coordinator.owns, updateContext: coordinator.updateContext, submit: coordinator.submit, reset: coordinator.reset, refreshConflict: coordinator.refreshConflict }
 })

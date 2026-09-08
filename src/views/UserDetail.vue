@@ -17,7 +17,9 @@
         </template>
         <el-descriptions :column="2" border>
           <el-descriptions-item label="GUID">{{ store.selected.guid }}</el-descriptions-item>
-          <el-descriptions-item label="昵称">{{ store.selected.nickname || '未设置' }}</el-descriptions-item>
+          <el-descriptions-item label="昵称">
+            <span class="nickname-row"><span>{{ store.selected.nickname || '未设置' }}</span><el-button v-if="canEditTarget" link type="primary" @click="openEdit(store.selected, $event)">{{ t('editUser.open') }}</el-button></span>
+          </el-descriptions-item>
           <el-descriptions-item label="角色">{{ store.selected.role === 'admin' ? '管理员' : '用户' }}</el-descriptions-item>
           <el-descriptions-item label="套餐">{{ planLabel }}</el-descriptions-item>
           <el-descriptions-item label="邮箱">未设置</el-descriptions-item>
@@ -42,9 +44,28 @@
         </el-table>
       </el-card>
     </template>
+    <p class="sr-only" role="status" aria-live="polite">{{ editAnnouncement }}</p>
+    <UserNicknameEditDialog :owner="editToken" @succeeded="onEditSucceeded" @conflict="onEditConflict" @failed="onEditFailed" @closed="restoreEditFocus" />
     <UserSoftDeleteDialog @closed="restoreDeleteFocus" />
   </section>
 </template>
+
+<script>
+export function reconcileAdminUserEditSuccess({ state, user, targetGuid, expectedAuthVersion, isCurrent }) {
+  if (typeof isCurrent !== 'function' || !isCurrent() || !user || user.guid !== targetGuid || user.authVersion !== expectedAuthVersion
+      || state.selected?.guid !== targetGuid || state.selected.authVersion !== expectedAuthVersion) return false
+  state.selected = user
+  if (Array.isArray(state.rows)) state.rows = state.rows.map(row => row?.guid === targetGuid ? user : row)
+  return true
+}
+
+export function reconcileAdminUserEditRefresh({ state, target, targetGuid, isCurrent }) {
+  if (typeof isCurrent !== 'function' || !isCurrent() || !target || target.guid !== targetGuid || state.selected?.guid !== targetGuid) return false
+  state.selected = target
+  if (Array.isArray(state.rows)) state.rows = state.rows.map(row => row?.guid === targetGuid ? target : row)
+  return true
+}
+</script>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -52,8 +73,10 @@ import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useAdminUsersStore } from '@/stores/admin-users'
 import { useAdminUserActionsStore, canDeleteAdminUser, reconcileDeletedDetail, refreshDeleteTargetFailClosed, restoreDeleteTriggerFocus } from '@/stores/admin-user-actions'
+import { useAdminUserEditStore, canOpenAdminUserEdit } from '@/stores/admin-user-edit'
 import { getAdminUser } from '@/api/admin-users'
 import UserSoftDeleteDialog from '@/components/admin/UserSoftDeleteDialog.vue'
+import UserNicknameEditDialog from '@/components/admin/UserNicknameEditDialog.vue'
 import { useI18n } from '@/composables/useI18n'
 import { ElMessage } from 'element-plus'
 
@@ -61,11 +84,15 @@ const route = useRoute()
 const userStore = useUserStore()
 const store = useAdminUsersStore()
 const actionStore = useAdminUserActionsStore()
+const editStore = useAdminUserEditStore()
 const { t } = useI18n()
 const canRead = computed(() => userStore.permissionProjection?.capabilities?.includes('users.read') === true)
 const deleteCapability = 'users.delete'
 const canDeleteTarget = computed(() => userStore.permissionProjection?.capabilities?.includes(deleteCapability) === true
   && canDeleteAdminUser({ actorRole: userStore.user?.role, capabilities: userStore.permissionProjection.capabilities, target: store.selected }))
+const editInvalidated = ref(false)
+const canEditTarget = computed(() => !editInvalidated.value && canOpenAdminUserEdit({ actorRole: userStore.user?.role, actorGuid: userStore.user?.guid,
+  capabilities: userStore.permissionProjection?.capabilities, target: store.selected }))
 const showPermissions = computed(() => canRead.value && store.selected?.status !== 'deleted' && store.selected?.role === 'admin' && userStore.user?.role === 'root')
 const permissionUnavailable = computed(() => showPermissions.value && !store.permissions)
 const permissionRows = computed(() => store.permissions?.capabilities || [])
@@ -76,6 +103,8 @@ const statusLabel = computed(() => ({ active: '启用', disabled: '禁用', dele
 const planLabel = computed(() => ({ free: '免费版', professional: '专业版', enterprise: '企业版' }[store.selected?.planType] || store.selected?.planType))
 
 async function load() {
+  cancelEditRefresh()
+  if (editToken.value && editStore.owns(editToken.value)) editStore.close(editToken.value)
   cancelDeleteRefresh()
   if (deleteToken && actionStore.owns(deleteToken)) actionStore.close(deleteToken)
   const guid = route.params.guid
@@ -83,7 +112,7 @@ async function load() {
     store.clear()
     return
   }
-  try { await store.loadDetail(guid, { isRoot: userStore.user?.role === 'root' }) } catch {}
+  try { await store.loadDetail(guid, { isRoot: userStore.user?.role === 'root' }); editInvalidated.value = false } catch {}
 }
 
 async function retryIdentity() {
@@ -97,8 +126,100 @@ let deleteRefreshRequest = 0
 let deleteRefreshAbort = null
 function cancelDeleteRefresh() { deleteRefreshRequest++; deleteRefreshAbort?.abort(); deleteRefreshAbort = null }
 function openDelete(target, event) {
+  cancelEditRefresh()
+  if (editToken.value && editStore.owns(editToken.value)) editStore.close(editToken.value)
   deleteTrigger = event?.currentTarget ?? document.activeElement
   deleteToken = actionStore.open(target, { onSucceeded: onDeleteSucceeded, onConflict: onDeleteConflict, onUnauthorized })
+}
+
+let editTrigger = null
+const editToken = ref(null)
+const editAnnouncement = ref('')
+let editContext = null
+let editRefreshRequest = 0
+let editRefreshAbort = null
+let editConflictPromise = null
+function cancelEditRefresh() { editRefreshRequest++; editRefreshAbort?.abort(); editRefreshAbort = null; editConflictPromise = null }
+function editBaseCurrent(token, captured = editContext) {
+  return Boolean(captured && token === editToken.value && editStore.owns(token) && route.params.guid === captured.targetGuid
+    && userStore.identityEpoch === captured.identityEpoch && userStore.permissionRevision === captured.permissionVersion)
+}
+function openEdit(target, event) {
+  cancelDeleteRefresh()
+  if (deleteToken && actionStore.owns(deleteToken)) actionStore.close(deleteToken)
+  editTrigger = event?.currentTarget ?? document.activeElement
+  editAnnouncement.value = ''
+  const context = Object.freeze({ targetGuid: target.guid, authVersion: target.authVersion, identityEpoch: userStore.identityEpoch, permissionVersion: userStore.permissionRevision })
+  const token = editStore.open({ actorRole: userStore.user?.role, actorGuid: userStore.user?.guid, capabilities: userStore.permissionProjection?.capabilities,
+    target, routeGuid: route.params.guid, identityEpoch: context.identityEpoch, permissionVersion: context.permissionVersion })
+  if (!token) return false
+  editToken.value = token
+  editContext = context
+  return true
+}
+function onEditSucceeded(user, token) {
+  const captured = editContext
+  const applied = reconcileAdminUserEditSuccess({ state: store, user, targetGuid: captured?.targetGuid, expectedAuthVersion: captured?.authVersion,
+    isCurrent: () => editBaseCurrent(token, captured) })
+  if (applied) editAnnouncement.value = t('editUser.success', { username: user.username || user.guid })
+  return applied
+}
+function onEditConflict(token) {
+  if (editConflictPromise) return editConflictPromise
+  const captured = editContext
+  if (!editBaseCurrent(token, captured)) return Promise.resolve(false)
+  const requestId = ++editRefreshRequest
+  editRefreshAbort?.abort()
+  editRefreshAbort = new AbortController()
+  editAnnouncement.value = t('editUser.conflictRefreshing')
+  editConflictPromise = (async () => {
+    let fresh = null
+    let refreshError = null
+    const isCurrent = () => requestId === editRefreshRequest && editBaseCurrent(token, captured) && store.selected?.guid === captured.targetGuid && store.selected.authVersion === captured.authVersion
+    const refreshed = await editStore.refreshConflict(token, async guid => {
+      try { fresh = await getAdminUser(guid, { signal: editRefreshAbort.signal }); return fresh } catch (error) { refreshError = error; throw error }
+    })
+    if (!refreshed || !fresh || !isCurrent()) {
+      if (refreshError?.response?.status === 401) onEditFailed('authentication_failed', token)
+      else if (editStore.owns(token)) { editInvalidated.value = true; editStore.close(token); ElMessage.warning(t('editUser.failures.request_failed')) }
+      return false
+    }
+    editContext = Object.freeze({ ...captured, authVersion: fresh.authVersion })
+    const applied = reconcileAdminUserEditRefresh({ state: store, target: fresh, targetGuid: captured.targetGuid,
+      isCurrent: () => requestId === editRefreshRequest && editBaseCurrent(token, editContext) })
+    if (!applied && editStore.owns(token)) { editInvalidated.value = true; editStore.close(token) }
+    return applied
+  })().finally(() => { if (requestId === editRefreshRequest) { editRefreshAbort = null; editConflictPromise = null } })
+  return editConflictPromise
+}
+function onEditFailed(code, token) {
+  if (!editBaseCurrent(token)) return false
+  if (code === 'authentication_failed') {
+    editStore.close(token)
+    userStore.clearSession()
+    store.clear()
+    return true
+  }
+  if (['forbidden', 'not_found'].includes(code)) {
+    editInvalidated.value = true
+    editStore.close(token)
+    void (async () => { if (code === 'forbidden') { try { await userStore.fetchSelf() } catch {} } await load() })()
+    return true
+  }
+  return code === 'unavailable' || code === 'request_failed'
+}
+function restoreEditFocus(token) {
+  if (!token || token !== editToken.value || editStore.owns(token)) return false
+  const trigger = editTrigger
+  editTrigger = null
+  editToken.value = null
+  editContext = null
+  nextTick(() => {
+    if (editToken.value) return
+    const destination = trigger?.isConnected ? trigger : pageHeading.value?.$el ?? pageHeading.value
+    destination?.focus?.()
+  })
+  return true
 }
 function onDeleteSucceeded({ guid }, token) {
   if (!actionStore.owns(token) || route.params.guid !== guid || store.selected?.guid !== guid) return false
@@ -134,12 +255,18 @@ function restoreDeleteFocus() {
 }
 
 onMounted(load)
-watch([() => route.params.guid, canRead, () => userStore.permissionRevision], load)
-onBeforeUnmount(() => { cancelDeleteRefresh(); if (deleteToken) actionStore.dispose(deleteToken); deleteToken = null; deleteTrigger = null })
+watch([() => route.params.guid, canRead, () => userStore.identityEpoch, () => userStore.permissionRevision], load)
+watch(() => store.selected, target => { if (editToken.value && editStore.owns(editToken.value)) editStore.updateContext(editToken.value, { target }) })
+onBeforeUnmount(() => {
+  cancelEditRefresh(); if (editToken.value) editStore.dispose(editToken.value); editToken.value = null; editTrigger = null; editContext = null
+  cancelDeleteRefresh(); if (deleteToken) actionStore.dispose(deleteToken); deleteToken = null; deleteTrigger = null
+})
 </script>
 
 <style scoped>
 .admin-page { max-width: 1100px; margin: 0 auto; }
 .title { display: flex; justify-content: space-between; align-items: center; font-size: 20px; font-weight: 600; }
+.nickname-row { display: inline-flex; align-items: center; gap: 8px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .permissions { margin-top: 20px; }
 </style>

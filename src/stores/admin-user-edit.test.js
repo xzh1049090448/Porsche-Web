@@ -156,6 +156,25 @@ test('a throwing onSucceeded callback becomes a stable failed settlement', async
   assert.doesNotMatch(JSON.stringify(result), /private/)
 })
 
+test('only the current owner can explicitly reset a settled failure for retry', async () => {
+  let calls = 0
+  const coordinator = createAdminUserEditCoordinator({ api: { patchAdminUserEdit: async () => {
+    calls++
+    throw { code: 'unavailable' }
+  } } })
+  const token = coordinator.open(ownership)
+  const first = coordinator.submit(token, { nickname: 'Alice' })
+  assert.equal(coordinator.reset(token), false, 'pending submission must retain duplicate sharing')
+  assert.equal((await first).failureCode, 'unavailable')
+  assert.equal(coordinator.reset(Object.freeze({ editDialog: 999 })), false)
+  assert.equal(coordinator.reset(token), true)
+  assert.equal(coordinator.state.open, true)
+  assert.equal(coordinator.state.state, 'idle')
+  assert.equal(coordinator.state.target.guid, target.guid)
+  assert.equal((await coordinator.submit(token, { nickname: 'Alice' })).failureCode, 'unavailable')
+  assert.equal(calls, 2)
+})
+
 test('409 requires explicit target refresh and never replays PATCH', async () => {
   let calls = 0
   const refreshes = []

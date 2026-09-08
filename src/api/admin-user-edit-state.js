@@ -7,8 +7,8 @@ export const ADMIN_USER_EDIT_STATES = Object.freeze({
 const USER_KEYS = ['guid', 'username', 'nickname', 'email', 'group', 'planType', 'role', 'status', 'authVersion', 'createdAt', 'lastLoginAt']
 const exactKeys = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key))
-const safeFailure = error => error?.code === 'auth_version_conflict' ? 'auth_version_conflict'
-  : error?.code === 'authentication_failed' ? 'authentication_failed' : 'request_failed'
+const SAFE_FAILURE_CODES = Object.freeze(['authentication_failed', 'forbidden', 'not_found', 'unavailable', 'auth_version_conflict', 'request_failed'])
+const safeFailure = error => SAFE_FAILURE_CODES.includes(error?.code) ? error.code : 'request_failed'
 
 function safeUser(value) {
   if (!exactKeys(value, USER_KEYS) || typeof value.guid !== 'string' || !(value.nickname === null || typeof value.nickname === 'string')) throw new Error('invalid_admin_user_edit_response')

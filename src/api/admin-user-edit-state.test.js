@@ -41,6 +41,21 @@ test('does not replay a conflict and reset or dispose discards late resolution',
   assert.deepEqual(await secondRun, { state: 'disposed', user: null, failureCode: 'workflow_disposed' })
 })
 
+test('preserves only the closed safe edit failure vocabulary without transport details', async () => {
+  for (const code of ['authentication_failed', 'forbidden', 'not_found', 'unavailable', 'auth_version_conflict', 'request_failed']) {
+    const workflow = createAdminUserEditWorkflow({ api: { patchAdminUserEdit: async () => {
+      throw { code, status: 503, message: 'private transport detail', response: { data: { secret: true } } }
+    } } })
+    const result = await workflow.start({ targetGuid: user.guid, nickname: null, expectedAuthVersion: 7 })
+    assert.equal(result.failureCode, code)
+    assert.deepEqual(Object.keys(result).sort(), ['failureCode', 'state', 'user'])
+    assert.doesNotMatch(JSON.stringify(result), /private|transport|status|response|secret/)
+  }
+
+  const workflow = createAdminUserEditWorkflow({ api: { patchAdminUserEdit: async () => { throw { code: 'unsafe_private_code' } } } })
+  assert.equal((await workflow.start({ targetGuid: user.guid, nickname: null, expectedAuthVersion: 7 })).failureCode, 'request_failed')
+})
+
 test('workflow has no persistence, history, analytics, or logging channel', async () => {
   const writes = []
   const oldLocal = globalThis.localStorage
