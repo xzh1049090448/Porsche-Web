@@ -5,8 +5,13 @@ const MAX_INT64 = '9223372036854775807'
 const GUID = /^[1-9]\d{0,18}$/
 const INPUT_KEYS = ['targetGuid', 'nickname', 'expectedAuthVersion']
 const FAILURE_CODES = new Map([
-  [400, 'invalid_request'], [401, 'authentication_failed'], [403, 'forbidden'], [404, 'not_found'],
-  [413, 'request_too_large'], [503, 'unavailable'],
+  [400, ['invalid_admin_user_edit_request', 'invalid_request']],
+  [401, ['authentication_invalid', 'authentication_failed']],
+  [403, ['user_edit_forbidden', 'forbidden']],
+  [404, ['user_not_found', 'not_found']],
+  [409, ['auth_version_conflict', 'auth_version_conflict']],
+  [413, ['request_body_too_large', 'request_too_large']],
+  [503, ['user_edit_dependency_unavailable', 'unavailable']],
 ])
 
 const exactKeys = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
@@ -38,14 +43,20 @@ function validateSuccess(result) {
   try { return Object.freeze(mapUserReadDto(result.data)) } catch { invalidResponse() }
 }
 
-function publicFailure(error) {
+const publicFailure = (code, status) => Object.freeze(Object.assign(new Error(code === 'request_failed' ? '请求失败，请稍后重试' : code), { code, status }))
+
+export function mapAdminUserEditError(error) {
   const status = Number.isInteger(error?.response?.status) ? error.response.status : null
+  const expected = FAILURE_CODES.get(status)
   const headers = error?.response?.headers
-  const secure = headerValue(headers, 'Cache-Control') === 'no-store' && !!headerValue(headers, 'X-Request-ID')?.trim()
-  let code = FAILURE_CODES.get(status) ?? 'request_failed'
-  if (status === 409 && secure && error.response?.data?.error?.code === 'auth_version_conflict') code = 'auth_version_conflict'
-  if (!secure) code = 'request_failed'
-  return Object.freeze(Object.assign(new Error(code === 'request_failed' ? '请求失败，请稍后重试' : code), { code, status }))
+  const requestID = headerValue(headers, 'X-Request-ID')
+  const body = error?.response?.data
+  const payload = body?.error
+  const valid = expected && exactKeys(body, ['error']) && exactKeys(payload, ['code', 'message', 'kind', 'request_id'])
+    && payload.code === expected[0] && payload.message === '请求无法完成' && payload.kind === 'admin_user_edit_error'
+    && typeof payload.request_id === 'string' && requestID != null && requestID.trim() !== '' && payload.request_id === requestID
+    && headerValue(headers, 'Cache-Control') === 'no-store' && headerValue(headers, 'Retry-After') == null
+  return publicFailure(valid ? expected[1] : 'request_failed', status)
 }
 
 export function createAdminUserEditApi({ patch }) {
@@ -60,25 +71,33 @@ export function createAdminUserEditApi({ patch }) {
         }, { headers: { 'Content-Type': 'application/json' } }))
       } catch (error) {
         if (error?.message === 'invalid_admin_user_edit_response') throw error
-        throw publicFailure(error)
+        throw mapAdminUserEditError(error)
       }
     },
   })
 }
 
-async function productionPatch(path, body, config) {
-  const { authenticatedFetch } = await import('./request.js')
-  const response = await authenticatedFetch(path, {
-    method: 'PATCH',
-    headers: config?.headers,
-    body: JSON.stringify(body),
-  })
-  let data
-  try { data = await response.json() } catch { data = null }
-  if (!response.ok) throw { response: { status: response.status, data, headers: response.headers } }
-  return { data, status: response.status, headers: response.headers }
+function createProductionPatch({ authenticatedFetch }) {
+  if (typeof authenticatedFetch !== 'function') throw new TypeError('invalid_admin_user_edit_transport')
+  return async (path, body, config) => {
+    const response = await authenticatedFetch(path, {
+      method: 'PATCH',
+      headers: config?.headers,
+      body: JSON.stringify(body),
+    })
+    let data
+    try { data = await response.json() } catch { data = null }
+    if (!response.ok) throw { response: { status: response.status, data, headers: response.headers } }
+    return { data, status: response.status, headers: response.headers }
+  }
 }
 
-export async function patchAdminUserEdit(input) {
-  return createAdminUserEditApi({ patch: productionPatch }).patchAdminUserEdit(input)
+export function createAdminUserEditProductionApi({ authenticatedFetch }) {
+  return createAdminUserEditApi({ patch: createProductionPatch({ authenticatedFetch }) })
+}
+
+export async function patchAdminUserEdit(input, dependencies = {}) {
+  let { authenticatedFetch } = dependencies
+  if (typeof authenticatedFetch !== 'function') ({ authenticatedFetch } = await import('./request.js'))
+  return createAdminUserEditProductionApi({ authenticatedFetch }).patchAdminUserEdit(input)
 }

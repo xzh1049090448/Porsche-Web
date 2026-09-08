@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { createAdminUserEditApi, normalizeAdminUserEditRequest } from './admin-user-edit.js'
+import { createAdminUserEditApi, mapAdminUserEditError, normalizeAdminUserEditRequest, patchAdminUserEdit } from './admin-user-edit.js'
 
 const rawUser = Object.freeze({
   guid: '123456789012345678', username: 'alice', nickname: 'Alice', email: null, group: 'default',
@@ -9,6 +8,17 @@ const rawUser = Object.freeze({
   created_at: '2026-09-08T00:00:00.000Z', last_login_at: null,
 })
 const headers = Object.freeze({ 'Cache-Control': 'no-store', 'X-Request-ID': 'req-a05' })
+const failureCode = new Map([
+  [400, 'invalid_admin_user_edit_request'], [401, 'authentication_invalid'], [403, 'user_edit_forbidden'],
+  [404, 'user_not_found'], [409, 'auth_version_conflict'], [413, 'request_body_too_large'], [503, 'user_edit_dependency_unavailable'],
+])
+const failureEnvelope = (status, code = failureCode.get(status), overrides = {}) => ({
+  response: {
+    status,
+    headers: overrides.headers ?? headers,
+    data: overrides.body ?? { error: { code, message: '请求无法完成', kind: 'admin_user_edit_error', request_id: 'req-a05' } },
+  },
+})
 
 test('normalizes only a nullable nickname and positive INT32 version for a canonical GUID', () => {
   assert.deepEqual(normalizeAdminUserEditRequest({ targetGuid: '123456789012345678', nickname: '  Alice  ', expectedAuthVersion: 7 }), {
@@ -51,7 +61,7 @@ test('maps stable A05 failures without transport details and never replays a mut
     let calls = 0
     const api = createAdminUserEditApi({ patch: async () => {
       calls++
-      throw { response: { status, data: status === 409 ? { error: { code: 'auth_version_conflict' } } : {}, headers } }
+      throw failureEnvelope(status)
     } })
     await assert.rejects(api.patchAdminUserEdit({ targetGuid: rawUser.guid, nickname: null, expectedAuthVersion: 7 }), error => error.code === code && error.status === status && !('response' in error))
     assert.equal(calls, 1)
@@ -64,9 +74,35 @@ test('maps stable A05 failures without transport details and never replays a mut
   }
 })
 
-test('production transport sends a native PATCH through the write-safe authenticated fetch path', () => {
-  const source = readFileSync(new URL('./admin-user-edit.js', import.meta.url), 'utf8')
-  assert.match(source, /authenticatedFetch/)
-  assert.match(source, /method:\s*'PATCH'/)
-  assert.doesNotMatch(source, /adminActionPost/)
+test('requires the exact frozen error envelope and never exposes transport details', () => {
+  for (const error of [
+    failureEnvelope(409, 'user_not_found'),
+    failureEnvelope(503, undefined, { body: { error: { code: 'user_edit_dependency_unavailable', message: 'private message', kind: 'admin_user_edit_error', request_id: 'req-a05' } } }),
+    failureEnvelope(403, undefined, { body: { error: { code: 'user_edit_forbidden', message: '请求无法完成', kind: 'wrong_kind', request_id: 'req-a05' } } }),
+    failureEnvelope(400, undefined, { body: { error: { code: 'invalid_admin_user_edit_request', message: '请求无法完成', kind: 'admin_user_edit_error', request_id: 'different' } } }),
+    failureEnvelope(404, undefined, { body: { error: { code: 'user_not_found', message: '请求无法完成', kind: 'admin_user_edit_error', request_id: 'req-a05', private: true } } }),
+  ]) {
+    const mapped = mapAdminUserEditError({ ...error, message: 'transport-private', config: { body: 'nickname-private' } })
+    assert.equal(mapped.code, 'request_failed')
+    assert.equal(mapped.message, '请求失败，请稍后重试')
+    assert.doesNotMatch(JSON.stringify(mapped), /private|different|transport/)
+  }
+})
+
+test('production transport sends exactly one PATCH through an injected authenticated fetch without replay', async () => {
+  const calls = []
+  const authenticatedFetch = async (...args) => {
+    calls.push(args)
+    return new Response(JSON.stringify(rawUser), { status: 200, headers })
+  }
+  await patchAdminUserEdit({ targetGuid: rawUser.guid, nickname: null, expectedAuthVersion: 7 }, { authenticatedFetch })
+  assert.deepEqual(calls, [[`/admin/v2/users/${rawUser.guid}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nickname: null, expected_auth_version: 7 }),
+  }]])
+
+  let failures = 0
+  await assert.rejects(patchAdminUserEdit({ targetGuid: rawUser.guid, nickname: null, expectedAuthVersion: 7 }, {
+    authenticatedFetch: async () => { failures++; throw failureEnvelope(401) },
+  }), error => error.code === 'authentication_failed')
+  assert.equal(failures, 1)
 })
