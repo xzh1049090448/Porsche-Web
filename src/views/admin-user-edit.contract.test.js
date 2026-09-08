@@ -5,6 +5,7 @@ import { parse as parseSFC } from '@vue/compiler-sfc'
 import { parse as parseTemplate } from '@vue/compiler-dom'
 import { parse as parseScript } from '@babel/parser'
 import { createPinia, setActivePinia } from 'pinia'
+import { useAdminUsersStore } from '../stores/admin-users.js'
 import { canOpenAdminUserEdit, useAdminUserEditStore } from '../stores/admin-user-edit.js'
 
 const source = await readFile(new URL('./UserDetail.vue', import.meta.url), 'utf8')
@@ -56,6 +57,37 @@ test('forbidden recovery stays invalidated until identity and target refresh bot
   assert.equal(targetLoads, 2); assert.equal(invalidated, false)
 })
 
+test('forbidden recovery shares the watcher detail GET for the refreshed identity snapshot and restores only after it settles', async () => {
+  const { createAdminUserDetailLoadSingleflight, recoverAdminUserEditForbidden } = await helpers()
+  assert.equal(typeof createAdminUserDetailLoadSingleflight, 'function')
+  setActivePinia(createPinia())
+  const users = useAdminUsersStore()
+  const target = { guid: '3', username: 'alice', nickname: 'A', role: 'user', status: 'active', authVersion: 7 }
+  let detailCalls = 0
+  let releaseDetail
+  const pendingDetail = new Promise(resolve => { releaseDetail = () => resolve(target) })
+  users.loadDetail = async guid => { detailCalls++; assert.equal(guid, target.guid); const detail = await pendingDetail; users.selected = detail; return detail }
+  const loads = createAdminUserDetailLoadSingleflight()
+  let identityEpoch = 'epoch-1'
+  let permissionVersion = 1
+  let invalidated = true
+  let watcherLoad = null
+  const load = () => loads.run({ guid: target.guid, identityEpoch, permissionVersion,
+    load: async () => (await users.loadDetail(target.guid))?.guid === target.guid })
+  const recovery = recoverAdminUserEditForbidden({
+    refreshIdentity: async () => { identityEpoch = 'epoch-2'; permissionVersion = 2; watcherLoad = load() },
+    refreshTarget: async () => await load() ? users.selected : null,
+    isCurrent: () => identityEpoch === 'epoch-2' && permissionVersion === 2,
+    canRestore: fresh => canOpenAdminUserEdit({ actorRole: 'admin', actorGuid: '2', capabilities: ['users.edit'], target: fresh }),
+    restore: () => { invalidated = false },
+  })
+  await Promise.resolve(); await Promise.resolve()
+  assert.equal(detailCalls, 1); assert.equal(invalidated, true)
+  releaseDetail()
+  assert.equal(await watcherLoad, true); assert.equal(await recovery, true)
+  assert.equal(detailCalls, 1); assert.equal(invalidated, false)
+})
+
 test('conflict singleflight binds reuse to one owner and drops an old result after a new owner opens', async () => {
   const { createAdminUserEditConflictSingleflight } = await helpers()
   assert.equal(typeof createAdminUserEditConflictSingleflight, 'function')
@@ -84,6 +116,7 @@ test('view wires owned success, one conflict refresh, failure handling, focus re
   assert.match(descriptor.scriptSetup.content, /failureCode === 'authentication_failed'|code === 'authentication_failed'/)
   assert.match(descriptor.scriptSetup.content, /\['forbidden', 'not_found'\]/)
   assert.match(descriptor.scriptSetup.content, /createAdminUserEditConflictSingleflight/)
+  assert.match(descriptor.scriptSetup.content, /detailLoadFlight = createAdminUserDetailLoadSingleflight\(\)/)
   assert.match(descriptor.scriptSetup.content, /function openEdit[\s\S]*?cancelEditRefresh\(\)/)
   assert.match(descriptor.scriptSetup.content, /const detail = await store\.loadDetail[\s\S]*?return detail\?\.guid === guid/)
   assert.match(descriptor.scriptSetup.content, /editStore\.owns\(editToken\.value\)/)

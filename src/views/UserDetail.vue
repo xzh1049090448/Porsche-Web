@@ -6,7 +6,7 @@
       <template #default><el-button link type="primary" @click="retryIdentity">重新检查身份</el-button></template>
     </el-alert>
     <el-alert v-else-if="store.detailError" type="error" show-icon :closable="false" :title="detailErrorTitle" :description="detailErrorDescription">
-      <template #default><el-button link type="primary" @click="load">重试</el-button></template>
+      <template #default><el-button link type="primary" @click="retryDetail">重试</el-button></template>
     </el-alert>
     <el-skeleton v-else-if="store.detailLoading" :rows="6" animated />
 
@@ -77,6 +77,23 @@ export async function recoverAdminUserEditForbidden({ refreshIdentity, refreshTa
   return true
 }
 
+export function createAdminUserDetailLoadSingleflight() {
+  let active = null
+  const cancel = () => { active = null }
+  const run = ({ guid, identityEpoch, permissionVersion, load } = {}) => {
+    const canonicalGuid = typeof guid === 'string' && /^[1-9]\d{0,18}$/.test(guid) && (guid.length < 19 || guid <= '9223372036854775807')
+    if (!canonicalGuid || typeof identityEpoch !== 'string' || identityEpoch.length === 0 || !Number.isSafeInteger(permissionVersion) || permissionVersion < 0 || typeof load !== 'function') {
+      return Promise.reject(new TypeError('invalid_admin_user_detail_load'))
+    }
+    if (active?.guid === guid && active.identityEpoch === identityEpoch && active.permissionVersion === permissionVersion) return active.promise
+    const flight = { guid, identityEpoch, permissionVersion, promise: null }
+    active = flight
+    flight.promise = Promise.resolve().then(load).finally(() => { if (active === flight) active = null })
+    return flight.promise
+  }
+  return Object.freeze({ run, cancel })
+}
+
 export function createAdminUserEditConflictSingleflight() {
   let active = null
   const cancel = () => { active = null }
@@ -114,6 +131,7 @@ const userStore = useUserStore()
 const store = useAdminUsersStore()
 const actionStore = useAdminUserActionsStore()
 const editStore = useAdminUserEditStore()
+const detailLoadFlight = createAdminUserDetailLoadSingleflight()
 const { t } = useI18n()
 const canRead = computed(() => userStore.permissionProjection?.capabilities?.includes('users.read') === true)
 const deleteCapability = 'users.delete'
@@ -131,20 +149,28 @@ const detailErrorDescription = computed(() => detailStatus.value === 403 ? '当�
 const statusLabel = computed(() => ({ active: '启用', disabled: '禁用', deleted: '已删除' }[store.selected?.status] || store.selected?.status))
 const planLabel = computed(() => ({ free: '免费版', professional: '专业版', enterprise: '企业版' }[store.selected?.planType] || store.selected?.planType))
 
-async function load() {
-  cancelEditRefresh()
-  if (editToken.value && editStore.owns(editToken.value)) editStore.close(editToken.value)
-  cancelDeleteRefresh()
-  if (deleteToken && actionStore.owns(deleteToken)) actionStore.close(deleteToken)
+function closeDetailInteractions() {
+  cancelEditRefresh(); if (editToken.value && editStore.owns(editToken.value)) editStore.close(editToken.value)
+  cancelDeleteRefresh(); if (deleteToken && actionStore.owns(deleteToken)) actionStore.close(deleteToken)
+}
+function load() {
   const guid = route.params.guid
   if (!canRead.value || !/^[1-9]\d{0,18}$/.test(guid) || (guid.length === 19 && guid > '9223372036854775807')) {
+    detailLoadFlight.cancel()
+    closeDetailInteractions()
     store.clear()
-    return false
+    return Promise.resolve(false)
   }
-  try {
+  const identityEpoch = userStore.identityEpoch
+  const permissionVersion = userStore.permissionRevision
+  return detailLoadFlight.run({ guid, identityEpoch, permissionVersion, load: async () => {
+    closeDetailInteractions()
     const detail = await store.loadDetail(guid, { isRoot: userStore.user?.role === 'root' })
     return detail?.guid === guid
-  } catch { return false }
+  } })
+}
+function retryDetail() {
+  void load().catch(() => {})
 }
 
 async function retryIdentity() {
@@ -240,7 +266,7 @@ function onEditFailed(code, token) {
     const requestId = ++editPermissionRefreshRequest
     editInvalidatedGuid.value = captured.targetGuid
     editStore.close(token)
-    if (code === 'not_found') void load()
+    if (code === 'not_found') void load().catch(() => {})
     else void recoverAdminUserEditForbidden({
       refreshIdentity: () => userStore.fetchSelf(),
       refreshTarget: async () => await load() ? store.selected : null,
@@ -299,9 +325,9 @@ function restoreDeleteFocus() {
   restoreDeleteTriggerFocus({ token, canRestore: owner => deleteToken === owner && !actionStore.captureOwnership(), trigger, fallback: pageHeading.value, nextTick })
 }
 
-onMounted(load)
+onMounted(() => { void load().catch(() => {}) })
 watch(() => route.params.guid, () => { editPermissionRefreshRequest++ })
-watch([() => route.params.guid, canRead, () => userStore.identityEpoch, () => userStore.permissionRevision], load)
+watch([() => route.params.guid, canRead, () => userStore.identityEpoch, () => userStore.permissionRevision], () => { void load().catch(() => {}) })
 watch(() => store.selected, target => { if (editToken.value && editStore.owns(editToken.value)) editStore.updateContext(editToken.value, { target }) })
 onBeforeUnmount(() => {
   cancelEditRefresh(); editPermissionRefreshRequest++; if (editToken.value) editStore.dispose(editToken.value); editToken.value = null; editTrigger = null; editContext = null
