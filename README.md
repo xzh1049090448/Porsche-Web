@@ -16,7 +16,7 @@
 
 ```bash
 # 在本目录下执行（需 Node.js 18+）
-npm install          # 必须先执行，且不要加 --omit=dev / --production
+npm ci               # 按已提交的 package-lock.json 安装完整依赖
 npm run dev
 npm run build        # 产物在 dist/
 ```
@@ -24,10 +24,18 @@ npm run build        # 产物在 dist/
 若出现 `vite: not found`，说明未安装开发依赖，请重新执行：
 
 ```bash
-rm -rf node_modules package-lock.json
-npm install
+rm -rf node_modules
+npm ci
 npm run build
 ```
+
+生产构建会先读取 `.env.production` 和 `.env.production.local`，并以当前进程环境变量为最高优先级。`VITE_USE_MOCK` 必须明确设置为 `false`，否则构建会在 Vite 启动前失败，避免发布 Mock 数据模式。
+
+生产一键发布由后端 `deploy/restart-all.sh` 统一编排。它只把前端
+`.env.example` 中新增、但 `.env` 尚不存在的 key 追加进去，不覆盖任何既有
+配置；随后在统一发布锁和环境文件协作锁内执行 `npm ci` 与生产构建。构建完成
+后静态目录在同一文件系统上原子切换，Nginx reload 失败时恢复上一目录。该流程
+与后端不可变 image ID、source revision 和同一环境快照一起构成一次发布候选。
 
 访问 http://localhost:5173
 

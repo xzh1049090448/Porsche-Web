@@ -9,7 +9,7 @@
   "scripts": {
     "test": "node --test",
     "dev": "vite",
-    "build": "vite build",
+    "build": "node ./scripts/check-production-env.mjs && vite build",
     "preview": "vite preview",
     "restart": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/restart-frontend.ps1"
   },
