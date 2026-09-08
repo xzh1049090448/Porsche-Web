@@ -1,5 +1,11 @@
 # 当前验证进度
 
+## 2026-09-08：生产发布 Mock 门禁 hotfix 本地候选
+
+- 生产构建使用 Vite 的 production 环境解析，要求最终 `VITE_USE_MOCK` 精确为 `false`；缺失、空值、`true`、大小写变体和 `0` 均在 Vite 启动前失败。依赖按已提交的 `package-lock.json` 通过 `npm ci` 安装。
+- 全栈发布在统一锁内只追加 `.env.example` 新增且 `.env` 不存在的 key，不覆盖已有前端配置；构建后的静态树在同一文件系统原子切换，Nginx reload 失败时恢复旧目录。后端候选同时绑定不可变 image ID、source revision 与同一环境快照。
+- 本 hotfix 仅在隔离工作树形成候选并执行本地测试/构建；未读取生产 `.env`，未 push、部署、迁移、替换后端容器、发布生产静态文件或 reload Nginx。`web-012` 仍为 `in_progress`，R02 仍为 `BLOCKED_ENV`，真实生产 HTTPS/浏览器验收须待两端合并部署后完成。
+
 ## 2026-09-08：A03 创建用户/管理员本地联合切片限定通过
 
 - 联合矩阵仅将 A03 从 `BLOCKED_NOT_IMPLEMENTED` 提升为 `PASS_LIMITED_SCOPE`；代码候选为前端 `9f660a9ca26f5738dd661652596a1e450ff34335`、后端 `3a50144e53268f6ef3ae704699ef9fa851e4a5ee`。A14 及其余 25 行状态不变，当前为 11 `PASS_LIMITED_SCOPE`、0 `FAIL_LOCAL_DEV_ROUTE`、13 `BLOCKED_NOT_IMPLEMENTED`、1 `BLOCKED_PRODUCT`、1 `BLOCKED_ENV`，合计 15 项阻塞。
