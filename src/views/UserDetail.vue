@@ -13,7 +13,7 @@
     <template v-else-if="store.selected">
       <el-card shadow="never">
         <template #header>
-          <div class="title"><span>{{ store.selected.username || '未设置用户名' }}</span><span><el-tag>{{ statusLabel }}</el-tag><el-button v-if="canDeleteTarget" type="danger" plain @click="openDelete(store.selected, $event)">{{ t('deleteUser.confirm') }}</el-button></span></div>
+          <div class="title"><span class="title-name">{{ store.selected.username || '未设置用户名' }}</span><span class="title-actions"><el-tag>{{ statusLabel }}</el-tag><el-button v-if="canStatusTarget" :type="nextStatus === 'disabled' ? 'danger' : 'primary'" plain @click="openStatus(store.selected, $event)">{{ nextStatus === 'disabled' ? '禁用' : '启用' }}</el-button><el-button v-if="canDeleteTarget" type="danger" plain @click="openDelete(store.selected, $event)">{{ t('deleteUser.confirm') }}</el-button></span></div>
         </template>
         <el-descriptions :column="2" border>
           <el-descriptions-item label="GUID">{{ store.selected.guid }}</el-descriptions-item>
@@ -44,7 +44,8 @@
         </el-table>
       </el-card>
     </template>
-    <p class="sr-only" role="status" aria-live="polite">{{ editAnnouncement }}</p>
+    <p class="sr-only" role="status" aria-live="polite">{{ editAnnouncement }} {{ statusAnnouncement }}</p>
+    <UserStatusDialog :owner="statusToken" @succeeded="onStatusSucceeded" @conflict="onStatusConflict" @failed="onStatusFailed" @closed="restoreStatusFocus" />
     <UserNicknameEditDialog :owner="editToken" @succeeded="onEditSucceeded" @conflict="onEditConflict" @failed="onEditFailed" @closed="restoreEditFocus" />
     <UserSoftDeleteDialog @closed="restoreDeleteFocus" />
   </section>
@@ -120,9 +121,11 @@ import { useUserStore } from '@/stores/user'
 import { useAdminUsersStore } from '@/stores/admin-users'
 import { useAdminUserActionsStore, canDeleteAdminUser, reconcileDeletedDetail, refreshDeleteTargetFailClosed, restoreDeleteTriggerFocus } from '@/stores/admin-user-actions'
 import { useAdminUserEditStore, canOpenAdminUserEdit } from '@/stores/admin-user-edit'
+import { useAdminUserStatusStore, canOpenAdminUserStatus } from '@/stores/admin-user-status'
 import { getAdminUser } from '@/api/admin-users'
 import UserSoftDeleteDialog from '@/components/admin/UserSoftDeleteDialog.vue'
 import UserNicknameEditDialog from '@/components/admin/UserNicknameEditDialog.vue'
+import UserStatusDialog from '@/components/admin/UserStatusDialog.vue'
 import { useI18n } from '@/composables/useI18n'
 import { ElMessage } from 'element-plus'
 
@@ -131,6 +134,7 @@ const userStore = useUserStore()
 const store = useAdminUsersStore()
 const actionStore = useAdminUserActionsStore()
 const editStore = useAdminUserEditStore()
+const statusStore = useAdminUserStatusStore()
 const detailLoadFlight = createAdminUserDetailLoadSingleflight()
 const { t } = useI18n()
 const canRead = computed(() => userStore.permissionProjection?.capabilities?.includes('users.read') === true)
@@ -140,6 +144,12 @@ const canDeleteTarget = computed(() => userStore.permissionProjection?.capabilit
 const editInvalidatedGuid = ref(null)
 const canEditTarget = computed(() => editInvalidatedGuid.value !== store.selected?.guid && canOpenAdminUserEdit({ actorRole: userStore.user?.role, actorGuid: userStore.user?.guid,
   capabilities: userStore.permissionProjection?.capabilities, target: store.selected }))
+const statusInvalidatedGuid = ref(null)
+const nextStatus = computed(() => store.selected?.status === 'active' ? 'disabled' : store.selected?.status === 'disabled' ? 'active' : null)
+const statusCapability = computed(() => nextStatus.value === 'disabled' ? 'users.disable' : nextStatus.value === 'active' ? 'users.enable' : null)
+const canStatusTarget = computed(() => statusInvalidatedGuid.value !== store.selected?.guid && userStore.permissionProjection?.capabilities?.includes(statusCapability.value) === true
+  && canOpenAdminUserStatus({ actorRole:userStore.user?.role, actorGuid:userStore.user?.guid,
+  capabilities:userStore.permissionProjection?.capabilities, target:store.selected, status:nextStatus.value }))
 const showPermissions = computed(() => canRead.value && store.selected?.status !== 'deleted' && store.selected?.role === 'admin' && userStore.user?.role === 'root')
 const permissionUnavailable = computed(() => showPermissions.value && !store.permissions)
 const permissionRows = computed(() => store.permissions?.capabilities || [])
@@ -151,6 +161,7 @@ const planLabel = computed(() => ({ free: '免费版', professional: '专业版'
 
 function closeDetailInteractions() {
   cancelEditRefresh(); if (editToken.value && editStore.owns(editToken.value)) editStore.close(editToken.value)
+  cancelStatusRefresh(); if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.close(statusToken.value)
   cancelDeleteRefresh(); if (deleteToken && actionStore.owns(deleteToken)) actionStore.close(deleteToken)
 }
 function load() {
@@ -166,6 +177,9 @@ function load() {
   return detailLoadFlight.run({ guid, identityEpoch, permissionVersion, load: async () => {
     closeDetailInteractions()
     const detail = await store.loadDetail(guid, { isRoot: userStore.user?.role === 'root' })
+    const intended = detail?.status === 'active' ? 'disabled' : detail?.status === 'disabled' ? 'active' : null
+    if (statusInvalidatedGuid.value === guid && canOpenAdminUserStatus({ actorRole:userStore.user?.role, actorGuid:userStore.user?.guid,
+      capabilities:userStore.permissionProjection?.capabilities, target:detail, status:intended })) statusInvalidatedGuid.value = null
     return detail?.guid === guid
   } })
 }
@@ -184,10 +198,100 @@ let deleteRefreshRequest = 0
 let deleteRefreshAbort = null
 function cancelDeleteRefresh() { deleteRefreshRequest++; deleteRefreshAbort?.abort(); deleteRefreshAbort = null }
 function openDelete(target, event) {
+  cancelStatusRefresh()
+  if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.close(statusToken.value)
   cancelEditRefresh()
   if (editToken.value && editStore.owns(editToken.value)) editStore.close(editToken.value)
   deleteTrigger = event?.currentTarget ?? document.activeElement
   deleteToken = actionStore.open(target, { onSucceeded: onDeleteSucceeded, onConflict: onDeleteConflict, onUnauthorized })
+}
+
+let statusTrigger = null
+const statusToken = ref(null)
+const statusAnnouncement = ref('')
+let statusContext = null
+let statusRefreshRequest = 0
+let statusRefreshAbort = null
+let statusConflictFlight = null
+function cancelStatusRefresh() { statusRefreshRequest++; statusRefreshAbort?.abort(); statusRefreshAbort = null; statusConflictFlight = null }
+function statusBaseCurrent(token, captured = statusContext) {
+  return Boolean(captured && token === statusToken.value && statusStore.owns(token) && route.params.guid === captured.targetGuid
+    && userStore.identityEpoch === captured.identityEpoch && userStore.permissionRevision === captured.permissionVersion)
+}
+function openStatus(target, event) {
+  const intendedStatus = target.status === 'active' ? 'disabled' : target.status === 'disabled' ? 'active' : null
+  cancelStatusRefresh(); cancelEditRefresh(); cancelDeleteRefresh()
+  if (editToken.value && editStore.owns(editToken.value)) editStore.close(editToken.value)
+  if (deleteToken && actionStore.owns(deleteToken)) actionStore.close(deleteToken)
+  statusTrigger = event?.currentTarget ?? document.activeElement; statusAnnouncement.value = ''
+  const context = Object.freeze({ targetGuid:target.guid, authVersion:target.authVersion, targetStatus:target.status, intendedStatus,
+    identityEpoch:userStore.identityEpoch, permissionVersion:userStore.permissionRevision })
+  const token = statusStore.open({ actorRole:userStore.user?.role, actorGuid:userStore.user?.guid, capabilities:userStore.permissionProjection?.capabilities,
+    target, status:intendedStatus, routeGuid:route.params.guid, identityEpoch:context.identityEpoch, permissionVersion:context.permissionVersion })
+  if (!token) return false
+  statusToken.value = token; statusContext = context; return true
+}
+function onStatusSucceeded(user, token) {
+  const captured = statusContext
+  if (!statusBaseCurrent(token, captured) || store.selected?.guid !== captured.targetGuid || store.selected.status !== captured.targetStatus
+      || store.selected.authVersion !== captured.authVersion || user?.guid !== captured.targetGuid || user.status !== captured.intendedStatus || user.authVersion !== captured.authVersion + 1) return false
+  store.selected = user
+  if (Array.isArray(store.rows)) store.rows = store.rows.map(row => row?.guid === captured.targetGuid && row.status === captured.targetStatus && row.authVersion === captured.authVersion ? user : row)
+  statusAnnouncement.value = `${user.username || user.guid} 已${user.status === 'disabled' ? '禁用' : '启用'}`
+  return true
+}
+function onStatusConflict(token) {
+  const captured = statusContext
+  if (!statusBaseCurrent(token, captured)) return false
+  if (statusConflictFlight?.token === token && statusConflictFlight.context === captured) return statusConflictFlight.promise
+  const requestId = ++statusRefreshRequest
+  statusRefreshAbort?.abort(); const controller = new AbortController(); statusRefreshAbort = controller
+  let flight
+  flight = (async () => {
+    let fresh = null; let refreshError = null
+    try {
+      const refreshed = await statusStore.refreshConflict(token, async guid => {
+        try { fresh = await getAdminUser(guid, { signal:controller.signal }); return fresh } catch (error) { refreshError = error; throw error }
+      })
+      const contextCurrent = requestId === statusRefreshRequest && route.params.guid === captured.targetGuid
+        && userStore.identityEpoch === captured.identityEpoch && userStore.permissionRevision === captured.permissionVersion
+      if (fresh && contextCurrent && store.selected?.guid === captured.targetGuid && store.selected.authVersion === captured.authVersion) {
+        store.selected = fresh
+        if (refreshed) statusContext = Object.freeze({ ...captured, authVersion:fresh.authVersion, targetStatus:fresh.status })
+      }
+      if (refreshError?.response?.status === 401 && contextCurrent) return onStatusFailed('authentication_failed', token)
+      if (!refreshed && contextCurrent && statusStore.owns(token)) statusStore.close(token)
+      statusAnnouncement.value = refreshed ? '用户信息已刷新，请重新确认操作。' : '用户状态已变化，操作已关闭。'
+      return refreshed
+    } finally {
+      if (requestId === statusRefreshRequest && statusRefreshAbort === controller) statusRefreshAbort = null
+      if (statusConflictFlight?.promise === flight) statusConflictFlight = null
+    }
+  })()
+  statusConflictFlight = { token, context:captured, promise:flight }
+  return flight
+}
+function onStatusFailed(code, token) {
+  if (!statusBaseCurrent(token)) return false
+  if (code === 'authentication_failed') { statusStore.close(token); userStore.clearSession(); store.clear(); return true }
+  if (['forbidden','not_found'].includes(code)) {
+    const captured = statusContext; statusInvalidatedGuid.value = captured.targetGuid; statusStore.close(token)
+    void (async () => {
+      if (code === 'forbidden') { try { await userStore.fetchSelf() } catch { return } }
+      if (route.params.guid !== captured.targetGuid) return
+      try { await load() } catch { return }
+      const intended = store.selected?.status === 'active' ? 'disabled' : store.selected?.status === 'disabled' ? 'active' : null
+      if (canOpenAdminUserStatus({ actorRole:userStore.user?.role, actorGuid:userStore.user?.guid, capabilities:userStore.permissionProjection?.capabilities, target:store.selected, status:intended })) statusInvalidatedGuid.value = null
+    })()
+    return true
+  }
+  return ['unavailable','request_too_large','request_failed'].includes(code)
+}
+function restoreStatusFocus(token) {
+  if (!token || token !== statusToken.value || statusStore.owns(token)) return false
+  const trigger = statusTrigger; statusTrigger = null; statusToken.value = null; statusContext = null
+  nextTick(() => { if (statusToken.value) return; (trigger?.isConnected ? trigger : pageHeading.value?.$el ?? pageHeading.value)?.focus?.() })
+  return true
 }
 
 let editTrigger = null
@@ -204,6 +308,8 @@ function editBaseCurrent(token, captured = editContext) {
     && userStore.identityEpoch === captured.identityEpoch && userStore.permissionRevision === captured.permissionVersion)
 }
 function openEdit(target, event) {
+  cancelStatusRefresh()
+  if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.close(statusToken.value)
   cancelEditRefresh()
   editPermissionRefreshRequest++
   cancelDeleteRefresh()
@@ -328,16 +434,23 @@ function restoreDeleteFocus() {
 onMounted(() => { void load().catch(() => {}) })
 watch(() => route.params.guid, () => { editPermissionRefreshRequest++ })
 watch([() => route.params.guid, canRead, () => userStore.identityEpoch, () => userStore.permissionRevision], () => { void load().catch(() => {}) })
-watch(() => store.selected, target => { if (editToken.value && editStore.owns(editToken.value)) editStore.updateContext(editToken.value, { target }) })
+watch(() => store.selected, target => {
+  if (editToken.value && editStore.owns(editToken.value)) editStore.updateContext(editToken.value, { target })
+  if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.updateContext(statusToken.value, { target })
+})
 onBeforeUnmount(() => {
   cancelEditRefresh(); editPermissionRefreshRequest++; if (editToken.value) editStore.dispose(editToken.value); editToken.value = null; editTrigger = null; editContext = null
+  cancelStatusRefresh(); if (statusToken.value) statusStore.dispose(statusToken.value); statusToken.value = null; statusTrigger = null; statusContext = null
   cancelDeleteRefresh(); if (deleteToken) actionStore.dispose(deleteToken); deleteToken = null; deleteTrigger = null
 })
 </script>
 
 <style scoped>
 .admin-page { max-width: 1100px; margin: 0 auto; }
-.title { display: flex; justify-content: space-between; align-items: center; font-size: 20px; font-weight: 600; }
+.title { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 20px; font-weight: 600; }
+.title-name { min-width: 0; overflow-wrap: anywhere; }
+.title-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.title-actions :deep(.el-button + .el-button) { margin-left: 0; }
 .nickname-row { display: inline-flex; align-items: center; gap: 8px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .permissions { margin-top: 20px; }
