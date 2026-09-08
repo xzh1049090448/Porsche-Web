@@ -29,6 +29,8 @@ npm install
 npm run build
 ```
 
+生产构建会先读取 `.env.production` 和 `.env.production.local`，并以当前进程环境变量为最高优先级。`VITE_USE_MOCK` 必须明确设置为 `false`，否则构建会在 Vite 启动前失败，避免发布 Mock 数据模式。
+
 访问 http://localhost:5173
 
 ### 认证与开发验证
