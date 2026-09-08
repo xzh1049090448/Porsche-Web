@@ -98,6 +98,18 @@ for (const conflictCode of ['auth_version_conflict','user_status_conflict']) tes
   } finally { state.wrapper.unmount(); document.body.innerHTML=''; delete globalThis.__a06View }
 })
 
+test('conflict refresh applies a fresh target that makes the original transition ineligible before closing', async()=>{
+  const refresh=deferred(); const state=await mountHarness({ getAdminUser:()=>refresh.promise })
+  try {
+    await openStatus(state); state.statusStore.state='conflict'; state.statusStore.failureCode='user_status_conflict'; state.statusStore.requiresTargetRefresh=true
+    await state.wrapper.get('#emit-status-conflict').trigger('click'); await nextTick(); assert.equal(state.getCalls(),1)
+    const fresh={...target,status:'disabled',authVersion:8}; refresh.resolve(fresh); await flush()
+    assert.equal(state.getCalls(),1); assert.equal(state.statusStore.isOpen,false)
+    assert.deepEqual({...state.store.selected},fresh); assert.deepEqual({...state.store.rows[0]},fresh)
+    assert.equal(statusButton(state.wrapper)?.text(),'启用')
+  } finally { state.wrapper.unmount(); document.body.innerHTML=''; delete globalThis.__a06View }
+})
+
 test('late conflict target is discarded after route identity context changes', async()=>{
   const refresh=deferred(); const state=await mountHarness({ getAdminUser:()=>refresh.promise })
   try {

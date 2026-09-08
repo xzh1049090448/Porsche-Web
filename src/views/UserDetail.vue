@@ -250,16 +250,23 @@ function onStatusConflict(token) {
   statusRefreshAbort?.abort(); const controller = new AbortController(); statusRefreshAbort = controller
   let flight
   flight = (async () => {
-    let fresh = null; let refreshError = null
+    let fresh = null; let freshApplied = false; let refreshError = null
     try {
       const refreshed = await statusStore.refreshConflict(token, async guid => {
-        try { fresh = await getAdminUser(guid, { signal:controller.signal }); return fresh } catch (error) { refreshError = error; throw error }
+        try {
+          fresh = await getAdminUser(guid, { signal:controller.signal })
+          return fresh
+        } catch (error) { refreshError = error; throw error }
+      }, () => {
+        const responseCurrent = requestId === statusRefreshRequest && statusContext === captured && statusBaseCurrent(token, captured) && statusStore.isOpen
+        if (fresh && responseCurrent && store.selected?.guid === captured.targetGuid && store.selected.authVersion === captured.authVersion) {
+          store.selected = fresh
+          if (Array.isArray(store.rows)) store.rows = store.rows.map(row => row?.guid === captured.targetGuid && row.authVersion === captured.authVersion ? fresh : row)
+          freshApplied = true
+        }
       })
       const contextCurrent = requestId === statusRefreshRequest && statusContext === captured && statusBaseCurrent(token, captured) && statusStore.isOpen
-      if (fresh && contextCurrent && store.selected?.guid === captured.targetGuid && store.selected.authVersion === captured.authVersion) {
-        store.selected = fresh
-        if (refreshed) statusContext = Object.freeze({ ...captured, authVersion:fresh.authVersion, targetStatus:fresh.status })
-      }
+      if (freshApplied && refreshed && contextCurrent) statusContext = Object.freeze({ ...captured, authVersion:fresh.authVersion, targetStatus:fresh.status })
       if (refreshError?.response?.status === 401 && contextCurrent) return onStatusFailed('authentication_failed', token)
       if (!refreshed && contextCurrent && statusStore.owns(token)) statusStore.close(token)
       if (contextCurrent) statusAnnouncement.value = refreshed ? '用户信息已刷新，请重新确认操作。' : '用户状态已变化，操作已关闭。'

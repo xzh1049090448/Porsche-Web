@@ -125,7 +125,7 @@ export function createAdminUserStatusCoordinator({ api = { patchAdminUserStatus 
     if (!current(token) || activePromise || value.state !== ADMIN_USER_STATUS_STATES.FAILED) return false
     return workflow.reset()
   }
-  const refreshConflict = (token, loadTarget) => {
+  const refreshConflict = (token, loadTarget, onFresh = () => {}) => {
     if (conflictRefreshPromise && current(token)) return conflictRefreshPromise
     if (!current(token) || conflictRefreshAttempted || !value.requiresTargetRefresh || typeof loadTarget !== 'function') return Promise.resolve(false)
     conflictRefreshAttempted = true
@@ -137,6 +137,7 @@ export function createAdminUserStatusCoordinator({ api = { patchAdminUserStatus 
         let next
         try { next = safeTarget(await loadTarget(ownedContext.targetGuid)) } catch { return false }
         if (!current(token) || workflow !== owned || context !== ownedContext || next.guid !== ownedContext.targetGuid) return false
+        try { onFresh(next) } catch { return false }
         if (!canOpenAdminUserStatus({ actorRole: ownedContext.actorRole, actorGuid: ownedContext.actorGuid, capabilities: ownedContext.capabilities, target: next, status: ownedContext.intendedStatus })) {
           close(token); return false
         }
