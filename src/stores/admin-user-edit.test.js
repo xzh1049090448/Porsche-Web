@@ -3,6 +3,7 @@ import test from 'node:test'
 import { canOpenAdminUserEdit, createAdminUserEditCoordinator } from './admin-user-edit.js'
 
 const target = Object.freeze({ guid: '123456789012345678', username: 'alice', nickname: 'Alice', role: 'user', status: 'active', authVersion: 7 })
+const mappedUser = Object.freeze({ ...target, email: null, group: 'default', planType: 'free', createdAt: '2026-09-08T00:00:00.000Z', lastLoginAt: null })
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
 
 test('edit eligibility fails closed for capability, hierarchy, self, Root, deletion, or invalid version', () => {
@@ -15,6 +16,15 @@ test('edit eligibility fails closed for capability, hierarchy, self, Root, delet
     { actorRole: 'root', actorGuid: '2', capabilities: ['users.edit'], target: { ...target, status: 'deleted' } },
     { actorRole: 'root', actorGuid: '2', capabilities: ['users.edit'], target: { ...target, authVersion: 0 } },
   ]) assert.equal(canOpenAdminUserEdit(context), false)
+})
+
+test('open rejects an initial route that is not the owned canonical target GUID', () => {
+  const coordinator = createAdminUserEditCoordinator({ api: { patchAdminUserEdit: async () => target } })
+  for (const routeGuid of ['123456789012345679', '01']) {
+    const token = coordinator.open({ actorRole: 'admin', actorGuid: '2', capabilities: ['users.edit'], target, routeGuid, identityEpoch: 1, permissionVersion: '1' })
+    assert.equal(token, null)
+  }
+  assert.equal(coordinator.state.open, false)
 })
 
 test('coordinator owns an immutable dialog snapshot and drops late route, identity, permission, dialog, or target settlements', async () => {
@@ -45,6 +55,29 @@ test('reopening for another target disposes the earlier dialog and drops its lat
   assert.equal(coordinator.owns(first), false)
   assert.equal(coordinator.owns(second), true)
   assert.equal(coordinator.state.target.guid, nextTarget.guid)
+})
+
+test('same-GUID target version replacement invalidates a pending settlement', async () => {
+  const pending = deferred()
+  const successes = []
+  const coordinator = createAdminUserEditCoordinator({ api: { patchAdminUserEdit: async () => pending.promise }, onSucceeded: value => successes.push(value) })
+  const token = coordinator.open({ actorRole: 'admin', actorGuid: '2', capabilities: ['users.edit'], target, routeGuid: target.guid, identityEpoch: 1, permissionVersion: '1' })
+  const running = coordinator.submit(token, { nickname: 'Alice' })
+  assert.equal(coordinator.updateContext(token, { target: { ...target, authVersion: 8 } }), true)
+  pending.resolve({ ...target, nickname: 'Alice' })
+  await running
+  assert.deepEqual(successes, [])
+  assert.equal(coordinator.state.target.authVersion, 8)
+})
+
+test('a success DTO for another GUID fails closed before onSucceeded', async () => {
+  const successes = []
+  const coordinator = createAdminUserEditCoordinator({ api: { patchAdminUserEdit: async () => ({ ...mappedUser, guid: '123456789012345679' }) }, onSucceeded: value => successes.push(value) })
+  const token = coordinator.open({ actorRole: 'admin', actorGuid: '2', capabilities: ['users.edit'], target, routeGuid: target.guid, identityEpoch: 1, permissionVersion: '1' })
+  const result = await coordinator.submit(token, { nickname: 'Alice' })
+  assert.equal(result.state, 'failed')
+  assert.equal(result.failureCode, 'request_failed')
+  assert.deepEqual(successes, [])
 })
 
 test('409 requires explicit target refresh and never replays PATCH', async () => {

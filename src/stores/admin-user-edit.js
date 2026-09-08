@@ -5,15 +5,20 @@ import { ADMIN_USER_EDIT_STATES, createAdminUserEditWorkflow } from '../api/admi
 
 const INITIAL = Object.freeze({ open: false, dialogRevision: 0, target: null, state: ADMIN_USER_EDIT_STATES.IDLE, user: null, failureCode: null, requiresTargetRefresh: false })
 const MAX_INT32 = 2147483647
+const MAX_INT64 = '9223372036854775807'
+const GUID = /^[1-9]\d{0,18}$/
+
+const compareDecimal = (left, right) => left.length - right.length || (left < right ? -1 : left > right ? 1 : 0)
+const validGuid = value => typeof value === 'string' && GUID.test(value) && compareDecimal(value, MAX_INT64) <= 0
 
 function safeTarget(value) {
-  if (!value || typeof value.guid !== 'string' || !['user', 'admin', 'root'].includes(value.role) || !['active', 'disabled', 'deleted'].includes(value.status)
+  if (!value || !validGuid(value.guid) || !['user', 'admin', 'root'].includes(value.role) || !['active', 'disabled', 'deleted'].includes(value.status)
       || !Number.isInteger(value.authVersion) || value.authVersion < 1 || value.authVersion > MAX_INT32) throw new TypeError('invalid_admin_user_edit_target')
   return Object.freeze({ guid: value.guid, username: value.username ?? null, nickname: value.nickname ?? null, role: value.role, status: value.status, authVersion: value.authVersion })
 }
 
 export function canOpenAdminUserEdit({ actorRole, actorGuid, capabilities, target } = {}) {
-  if (!Array.isArray(capabilities) || !capabilities.includes('users.edit') || !target || target.status === 'deleted' || target.guid === actorGuid
+  if (!Array.isArray(capabilities) || !capabilities.includes('users.edit') || !target || !validGuid(target.guid) || target.status === 'deleted' || target.guid === actorGuid
       || !Number.isInteger(target.authVersion) || target.authVersion < 1 || target.authVersion > MAX_INT32) return false
   return actorRole === 'admin' ? target.role === 'user' : actorRole === 'root' ? target.role === 'user' || target.role === 'admin' : false
 }
@@ -22,14 +27,18 @@ export function createAdminUserEditCoordinator({ api = { patchAdminUserEdit }, c
   const value = state ?? { ...INITIAL }
   let ownership = null; let sequence = 0; let workflow = null; let unsubscribe = null; let activePromise = null; let context = null
   const owns = token => token != null && token === ownership && workflow != null
-  const current = token => owns(token) && context && value.target?.guid === context.targetGuid
+  const current = token => owns(token) && context && context.routeGuid === context.targetGuid && value.target === context.targetSnapshot
+    && value.target?.guid === context.targetGuid && value.target.authVersion === context.expectedAuthVersion
     && context.routeGuid === value.routeGuid && context.identityEpoch === value.identityEpoch && context.permissionVersion === value.permissionVersion
   const clear = () => { unsubscribe?.(); unsubscribe = null; workflow?.dispose(); workflow = null; ownership = null; activePromise = null; context = null }
   const close = (token = ownership) => { if (!owns(token)) return false; const revision = value.dialogRevision; clear(); Object.assign(value, INITIAL, { dialogRevision: revision }); return true }
   const open = input => {
     if (!canOpenAdminUserEdit(input)) return null
-    clear(); const token = Object.freeze({ editDialog: ++sequence }); const target = safeTarget(input.target)
-    ownership = token; context = Object.freeze({ actorRole: input.actorRole, actorGuid: input.actorGuid, capabilities: Object.freeze([...input.capabilities]), targetGuid: target.guid, routeGuid: input.routeGuid, identityEpoch: input.identityEpoch, permissionVersion: input.permissionVersion })
+    let target
+    try { target = safeTarget(input.target) } catch { return null }
+    if (!validGuid(input.routeGuid) || input.routeGuid !== target.guid) return null
+    clear(); const token = Object.freeze({ editDialog: ++sequence })
+    ownership = token; context = Object.freeze({ actorRole: input.actorRole, actorGuid: input.actorGuid, capabilities: Object.freeze([...input.capabilities]), targetGuid: target.guid, expectedAuthVersion: target.authVersion, targetSnapshot: target, routeGuid: input.routeGuid, identityEpoch: input.identityEpoch, permissionVersion: input.permissionVersion })
     Object.assign(value, INITIAL, { open: true, dialogRevision: value.dialogRevision + 1, target, routeGuid: input.routeGuid, identityEpoch: input.identityEpoch, permissionVersion: input.permissionVersion })
     const owned = createWorkflow({ api }); workflow = owned
     unsubscribe = owned.subscribe(snapshot => {
@@ -40,19 +49,35 @@ export function createAdminUserEditCoordinator({ api = { patchAdminUserEdit }, c
     return token
   }
   const updateContext = (token, next) => {
-    if (!owns(token)) return false
+    if (!owns(token) || !next || typeof next !== 'object') return false
+    let target = null
+    if (Object.hasOwn(next, 'target')) { try { target = safeTarget(next.target) } catch { return false } }
+    const changed = (Object.hasOwn(next, 'routeGuid') && next.routeGuid !== value.routeGuid)
+      || (Object.hasOwn(next, 'identityEpoch') && next.identityEpoch !== value.identityEpoch)
+      || (Object.hasOwn(next, 'permissionVersion') && next.permissionVersion !== value.permissionVersion)
+      || target !== null
+    if (changed) workflow.reset()
     if (Object.hasOwn(next, 'routeGuid')) value.routeGuid = next.routeGuid
     if (Object.hasOwn(next, 'identityEpoch')) value.identityEpoch = next.identityEpoch
     if (Object.hasOwn(next, 'permissionVersion')) value.permissionVersion = next.permissionVersion
+    if (target) value.target = target
     return true
   }
   const submit = (token, input) => {
     if (!current(token)) return null
     if (activePromise) return activePromise
-    const owned = workflow; const request = { targetGuid: value.target.guid, nickname: input?.nickname, expectedAuthVersion: value.target.authVersion }
+    const owned = workflow; const request = { targetGuid: context.targetGuid, nickname: input?.nickname, expectedAuthVersion: context.expectedAuthVersion }
     activePromise = owned.start(request).then(async result => {
       if (!current(token) || workflow !== owned) return result
-      if (result.state === ADMIN_USER_EDIT_STATES.SUCCEEDED) await onSucceeded(result.user, token)
+      if (result.state === ADMIN_USER_EDIT_STATES.SUCCEEDED) {
+        if (result.user?.guid !== request.targetGuid) {
+          owned.reset()
+          const failure = Object.freeze({ state: ADMIN_USER_EDIT_STATES.FAILED, user: null, failureCode: 'request_failed' })
+          if (current(token) && workflow === owned) Object.assign(value, failure, { requiresTargetRefresh: false })
+          return failure
+        }
+        await onSucceeded(result.user, token)
+      }
       return result
     }).finally(() => { if (workflow === owned) activePromise = null })
     return activePromise
@@ -61,6 +86,7 @@ export function createAdminUserEditCoordinator({ api = { patchAdminUserEdit }, c
     if (!current(token) || !value.requiresTargetRefresh || typeof loadTarget !== 'function') return false
     let next; try { next = safeTarget(await loadTarget(value.target.guid)) } catch { return false }
     if (!current(token) || next.guid !== value.target.guid || !canOpenAdminUserEdit({ actorRole: context.actorRole, actorGuid: context.actorGuid, capabilities: context.capabilities, target: next })) return false
+    context = Object.freeze({ ...context, targetGuid: next.guid, expectedAuthVersion: next.authVersion, targetSnapshot: next })
     value.target = next; value.requiresTargetRefresh = false; workflow.reset(); return true
   }
   return { state: value, open, close, dispose: close, owns, updateContext, submit, refreshConflict }
