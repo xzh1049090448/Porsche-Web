@@ -21,12 +21,13 @@
   },
   "preconditions": {
     "frontend_head": "5a41f5679c1c35e5c2850665db54ae83e58db436",
-    "backend_head": "bf7ec6074a351a7155348d1f74f013f94a67a397",
+    "backend_head": "8b7396e717b005585d575ce38e435d12df2aa513",
     "dev_server_detection": "no pre-existing dev server was selected",
     "frontend_gates": "PASS: contract-environment npm test 315/315; npm run build passed",
     "blocking_evidence": [
-      "internal/service/admin_user_edit_failures_test.go:92 nullable fixture nickname panic",
-      "internal/service/admin_user_edit.go:239 unbound MySQL placeholder causes error 1064 and wrong 503 mapping"
+      "r2 supersedes the prior nullable fixture panic and SQL 1064; both are absent",
+      "internal/service/admin_user_edit_test.go:90: permitted Root-to-User, Root-to-Admin, and Admin-to-User set/clear cases fail",
+      "internal/service/admin_user_edit_test.go:115: no-op case fails"
     ]
   },
   "privacy": "No browser fixture credentials, tokens, request bodies, or nickname values were captured."
