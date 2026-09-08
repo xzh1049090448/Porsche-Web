@@ -55,7 +55,7 @@ export function reconcileAdminUserEditSuccess({ state, user, targetGuid, expecte
   if (typeof isCurrent !== 'function' || !isCurrent() || !user || user.guid !== targetGuid || user.authVersion !== expectedAuthVersion
       || state.selected?.guid !== targetGuid || state.selected.authVersion !== expectedAuthVersion) return false
   state.selected = user
-  if (Array.isArray(state.rows)) state.rows = state.rows.map(row => row?.guid === targetGuid ? user : row)
+  if (Array.isArray(state.rows)) state.rows = state.rows.map(row => row?.guid === targetGuid && row.authVersion === expectedAuthVersion ? user : row)
   return true
 }
 
@@ -64,6 +64,35 @@ export function reconcileAdminUserEditRefresh({ state, target, targetGuid, isCur
   state.selected = target
   if (Array.isArray(state.rows)) state.rows = state.rows.map(row => row?.guid === targetGuid ? target : row)
   return true
+}
+
+export async function recoverAdminUserEditForbidden({ refreshIdentity, refreshTarget, isCurrent, canRestore, restore } = {}) {
+  if (![refreshIdentity, refreshTarget, isCurrent, canRestore, restore].every(value => typeof value === 'function')) return false
+  try { await refreshIdentity() } catch { return false }
+  if (!isCurrent()) return false
+  let target
+  try { target = await refreshTarget() } catch { return false }
+  if (!isCurrent() || !canRestore(target)) return false
+  restore(target)
+  return true
+}
+
+export function createAdminUserEditConflictSingleflight() {
+  let active = null
+  const cancel = () => { active = null }
+  const run = ({ token, context, isCurrent, execute } = {}) => {
+    if (!token || !context || typeof isCurrent !== 'function' || typeof execute !== 'function' || !isCurrent(token, context)) return Promise.resolve(false)
+    if (active?.token === token && active.context === context) return active.promise
+    const flight = { token, context, promise: null }
+    const current = () => active === flight && isCurrent(token, context)
+    active = flight
+    flight.promise = Promise.resolve().then(() => execute(current)).then(
+      result => current() ? result : false,
+      error => { if (!current()) return false; throw error },
+    ).finally(() => { if (active === flight) active = null })
+    return flight.promise
+  }
+  return Object.freeze({ run, cancel })
 }
 </script>
 
@@ -90,8 +119,8 @@ const canRead = computed(() => userStore.permissionProjection?.capabilities?.inc
 const deleteCapability = 'users.delete'
 const canDeleteTarget = computed(() => userStore.permissionProjection?.capabilities?.includes(deleteCapability) === true
   && canDeleteAdminUser({ actorRole: userStore.user?.role, capabilities: userStore.permissionProjection.capabilities, target: store.selected }))
-const editInvalidated = ref(false)
-const canEditTarget = computed(() => !editInvalidated.value && canOpenAdminUserEdit({ actorRole: userStore.user?.role, actorGuid: userStore.user?.guid,
+const editInvalidatedGuid = ref(null)
+const canEditTarget = computed(() => editInvalidatedGuid.value !== store.selected?.guid && canOpenAdminUserEdit({ actorRole: userStore.user?.role, actorGuid: userStore.user?.guid,
   capabilities: userStore.permissionProjection?.capabilities, target: store.selected }))
 const showPermissions = computed(() => canRead.value && store.selected?.status !== 'deleted' && store.selected?.role === 'admin' && userStore.user?.role === 'root')
 const permissionUnavailable = computed(() => showPermissions.value && !store.permissions)
@@ -110,9 +139,12 @@ async function load() {
   const guid = route.params.guid
   if (!canRead.value || !/^[1-9]\d{0,18}$/.test(guid) || (guid.length === 19 && guid > '9223372036854775807')) {
     store.clear()
-    return
+    return false
   }
-  try { await store.loadDetail(guid, { isRoot: userStore.user?.role === 'root' }); editInvalidated.value = false } catch {}
+  try {
+    const detail = await store.loadDetail(guid, { isRoot: userStore.user?.role === 'root' })
+    return detail?.guid === guid
+  } catch { return false }
 }
 
 async function retryIdentity() {
@@ -138,13 +170,16 @@ const editAnnouncement = ref('')
 let editContext = null
 let editRefreshRequest = 0
 let editRefreshAbort = null
-let editConflictPromise = null
-function cancelEditRefresh() { editRefreshRequest++; editRefreshAbort?.abort(); editRefreshAbort = null; editConflictPromise = null }
+let editPermissionRefreshRequest = 0
+const editConflictFlight = createAdminUserEditConflictSingleflight()
+function cancelEditRefresh() { editRefreshRequest++; editRefreshAbort?.abort(); editRefreshAbort = null; editConflictFlight.cancel() }
 function editBaseCurrent(token, captured = editContext) {
   return Boolean(captured && token === editToken.value && editStore.owns(token) && route.params.guid === captured.targetGuid
     && userStore.identityEpoch === captured.identityEpoch && userStore.permissionRevision === captured.permissionVersion)
 }
 function openEdit(target, event) {
+  cancelEditRefresh()
+  editPermissionRefreshRequest++
   cancelDeleteRefresh()
   if (deleteToken && actionStore.owns(deleteToken)) actionStore.close(deleteToken)
   editTrigger = event?.currentTarget ?? document.activeElement
@@ -165,32 +200,32 @@ function onEditSucceeded(user, token) {
   return applied
 }
 function onEditConflict(token) {
-  if (editConflictPromise) return editConflictPromise
   const captured = editContext
-  if (!editBaseCurrent(token, captured)) return Promise.resolve(false)
-  const requestId = ++editRefreshRequest
-  editRefreshAbort?.abort()
-  editRefreshAbort = new AbortController()
-  editAnnouncement.value = t('editUser.conflictRefreshing')
-  editConflictPromise = (async () => {
-    let fresh = null
-    let refreshError = null
-    const isCurrent = () => requestId === editRefreshRequest && editBaseCurrent(token, captured) && store.selected?.guid === captured.targetGuid && store.selected.authVersion === captured.authVersion
-    const refreshed = await editStore.refreshConflict(token, async guid => {
-      try { fresh = await getAdminUser(guid, { signal: editRefreshAbort.signal }); return fresh } catch (error) { refreshError = error; throw error }
-    })
-    if (!refreshed || !fresh || !isCurrent()) {
-      if (refreshError?.response?.status === 401) onEditFailed('authentication_failed', token)
-      else if (editStore.owns(token)) { editInvalidated.value = true; editStore.close(token); ElMessage.warning(t('editUser.failures.request_failed')) }
-      return false
-    }
-    editContext = Object.freeze({ ...captured, authVersion: fresh.authVersion })
-    const applied = reconcileAdminUserEditRefresh({ state: store, target: fresh, targetGuid: captured.targetGuid,
-      isCurrent: () => requestId === editRefreshRequest && editBaseCurrent(token, editContext) })
-    if (!applied && editStore.owns(token)) { editInvalidated.value = true; editStore.close(token) }
-    return applied
-  })().finally(() => { if (requestId === editRefreshRequest) { editRefreshAbort = null; editConflictPromise = null } })
-  return editConflictPromise
+  return editConflictFlight.run({ token, context: captured, isCurrent: editBaseCurrent, execute: async flightCurrent => {
+    const requestId = ++editRefreshRequest
+    editRefreshAbort?.abort()
+    const controller = new AbortController()
+    editRefreshAbort = controller
+    editAnnouncement.value = t('editUser.conflictRefreshing')
+    try {
+      let fresh = null
+      let refreshError = null
+      const isCurrent = () => flightCurrent() && requestId === editRefreshRequest && store.selected?.guid === captured.targetGuid && store.selected.authVersion === captured.authVersion
+      const refreshed = await editStore.refreshConflict(token, async guid => {
+        try { fresh = await getAdminUser(guid, { signal: controller.signal }); return fresh } catch (error) { refreshError = error; throw error }
+      })
+      if (!refreshed || !fresh || !isCurrent()) {
+        if (isCurrent() && refreshError?.response?.status === 401) onEditFailed('authentication_failed', token)
+        else if (isCurrent() && editStore.owns(token)) { editInvalidatedGuid.value = captured.targetGuid; editStore.close(token); ElMessage.warning(t('editUser.failures.request_failed')) }
+        return false
+      }
+      editContext = Object.freeze({ ...captured, authVersion: fresh.authVersion })
+      const applied = reconcileAdminUserEditRefresh({ state: store, target: fresh, targetGuid: captured.targetGuid,
+        isCurrent: () => flightCurrent() && requestId === editRefreshRequest && editBaseCurrent(token, editContext) })
+      if (!applied && flightCurrent() && editStore.owns(token)) { editInvalidatedGuid.value = captured.targetGuid; editStore.close(token) }
+      return applied
+    } finally { if (requestId === editRefreshRequest && editRefreshAbort === controller) editRefreshAbort = null }
+  } })
 }
 function onEditFailed(code, token) {
   if (!editBaseCurrent(token)) return false
@@ -201,9 +236,19 @@ function onEditFailed(code, token) {
     return true
   }
   if (['forbidden', 'not_found'].includes(code)) {
-    editInvalidated.value = true
+    const captured = editContext
+    const requestId = ++editPermissionRefreshRequest
+    editInvalidatedGuid.value = captured.targetGuid
     editStore.close(token)
-    void (async () => { if (code === 'forbidden') { try { await userStore.fetchSelf() } catch {} } await load() })()
+    if (code === 'not_found') void load()
+    else void recoverAdminUserEditForbidden({
+      refreshIdentity: () => userStore.fetchSelf(),
+      refreshTarget: async () => await load() ? store.selected : null,
+      isCurrent: () => requestId === editPermissionRefreshRequest && route.params.guid === captured.targetGuid && editInvalidatedGuid.value === captured.targetGuid,
+      canRestore: target => canOpenAdminUserEdit({ actorRole: userStore.user?.role, actorGuid: userStore.user?.guid,
+        capabilities: userStore.permissionProjection?.capabilities, target }),
+      restore: () => { editInvalidatedGuid.value = null },
+    })
     return true
   }
   return code === 'unavailable' || code === 'request_failed'
@@ -255,10 +300,11 @@ function restoreDeleteFocus() {
 }
 
 onMounted(load)
+watch(() => route.params.guid, () => { editPermissionRefreshRequest++ })
 watch([() => route.params.guid, canRead, () => userStore.identityEpoch, () => userStore.permissionRevision], load)
 watch(() => store.selected, target => { if (editToken.value && editStore.owns(editToken.value)) editStore.updateContext(editToken.value, { target }) })
 onBeforeUnmount(() => {
-  cancelEditRefresh(); if (editToken.value) editStore.dispose(editToken.value); editToken.value = null; editTrigger = null; editContext = null
+  cancelEditRefresh(); editPermissionRefreshRequest++; if (editToken.value) editStore.dispose(editToken.value); editToken.value = null; editTrigger = null; editContext = null
   cancelDeleteRefresh(); if (deleteToken) actionStore.dispose(deleteToken); deleteToken = null; deleteTrigger = null
 })
 </script>

@@ -4,7 +4,8 @@ import { readFile } from 'node:fs/promises'
 import { parse as parseSFC } from '@vue/compiler-sfc'
 import { parse as parseTemplate } from '@vue/compiler-dom'
 import { parse as parseScript } from '@babel/parser'
-import { canOpenAdminUserEdit } from '../stores/admin-user-edit.js'
+import { createPinia, setActivePinia } from 'pinia'
+import { canOpenAdminUserEdit, useAdminUserEditStore } from '../stores/admin-user-edit.js'
 
 const source = await readFile(new URL('./UserDetail.vue', import.meta.url), 'utf8')
 const descriptor = parseSFC(source, { filename: 'UserDetail.vue' }).descriptor
@@ -29,13 +30,51 @@ test('detail exposes edit only through the exact manageable-target predicate', (
 
 test('success reconciliation updates only the owned detail and matching cached row', async () => {
   const { reconcileAdminUserEditSuccess } = await helpers()
-  const old = { guid: '3', nickname: 'Old', authVersion: 7 }; const other = { guid: '4', nickname: 'Other', authVersion: 2 }; const fresh = { ...old, nickname: 'New' }
-  const state = { selected: old, rows: [other, old] }
+  const old = { guid: '3', nickname: 'Old', authVersion: 7 }; const other = { guid: '4', nickname: 'Other', authVersion: 2 }; const newer = { ...old, nickname: 'Newer cache', authVersion: 8 }; const fresh = { ...old, nickname: 'New' }
+  const state = { selected: old, rows: [other, newer, old] }
   assert.equal(reconcileAdminUserEditSuccess({ state, user: fresh, targetGuid: '3', expectedAuthVersion: 7, isCurrent: () => true }), true)
-  assert.equal(state.selected, fresh); assert.deepEqual(state.rows, [other, fresh])
+  assert.equal(state.selected, fresh); assert.deepEqual(state.rows, [other, newer, fresh])
   const stale = { selected: old, rows: [old] }
   assert.equal(reconcileAdminUserEditSuccess({ state: stale, user: fresh, targetGuid: '3', expectedAuthVersion: 7, isCurrent: () => false }), false)
   assert.equal(stale.selected, old)
+})
+
+test('forbidden recovery stays invalidated until identity and target refresh both confirm editability', async () => {
+  const { recoverAdminUserEditForbidden } = await helpers()
+  assert.equal(typeof recoverAdminUserEditForbidden, 'function')
+  let invalidated = true
+  let targetLoads = 0
+  const target = { guid: '3', role: 'user', status: 'active', authVersion: 7 }
+  const base = { isCurrent: () => true, refreshTarget: async () => { targetLoads++; return target },
+    canRestore: fresh => canOpenAdminUserEdit({ actorRole: 'admin', actorGuid: '2', capabilities: ['users.edit'], target: fresh }),
+    restore: () => { invalidated = false } }
+  assert.equal(await recoverAdminUserEditForbidden({ ...base, refreshIdentity: async () => { throw new Error('offline') } }), false)
+  assert.equal(targetLoads, 0); assert.equal(invalidated, true)
+  assert.equal(await recoverAdminUserEditForbidden({ ...base, refreshIdentity: async () => {}, canRestore: () => false }), false)
+  assert.equal(targetLoads, 1); assert.equal(invalidated, true)
+  assert.equal(await recoverAdminUserEditForbidden({ ...base, refreshIdentity: async () => {} }), true)
+  assert.equal(targetLoads, 2); assert.equal(invalidated, false)
+})
+
+test('conflict singleflight binds reuse to one owner and drops an old result after a new owner opens', async () => {
+  const { createAdminUserEditConflictSingleflight } = await helpers()
+  assert.equal(typeof createAdminUserEditConflictSingleflight, 'function')
+  setActivePinia(createPinia())
+  const editStore = useAdminUserEditStore()
+  const ownership = { actorRole: 'admin', actorGuid: '2', capabilities: ['users.edit'], target: { guid: '3', username: 'alice', nickname: 'A', role: 'user', status: 'active', authVersion: 7 },
+    routeGuid: '3', identityEpoch: 'epoch-1', permissionVersion: 1 }
+  const flight = createAdminUserEditConflictSingleflight()
+  const contextA = Object.freeze({ targetGuid: '3', authVersion: 7 })
+  const tokenA = editStore.open(ownership)
+  let releaseA
+  const pendingA = new Promise(resolve => { releaseA = resolve })
+  const a = flight.run({ token: tokenA, context: contextA, isCurrent: owner => editStore.owns(owner), execute: async current => { await pendingA; return current() } })
+  assert.equal(flight.run({ token: tokenA, context: contextA, isCurrent: owner => editStore.owns(owner), execute: async () => true }), a)
+  flight.cancel()
+  const tokenB = editStore.open(ownership)
+  const b = flight.run({ token: tokenB, context: Object.freeze({ targetGuid: '3', authVersion: 7 }), isCurrent: owner => editStore.owns(owner), execute: async current => current() })
+  assert.notEqual(a, b); assert.equal(await b, true)
+  releaseA(); assert.equal(await a, false)
 })
 
 test('view wires owned success, one conflict refresh, failure handling, focus restoration, and the Task5 store', () => {
@@ -44,7 +83,9 @@ test('view wires owned success, one conflict refresh, failure handling, focus re
   for (const name of ['onEditSucceeded', 'onEditConflict', 'onEditFailed', 'restoreEditFocus']) assert.match(descriptor.scriptSetup.content, new RegExp(name))
   assert.match(descriptor.scriptSetup.content, /failureCode === 'authentication_failed'|code === 'authentication_failed'/)
   assert.match(descriptor.scriptSetup.content, /\['forbidden', 'not_found'\]/)
-  assert.match(descriptor.scriptSetup.content, /editConflictPromise/)
+  assert.match(descriptor.scriptSetup.content, /createAdminUserEditConflictSingleflight/)
+  assert.match(descriptor.scriptSetup.content, /function openEdit[\s\S]*?cancelEditRefresh\(\)/)
+  assert.match(descriptor.scriptSetup.content, /const detail = await store\.loadDetail[\s\S]*?return detail\?\.guid === guid/)
   assert.match(descriptor.scriptSetup.content, /editStore\.owns\(editToken\.value\)/)
   assert.match(descriptor.scriptSetup.content, /userStore\.identityEpoch/)
   assert.match(descriptor.template.content, /aria-live="polite"/)
