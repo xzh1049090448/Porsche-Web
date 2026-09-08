@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "generated_at": "2026-09-08T00:53:33+08:00",
-  "overall_status": "PARTIAL_ACCEPTANCE_12_LIMITED_14_BLOCKED",
-  "verdict": "PARTIAL_ACCEPTANCE_12_LIMITED_14_BLOCKED",
+  "overall_status": "PARTIAL_ACCEPTANCE_13_LIMITED_13_BLOCKED",
+  "verdict": "PARTIAL_ACCEPTANCE_13_LIMITED_13_BLOCKED",
   "candidate": {
     "frontend_head": "9f660a9ca26f5738dd661652596a1e450ff34335",
     "backend_head": "3a50144e53268f6ef3ae704699ef9fa851e4a5ee",
@@ -11,12 +11,12 @@
   "environment_manifest_before_final_archive_sha256": "d3d1de8b3609721baba3e1f04ca19ef5990aaad2666e63f9aab7786cb6101641",
   "summary": {
     "total": 26,
-    "PASS_LIMITED_SCOPE": 12,
+    "PASS_LIMITED_SCOPE": 13,
     "FAIL_LOCAL_DEV_ROUTE": 0,
-    "BLOCKED_NOT_IMPLEMENTED": 12,
+    "BLOCKED_NOT_IMPLEMENTED": 11,
     "BLOCKED_PRODUCT": 1,
     "BLOCKED_ENV": 1,
-    "blocked_total": 14
+    "blocked_total": 13
   },
   "supersession": {
     "core_report": "CORE-PHASE-REPORT.md",
@@ -133,10 +133,14 @@
       "prd": "禁用与启用",
       "owner": "FE+BE",
       "expected_evidence": "旧Access/Refresh/Key不可用，启用不恢复旧会话",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "v2禁用/启用及完整Access/Refresh/Key失效链未实现。",
-      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+      "scope_boundary": "本地A06状态迁移切片；禁用和启用均撤销旧会话，启用不恢复旧会话，Key按owner状态及自身生命周期判定。生产未运行。",
+      "evidence": [
+        "backend:docs/superpowers/reports/validation/2026-09-08-a06-managed-user-status/manifest.json",
+        "frontend:docs/agents/validation/a06-managed-user-status-20260908/report.md",
+        "frontend:docs/agents/validation/a06-managed-user-status-20260908/browser-results.json"
+      ]
     },
     {
       "id": "A07",
@@ -461,6 +465,29 @@
       },
       "evidence": "backend:docs/superpowers/reports/validation/2026-09-08-a05-managed-user-edit/manifest.json",
       "note": "仅A05从BLOCKED_NOT_IMPLEMENTED提升为PASS_LIMITED_SCOPE；其他25行不变。该确认来自本地联合验收证据，不臆造后端project_manager书面确认。生产migration/deploy/business accounts均NOT_RUN。"
+    },
+    {
+      "at": "2026-09-08",
+      "status": "PARTIAL_ACCEPTANCE_13_LIMITED_13_BLOCKED",
+      "counts": {
+        "total": 26,
+        "PASS_LIMITED_SCOPE": 13,
+        "FAIL_LOCAL_DEV_ROUTE": 0,
+        "BLOCKED_NOT_IMPLEMENTED": 11,
+        "BLOCKED_PRODUCT": 1,
+        "BLOCKED_ENV": 1,
+        "blocked_total": 13
+      },
+      "candidate": {
+        "backend": "08617d400228c224fa2312583fde14f54f7a7686",
+        "frontend": "07c7b9e3caa5fe18bd69be74e71f577577943840"
+      },
+      "canonical_evidence_commits": {
+        "backend": "1677bc5384aa5968a213d6cae2efe62198b92964",
+        "frontend": "b62055245e2dc6d954a545caab2c02ee45fa3d3a"
+      },
+      "evidence": "backend:docs/superpowers/reports/validation/2026-09-08-a06-managed-user-status/manifest.json",
+      "note": "仅A06从BLOCKED_NOT_IMPLEMENTED提升为PASS_LIMITED_SCOPE；其他25行不变。本地证据与双端独立复审均PASS；未臆造后端project_manager外部书面确认。生产migration/deploy/business accounts均NOT_RUN。"
     }
   ],
   "code_under_test": {
@@ -504,5 +531,33 @@
       "deployment": "NOT_RUN",
       "business_accounts": "NOT_RUN"
     }
+  },
+  "a06_acceptance": {
+    "status": "PASS_LIMITED_SCOPE",
+    "code_under_test": {
+      "backend": "08617d400228c224fa2312583fde14f54f7a7686",
+      "frontend": "07c7b9e3caa5fe18bd69be74e71f577577943840"
+    },
+    "canonical_evidence_commits": {
+      "backend": "1677bc5384aa5968a213d6cae2efe62198b92964",
+      "frontend": "b62055245e2dc6d954a545caab2c02ee45fa3d3a"
+    },
+    "contract_sha256": "c3662b25500879d67c6811fa270d4a6a39a44db812c7c493d6f02e535940b415",
+    "tests": {
+      "backend_real_mysql_redis": "PASS",
+      "backend_focused_race": "PASS",
+      "backend_no_fixture_full": "PASS",
+      "backend_build_vet_diff": "PASS",
+      "frontend_full": "364/364 PASS",
+      "frontend_mounted_status": "13/13 PASS",
+      "frontend_production_build": "PASS",
+      "chrome_375_390_overflow": "PASS"
+    },
+    "reviews": {
+      "backend": "PASS",
+      "frontend": "PASS"
+    },
+    "scope_boundary": "仅本地A06禁用/启用切片；生产migration、deploy、production acceptance及真实business accounts均NOT_RUN；拒绝管理动作审计仍为后续PRD残留。",
+    "backend_project_manager_written_confirmation": "NOT_OBTAINED"
   }
 }
