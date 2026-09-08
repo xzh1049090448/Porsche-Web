@@ -1,10 +1,10 @@
 # A08 managed-user role and permission writes frontend design
 
-Status: `DRAFT_PENDING_WRITTEN_REVIEW`
+Status: `AGREED_FOR_IMPLEMENTATION`
 
 Chosen approach: mixed endpoint contract (user selection `1`, 2026-09-09)
 
-Contract revision: `2026-09-09-a08-v1-draft`
+Contract revision: `2026-09-09-a08-v1`
 
 The canonical cross-stack design is maintained in the paired Porsche backend repository at `docs/superpowers/specs/2026-09-09-a08-managed-user-roles-permissions-design.md`. This companion freezes the frontend boundary that must match that revision. It does not mark A08, `web-012`, the 26-case joint matrix or deployment complete.
 
@@ -28,7 +28,7 @@ Permission replacement uses:
 - verified and idempotent `PATCH /admin/v2/users/{guid}/permissions`;
 - exact-scope `GET /admin/v2/operations?scope=users.permissions.write`.
 
-All three mutations require one original `Idempotency-Key`, one single-use `X-Action-Ticket`, strict request DTOs and the expected auth/policy/catalog versions defined by contract revision `2026-09-09-a08-v1-draft`. Neither Issue nor mutation is automatically replayed.
+All three mutations require one original `Idempotency-Key`, one single-use `X-Action-Ticket`, strict request DTOs and the expected auth/policy/catalog versions defined by contract revision `2026-09-09-a08-v1`. Neither Issue nor mutation is automatically replayed.
 
 ## Mounted controls and dialogs
 
@@ -63,4 +63,4 @@ After trusted success, the page performs one owned detail/permissions refresh. A
 
 Frontend acceptance covers exact DTO/header/query mapping, Root-only eligibility, locked Root-only capability rows, full-policy serialization, browser-visible success/conflict/commit-unknown states, no automatic mutation replay, stale-result rejection, secret scans, keyboard/focus behavior, 375px/390px layouts, full tests and production build. Real MySQL/Redis role/policy transitions, old credential rejection and Gateway Key current-owner authorization are cross-stack acceptance requirements and cannot be replaced with frontend Mock evidence.
 
-The selected endpoint approach is approved in principle. Written review must still confirm the exact contract fields and persistence/result semantics in the canonical design before implementation begins.
+The user approved this written specification on 2026-09-09. Implementation must follow the paired TDD plan and exact backend contract revision; final cross-stack evidence and external backend `project_manager` confirmation remain separately pending.
