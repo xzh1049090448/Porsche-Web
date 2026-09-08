@@ -1,0 +1,28 @@
+{
+  "status": "PASS",
+  "case": "two-tabs-refresh-serialized",
+  "requestsBeforeLockRelease": 0,
+  "requestsWhileFirstResponseHeld": 1,
+  "totalRefreshRequests": 2,
+  "events": [
+    {
+      "kind": "request",
+      "at": "2026-09-03T03:25:24.430Z"
+    },
+    {
+      "kind": "response",
+      "status": 200,
+      "at": "2026-09-03T03:25:25.320Z"
+    },
+    {
+      "kind": "request",
+      "at": "2026-09-03T03:25:25.321Z"
+    },
+    {
+      "kind": "response",
+      "status": 200,
+      "at": "2026-09-03T03:25:25.695Z"
+    }
+  ],
+  "cleanup": 204
+}

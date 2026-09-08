@@ -1,3 +1,4 @@
+import { authSession } from '@/api/request'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getItem, setItem } from '@/utils/storage'
@@ -50,13 +51,20 @@ export const useSettingsStore = defineStore('settings', () => {
   const modelParams = ref({ ...initialPreset.params })
 
   let modelsLoadPromise = null
+  authSession.onInvalidate(() => {
+    models.value = []; modelsLoaded.value = false; catalogStale.value = false
+    modelLoadError.value = false; selectedModelId.value = ''; compareModelIds.value = []
+    compareMode.value = false; modelsLoadPromise = null
+  })
 
   async function loadModels() {
     if (modelsLoaded.value) return
     if (modelsLoadPromise) return modelsLoadPromise
+    const context = authSession.capture()
     modelsLoadPromise = (async () => {
       try {
         const catalog = await listModels()
+        authSession.assertCurrent(context)
         models.value = catalog.models
         catalogStale.value = catalog.catalogStale
         modelLoadError.value = false
@@ -67,9 +75,11 @@ export const useSettingsStore = defineStore('settings', () => {
         setItem('compareModelIds', compareModelIds.value)
         modelsLoaded.value = true
       } catch {
+        if (authSession.capture().epoch !== context.epoch) return
         modelsLoaded.value = false
         modelLoadError.value = true
       } finally {
+        if (authSession.capture().epoch !== context.epoch) return
         modelsLoadPromise = null
       }
     })()

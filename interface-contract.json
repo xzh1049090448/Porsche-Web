@@ -1,0 +1,715 @@
+{
+  "version": "v1.0.0-p0",
+  "status": "agreed_for_implementation",
+  "update_time": "2026-09-03",
+  "maintainers": [
+    "front_end_project_coordinator",
+    "project_manager"
+  ],
+  "baseline": {
+    "frontend_main": "9e133518874e1c0554615ae988f57d6d6cecfbf6",
+    "frontend_reused": "6f8fbca",
+    "backend": "0bab2b7fd7515789c7a853edab7db120771b6028",
+    "backend_old_main_not_target": "e0efac2e22a9946491da72be1c0f3269156835eb",
+    "frontend_upstream_integrated": "7fbf616",
+    "backend_current_code": "ad3f5b4416854353ebb2b3647ae4b2a809b4a05c",
+    "backend_prior_confirmed_deployment": "90abbdc49513039fa9218a6ce72d3147fbf1721e",
+    "frontend_current_code": "158a00e2ff3c70d302c748d0e62f419a155835ae",
+    "documentation_heads": {
+      "/Users/xuzhihao/code/Porsche-Web/.worktrees/auth-p0-harden": "83c87fbe791204a6915ec784bfa6371475312598",
+      "/Users/xuzhihao/code/Porsche/.worktrees/m3-sse-diagnostics": "aec1619ee710c80cd71dbe529660e2d12b3fda7b"
+    },
+    "note": "Historical backend/main baselines retained; current_code is last verified released candidate, not a fresh remote check."
+  },
+  "interfaces": [
+    {
+      "name": "register",
+      "method": "POST",
+      "path": "/api/v1/auth/register",
+      "authentication": "none",
+      "request": {
+        "username": "required string",
+        "password": "required string",
+        "nickname": "optional string|null"
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "user": "AuthUser"
+        }
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "login",
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "authentication": "none",
+      "request": {
+        "username": "required string",
+        "password": "required string"
+      },
+      "response": {
+        "status": 200,
+        "body": "LoginResponse"
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "refresh",
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "authentication": "refresh-cookie + trusted Origin",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": "LoginResponse"
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "logout",
+      "method": "POST",
+      "path": "/api/v1/auth/logout",
+      "authentication": "Bearer + refresh-cookie + trusted Origin",
+      "request": null,
+      "response": {
+        "status": 204,
+        "body": null
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "self",
+      "method": "GET",
+      "path": "/api/v1/auth/self",
+      "authentication": "Bearer",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "user": "AuthUser"
+        }
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "sessions",
+      "method": "GET",
+      "path": "/api/v1/auth/sessions",
+      "authentication": "Bearer",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "data": "AuthSession[]"
+        }
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "revoke_session",
+      "method": "DELETE",
+      "path": "/api/v1/auth/sessions/{guid}",
+      "authentication": "Bearer",
+      "request": {
+        "path_guid": "positive decimal-string"
+      },
+      "response": {
+        "status": 204,
+        "body": null
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "revoke_others",
+      "method": "POST",
+      "path": "/api/v1/auth/sessions/revoke-others",
+      "authentication": "Bearer",
+      "request": null,
+      "response": {
+        "status": 204,
+        "body": null
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "change_password",
+      "method": "POST",
+      "path": "/api/v1/auth/self/password",
+      "authentication": "Bearer",
+      "request": {
+        "old_password": "required string",
+        "new_password": "required string"
+      },
+      "response": {
+        "status": 204,
+        "body": null
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "profile",
+      "method": "GET",
+      "path": "/api/v1/users/me",
+      "authentication": "Bearer",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": "UserProfile"
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.middleware and existing detail-style handler errors"
+    },
+    {
+      "name": "platform_models",
+      "method": "GET",
+      "path": "/api/v1/platform/models",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "data": "Model[]",
+          "catalog_stale": "boolean"
+        }
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/platform.go + internal/whitelabel/types.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "platform_model_detail",
+      "method": "GET",
+      "path": "/api/v1/platform/models/detail",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "query": {
+          "id": "required opaque model ID, URL encoded exactly once; slash preserved as ID content"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "Model"
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/platform.go + internal/whitelabel/types.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "platform_chat_stream",
+      "method": "POST",
+      "path": "/api/v1/platform/chat/completions",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": "PlatformChatRequest",
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "body": "sse_events; first-frame failure instead returns HTTP error JSON"
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/platform.go + internal/service/platform_chat.go + internal/whitelabel/{validation,sse}.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "usage",
+      "method": "GET",
+      "path": "/api/v1/users/me/usage",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": "Usage"
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/auth_users.go + internal/service/billing.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "conversation_list",
+      "method": "GET",
+      "path": "/api/v1/conversations",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "query": {
+          "skip": "client should send integer >=0; default 0",
+          "limit": "client should send integer >=0; default 20; capped at100"
+        },
+        "server_parsing": "Atoi with fallback to default for invalid strings; no explicit negative rejection; limit>100 capped. Client constraint is not server validation proof."
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "items": "Conversation[] without messages",
+          "total": "integer"
+        }
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/conversations_datasets.go + internal/dto/serializers.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "conversation_create",
+      "method": "POST",
+      "path": "/api/v1/conversations",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "title": "optional string|null",
+        "model": "optional string|null"
+      },
+      "response": {
+        "status": 200,
+        "body": "Conversation without messages"
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/conversations_datasets.go + internal/dto/serializers.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "conversation_detail",
+      "method": "GET",
+      "path": "/api/v1/conversations/{guid}",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "path_guid": "positive decimal-string"
+      },
+      "response": {
+        "status": 200,
+        "body": "Conversation with messages"
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/conversations_datasets.go + internal/dto/serializers.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "conversation_title",
+      "method": "PUT",
+      "path": "/api/v1/conversations/{guid}",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "path_guid": "positive decimal-string",
+        "body": {
+          "title": "optional string|null; empty/omitted reads existing detail"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "Conversation with messages"
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/conversations_datasets.go + internal/dto/serializers.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "conversation_delete",
+      "method": "DELETE",
+      "path": "/api/v1/conversations/{guid}",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "path_guid": "positive decimal-string"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "message": "string"
+        }
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/conversations_datasets.go + internal/dto/serializers.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "conversation_markdown",
+      "method": "GET",
+      "path": "/api/v1/conversations/{guid}/export/markdown",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "path_guid": "positive decimal-string"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/plain; charset=utf-8",
+        "body": "Markdown text"
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/conversations_datasets.go + internal/dto/serializers.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "profile_update",
+      "method": "PUT",
+      "path": "/api/v1/users/me",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "nickname": "optional string|null; omitted/null is no-op, not clearing; empty string follows service validation"
+      },
+      "response": {
+        "status": 200,
+        "body": "UserProfile"
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/auth_users.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    }
+  ],
+  "sse_events": [
+    {
+      "event": "message",
+      "data": {
+        "type": "meta",
+        "conversation_guid": "decimal-string"
+      }
+    },
+    {
+      "event": "message",
+      "data": "ChatCompletionChunk"
+    },
+    {
+      "event": "message",
+      "data": "[DONE]",
+      "business_complete": false
+    },
+    {
+      "event": "message",
+      "data": {
+        "type": "done",
+        "tokens": "integer",
+        "total_tokens_used": "integer"
+      }
+    },
+    {
+      "event": "error",
+      "data": "errors.platform envelope; may follow [DONE]; terminal failure even if followed by transport [DONE]"
+    }
+  ],
+  "approvals": {
+    "front_end_project_coordinator": "Explicitly accepts A1-A8 and r2 21-endpoint existing-scope inventory; no new product acceptance",
+    "project_manager": "ALIGN-20260903-02 A1-A8 confirmed, A2 final exact r2 review; calendar dates/resources/P1 semantics/M3 completion pending",
+    "user": "Historical environment, implementation, exact candidate deployment and four generation authorizations executed; no new generation authorized",
+    "quality_gate": "M2 local implementation accepted; M3 normal SSE subcase accepted; overall M3 PARTIAL"
+  },
+  "open_issues": [
+    {
+      "id": "M3-ENV",
+      "status": "resolved_for_executed_scope",
+      "description": "Same-origin HTTPS and dedicated accounts authorized and used; historical not-authorized statement superseded; no new test authorization implied."
+    },
+    {
+      "id": "M3-REMAINING",
+      "status": "open",
+      "owner": "front_end_project_coordinator + project_manager",
+      "description": "Cancellation, in-stream error/EOF, post-DONE failure, cross-identity detail/stream callbacks and remaining registration/ACL matrix; core tests cannot be deferred by calling them P1."
+    },
+    {
+      "id": "OBJECT-CAUSE",
+      "status": "open",
+      "owner": "project_manager",
+      "description": "Earlier invalid_value/object not reproduced on attempt4; actual anomalous shape and root cause unknown."
+    },
+    {
+      "id": "SCHEDULE",
+      "status": "pending",
+      "owner": "both coordinators + user for resources",
+      "description": "Milestone gates confirmed; next integration date, capacity, extra generation budget and fixed daily clock time are not committed."
+    },
+    {
+      "id": "P1-FREEZE",
+      "status": "open",
+      "owner": "both coordinators",
+      "description": "Full model semantics including upstream created units, performance thresholds, compare/new product features and commercial settlement commitments not frozen; current code-shape inventory is not a new product commitment."
+    },
+    {
+      "id": "CURRENT-DB-REGRESSION",
+      "status": "open",
+      "owner": "project_manager",
+      "description": "98 default-suite tests skipped without isolated MySQL/Redis fixture on current diagnostic candidate; prior passing suites retain original revision scope."
+    }
+  ],
+  "alignment_id": "ALIGN-20260902-01",
+  "environment": {
+    "url": "https://aiportcloud.com/",
+    "origin": "https://aiportcloud.com",
+    "revision_confirmation": "version-bound release and request evidence at 2026-09-03T07:48:51Z",
+    "public_health_check": "200 {status:ok}; not a revision proof",
+    "business_test_authorization": true,
+    "authorization_scope": "Previously authorized dedicated account tests and exactly four gpt-5.4-nano generations with max_tokens=32; this document authorizes no new operation",
+    "generation_budget": {
+      "maximum": 4,
+      "used": 4,
+      "remaining": 0
+    },
+    "current_evidence": "docs/agents/validation/m3-object-postcheck.json"
+  },
+  "definitions": {
+    "AuthUser": {
+      "guid": "decimal-string",
+      "username": "string|null",
+      "nickname": "string|null",
+      "role": "string",
+      "status": "string"
+    },
+    "LoginResponse": {
+      "access_token": "string",
+      "token_type": "Bearer",
+      "expires_in": "integer seconds",
+      "user": "AuthUser"
+    },
+    "AuthSession": {
+      "guid": "decimal-string",
+      "login_method": "string",
+      "ip": "string",
+      "user_agent": "string",
+      "created_at": "UTC RFC3339Nano",
+      "last_active_at": "UTC RFC3339Nano",
+      "expires_at": "UTC RFC3339Nano",
+      "current": "boolean"
+    },
+    "UserProfile": {
+      "guid": "decimal-string",
+      "nickname": "string|null",
+      "is_verified": "boolean",
+      "plan_type": "string",
+      "total_tokens_used": "integer",
+      "daily_calls_used": "integer",
+      "daily_call_limit": "integer",
+      "created_at": "UTC RFC3339Nano"
+    },
+    "Model": {
+      "id": "opaque string",
+      "object": "optional string",
+      "created": "optional int64; upstream unit not confirmed, do not assume persistence milliseconds",
+      "owned_by": "optional string",
+      "title": "optional string",
+      "description": "optional string",
+      "context_window": "optional int64",
+      "max_tokens": "optional int64",
+      "input_token_price_per_m": "optional number; not settlement guarantee",
+      "output_token_price_per_m": "optional number; not settlement guarantee"
+    },
+    "Usage": {
+      "total_tokens_used": "integer",
+      "daily_calls_used": "integer",
+      "daily_call_limit": "integer",
+      "remaining_daily_calls": "integer",
+      "plan_type": "string"
+    },
+    "Conversation": {
+      "guid": "decimal-string",
+      "title": "string",
+      "model": "string|null",
+      "created_at": "UTC RFC3339Nano",
+      "updated_at": "UTC RFC3339Nano",
+      "messages": "Message[] present on detail and PUT response"
+    },
+    "Message": {
+      "guid": "decimal-string",
+      "role": "string enum from backend",
+      "content": "string",
+      "model": "string|null",
+      "tokens": "integer",
+      "created_at": "UTC RFC3339Nano"
+    },
+    "PlatformChatRequest": {
+      "model": "required nonblank opaque string",
+      "messages": "required array of ChatMessage; max 128; P0 text subset",
+      "max_tokens": "required positive integer",
+      "stream": "true in this streaming contract; nonstream behavior outside this inventory",
+      "conversation_guid": "optional decimal-string|null; omitted creates new conversation",
+      "temperature": "optional number|null; current validator accepts 0 < value < 2",
+      "context_window": "optional integer|null; backend local context policy",
+      "additional_fields": "No arbitrary fields. Current validator also recognizes n (platform only 1), top_p, frequency_penalty, presence_penalty, stop, tools, response_format, stream_options, seed. Their full behavior and product support are not newly frozen here; see internal/whitelabel/validation.go."
+    },
+    "ChatMessage": {
+      "role": "system|user|assistant|tool",
+      "content": "P0 text string. Structured multimodal content remains current-code compatibility surface, not newly accepted product feature."
+    },
+    "ChatCompletionChunk": {
+      "id": "nonempty string",
+      "object": "chat.completion.chunk",
+      "created": "nonnegative integer; upstream unit not newly agreed",
+      "model": "logical selected model ID",
+      "choices": "ChunkChoice[]; usage-only empty array possible",
+      "usage": "optional {prompt_tokens:integer,completion_tokens:integer,total_tokens:integer}, nonnegative"
+    },
+    "ChunkChoice": {
+      "index": "nonnegative integer",
+      "delta": "ChunkDelta",
+      "finish_reason": "string|null"
+    },
+    "ChunkDelta": {
+      "role": "optional string",
+      "content": "optional string",
+      "refusal": "optional string",
+      "tool_calls": "optional array of {index:integer,id?:string,type?:string,function?:{name?:string,arguments?:string}}; existing compatibility only"
+    }
+  },
+  "definition_format": "Descriptive field types, not JSON Schema or example responses",
+  "authentication": {
+    "access_storage": "memory-only",
+    "refresh_cookie": {
+      "name": "porsche_refresh",
+      "HttpOnly": true,
+      "Secure": true,
+      "SameSite": "Lax",
+      "Path": "/api/v1/auth",
+      "Domain": null
+    },
+    "session_header": "X-Auth-Session optional; if present must match SID, never session guid",
+    "logout": "Cookie SID must equal Bearer SID; clears Cookie",
+    "password_change": "clears Cookie and invalidates all sessions; old password error 401",
+    "register": "201 without session; trim username 3-20 ASCII alphanumeric underscore hyphen; password 8-20 Unicode characters and server weak-password rules",
+    "sessions": "active nonexpired nonrevoked, no pagination, max 100; last_active_at DESC then internal id DESC"
+  },
+  "errors": {
+    "auth_handler": {
+      "error": {
+        "code": "auth_invalid_request|auth_invalid_credentials|auth_invalid_refresh|auth_origin_denied|auth_request_failed|auth_unavailable",
+        "message": "safe string",
+        "type": "authentication_error",
+        "request_id": "string"
+      }
+    },
+    "middleware": {
+      "detail": "string"
+    },
+    "rules": [
+      "401 meaning depends on endpoint and envelope; never replay auth writes",
+      "403 permissions does not log out",
+      "unknown non-JSON data must not be displayed verbatim",
+      "retired phone auth is 410 only at target90abbdc, not old main"
+    ],
+    "platform": {
+      "error": {
+        "code": "invalid_request|unsupported_parameter|missing_max_tokens|request_too_large|model_unavailable|gateway_upstream_unavailable (route-specific, not global list)",
+        "message": "fixed safe string",
+        "type": "invalid_request_error|api_error|authentication_error",
+        "request_id": "local request identifier"
+      }
+    },
+    "platform_statuses": {
+      "400": "invalid/unsupported/missing required parameters",
+      "413": "request too large",
+      "415": "wrong content type",
+      "404": "model unavailable in catalog/ACL lookup",
+      "503": "Before first frame: upstream or projected-stream failure, and non-WhiteLabel local quota/database/conversation/message/serialization errors mapped by platformStreamPreError; do not infer upstream fault from status alone",
+      "stream_started": "event:error safe envelope; HTTP status cannot be replaced",
+      "401": "RequireUser detail envelope; no POST replay"
+    }
+  },
+  "sse_rules": [
+    "POST not automatically replayed",
+    "error is irreversible terminal; callbacks terminate at most once",
+    "EOF without business done is incomplete",
+    "cancel does not prove server cancellation or no billing",
+    "no ping/event id/resume commitment",
+    "existing compare compatibility must remain tested"
+  ],
+  "p1_outline": [
+    {
+      "method": "POST",
+      "path": "/api/v1/platform/chat/compare",
+      "status": "Existing compatibility must be preserved; full request/event inventory and real acceptance not frozen in this P0 supplement"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/self/verify",
+      "status": "Existing real-name feature outside this P0 supplement; do not infer provider availability or use old alias as replacement"
+    }
+  ],
+  "upstream_reconfirmation": {
+    "date": "2026-09-03",
+    "backend_role": "project_manager",
+    "status": "Historical 0bab2b7 confirmation retained in history; ad3f5b4 existing ten endpoints reconfirmed in ALIGN-20260903-02",
+    "scope": "9 auth endpoints + users/me DTO/path/Cookie/Origin/middleware and platform SSE unchanged from 90abbdc",
+    "change": "Refresh replay outside recovery window now returns 401 auth_request_failed after committed revocation/audit; no Set-Cookie. Stop recovery without replay; old/new Refresh and Access rejected after revocation.",
+    "execution": "read-only diff verification; backend tests not rerun in this task",
+    "deployment": "ad3f5b4 candidate source/image/container proven by archived release and attempt4 evidence; not an online check this turn"
+  },
+  "document_revision": "ALIGN-20260903-02-r2",
+  "reconciliation_id": "ALIGN-20260903-02",
+  "reconciliation_status": "confirmed_for_coordination_and_implementation_reference; M3 remains PARTIAL",
+  "history": [
+    {
+      "kind": "pre_reconciliation_metadata",
+      "alignment_id": "ALIGN-20260902-01",
+      "approvals": {
+        "front_end_project_coordinator": "ALIGN-20260902-01 C1-C7 accepted",
+        "project_manager": "backend_alignment final written C1-C7 response",
+        "user": "confirmed environment, deployed 90abbdc, M2 frontend implementation",
+        "quality_gate": "M1 design accepted; implementation and M3 not accepted yet"
+      },
+      "environment": {
+        "url": "https://aiportcloud.com/",
+        "origin": "https://aiportcloud.com",
+        "revision_confirmation": "user-confirmed",
+        "public_health_check": "200 {status:ok}; not a revision proof",
+        "business_test_authorization": false
+      },
+      "open_issues": [
+        {
+          "id": "M3-ENV",
+          "status": "open",
+          "description": "Dedicated HTTPS same-origin test data/accounts and actual Cookie/multi-tab tests are not authorized or executed by this implementation."
+        },
+        {
+          "id": "P1-FREEZE",
+          "status": "open",
+          "description": "Full model schema, upstream timestamp semantics, production performance and cancellation/billing acceptance remain P1/M3."
+        }
+      ],
+      "upstream_reconfirmation": {
+        "date": "2026-09-03",
+        "backend_role": "project_manager",
+        "status": "written code-contract confirmation; not deployment or joint acceptance",
+        "scope": "9 auth endpoints + users/me DTO/path/Cookie/Origin/middleware and platform SSE unchanged from 90abbdc",
+        "change": "Refresh replay outside recovery window now returns 401 auth_request_failed after committed revocation/audit; no Set-Cookie. Stop recovery without replay; old/new Refresh and Access rejected after revocation.",
+        "execution": "read-only diff verification; backend tests not rerun in this task",
+        "deployment": "90abbdc previously user-confirmed; 0bab2b7 deployment not verified"
+      }
+    }
+  ],
+  "pagination": {
+    "auth_sessions": "No pagination; active unrevoked/unexpired max100",
+    "conversations": "Client uses nonnegative skip/limit; server Atoi fallback default0/default20, no explicit negative rejection, limit>100 capped; {items,total}, not pageNum/pageSize",
+    "platform_models": "{data,catalog_stale}; no pagination contract"
+  },
+  "versioning": {
+    "api_prefix": "/api/v1",
+    "contract_version": "v1.0.0-p0 retained; document_revision identifies evidence/catalogue update",
+    "change_process": "Change ID + old/new fields + impacted versions/tests/schedule + both coordinators written confirmation before authorized implementation",
+    "breaking_change": "Propose explicit new API/contract version and migration; no automatic version negotiation inferred"
+  },
+  "scope_confirmation": "P0 core unchanged; dependencies describe existing surfaces used in M3. Including them does not mark web-002/004/005/006 complete or remove cancellation/error acceptance gates.",
+  "confirmation_record": "docs/agents/2026-09-03-alignment-confirmations.md",
+  "confirmation_recorded_at": "2026-09-03T08:05:00.488090+00:00"
+}

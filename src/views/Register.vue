@@ -17,6 +17,7 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { authErrorMessage } from '@/api/auth-errors'
 import { useRouter } from 'vue-router'
 import { register } from '@/api/auth'
 import { useI18n } from '@/composables/useI18n'
@@ -40,7 +41,7 @@ async function submit() {
     await register({ username: form.username, password: form.password, nickname: form.nickname || undefined })
     ElMessage.success(t('login.registerSuccess'))
     await router.replace('/login')
-  } finally { loading.value = false }
+  } catch (error) { ElMessage.error(authErrorMessage(error)) } finally { loading.value = false }
 }
 </script>
 

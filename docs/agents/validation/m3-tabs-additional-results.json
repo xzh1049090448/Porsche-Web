@@ -1,0 +1,16 @@
+[
+  {
+    "name": "refresh-logout-cross-tab-web-lock",
+    "status": "PASS",
+    "logoutBeforeRefreshSettled": 0,
+    "logoutAfter": 1
+  },
+  {
+    "name": "closed-refresh-tab-pending-reload-suppression",
+    "status": "PASS",
+    "automaticAuthCalls": 0,
+    "cleanup": {
+      "logout": 204
+    }
+  }
+]

@@ -39,7 +39,7 @@ test('GUID resources are URL encoded and analytics use user_guid', async () => {
   assert.doesNotMatch(conversations, /dataset_enabled|dataset_ids/)
   assert.match(billing, /orders\/\$\{encodeURIComponent\(guid\)\}/)
   assert.match(tokens, /requiredGuid\(guid, 'token GUID'\)/)
-  assert.match(auth, /user:\s*response\.user/)
+  assert.match(auth, /authSession\.cookieOperation\('login'/)
   assert.doesNotMatch(auth, /user_guid|user_id|\.id/)
   assert.match(analytics, /params\.user_guid/)
   assert.doesNotMatch(analytics, /params\.user_id/)

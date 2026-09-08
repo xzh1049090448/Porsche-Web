@@ -104,3 +104,9 @@ test('platform mappers reject numeric, null, and blank GUIDs', () => {
     assert.equal(mapOrder({ guid }).guid, null)
   }
 })
+
+test('profile timestamps accept RFC3339Nano and milliseconds, and reject invalid times', () => {
+  assert.equal(mapUserProfile({ created_at: '2026-09-02T01:02:03.123456789Z' }).createdAt, Date.parse('2026-09-02T01:02:03.123Z'))
+  assert.equal(mapUserProfile({ created_at: 1750000000000 }).createdAt, 1750000000000)
+  assert.equal(mapUserProfile({ created_at: 'invalid' }).createdAt, null)
+})

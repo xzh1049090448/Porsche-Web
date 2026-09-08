@@ -1,0 +1,122 @@
+{
+  "status": "PASS",
+  "case": "real-expiry-concurrent-GET-late401-and-POST",
+  "expiredPost": {
+    "status": 401,
+    "count": 1,
+    "refreshCount": 0
+  },
+  "concurrentGetRefreshCount": 1,
+  "late401AfterRefresh": true,
+  "cleanup": 204,
+  "responses": [
+    {
+      "path": "/api/v1/auth/refresh",
+      "method": "POST",
+      "status": 401,
+      "at": "2026-09-03T03:18:55.779Z"
+    },
+    {
+      "path": "/api/v1/auth/login",
+      "method": "POST",
+      "status": 200,
+      "at": "2026-09-03T03:18:57.379Z"
+    },
+    {
+      "path": "/api/v1/users/me",
+      "method": "GET",
+      "status": 200,
+      "at": "2026-09-03T03:18:57.679Z"
+    },
+    {
+      "path": "/api/v1/users/me/usage",
+      "method": "GET",
+      "status": 200,
+      "at": "2026-09-03T03:18:58.036Z"
+    },
+    {
+      "path": "/api/v1/platform/models",
+      "method": "GET",
+      "status": 200,
+      "at": "2026-09-03T03:18:59.820Z"
+    },
+    {
+      "path": "/api/v1/platform/models/detail",
+      "method": "GET",
+      "status": 200,
+      "at": "2026-09-03T03:19:00.215Z"
+    },
+    {
+      "path": "/api/v1/conversations",
+      "method": "GET",
+      "status": 200,
+      "at": "2026-09-03T03:19:00.242Z"
+    },
+    {
+      "path": "/api/v1/conversations/353736422311596032",
+      "method": "GET",
+      "status": 200,
+      "at": "2026-09-03T03:19:00.565Z"
+    },
+    {
+      "path": "/api/v1/auth/self",
+      "method": "GET",
+      "status": 401,
+      "at": "2026-09-03T03:34:00.861Z"
+    },
+    {
+      "path": "/api/v1/platform/chat/completions",
+      "method": "POST",
+      "status": 401,
+      "at": "2026-09-03T03:34:01.312Z"
+    },
+    {
+      "path": "/api/v1/auth/sessions",
+      "method": "GET",
+      "status": 401,
+      "at": "2026-09-03T03:34:01.965Z"
+    },
+    {
+      "path": "/api/v1/users/me",
+      "method": "GET",
+      "status": 401,
+      "at": "2026-09-03T03:34:02.131Z"
+    },
+    {
+      "path": "/api/v1/auth/refresh",
+      "method": "POST",
+      "status": 200,
+      "at": "2026-09-03T03:34:02.418Z"
+    },
+    {
+      "path": "/api/v1/users/me/usage",
+      "method": "GET",
+      "status": 401,
+      "at": "2026-09-03T03:34:02.462Z"
+    },
+    {
+      "path": "/api/v1/auth/sessions",
+      "method": "GET",
+      "status": 200,
+      "at": "2026-09-03T03:34:02.749Z"
+    },
+    {
+      "path": "/api/v1/users/me",
+      "method": "GET",
+      "status": 200,
+      "at": "2026-09-03T03:34:02.750Z"
+    },
+    {
+      "path": "/api/v1/users/me/usage",
+      "method": "GET",
+      "status": 200,
+      "at": "2026-09-03T03:34:02.754Z"
+    },
+    {
+      "path": "/api/v1/auth/logout",
+      "method": "POST",
+      "status": 204,
+      "at": "2026-09-03T03:34:04.577Z"
+    }
+  ]
+}

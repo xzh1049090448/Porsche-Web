@@ -1,0 +1,4 @@
+{
+  "status": "FAIL",
+  "error": "The expression evaluated to a falsy value:\n\n  assert(observed.some(x=>x.path==='/api/v1/users/me'&&x.status===200))\n"
+}

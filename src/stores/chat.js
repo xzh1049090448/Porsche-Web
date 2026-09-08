@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getItem, setItem, removeItem } from '@/utils/storage'
-import { USE_MOCK } from '@/api/request'
+import { USE_MOCK, authSession } from '@/api/request'
 import { streamPlatformChat, comparePlatformChat } from '@/api/platform'
 import {
   listConversations,
@@ -30,6 +30,17 @@ export const useChatStore = defineStore('chat', () => {
   const activeId = ref(USE_MOCK ? getItem('activeConversation', null) : null)
   const streaming = ref(false)
   const loading = ref(false)
+  const conversationDetailPromises = new Map()
+  let streamController = null
+  function cancelStream() { streamController?.abort() }
+  authSession.onInvalidate(() => {
+    cancelStream()
+    conversations.value = []; activeId.value = null
+    streaming.value = false; loading.value = false
+    conversationsLoadPromise = null
+    conversationDetailPromises.clear()
+    try { removeItem('conversations'); removeItem('activeConversation') } catch { /* Authentication core handles unavailable storage. */ }
+  })
 
   function persistLocal() {
     if (USE_MOCK) {
@@ -108,9 +119,11 @@ export const useChatStore = defineStore('chat', () => {
   async function fetchConversations() {
     if (conversationsLoadPromise) return conversationsLoadPromise
     loading.value = true
+    const context = authSession.capture()
     conversationsLoadPromise = (async () => {
       try {
         const { items } = await listConversations({ limit: 100 })
+        authSession.assertCurrent(context)
         conversations.value = items
         if (!getActive() && items.length) {
           activeId.value = items[0].guid
@@ -119,6 +132,7 @@ export const useChatStore = defineStore('chat', () => {
           await refreshActiveConversation()
         }
       } finally {
+        if (authSession.capture().epoch !== context.epoch) return
         loading.value = false
         conversationsLoadPromise = null
       }
@@ -146,10 +160,9 @@ export const useChatStore = defineStore('chat', () => {
     if (!USE_MOCK) return refreshActiveConversation()
   }
 
-  const conversationDetailPromises = new Map()
-
   async function refreshActiveConversation() {
     // The user may select another conversation while this request is pending.
+    const context = authSession.capture()
     const requestedGuid = activeId.value
     if (!requestedGuid) return
     if (conversationDetailPromises.has(requestedGuid)) {
@@ -158,6 +171,7 @@ export const useChatStore = defineStore('chat', () => {
     const pending = (async () => {
       try {
         const conv = await getConversation(requestedGuid)
+        authSession.assertCurrent(context)
         const idx = conversations.value.findIndex((c) => c.guid === requestedGuid)
         // Do not resurrect a removed conversation or apply a mismatched response.
         if (idx < 0 || conv.guid !== requestedGuid) return
@@ -168,6 +182,7 @@ export const useChatStore = defineStore('chat', () => {
         conversations.value = upsertConversationByGuid(conversations.value, conv)
         return conv
       } catch (err) {
+        if (authSession.capture().epoch !== context.epoch) return
         if (err?.response?.status === 404) {
           conversations.value = removeConversationByGuid(conversations.value, requestedGuid)
           purgeConversationFromLocal(requestedGuid)
@@ -183,7 +198,7 @@ export const useChatStore = defineStore('chat', () => {
         }
       } finally {
         // Cache only in-flight work: a failed detail must remain retryable.
-        conversationDetailPromises.delete(requestedGuid)
+        if (conversationDetailPromises.get(requestedGuid) === pending) conversationDetailPromises.delete(requestedGuid)
       }
     })()
     conversationDetailPromises.set(requestedGuid, pending)
@@ -227,12 +242,15 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function ensureActive() {
+    const context = authSession.capture()
     if (!USE_MOCK && conversations.value.length === 0) {
       await fetchConversations()
+      authSession.assertCurrent(context)
     }
     if (!activeId.value || !getActive()) {
       if (conversations.value.length === 0) {
         await createConversation()
+        authSession.assertCurrent(context)
       } else {
         activeId.value = conversations.value[0].guid
         persistLocal()
@@ -242,7 +260,9 @@ export const useChatStore = defineStore('chat', () => {
     // current selection's existing request, then re-check if selection changed.
     while (conversationDetailPromises.has(activeId.value)) {
       await conversationDetailPromises.get(activeId.value)
+      authSession.assertCurrent(context)
     }
+    authSession.assertCurrent(context)
     return getActive()
   }
 
@@ -271,10 +291,13 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     streaming.value = true
+    const context = authSession.capture()
+    streamController = new AbortController()
 
     let conv
     try {
       conv = await ensureActive()
+      authSession.assertCurrent(context)
     } catch {
       streaming.value = false
       return
@@ -297,7 +320,7 @@ export const useChatStore = defineStore('chat', () => {
     persistLocal()
 
     if (settings.compareMode) {
-      return sendCompareMode(userContent, conv)
+      return sendCompareMode(userContent, conv, context)
     }
 
     const assistantMsg = {
@@ -322,6 +345,8 @@ export const useChatStore = defineStore('chat', () => {
           context_window: settings.modelParams.contextWindow,
         },
         {
+          signal: streamController.signal,
+          onCancel() { streamFailed = true },
           onMeta(meta) {
             if (meta.conversationGuid != null) {
               conversationGuid = meta.conversationGuid
@@ -346,17 +371,21 @@ export const useChatStore = defineStore('chat', () => {
           },
         }
       )
+      authSession.assertCurrent(context)
       if (!USE_MOCK && conversationGuid && !streamFailed) {
         await refreshActiveConversation()
       }
+    } catch (error) {
+      if (error.name !== 'AbortError' && error.code !== 'identity_changed') assistantMsg.content += '\n\n请求未完成'
     } finally {
+      if (authSession.capture().epoch !== context.epoch) return
       streaming.value = false
       conv.updatedAt = Date.now()
       persistLocal()
     }
   }
 
-  async function sendCompareMode(content, conv) {
+  async function sendCompareMode(content, conv, context) {
     const settings = useSettingsStore()
     const modelIds = [...settings.compareModelIds]
 
@@ -384,6 +413,8 @@ export const useChatStore = defineStore('chat', () => {
           context_window: settings.modelParams.contextWindow,
         },
         {
+          signal: streamController.signal,
+          onCancel() { compareFailed = true },
           onModelChunk({ model, delta }) {
             patchCompareReply(conv, assistantMsg.localKey, model, delta)
           },
@@ -416,6 +447,7 @@ export const useChatStore = defineStore('chat', () => {
         }
       )
 
+      authSession.assertCurrent(context)
       if (!USE_MOCK && conversationGuid && !compareFailed) {
         const cIdx = conversations.value.findIndex((c) => c.guid === conv.guid)
         const mIdx =
@@ -432,6 +464,7 @@ export const useChatStore = defineStore('chat', () => {
         mergeLastMultiModelReplies(conv.guid, assistantMsg.localKey, streamedReplies)
       }
     } catch (err) {
+      if (err.name === 'AbortError' || authSession.capture().epoch !== context.epoch) return
       const msg = useLocaleStore().t('chat.compareFailed')
       const next = { ...assistantMsg.replies }
       for (const id of modelIds) {
@@ -439,6 +472,7 @@ export const useChatStore = defineStore('chat', () => {
       }
       assistantMsg.replies = next
     } finally {
+      if (authSession.capture().epoch !== context.epoch) return
       streaming.value = false
       conv.updatedAt = Date.now()
       persistLocal()
@@ -459,5 +493,6 @@ export const useChatStore = defineStore('chat', () => {
     ensureActive,
     refreshActiveConversation,
     sendMessage,
+    cancelStream,
   }
 })

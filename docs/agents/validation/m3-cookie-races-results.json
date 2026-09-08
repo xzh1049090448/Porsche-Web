@@ -1,0 +1,15 @@
+[
+  {
+    "name": "competing-logins-stale-epoch-rejected-before-network",
+    "status": "PASS",
+    "loginRequests": 1,
+    "loser": "anonymous",
+    "cleanup": 204
+  },
+  {
+    "name": "competing-logouts-stale-epoch-rejected-before-network",
+    "status": "PASS",
+    "logoutRequests": 1,
+    "serverStatus": 204
+  }
+]

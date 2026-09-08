@@ -1,0 +1,62 @@
+[
+  {
+    "width": 1280,
+    "status": "PASS",
+    "errors": [],
+    "unexpected": [],
+    "geometry": {
+      "icon": {
+        "x": 180,
+        "y": 230,
+        "width": 18,
+        "height": 18,
+        "top": 230,
+        "right": 198,
+        "bottom": 248,
+        "left": 180
+      },
+      "wrapper": {
+        "x": 180,
+        "y": 230,
+        "width": 18,
+        "height": 18,
+        "top": 230,
+        "right": 198,
+        "bottom": 248,
+        "left": 180
+      },
+      "wrapperClass": "el-dropdown conv-more-dropdown"
+    },
+    "menuOpenedByNormalClick": true
+  },
+  {
+    "width": 1600,
+    "status": "PASS",
+    "errors": [],
+    "unexpected": [],
+    "geometry": {
+      "icon": {
+        "x": 180,
+        "y": 230,
+        "width": 18,
+        "height": 18,
+        "top": 230,
+        "right": 198,
+        "bottom": 248,
+        "left": 180
+      },
+      "wrapper": {
+        "x": 180,
+        "y": 230,
+        "width": 18,
+        "height": 18,
+        "top": 230,
+        "right": 198,
+        "bottom": 248,
+        "left": 180
+      },
+      "wrapperClass": "el-dropdown conv-more-dropdown"
+    },
+    "menuOpenedByNormalClick": true
+  }
+]
