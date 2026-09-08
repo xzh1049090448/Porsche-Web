@@ -13,6 +13,9 @@ const compareDecimal = (left, right) => left.length - right.length || (left < ri
 const validGuid = value => typeof value === 'string' && GUID.test(value) && compareDecimal(value, MAX_INT64) <= 0
 const validIdentityEpoch = value => typeof value === 'string' && IDENTITY_EPOCH.test(value)
 const validPermissionVersion = value => Number.isSafeInteger(value) && value >= 0
+const sameTarget = (value, snapshot) => value && typeof value === 'object' && !Array.isArray(value)
+  && value.guid === snapshot.guid && (value.username ?? null) === snapshot.username && (value.nickname ?? null) === snapshot.nickname
+  && value.role === snapshot.role && value.status === snapshot.status && value.authVersion === snapshot.authVersion
 
 function safeTarget(value) {
   if (!value || !validGuid(value.guid) || !['user', 'admin', 'root'].includes(value.role) || !['active', 'disabled', 'deleted'].includes(value.status)
@@ -62,15 +65,15 @@ export function createAdminUserEditCoordinator({ api = { patchAdminUserEdit }, c
   }
   const updateContext = (token, next) => {
     if (!owns(token) || !next || typeof next !== 'object') return false
-    let target = null
-    if (Object.hasOwn(next, 'target')) { try { target = safeTarget(next.target) } catch { return false } }
+    const ownedContext = context
     const routeGuid = Object.hasOwn(next, 'routeGuid') ? next.routeGuid : value.routeGuid
     const identityEpoch = Object.hasOwn(next, 'identityEpoch') ? next.identityEpoch : value.identityEpoch
     const permissionVersion = Object.hasOwn(next, 'permissionVersion') ? next.permissionVersion : value.permissionVersion
-    if (!validGuid(routeGuid) || !validIdentityEpoch(identityEpoch) || !validPermissionVersion(permissionVersion)) return false
-    const changed = routeGuid !== value.routeGuid || identityEpoch !== value.identityEpoch || permissionVersion !== value.permissionVersion
-      || target !== null
+    const targetChanged = Object.hasOwn(next, 'target') && !sameTarget(next.target, ownedContext.targetSnapshot)
+    const changed = routeGuid !== ownedContext.routeGuid || identityEpoch !== ownedContext.identityEpoch || permissionVersion !== ownedContext.permissionVersion || targetChanged
     if (changed) close(token)
+    if (!validGuid(routeGuid) || !validIdentityEpoch(identityEpoch) || !validPermissionVersion(permissionVersion)) return false
+    if (Object.hasOwn(next, 'target')) { try { safeTarget(next.target) } catch { return false } }
     return true
   }
   const submit = (token, input) => {

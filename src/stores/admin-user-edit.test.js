@@ -49,6 +49,31 @@ test('open copies mutable target and capability inputs into the owned request', 
   assert.deepEqual(calls, [{ targetGuid: target.guid, nickname: 'Alice', expectedAuthVersion: 7 }])
 })
 
+test('invalid supplied ownership context disposes a pending workflow before returning false', async () => {
+  for (const next of [
+    { routeGuid: '01' }, { identityEpoch: {} }, { permissionVersion: -1 }, { target: { ...target, authVersion: 0 } },
+  ]) {
+    const pending = deferred()
+    const successes = []
+    const coordinator = createAdminUserEditCoordinator({ api: { patchAdminUserEdit: async () => pending.promise }, onSucceeded: value => successes.push(value) })
+    const token = coordinator.open(ownership)
+    const running = coordinator.submit(token, { nickname: 'Alice' })
+    assert.equal(coordinator.updateContext(token, next), false)
+    pending.resolve(mappedUser)
+    assert.deepEqual(await running, { state: 'disposed', user: null, failureCode: 'workflow_disposed' })
+    assert.equal(coordinator.state.open, false)
+    assert.deepEqual(successes, [])
+  }
+})
+
+test('an identical supplied ownership context does not close the owned dialog', () => {
+  const coordinator = createAdminUserEditCoordinator({ api: { patchAdminUserEdit: async () => mappedUser } })
+  const token = coordinator.open(ownership)
+  assert.equal(coordinator.updateContext(token, { routeGuid: ownership.routeGuid, identityEpoch: ownership.identityEpoch, permissionVersion: ownership.permissionVersion, target: { ...target } }), true)
+  assert.equal(coordinator.state.open, true)
+  assert.equal(coordinator.owns(token), true)
+})
+
 test('coordinator owns an immutable dialog snapshot and drops late route, identity, permission, dialog, or target settlements', async () => {
   const pending = deferred()
   const successes = []
