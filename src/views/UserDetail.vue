@@ -467,9 +467,9 @@ const entitlementStores = { password:passwordResetStore, group:groupChangeStore,
 const entitlementPredicates = { password:canOpenPasswordReset, group:canOpenGroupChange, plan:canOpenPlanChange }
 const entitlementContexts = { password:null, group:null, plan:null }
 const entitlementTriggers = { password:null, group:null, plan:null }
-let entitlementRefreshRequest = 0
+let entitlementConflictFlight = null
 function closeEntitlementInteractions(except=null) {
-  entitlementRefreshRequest++
+  if (entitlementConflictFlight?.kind !== except) entitlementConflictFlight = null
   for (const kind of ['password','group','plan']) {
     if (kind === except) continue
     const token = entitlementTokens[kind].value
@@ -478,6 +478,7 @@ function closeEntitlementInteractions(except=null) {
 }
 function openEntitlement(kind,target,event) {
   cancelStatusRefresh(); cancelEditRefresh(); cancelDeleteRefresh()
+  entitlementConflictFlight = null
   if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.close(statusToken.value)
   if (editToken.value && editStore.owns(editToken.value)) editStore.close(editToken.value)
   if (deleteToken && actionStore.owns(deleteToken)) actionStore.close(deleteToken)
@@ -514,14 +515,18 @@ async function onPasswordResetSucceeded(result,token){
   if(passwordResetStore.owns(token))passwordResetStore.close(token)
   return applied
 }
-async function refreshEntitlementConflict(kind){
+function refreshEntitlementConflict(kind){
   const token=entitlementTokens[kind].value,captured=entitlementContexts[kind]
-  if(!entitlementCurrent(kind,token,captured))return false
-  const request=++entitlementRefreshRequest;let fresh
-  const refreshed=await entitlementStores[kind].refreshConflict(token,async guid=>{fresh=await getAdminUser(guid);return fresh})
-  if(request!==entitlementRefreshRequest||!refreshed||!fresh||!entitlementCurrent(kind,token,captured)){if(entitlementStores[kind].owns(token))entitlementStores[kind].close(token);return false}
-  if(store.selected?.guid===captured.targetGuid&&store.selected.authVersion===captured.authVersion){store.selected=fresh;if(Array.isArray(store.rows))store.rows=store.rows.map(row=>row?.guid===captured.targetGuid&&row.authVersion===captured.authVersion?fresh:row)}
-  entitlementContexts[kind]=Object.freeze({...captured,authVersion:fresh.authVersion});return true
+  if(!entitlementCurrent(kind,token,captured))return Promise.resolve(false)
+  if(entitlementConflictFlight?.kind===kind&&entitlementConflictFlight.token===token&&entitlementConflictFlight.context===captured)return entitlementConflictFlight.promise
+  const flight={kind,token,context:captured,promise:null};entitlementConflictFlight=flight
+  flight.promise=(async()=>{let fresh
+    const refreshed=await entitlementStores[kind].refreshConflict(token,async guid=>{fresh=await getAdminUser(guid);return fresh})
+    if(entitlementConflictFlight!==flight||!refreshed||!fresh||!entitlementCurrent(kind,token,captured)){if(entitlementStores[kind].owns(token))entitlementStores[kind].close(token);return false}
+    if(store.selected?.guid===captured.targetGuid&&store.selected.authVersion===captured.authVersion){store.selected=fresh;if(Array.isArray(store.rows))store.rows=store.rows.map(row=>row?.guid===captured.targetGuid&&row.authVersion===captured.authVersion?fresh:row)}
+    entitlementContexts[kind]=Object.freeze({...captured,authVersion:fresh.authVersion});return true
+  })().finally(()=>{if(entitlementConflictFlight===flight)entitlementConflictFlight=null})
+  return flight.promise
 }
 function onEntitlementFailed(kind,code){
   const token=entitlementTokens[kind].value;if(!entitlementCurrent(kind,token))return false
