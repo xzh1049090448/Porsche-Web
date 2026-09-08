@@ -2,10 +2,11 @@
   "slice": "A05 managed-user nickname edit",
   "date": "2026-09-08",
   "status": "NOT_RUN_BLOCKED",
+  "supersedes": ["r1", "r2", "r3"],
   "runtime": {
     "browser": "visible Playwright not started",
     "backend": "not started for mutation acceptance",
-    "reason": "Real isolated MySQL service acceptance is blocked before a trustworthy authenticated runtime can be claimed."
+    "reason": "The fresh r4 service, DTO, handler, router, and race gates passed, but one-shot Root bootstrap could not establish the required exactly-one-Root runtime in the reused r4 parent test database."
   },
   "scenarios": {
     "root_to_user_set": "NOT_RUN_BLOCKED",
@@ -17,18 +18,20 @@
     "keyboard_focus_and_responsive_widths": "NOT_RUN_BLOCKED",
     "direct_detail_refresh": "NOT_RUN_BLOCKED",
     "network_patch_body_exactly_two_keys": "NOT_RUN_BLOCKED",
-    "console_errors": "NOT_RUN_BLOCKED"
+    "console_errors": "NOT_RUN_BLOCKED",
+    "adversarial_fields_and_privacy": "NOT_RUN_BLOCKED"
   },
   "preconditions": {
-    "frontend_head": "5a41f5679c1c35e5c2850665db54ae83e58db436",
-    "backend_head": "8b7396e717b005585d575ce38e435d12df2aa513",
-    "dev_server_detection": "no pre-existing dev server was selected",
-    "frontend_gates": "PASS: contract-environment npm test 315/315; npm run build passed",
+    "frontend_evidence_head": "0b827d4fdbd561620f030fcd40c715c59b29c168",
+    "frontend_ui_code_head": "5a41f5679c1c35e5c2850665db54ae83e58db436",
+    "backend_head": "6bb54007879adeb16a532d792ab471f16ee9100a",
+    "frontend_init_build": "PASS: npm install up to date; Vite build passed with existing non-blocking warnings",
+    "backend_fixture_gates": "PASS: migrations 0001-0010; 33 A05 service leaves, 71 DTO/handler/router records, race, and related service regression all passed with zero skips/failures",
     "blocking_evidence": [
-      "r2 supersedes the prior nullable fixture panic and SQL 1064; both are absent",
-      "internal/service/admin_user_edit_test.go:90: permitted Root-to-User, Root-to-Admin, and Admin-to-User set/clear cases fail",
-      "internal/service/admin_user_edit_test.go:115: no-op case fails"
+      "go run ./cmd/bootstrap-root --credentials-file <private r4 file> exited 1: Root bootstrap did not leave exactly one Root user",
+      "aggregate-only r4 database diagnosis found test residue: User=22, Admin=22, Root=2, plus two invalid-role rows",
+      "the required one-Root runtime was not trustworthy, so no backend, frontend, or browser was started"
     ]
   },
-  "privacy": "No browser fixture credentials, tokens, request bodies, or nickname values were captured."
+  "privacy": "No browser fixture credentials, tokens, request bodies, nickname values, usernames, screenshots, console logs, or internal IDs were captured."
 }
