@@ -30,7 +30,7 @@
             @keyup.enter="submitPwd"
           />
         </el-form-item>
-        <el-button type="primary" class="submit-btn" :loading="loading" @click="submitPwd">
+        <el-button type="primary" class="submit-btn" :loading="loading" :disabled="userStore.authState === 'uncertain'" @click="submitPwd">
           {{ t('login.submit') }}
         </el-button>
         <el-button text class="register-link" @click="router.push('/register')">{{ t('login.register') }}</el-button>
@@ -44,6 +44,7 @@ import { ref, reactive, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { User, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import { authErrorMessage } from '@/api/auth-errors'
 import { useUserStore } from '@/stores/user'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import LocaleToggle from '@/components/LocaleToggle.vue'
@@ -74,7 +75,7 @@ async function submitPwd() {
     await userStore.loginUsername({ username: pwdForm.username, password: pwdForm.password })
     ElMessage.success(t('login.success'))
     router.replace(route.query.redirect || '/')
-  } finally {
+  } catch (error) { ElMessage.error(authErrorMessage(error)) } finally {
     loading.value = false
   }
 }

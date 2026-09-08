@@ -37,6 +37,7 @@
         <el-menu-item index="/billing">{{ t('nav.billing') }}</el-menu-item>
         <el-menu-item index="/api-keys">{{ t('nav.apiKeys') }}</el-menu-item>
         <el-menu-item index="/profile">{{ t('nav.profile') }}</el-menu-item>
+        <el-menu-item v-if="canManageUsers" index="/users">用户管理</el-menu-item>
       </el-menu>
       <div class="header-right">
         <LocaleToggle />
@@ -97,6 +98,7 @@
           <el-icon><User /></el-icon>
           <span>{{ t('nav.profile') }}</span>
         </el-menu-item>
+        <el-menu-item v-if="canManageUsers" index="/users"><el-icon><User /></el-icon><span>用户管理</span></el-menu-item>
       </el-menu>
     </MobileDrawer>
 
@@ -107,7 +109,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowDown,
@@ -135,9 +137,12 @@ const showMobileMenu = ref(false)
 const { isTablet } = useBreakpoint()
 const { t } = useI18n()
 
+watch(() => userStore.isLoggedIn, value => { if (!value) void router.replace('/login') })
+
 const user = computed(() => userStore.user)
 const activeMenu = computed(() => route.path)
 const avatarText = computed(() => (user.value?.nickname || 'U').slice(0, 1))
+const canManageUsers = computed(() => user.value?.admin_permissions?.includes('users.read') === true)
 
 const planLabel = computed(() => {
   const p = user.value?.plan
@@ -174,9 +179,8 @@ function goBack() {
 function onUserCommand(cmd) {
   if (cmd === 'logout') {
     ElMessageBox.confirm(t('user.logoutConfirm'), t('user.tip'), { type: 'warning' }).then(async () => {
-      await userStore.logout()
-      router.push('/login')
-    })
+      try { await userStore.logout() } finally { await router.push('/login') }
+    }).catch(() => {})
     return
   }
   router.push(cmd === 'profile' ? '/profile' : cmd === 'api-keys' ? '/api-keys' : '/billing')
@@ -286,5 +290,15 @@ function onUserCommand(cmd) {
   padding: 0;
   height: calc(var(--vh, 1vh) * 100 - var(--header-h));
   overflow: hidden;
+}
+@media (max-width: 768px) {
+  .app-header { padding: 0 8px; gap: 4px; }
+  .header-left { flex: 1; min-width: 0; flex-shrink: 1; overflow: hidden; }
+  .logo { min-width: 0; gap: 4px; }
+  .logo-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100px; font-size: 13px; }
+  .logo-icon { width: 28px; height: 28px; }
+  .header-right { gap: 0; }
+  .user-trigger { padding: 4px; }
+  .user-name, .logo-sub { display: none; }
 }
 </style>

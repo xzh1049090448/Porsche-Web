@@ -1,0 +1,26 @@
+{
+  "codeRevision": "158a00e2ff3c70d302c748d0e62f419a155835ae",
+  "published": true,
+  "archive": "/private/tmp/porsche-web-158a00e-m3.tar.gz",
+  "archiveSha256": "e387cc9f0344c5c6a16aa16a9d065a024944f4e451c7a0a009af1b118dda012c",
+  "entry": "/assets/index-i7ZWPv9J.js",
+  "entrySha256": "7c133cb1197c701cc6288d2718384c92f8b4b24a15fd13d821f3930d8bf09033",
+  "validation": {
+    "tests": "113/113",
+    "build": "PASS 6.53s",
+    "pointerFixture": "1280/1600 PASS",
+    "independentReview": "PASS"
+  },
+  "publication": {
+    "reportedBy": "user",
+    "backup": "/var/backups/porsche-web/m3-158a00e-20260903T042341Z",
+    "verifiedAt": "2026-09-03T04:27:00.705837+00:00",
+    "publicEntryMatched": true,
+    "publicEntrySha256Matched": true,
+    "pointerWidthsPassed": [
+      1280,
+      1600
+    ],
+    "downloadAfterIdentityChange": 0
+  }
+}

@@ -1,0 +1,152 @@
+{
+  "invalid": [
+    {
+      "status": 400,
+      "code": "auth_invalid_request"
+    },
+    {
+      "status": 400,
+      "code": "auth_request_failed"
+    },
+    {
+      "status": 400,
+      "code": "auth_request_failed"
+    }
+  ],
+  "catalog": {
+    "status": 200,
+    "count": 40,
+    "models": [
+      {
+        "id": "baidu/ernie-4.5-300b-a47b-paddle"
+      },
+      {
+        "id": "baidu/ernie-4.5-vl-424b-a47b"
+      },
+      {
+        "id": "claude-haiku-4-5-20251001"
+      },
+      {
+        "id": "claude-opus-4-8"
+      },
+      {
+        "id": "claude-opus-5"
+      },
+      {
+        "id": "deepseek/deepseek-v4-flash"
+      },
+      {
+        "id": "deepseek/deepseek-v4-flash-0731"
+      },
+      {
+        "id": "deepseek/deepseek-v4-pro"
+      },
+      {
+        "id": "doubao-1-5-pro-32k-250115"
+      },
+      {
+        "id": "doubao-1.5-pro-32k-character-250715"
+      },
+      {
+        "id": "doubao-seed-1-8-251228"
+      },
+      {
+        "id": "gemini-2.5-flash-lite"
+      },
+      {
+        "id": "gemini-3.6-flash"
+      },
+      {
+        "id": "gemini-3.7-flash"
+      },
+      {
+        "id": "gpt-5.4-nano"
+      },
+      {
+        "id": "gpt-5.5"
+      },
+      {
+        "id": "gpt-5.6-sol"
+      },
+      {
+        "id": "grok-4-1-fast-non-reasoning"
+      },
+      {
+        "id": "grok-4.5"
+      },
+      {
+        "id": "meta-llama/llama-3.2-3b-instruct"
+      },
+      {
+        "id": "meta-llama/llama-4-maverick-17b-128e-instruct-fp8"
+      },
+      {
+        "id": "meta-llama/llama-4-scout-17b-16e-instruct"
+      },
+      {
+        "id": "minimax/minimax-m2.1"
+      },
+      {
+        "id": "minimax/minimax-m2.7"
+      },
+      {
+        "id": "minimax/minimax-m3"
+      },
+      {
+        "id": "mistralai/mistral-7b-instruct"
+      },
+      {
+        "id": "mistralai/mistral-nemo"
+      },
+      {
+        "id": "moonshotai/kimi-k2-instruct"
+      },
+      {
+        "id": "moonshotai/kimi-k2.7-code"
+      },
+      {
+        "id": "moonshotai/kimi-k3"
+      },
+      {
+        "id": "qwen/qwen2.5-7b-instruct"
+      },
+      {
+        "id": "qwen/qwen3.5-397b-a17b"
+      },
+      {
+        "id": "qwen/qwen3.8-2.4t-a95b"
+      },
+      {
+        "id": "xai/grok-4.6"
+      },
+      {
+        "id": "xiaomimimo/mimo-v2-flash"
+      },
+      {
+        "id": "xiaomimimo/mimo-v2-pro"
+      },
+      {
+        "id": "xiaomimimo/mimo-v2.5-pro"
+      },
+      {
+        "id": "zai-org/glm-5.2"
+      },
+      {
+        "id": "zai-org/glm-5.3"
+      },
+      {
+        "id": "zai-org/glm-5.3-flash"
+      }
+    ]
+  },
+  "usage": {
+    "status": 200,
+    "remaining": 100,
+    "limit": 100
+  },
+  "admin": {
+    "status": 404
+  },
+  "selfAfter": 200,
+  "cleanup": 204
+}

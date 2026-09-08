@@ -1,9 +1,10 @@
+import { authSession } from './request'
 /** 开发环境 Mock：设置 VITE_USE_MOCK=true 启用 */
 import { getItem, setItem, removeItem } from '@/utils/storage'
 import { PLANS } from '@/constants/plans'
 import { FIXED_LOGIN_PHONE, FIXED_LOGIN_PASSWORD } from '@/constants/auth'
 
-const delay = (ms) => new Promise((r) => setTimeout(r, ms))
+const delay = async ms => { const context = authSession.capture(); await new Promise(resolve => setTimeout(resolve, ms)); authSession.assertCurrent(context) }
 
 const MOCK_MODELS = [
   { id: 'demo-chat', name: 'Demo Chat', desc: '本地演示模型', vendor: 'Demo', icon: 'D', type: 'chat', multimodal: false },
@@ -17,6 +18,9 @@ function genGuid() {
   return nextMockGuid.toString()
 }
 
+let mockUser = { guid: '903496573054181376', nickname: '演示用户', verified: false, plan: 'free', totalTokensUsed: 0 }
+const setMockUser = user => { mockUser = user }
+
 const MOCK_RESPONSES = {
   default:
     '您好！我是中国大模型聚合平台的 AI 助手，当前由智谱 GLM 与 DeepSeek V4 Flash 提供对话能力。',
@@ -28,6 +32,11 @@ function ensureConvStore() {
 }
 
 export const mockApi = {
+  async loginUsername({ username, password }) {
+    if (!username || !password) throw new Error('请输入用户名和密码')
+    mockUser = { guid: '903496573054181376', username, nickname: username, verified: false, plan: 'free', totalTokensUsed: 0 }
+    return { access_token: 'mock_token_' + genGuid(), token_type: 'Bearer', expires_in: 300, user: { guid: mockUser.guid, username, nickname: mockUser.nickname, role: 'user', status: 'active' } }
+  },
   async listModels() {
     await delay(100)
     return MOCK_MODELS.map((model) => ({ ...model }))
@@ -37,7 +46,7 @@ export const mockApi = {
     if (!/^1\d{10}$/.test(phone)) throw new Error('手机号格式不正确')
     if (code !== '123456') throw new Error('验证码错误（演示环境请输入 123456）')
     const token = 'mock_token_' + genGuid()
-    setItem('user', {
+    setMockUser({
       guid: '903496573054181376',
       phone,
       nickname: `用户${phone.slice(-4)}`,
@@ -53,7 +62,7 @@ export const mockApi = {
       throw new Error(`账号或密码错误（演示：${FIXED_LOGIN_PHONE} / ${FIXED_LOGIN_PASSWORD}）`)
     }
     const token = 'mock_token_' + genGuid()
-    setItem('user', {
+    setMockUser({
       guid: '903496573054181376',
       phone: account,
       nickname: account.slice(-4),
@@ -71,21 +80,21 @@ export const mockApi = {
 
   async getProfile() {
     await delay(200)
-    return getItem('user')
+    return mockUser
   },
 
   async updateProfile(data) {
     await delay(300)
-    const user = { ...getItem('user'), ...data }
-    setItem('user', user)
+    const user = { ...mockUser, ...data }
+    setMockUser(user)
     return user
   },
 
   async realNameVerify({ name, idCard }) {
     await delay(800)
     if (!name || !idCard || idCard.length < 15) throw new Error('请填写正确的实名信息')
-    const user = { ...getItem('user'), verified: true, realName: name }
-    setItem('user', user)
+    const user = { ...mockUser, verified: true, realName: name }
+    setMockUser(user)
     return user
   },
 
@@ -95,7 +104,7 @@ export const mockApi = {
       totalTokens: 128450,
       remainingQuota: 68,
       dailyLimit: 100,
-      plan: getItem('user')?.plan || 'free',
+      plan: mockUser?.plan || 'free',
     }
   },
 
@@ -114,7 +123,7 @@ export const mockApi = {
           recommended: !!p.recommended,
         }
       }),
-      currentPlan: getItem('user')?.plan || 'free',
+      currentPlan: mockUser?.plan || 'free',
     }
   },
 
@@ -136,8 +145,8 @@ export const mockApi = {
 
   async purchasePlan(planType) {
     await delay(500)
-    const user = { ...getItem('user'), plan: planType }
-    setItem('user', user)
+    const user = { ...mockUser, plan: planType }
+    setMockUser(user)
     return {
       guid: genGuid(),
       orderNo: 'ORD' + genGuid(),
@@ -152,8 +161,8 @@ export const mockApi = {
 
   async payOrder(orderGuid) {
     await delay(300)
-    const user = getItem('user')
-    setItem('user', { ...user, plan: 'professional' })
+    const user = mockUser
+    setMockUser({ ...user, plan: 'professional' })
     return {
       guid: orderGuid,
       orderNo: 'ORD' + orderGuid,
@@ -218,7 +227,7 @@ export const mockApi = {
     }
   },
 
-  async streamChat({ modelId, content, onChunk, onDone, onMeta }) {
+  async streamChat({ modelId, content, onChunk, onDone, onMeta, signal }) {
     const model = MOCK_MODELS.find((m) => m.id === modelId)
     if (onMeta) {
       onMeta({})
@@ -227,6 +236,7 @@ export const mockApi = {
     text = `【${model?.name || modelId}】${text}\n\n（演示模式）`
     for (let i = 0; i < text.length; i++) {
       await delay(18 + Math.random() * 12)
+      if (signal?.aborted) return
       onChunk(text[i])
     }
     const tokens = Math.ceil(text.length * 1.2)
@@ -237,7 +247,7 @@ export const mockApi = {
     })
   },
 
-  async compareModels({ modelIds, content, onModelChunk }) {
+  async compareModels({ modelIds, content, onModelChunk, signal }) {
     const staggerMs = [0, 300, 600]
     const jobs = modelIds.map(async (id, index) => {
       await delay(staggerMs[index] ?? index * 300)
@@ -245,6 +255,7 @@ export const mockApi = {
       const text = MOCK_RESPONSES.compare(model?.name || id) + `\n\n${content.slice(0, 80)}...`
       for (const ch of text) {
         await delay(14 + Math.random() * 10)
+        if (signal?.aborted) return
         onModelChunk?.({ model: id, delta: ch })
       }
     })

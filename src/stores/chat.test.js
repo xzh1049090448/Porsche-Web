@@ -6,7 +6,9 @@ import { setImmediate } from 'node:timers/promises'
 
 // Load the real store/API/mappers via the project's Vite aliases, replacing
 // only Axios's transport so every request stays inside these local fixtures.
-let server, useChatStore, request, route, calls, writes
+let server, useChatStore, request, authSession, route, calls = [], writes = []
+const browserGlobals = ['localStorage', 'navigator', 'isSecureContext', 'BroadcastChannel', 'document']
+const originalGlobals = new Map(browserGlobals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
 const A = '9223372036854775701'
 const B = '9223372036854775702'
 const C = '9223372036854775703'
@@ -21,11 +23,21 @@ function deferred() {
 function httpError(status) { return Object.assign(new Error(`Fixture ${status}`), { response: { status } }) }
 
 before(async () => {
+  const storage = new Map()
   globalThis.localStorage = {
-    getItem: () => null,
-    setItem: (key, value) => writes.push([key, value]),
-    removeItem: () => {},
+    getItem: key => storage.get(key) ?? null,
+    setItem: (key, value) => { writes.push([key, value]); storage.set(key, value) },
+    removeItem: key => storage.delete(key),
   }
+  // Supply browser capabilities at the boundary, retaining the actual core,
+  // browser adapter, HTTP interceptors and epoch checks in this SSR fixture.
+  let lockQueue = Promise.resolve()
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { locks: {
+    request: (_name, _options, fn) => { const pending = lockQueue.then(fn); lockQueue = pending.catch(() => {}); return pending },
+  } } })
+  globalThis.isSecureContext = true
+  globalThis.BroadcastChannel = class { addEventListener() {} removeEventListener() {} postMessage() {} }
+
   server = await createServer({
     envFile: false,
     server: { middlewareMode: true, watch: null, ws: false },
@@ -42,7 +54,7 @@ before(async () => {
     }],
   })
   ;({ useChatStore } = await server.ssrLoadModule('/src/stores/chat.js'))
-  ;({ default: request } = await server.ssrLoadModule('/src/api/request.js'))
+  ;({ default: request, authSession } = await server.ssrLoadModule('/src/api/request.js'))
   globalThis.document = { documentElement: { setAttribute() {} } }
   request.defaults.adapter = async (config) => {
     calls.push([config.method, config.url])
@@ -50,9 +62,17 @@ before(async () => {
     return { data, status: 200, statusText: 'OK', headers: {}, config }
   }
 })
-after(async () => { await server?.close(); delete globalThis.localStorage; delete globalThis.document })
+after(async () => {
+  await server?.close()
+  for (const [key, descriptor] of originalGlobals) {
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+    else delete globalThis[key]
+  }
+})
 beforeEach(() => {
   setActivePinia(createPinia())
+  authSession.clearSession()
+  authSession.setSession({ accessToken: 'fixture-access', user: { guid: '1', username: 'fixture', nickname: null, role: 'user', status: 'active' } })
   calls = []; writes = []
   route = ({ url, method }) => {
     if (url === listPath && method === 'get') return { items: [summary(A), summary(B)], total: 2 }
@@ -204,7 +224,7 @@ test('sending during initial detail waits for history and keeps the new streamed
     const earlyRequests = sent.length
     response.resolve(history)
     await initial
-    stream.resolve(new Response('data: {"choices":[{"delta":{"content":"New answer"}}]}\n\ndata: [DONE]\n\n', { status: 200 }))
+    stream.resolve(new Response('data: {"choices":[{"delta":{"content":"New answer"}}]}\n\ndata: [DONE]\n\ndata: {"type":"done","tokens":2}\n\n', { status: 200 }))
     await sending
     assert.equal(earlyRequests, 0, 'must not send before the in-flight history is available')
     assert.equal(sent[0].messages[0].content, `Message ${A}`)
@@ -233,4 +253,48 @@ test('ensureActive follows a newly selected pending detail without waiting on it
   assert.equal(active.guid, B)
   assert.equal(active.messages[0].content, `Message ${B}`)
   assert.equal(calls.length, 2, 'waiting should not issue extra detail requests')
+})
+
+test('identity switch does not reuse old pending detail and its old finally cannot clear the new pending', async () => {
+  const store = useChatStore()
+  store.conversations = [summary(A)]; store.activeId = A
+  const old = deferred(), current = deferred(), started = deferred()
+  let details = 0
+  route = () => { details++; if (details === 1) { started.resolve(); return old.promise } return current.promise }
+  const oldLoading = store.refreshActiveConversation()
+  await started.promise
+  authSession.clearSession()
+  authSession.setSession({ accessToken: 'next-account', user: { guid: '2', username: 'next', nickname: null, role: 'user', status: 'active' } })
+  store.conversations = [summary(A)]; store.activeId = A
+  const newLoading = store.refreshActiveConversation()
+  try {
+    await setImmediate()
+    assert.equal(details, 2, 'the new identity must issue its own detail request')
+    old.resolve(detail(A)); await oldLoading
+    const sameNewLoading = store.refreshActiveConversation()
+    await setImmediate()
+    assert.equal(details, 2, 'old finally must not erase the new identity pending entry')
+    current.resolve({ ...detail(A), messages: [{ guid: '123', role: 'user', content: 'New identity history', created_at: 1 }] })
+    await Promise.all([newLoading, sameNewLoading])
+    assert.equal(store.getActive().messages[0].content, 'New identity history')
+  } finally {
+    old.resolve(detail(A)); current.resolve(detail(A))
+    await Promise.allSettled([oldLoading, newLoading])
+  }
+})
+
+test('ensureActive waiting on history rejects after identity changes instead of returning another account history', async () => {
+  const store = useChatStore()
+  store.conversations = [summary(A)]; store.activeId = A
+  const response = deferred(), started = deferred()
+  route = () => { started.resolve(); return response.promise }
+  const loading = store.refreshActiveConversation()
+  await started.promise
+  const ensuring = store.ensureActive()
+  const rejected = assert.rejects(ensuring, /identity_changed/)
+  authSession.clearSession()
+  authSession.setSession({ accessToken: 'next-account', user: { guid: '2', username: 'next', nickname: null, role: 'user', status: 'active' } })
+  store.conversations = [detail(B)]; store.activeId = B
+  response.resolve(detail(A)); await loading
+  await rejected
 })

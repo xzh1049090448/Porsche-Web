@@ -2,8 +2,10 @@
 import { enrichMessage } from './multi-model-message.js'
 
 function mapUnixMilliseconds(value) {
-  if (value == null) return null
-  return typeof value === 'number' ? value : Number(value)
+  if (value == null || value === '') return null
+  const milliseconds = typeof value === 'number' ? value
+    : typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) ? Date.parse(value) : Number(value)
+  return Number.isFinite(milliseconds) ? milliseconds : null
 }
 
 function mapGuid(value) {

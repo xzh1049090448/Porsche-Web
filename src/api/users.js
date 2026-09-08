@@ -1,3 +1,4 @@
+import { changePassword as changeAuthPassword } from './auth'
 import request, { USE_MOCK } from './request'
 import { mockApi } from './mock'
 import { mapUserProfile, mapUsageStats } from '@/utils/platform-mappers'
@@ -10,6 +11,16 @@ export async function getProfile() {
   return mapUserProfile(raw)
 }
 
+/** Profile data and the auth projection travel together but are never merged. */
+export async function getProfileWithProjection(fallbackContext) {
+  if (USE_MOCK) {
+    const raw = await mockApi.getProfile()
+    return { profile: mapUserProfile(raw), projection: raw, authContext: fallbackContext }
+  }
+  const response = await request.get(`${PREFIX}/me`, { __authProjectionResponse: true })
+  return { profile: mapUserProfile(response.data), projection: response.data, authContext: response.authContext }
+}
+
 export async function updateProfile(data) {
   if (USE_MOCK) return mockApi.updateProfile(data)
   const raw = await request.put(`${PREFIX}/me`, {
@@ -19,11 +30,7 @@ export async function updateProfile(data) {
 }
 
 export function changePassword(data) {
-  if (USE_MOCK) return Promise.resolve({ message: '密码修改成功' })
-  return request.post('/api/v1/auth/self/password', {
-    old_password: data.oldPassword,
-    new_password: data.newPassword,
-  })
+  return changeAuthPassword(data)
 }
 
 export function submitRealName(data) {

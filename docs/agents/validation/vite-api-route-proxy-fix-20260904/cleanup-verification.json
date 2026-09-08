@@ -1,0 +1,86 @@
+{
+  "auto_remove_confirmed_by_absence": true,
+  "cleanup_precheck_sha256": "225e27e797cd157dfa9539d9553955fcf0f74c31c8f23b02c4d1f24438919fae",
+  "commands_not_run": [
+    "docker prune",
+    "docker volume removal",
+    "docker image removal",
+    "other container stop/remove",
+    "glob deletion"
+  ],
+  "completed_at_utc": "2026-09-04T07:34:49.860806+00:00",
+  "docker_stop_output_exact": true,
+  "independent_cleanup_review": "PASS",
+  "independent_cleanup_review_evidence": {
+    "exact_container_ids_absent": true,
+    "exact_container_names_absent": true,
+    "private_paths_absent": true,
+    "recorded_pids_absent": true,
+    "reviewed_at_utc": "2026-09-04T07:42:19Z",
+    "task_label_container_count": 0,
+    "tcp_listener_count": 0,
+    "unrelated_container_inventory_matches": true,
+    "unrelated_image_inventory_matches": true,
+    "unrelated_volume_inventory_matches": true
+  },
+  "no_unrelated_resource_touched": true,
+  "private_dir_removed": "/private/tmp/porsche-vite-api-route-fix-260904.xNjvNz",
+  "residuals": {
+    "cleanup_env": 0,
+    "exact_container_ids": 0,
+    "lifecycle_pointer": 0,
+    "listener_ports": 0,
+    "mysql_name_containers": 0,
+    "private_dir": 0,
+    "recorded_pids": 0,
+    "redis_name_containers": 0,
+    "task_label_containers": 0
+  },
+  "status": "PASS",
+  "stopped_container_ids": [
+    "8b689bfc0f743d6b97d27d35774c3f798a2e49cae82370a9cd583d46548a0a79",
+    "cc4c4c06d5cfbe7068cf446737ff9eb227fe39447ab69bbd17aa8946f2a8f40f"
+  ],
+  "stopped_sessions": [
+    {
+      "port": 15174,
+      "recorded_pid": 35568,
+      "session_id": 86781
+    },
+    {
+      "port": 8000,
+      "recorded_pid": 35526,
+      "session_id": 23372
+    }
+  ],
+  "task_value": "vite-api-route-fix-260904-c788e78848a0",
+  "unrelated_inventory_after": {
+    "containers": {
+      "count": 5,
+      "sha256": "a1bd48ce309fc69937d6c5cc14e274d4d0a891a296f251ab2b4c8a81fdffabba"
+    },
+    "images": {
+      "count": 12,
+      "sha256": "cd5c9e3a6df1c80aa45f49441a6c66722410935a3d9b3bd5017ca6d5c48db89f"
+    },
+    "volumes": {
+      "count": 4,
+      "sha256": "c12c8746ee3d6fb62f94883ac113e65db32862bf0cd10f949196ee13eca0b31a"
+    }
+  },
+  "unrelated_inventory_before": {
+    "containers": {
+      "count": 5,
+      "sha256": "a1bd48ce309fc69937d6c5cc14e274d4d0a891a296f251ab2b4c8a81fdffabba"
+    },
+    "images": {
+      "count": 12,
+      "sha256": "cd5c9e3a6df1c80aa45f49441a6c66722410935a3d9b3bd5017ca6d5c48db89f"
+    },
+    "volumes": {
+      "count": 4,
+      "sha256": "c12c8746ee3d6fb62f94883ac113e65db32862bf0cd10f949196ee13eca0b31a"
+    }
+  },
+  "unrelated_inventory_unchanged": true
+}

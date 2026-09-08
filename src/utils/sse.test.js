@@ -97,3 +97,33 @@ test('401 SSE handling never forwards an upstream secret detail', async () => {
 
   assert.deepEqual(unauthorizedArguments, [])
 })
+
+for (const read of [readPlatformChatStream, readPlatformCompareStream]) {
+  test(`${read.name}: error cannot become done; missing local done is incomplete`, async () => {
+    for (const body of ['event: error\ndata: {"error":{}}\n\ndata: {"type":"done"}\n\n', 'data: [DONE]\n\n']) {
+      const events = []
+      await read(new Response(body), { onDone: () => events.push('done'), onError: () => events.push('error') })
+      assert.deepEqual(events, ['error'])
+    }
+  })
+  test(`${read.name}: aborted reader is cancelled and has one cancelled terminal`, async () => {
+    let cancelled = 0; const abort = new AbortController(); const events = []
+    const response = new Response(new ReadableStream({ cancel() { cancelled++ } }))
+    const pending = read(response, { signal: abort.signal, onDone: () => events.push('done'), onError: () => events.push('error'), onCancel: () => events.push('cancelled') })
+    abort.abort(); await pending
+    assert.equal(cancelled, 1); assert.deepEqual(events, ['cancelled'])
+  })
+}
+
+test('UTF8 byte chunks and CRLF preserve Chinese delta; upstream DONE continues to local done exactly once', async () => {
+  const bytes = new TextEncoder().encode('data: {"choices":[{"delta":{"content":"你好"}}]}\r\n\r\ndata: [DONE]\r\n\r\ndata: {"type":"done","tokens":3}\r\n\r\ndata: {"type":"done","tokens":3}\r\n\r\n')
+  const response = new Response(new ReadableStream({ start(controller) { for (const byte of bytes) controller.enqueue(Uint8Array.of(byte)); controller.close() } }))
+  const chunks = []; const done = []
+  await readPlatformChatStream(response, { onChunk: value => chunks.push(value), onDone: value => done.push(value) })
+  assert.deepEqual(chunks, ['你好']); assert.equal(done.length, 1); assert.equal(done[0].tokens, 3)
+})
+test('local done followed by error reports only error, never premature success', async () => {
+  const events = []
+  await readPlatformChatStream(new Response('data: {"type":"done"}\n\nevent: error\ndata: {"error":{}}\n\n'), { onDone: () => events.push('done'), onError: () => events.push('error') })
+  assert.deepEqual(events, ['error'])
+})

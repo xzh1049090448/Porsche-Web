@@ -5,15 +5,6 @@ function mapConversationGuid(value) {
   return typeof value === 'string' && value.trim() ? value : null
 }
 
-async function handleSSEUnauthorized(onUnauthorized) {
-  if (onUnauthorized) {
-    await onUnauthorized()
-    return
-  }
-  const { handleUnauthorized } = await import('./auth-redirect.js')
-  await handleUnauthorized()
-}
-
 async function readPlatformFailure(response) {
   let code = ''
   try {
@@ -68,10 +59,13 @@ function safeModelErrorMessage(error) {
   }
 }
 
-async function consumePlatformSSE(response, onEvent) {
+async function consumePlatformSSE(response, onEvent, signal) {
   const reader = response.body?.getReader()
   if (!reader) throw new Error('stream_unavailable')
 
+  const cancel = () => { void reader.cancel().catch(() => {}) }
+  signal?.addEventListener('abort', cancel, { once: true })
+  if (signal?.aborted) cancel()
   const decoder = new TextDecoder()
   let buffer = ''
   let event = 'message'
@@ -92,6 +86,7 @@ async function consumePlatformSSE(response, onEvent) {
     }
   }
 
+  try {
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -103,78 +98,60 @@ async function consumePlatformSSE(response, onEvent) {
   buffer += decoder.decode()
   if (buffer) consumeLine(buffer.endsWith('\r') ? buffer.slice(0, -1) : buffer)
   dispatch()
+  } finally {
+    signal?.removeEventListener('abort', cancel)
+    reader.releaseLock()
+  }
 }
 
-export async function readPlatformChatStream(response, { onMeta, onChunk, onDone, onError, onUnauthorized }) {
-  if (!response.ok) {
-    if (response.status === 401) {
-      await handleSSEUnauthorized(onUnauthorized)
-      return
-    }
-    onError?.(await readPlatformFailure(response))
-    return
-  }
-
+/** One terminal result; [DONE] is upstream-only and never proves local completion. */
+async function readStream(response, callbacks, compare) {
+  const { signal, isCurrent = () => true } = callbacks
+  let terminal = false
+  let finalMeta = null
   let meta = {}
-  let doneCalled = false
-
+  const finish = (kind, value) => {
+    if (terminal || !isCurrent()) return
+    terminal = true
+    callbacks[kind]?.(value)
+  }
+  if (!response.ok) {
+    if (response.status === 401) {
+      // A POST failure must not revoke identity or replay generation.
+      callbacks.onUnauthorized?.()
+      finish('onError', '认证已过期，请重新登录后重试')
+    } else finish('onError', await readPlatformFailure(response))
+    return
+  }
   try {
     await consumePlatformSSE(response, (event, data) => {
-      if (data === '[DONE]') return
+      if (terminal || signal?.aborted || !isCurrent() || data === '[DONE]') return
       const parsed = parsePlatformEvent(event, data)
-      if (parsed?.kind === 'meta') {
+      if (parsed?.kind === 'error') finish('onError', parsed.message)
+      else if (parsed?.kind === 'meta') {
         meta = { conversationGuid: mapConversationGuid(parsed.payload.conversation_guid) }
-        onMeta?.(meta)
+        callbacks.onMeta?.(meta)
       } else if (parsed?.kind === 'done') {
-        meta = { ...meta, tokens: parsed.payload.tokens ?? 0, totalTokensUsed: parsed.payload.total_tokens_used }
-        onDone?.(meta)
-        doneCalled = true
-      } else if (parsed?.kind === 'error') {
-        onError?.(parsed.message)
-      } else if (parsed?.kind === 'chatChunk' && parsed.delta) {
-        onChunk?.(parsed.delta)
-      }
-    })
-    if (!doneCalled) onDone?.(meta)
-  } catch (e) {
-    onError?.('流式连接中断')
+        finalMeta = { ...meta, tokens: parsed.payload.tokens ?? 0, totalTokensUsed: parsed.payload.total_tokens_used }
+        if (compare) finalMeta.conversationGuid = mapConversationGuid(parsed.payload.conversation_guid)
+      } else if (!finalMeta && parsed?.kind === 'chatChunk' && parsed.delta) callbacks.onChunk?.(parsed.delta)
+      else if (!finalMeta && parsed?.kind === 'modelChunk') callbacks.onModelChunk?.({ model: parsed.model, delta: parsed.delta })
+      else if (!finalMeta && parsed?.kind === 'modelDone') callbacks.onModelResult?.({ model: parsed.model })
+      else if (!finalMeta && parsed?.kind === 'modelError') callbacks.onModelResult?.({ model: parsed.model, error: parsed.message })
+    }, signal)
+    if (signal?.aborted) finish('onCancel')
+    else if (finalMeta) finish('onDone', finalMeta)
+    else finish('onError', '响应未完整结束，请检查会话记录后再决定是否重试')
+  } catch {
+    if (signal?.aborted) finish('onCancel')
+    else finish('onError', '流式连接中断')
   }
 }
 
-/** 解析模型对比 SSE：流式 model_chunk，结束后推送 done */
-export async function readPlatformCompareStream(
-  response,
-  { onModelChunk, onModelResult, onDone, onError, onUnauthorized }
-) {
-  if (!response.ok) {
-    if (response.status === 401) {
-      await handleSSEUnauthorized(onUnauthorized)
-      return
-    }
-    onError?.(await readPlatformFailure(response))
-    return
-  }
+export function readPlatformChatStream(response, callbacks = {}) {
+  return readStream(response, callbacks, false)
+}
 
-  let doneMeta = {}
-  let doneCalled = false
-
-  try {
-    await consumePlatformSSE(response, (event, data) => {
-      if (data === '[DONE]') return
-      const parsed = parsePlatformEvent(event, data)
-      if (parsed?.kind === 'modelChunk') onModelChunk?.({ model: parsed.model, delta: parsed.delta })
-      else if (parsed?.kind === 'modelDone') onModelResult?.({ model: parsed.model })
-      else if (parsed?.kind === 'modelError') onModelResult?.({ model: parsed.model, error: parsed.message })
-      else if (parsed?.kind === 'done') {
-        doneMeta = { conversationGuid: mapConversationGuid(parsed.payload.conversation_guid), tokens: parsed.payload.tokens ?? 0, totalTokensUsed: parsed.payload.total_tokens_used }
-        onDone?.(doneMeta)
-        doneCalled = true
-      } else if (parsed?.kind === 'error') {
-        onError?.(parsed.message)
-      }
-    })
-    if (!doneCalled) onDone?.(doneMeta)
-  } catch (e) {
-    onError?.('流式连接中断')
-  }
+export function readPlatformCompareStream(response, callbacks = {}) {
+  return readStream(response, callbacks, true)
 }

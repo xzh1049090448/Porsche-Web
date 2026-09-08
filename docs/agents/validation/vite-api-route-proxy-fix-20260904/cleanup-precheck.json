@@ -1,0 +1,114 @@
+{
+  "artifact_sha256": {
+    "docs/agents/validation/vite-api-route-proxy-fix-20260904/SECURITY_REPORT.md": "92003bf3246981fc86e88d992a0265e2dfc9d3aefcafc6ad37f60c1463db1d77",
+    "docs/agents/validation/vite-api-route-proxy-fix-20260904/pm-review.md": "36298fda1296e88ac6f6cea008209517ce392ea2700be12cb047993e94820d49",
+    "docs/agents/validation/vite-api-route-proxy-fix-20260904/writer-report.md": "184b20cf7c446c4fc11ae15a02fe8698d8b03296f77ad432b766255f95034b24",
+    "docs/agents/validation/vite-api-route-proxy-fix-20260904/writer-results.json": "2b0394077c775257a8e89fc72a94195e4d358dfe0514a6b72445f17522c5115c"
+  },
+  "backend": {
+    "port": 8000,
+    "recorded_pid": 35526,
+    "session_id": 23372,
+    "url": "http://127.0.0.1:8000"
+  },
+  "cleanup_inspect_sha256": "8ef37ccb7670897de5c5bf1394f824d6e65e64aaa71cadce60a3409f17d779a6",
+  "cleanup_scope": "only the two recorded sessions, two exact container IDs, exact private directory, and exact lifecycle pointer files",
+  "container_identity_check": "PASS",
+  "container_precheck": {
+    "auto_remove": true,
+    "exact_ids": true,
+    "exact_image_ids": true,
+    "exact_names": true,
+    "exact_task_label": true,
+    "loopback_dynamic_ports": true,
+    "named_volume_count": 0,
+    "planned_read_only_binds_only": true,
+    "running_before_stop": true,
+    "task_label_container_count": 2,
+    "tmpfs_exact": true
+  },
+  "containers": [
+    {
+      "auto_remove": true,
+      "container_port": "3306/tcp",
+      "host_ip": "127.0.0.1",
+      "host_port": "53802",
+      "id": "8b689bfc0f743d6b97d27d35774c3f798a2e49cae82370a9cd583d46548a0a79",
+      "image": "mysql:8.0",
+      "image_id": "sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b",
+      "name": "vite-api-route-fix-260904-c788e78848a0-mysql",
+      "named_volume_count": 0,
+      "planned_read_only_bind_count": 1,
+      "planned_read_only_bind_identity_verified": true,
+      "task_label": "vite-api-route-fix-260904-c788e78848a0",
+      "tmpfs": [
+        "/tmp",
+        "/var/lib/mysql"
+      ]
+    },
+    {
+      "auto_remove": true,
+      "container_port": "6379/tcp",
+      "host_ip": "127.0.0.1",
+      "host_port": "53803",
+      "id": "cc4c4c06d5cfbe7068cf446737ff9eb227fe39447ab69bbd17aa8946f2a8f40f",
+      "image": "redis:7-alpine",
+      "image_id": "sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf",
+      "name": "vite-api-route-fix-260904-c788e78848a0-redis",
+      "named_volume_count": 0,
+      "planned_read_only_bind_count": 1,
+      "planned_read_only_bind_identity_verified": true,
+      "task_label": "vite-api-route-fix-260904-c788e78848a0",
+      "tmpfs": [
+        "/data"
+      ]
+    }
+  ],
+  "expected_mysql_id": "8b689bfc0f743d6b97d27d35774c3f798a2e49cae82370a9cd583d46548a0a79",
+  "expected_redis_id": "cc4c4c06d5cfbe7068cf446737ff9eb227fe39447ab69bbd17aa8946f2a8f40f",
+  "frontend": {
+    "port": 15174,
+    "recorded_pid": 35568,
+    "session_id": 86781,
+    "url": "http://127.0.0.1:15174"
+  },
+  "private_dir": "/private/tmp/porsche-vite-api-route-fix-260904.xNjvNz",
+  "private_evidence_sha256": {
+    "image-precheck.txt": "5a013549af39674f7ee3b7d983a61b6644082987a5eef51a6a5e04630237f83a",
+    "migration-status.log": "351ac25beb6be37d289691682c98564906ce57e88fb9f97560603d06598b8a0e",
+    "task4-identities.json": "22f17aab6b13f318537952deeb8c27923393b4de2e742eb532200bb393dbca8c",
+    "task4-smoke-results.json": "82edf15f95d2960048c72bccd6ec5105537c7b69f78a21d161f165e575be0ee4"
+  },
+  "prohibited_actions_not_run": [
+    "docker prune",
+    "docker volume removal",
+    "docker image removal",
+    "other container stop/remove",
+    "glob deletion"
+  ],
+  "session_stop": {
+    "backend": "CTRL_C_SENT_SESSION_23372",
+    "frontend": "CTRL_C_SENT_SESSION_86781",
+    "listener_check_exit": 1,
+    "listener_output_empty": true,
+    "ports_without_listeners": true,
+    "recorded_pids_absent": true
+  },
+  "started_at_utc": "2026-09-04T07:31:29.113249+00:00",
+  "status": "PRECHECK_PASS_READY_FOR_EXACT_STOP",
+  "task_value": "vite-api-route-fix-260904-c788e78848a0",
+  "unrelated_inventory_before": {
+    "containers": {
+      "count": 5,
+      "sha256": "a1bd48ce309fc69937d6c5cc14e274d4d0a891a296f251ab2b4c8a81fdffabba"
+    },
+    "images": {
+      "count": 12,
+      "sha256": "cd5c9e3a6df1c80aa45f49441a6c66722410935a3d9b3bd5017ca6d5c48db89f"
+    },
+    "volumes": {
+      "count": 4,
+      "sha256": "c12c8746ee3d6fb62f94883ac113e65db32862bf0cd10f949196ee13eca0b31a"
+    }
+  }
+}

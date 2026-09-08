@@ -1,6 +1,6 @@
 {
   "project": "Porsche-Web（大模型聚合平台用户端前端）",
-  "last_updated": "2026-09-02",
+  "last_updated": "2026-09-08",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -23,7 +23,13 @@
       "title": "Issue #4：一次性 API Key 安全复制兼容",
       "user_visible_behavior": "优先使用原生剪贴板，失败时在弹窗内兼容复制；仅确认复制成功才提示成功，失败保留手动选择。",
       "status": "passing",
-      "verification": ["node --test src/utils/clipboard.test.js", "实际 Element Plus 弹窗本地假数据验证", "npm test", "npm run build", "git diff --check"],
+      "verification": [
+        "node --test src/utils/clipboard.test.js",
+        "实际 Element Plus 弹窗本地假数据验证",
+        "npm test",
+        "npm run build",
+        "git diff --check"
+      ],
       "evidence": [
         "2026-09-02：boolean 工具、选区恢复、显式内容容器与脱离/跨 document 容器先 RED 后修复；工具 14/14，全量 npm test 81/81。",
         "2026-09-02：本地可见 Chrome 实际 Element Plus 弹窗假数据四路径（native/missing/rejected/failed）及六个生命周期/选区场景通过；无 secret 写入 Storage，关闭/卸载清空，迟到结果不 toast/fallback。脚本 /private/tmp/playwright-test-issue4-independent.js 与 /private/tmp/playwright-test-issue4-lifecycle.js。",
@@ -33,10 +39,32 @@
       "notes": "2026-09-02：只修改 API Key 复制路径，本地验证及独立规格/质量审查通过。真实 HTTPS 生产验收不在本轮范围；浏览器已发起的原生 clipboard 写入无法撤回。未 push/merge/deploy 或关闭 GitHub issue。"
     },
     {
+      "id": "web-012",
+      "priority": 0,
+      "area": "llm-platform",
+      "title": "PRD-260903：管理员用户管理与公共页面体系",
+      "user_visible_behavior": "形成管理员真实管理、公共页面、路由迁移与金额 Mock 隔离的可实施设计和契约草案。",
+      "status": "in_progress",
+      "phase": "joint_acceptance_partial_11_limited_15_blocked",
+      "verification": [
+        "设计评审与独立 review",
+        "文档 JSON parse/hash/diff-check",
+        "A01-A14/P01-P08/V01-V02/R01-R02 后续逐项验收",
+        "A03 Task12：BE 3a50144e53268f6ef3ae704699ef9fa851e4a5ee / FE 9f660a9ca26f5738dd661652596a1e450ff34335；MySQL 8.4.11、Redis 7.4、ledger 0001–0010、后端focused/race/serial full/build/vet/diff、前端275/275及可见Chrome 13/13"
+      ],
+      "evidence": [
+        "2026-09-04：B1-D 只读用户列表/详情、认证权限投影、分页回退及 F1/F2 候选闭合；132/132 Node 行为测试、build、writer Chrome 合成 API 矩阵通过。独立 Chrome 在 5177 复验分页/UI、详情错误重试、F1 撤权清理和权限恢复均 PASS；独立质量为本地 FE 候选 VERDICT PASS，offline audit freshness NOT_VERIFIED。",
+        "2026-09-04：真实本地FE+BE联合验收最终FAIL。26项为6 PASS_LIMITED_SCOPE（A01/A02/A04/A13/V01/V02）、2 FAIL_LOCAL_DEV_ROUTE（P02/R01）、18 BLOCKED；logout 204/Cookie清空/refresh 401通过，但本地Vite /api代理截获/api-keys硬刷新并返回404。SECOND仅在该早期logout路由解释上supersede CORE；原始证据保留。最终报告和机器矩阵见docs/agents/validation/joint-acceptance-20260904/。",
+        "2026-09-04：Vite API路由边界补救在保留的真实本地FE+BE环境通过writer与独立QA。P02/R01由FAIL_LOCAL_DEV_ROUTE提升为本地PASS_LIMITED_SCOPE；当前8项限定通过、0项本地路由失败、18项阻塞。/api-keys、/users、/profile硬刷新及退出守卫通过，logout 204、Cookie清空、refresh 401保持；生产HTTPS、模型/chat/SSE与部署未运行。证据见docs/agents/validation/vite-api-route-proxy-fix-20260904/。",
+        "2026-09-08：A03 users.create/users.create_admin本地联合切片经代码与证据spec/quality/security复审全部PASS，提升为PASS_LIMITED_SCOPE；canonical manifest见backend:docs/superpowers/reports/validation/2026-09-06-a03-admin-user-create/canonical-3a50144-9f660a9-final/manifest.json。唯一skip为TestAdminUsersReadPerformance显式opt-in 100k夹具。fixture及A03私有临时文件exact cleanup为PASS。"
+      ],
+      "notes": "当前权威本地结果为11 PASS_LIMITED_SCOPE、0 FAIL_LOCAL_DEV_ROUTE、13 BLOCKED_NOT_IMPLEMENTED、1 BLOCKED_PRODUCT、1 BLOCKED_ENV，合计15项阻塞。仅A03本次提升；A14及其余25行保持原状态。web-012继续in_progress。金额余额仍仅为Mock边界，真实ledger/billing/recharge/refund/deduction、生产迁移、部署、生产验收和真实业务账号均NOT_RUN。ACTION_SECURITY_HMAC_KEY v1 lacks key ID/multi-key verification; rotation is prohibited while replayable post-0010 active snapshots exist unless a separately approved multi-key verifier or atomic full re-HMAC migration is delivered."
+    },
+    {
       "id": "web-009",
       "priority": 0,
       "area": "llm-platform",
-      "title": "一期用户名认证与可撤销会话",
+      "title": "P0 用户名认证与可撤销会话加固",
       "user_visible_behavior": "用户名注册/登录、Cookie 刷新恢复、登出、会话管理和内存 Access Token。",
       "status": "blocked",
       "verification": [
@@ -46,9 +74,31 @@
       ],
       "evidence": [
         "2026-08-31：Node 单元测试覆盖内存状态、单飞刷新、失败清理与会话 DTO 白名单。",
-        "2026-08-31：原生 SSE、对话导出和分析请求已覆盖共享 401 单飞刷新与一次重放；npm test 54/54、npm run build、git diff --check 通过。"
+        "2026-08-31：原生 SSE、对话导出和分析请求已覆盖共享 401 单飞刷新与一次重放；npm test 54/54、npm run build、git diff --check 通过。",
+        "2026-09-02：隔离分支feature/auth-p0-harden复用6f8fbca；基线54/54测试和build通过。旧POST自动重放记录是历史行为，本轮按M1取消。",
+        "2026-09-03：M2本地单测82/82、生产构建通过；Chrome本地fixture覆盖注册/登录/资料更新/错误密码不重放/注销401刷新抑制，390px无溢出；Mock无后端登录零API通过。独立审查仍进行，真实M3未执行；完整证据见docs/agents/p0-m2-verification.md。",
+        "2026-09-03: integrated origin/main@7fbf616, backend contract reconfirmed at 0bab2b7; 111/111 tests, build, browser flow (8 checks) and Mock zero-network login PASS. M3 not executed.",
+        "2026-09-03：最终113/113测试、build及本地flow8项通过；合并后独立规格和质量复核M2 PASS。初始化失败登录状态边界已修复并独立复验；M3及部署未执行。",
+        "2026-09-03：M3准入准备完成；验收域名已确认，公开首页/health200但入口包不匹配候选3eeca2b；发布候选与12项清单已准备。真实M3均未运行，待发布/账号安排。",
+        "2026-09-03：用户授权后发布3eeca2b，真实HTTPS认证部分用例通过；M3并发/多标签/SSE/联合签收仍缺，详见docs/agents/p0-m3-readiness.md",
+        "2026-09-03新增真实子项：3个非法注册样本400；真实admin403转发profile后身份保留/零refresh/重试恢复；丢Broadcast通知且延迟profile跨身份PASS；补跑refresh/logout锁串行及关闭refresh标签后pending/reload零自动认证PASS。首次tabs文件后续FAIL保留，不标整轮PASS。详见docs/agents/validation/m3-*-results.json。",
+        "后端project_manager基于第一轮证据书面接受M3-02注册/03/06/07/08正常注销/10会话隔离已测子项，未独立运行、不签整体M3。真实到期并发仍运行，新增证据待前端质量复核。",
+        "2026-09-03：SSE固定无效Bearer真实中间件401断言通过，1POST/0refresh，calls/tokens0→0；仅拒绝零重放子项，不是有效SSE终态。后端另已书面接受新增3个注册400样本、真实admin403/转发profile、跨标签串行/关闭以及无效Bearer的SSE 1POST/0refresh限定子项；仅为证据复核，未独立运行或签整体M3。",
+        "2026-09-03最终：真实自然到期v2并发GET单次refresh/迟到401/POST零重放PASS，双方角色限定确认；158a00e本地修复导出菜单，113/113与build6.53s及1280/1600鼠标红绿/独立质量PASS，未发布；A/B测试fixture和遗留会话已清理。",
+        "2026-09-03：用户发布158a00e后公开JS哈希匹配；真实Chrome1280/1600普通点击及跨身份下载保护PASS，完整M3仍未签收。",
+        "2026-09-03：158a00e有效SSE首试FAIL：gpt-5.4-nano/max_tokens32返回503 gateway_upstream_unavailable、0帧；预算已用1/3，余2/3。目录/详情200，应用日调用0→1、token计数仍0；失败会话删除200，注销204。后端及独立质量限定复核，不签整体M3。",
+        "2026-09-03：后端04ed728诊断候选本地全量293/race46事件及独立规格/质量PASS，二进制源码来源已核对；Docker Hub超时，镜像未生成/未部署，M3-11仍FAIL，线上预算余2次×32。",
+        "2026-09-03：诊断镜像在本机离线构建完成并核验linux/amd64、源码标签、两二进制哈希与CA；精确镜像及归档摘要见m3-backend-diagnostic-candidate.json。私有构建包上传此前被自动审批拒绝；当前私有镜像未上传/部署，等待具体后端发布授权。",
+        "2026-09-03：用户明确授权后04ed728诊断镜像发布成功，源站/公网200，旧容器保留、前端158a00e未改；第二次SSE1POST/0refresh仍503/0帧，关联候选日志为upstream200后malformed_chunk，预算剩1次×32，详见m3-backend-release-result与m3-sse-diagnostic-attempt2证据。",
+        "2026-09-03：细分诊断6e70784本地全量345/race113测试通过，独立22组输出对照及脱敏并发PASS；amd64镜像cb42daed已核验且发布材料齐备，未上传/部署，线上04ed728和最后1次×32预算保留。",
+        "2026-09-03：用户明确授权后6e70784/cb42镜像发布成功，源站公网200、旧容器保留；第三次SSE仍503/0帧，关联upstream200后invalid_value/object。清理200/logout204，预算3/3耗尽。详见2026-09-03-m3-chunk-release-and-retest报告。后端PM确认限定发布通过，独立质量PARTIAL；整体M3未签收。",
+        "2026-09-03：25项object合成离线假设通过，实际投影/SSE/脱敏断言无失败；确认既有日志无法区分缺失/null/空/其他字符串，不能放宽流校验。报告2026-09-03-m3-object-investigation.md；无业务改动、部署或新增生成，预算仍0。",
+        "2026-09-03 15:22：用户增加调用预算，按最小增量追加1次；总上限4、已用3、剩1，每次gpt-5.4-nano/max_tokens32。原调用记录保留，本次尚未发出第4次请求。",
+        "2026-09-03：ad3f5b4有限object诊断候选本地相关包/race各175pass，默认全量304pass/98fixture skips，50公开响应+17正常摘要一致、独立规格/质量PASS；镜像2bc6b866/归档8154e46b已准备，未部署或新增生成。详见2026-09-03-m3-object-validation报告。",
+        "2026-09-03 15:48：ad3f5b4已授权发布；第4次正常SSE子项PASS：200、meta→4 delta→[DONE]→done，1 POST/0 refresh，唯一请求哈希与运行日志匹配、全部保存阶段成功、tokens0→1。清理200/logout204，预算4/4耗尽。object拒绝本次未复现，根因未闭环；流内错误/取消等未测，整体M3 PARTIAL。go-004保持blocked、web-009保持in_progress，诊断功能passing不代表整体签收。 报告：docs/agents/2026-09-03-m3-object-release-and-retest.md",
+        "2026-09-03：ALIGN-20260903-02补齐首次对齐材料，A1–A8及r2的21接口获双方书面确认，前端开发者输出只读技术方案与自测计划；具体排期/资源/P1语义及M3剩余验收保留待定。无业务代码、部署或调用；docs/agents/2026-09-03-first-cross-team-alignment.md。"
       ],
-      "notes": "2026-09-02：暂停更广泛认证/管理验收，本轮不新增验证声明。管理员创建/角色展示被后端契约阻塞：暂无创建端点，AdminUser DTO 不含 username/role；不伪造 UI。Secure/HttpOnly Refresh Cookie 仅能在 HTTPS 且部署 Origin 已加入 AUTH_TRUSTED_ORIGINS 时完成真实 E2E。"
+      "notes": "ad3f5b4已授权发布；第4次正常SSE子项PASS：200、meta→4 delta→[DONE]→done，1 POST/0 refresh，唯一请求哈希与运行日志匹配、全部保存阶段成功、tokens0→1。清理200/logout204，预算4/4耗尽。object拒绝本次未复现，根因未闭环；流内错误/取消等未测，整体M3 PARTIAL。go-004保持blocked、web-009保持in_progress，诊断功能passing不代表整体签收。 默认测试98项DB/Redis fixture缺失SKIP仍保留。"
     },
     {
       "id": "web-010",
@@ -57,7 +107,13 @@
       "title": "Issue #3：首次进入加载选中对话历史",
       "user_visible_behavior": "首次进入或刷新后自动加载已选历史；切换中的旧响应不影响新选择；失败可重试。",
       "status": "passing",
-      "verification": ["实际 store 行为回归测试", "本地浏览器假数据验证", "npm test", "npm run build", "git diff --check"],
+      "verification": [
+        "实际 store 行为回归测试",
+        "本地浏览器假数据验证",
+        "npm test",
+        "npm run build",
+        "git diff --check"
+      ],
       "evidence": [
         "2026-09-02：真实 Pinia store/API/mappers 经 Vite SSR 运行、仅替换 Axios transport。RED：初始消息 undefined、详情请求 0 次、旧 A 404 抢回 B 选择；缺失选择回退另行 RED 后修复。质量审查补充的发送竞态也先 RED（历史未就绪已发请求、切换后未等待 B），再以 ensureActive 等待现有请求修复。最终 13 个行为回归 GREEN，npm test 67/67。",
         "2026-09-02：可见 Chrome + 本地 5178 假数据通过慢 A 200/404/500 后 B 保持选中与正文、同会话 500 重试、空账号只创建一次、历史 pending 时发送等待且保留新问答与流式回答；6 个场景通过，无历史写入 localStorage/sessionStorage。脚本 /private/tmp/playwright-test-issue3-races.js。",
@@ -74,11 +130,10 @@
       "user_visible_behavior": "手机号验证码登录与账号密码登录。",
       "status": "not_started",
       "verification": [
-        "npm run build",
-        "浏览器访问登录页，验证码 123456 / 密码 demo123 登录成功"
+        "由web-009的用户名注册/登录与会话验收取代旧演示账号检查"
       ],
       "evidence": [],
-      "notes": "代码已实现（views/Login），待验证。"
+      "notes": "历史手机号需求已被90abbdc用户名协议取代；当前验收由web-009跟踪，不以演示账号标准判通过。"
     },
     {
       "id": "web-002",
