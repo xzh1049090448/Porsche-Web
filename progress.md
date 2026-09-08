@@ -1,5 +1,12 @@
 # 当前验证进度
 
+## 2026-09-08：A05 managed-user nickname edit 本地联合切片限定通过
+
+- A05 从 `BLOCKED_NOT_IMPLEMENTED` 提升为 `PASS_LIMITED_SCOPE`。代码候选后端 `6bb54007879adeb16a532d792ab471f16ee9100a`、前端 `5a41f5679c1c35e5c2850665db54ae83e58db436`；canonical evidence commits 后端 `76e0d2f650989ffecd7519b0d042ec2696cd60a8`、前端 `34b23fc8d00771cd03b9072e00ceda40b421c6bd`；紧急合并头后端 `bf53c6a98452f624a6061e9be7317f9f596ea908`、前端 `a93893bc4a8739ba158cf45c6f32779873d9b028`。
+- r5 backend service/DTO/handler/router/HTTP 与 r10 visible browser、409 ownership、拒绝路径、22 项 adversarial HTTP、privacy 和 exact cleanup 均通过。`web-012` 继续 `in_progress`，phase 为 `joint_acceptance_partial_12_limited_14_blocked`。
+- 26 项当前为 12 `PASS_LIMITED_SCOPE`、12 `BLOCKED_NOT_IMPLEMENTED`、1 `BLOCKED_PRODUCT`、1 `BLOCKED_ENV`，共 14 项阻塞。仅 A05 本次更新，其他 25 行不变；本地联合验收证据已确认，未记录后端 project_manager 书面确认。
+- 金额余额仍仅为 Mock；A14 与 `ACTION_SECURITY_HMAC_KEY` 轮换限制保留。生产 migration、deploy、production acceptance 和真实 business accounts 均 `NOT_RUN`。
+
 ## 2026-09-08：生产发布 Mock 门禁 hotfix 本地候选
 
 - 生产构建使用 Vite 的 production 环境解析，要求最终 `VITE_USE_MOCK` 精确为 `false`；缺失、空值、`true`、大小写变体和 `0` 均在 Vite 启动前失败。依赖按已提交的 `package-lock.json` 通过 `npm ci` 安装。

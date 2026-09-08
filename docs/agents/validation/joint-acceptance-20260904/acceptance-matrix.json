@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "generated_at": "2026-09-08T00:53:33+08:00",
-  "overall_status": "PARTIAL_ACCEPTANCE_11_LIMITED_15_BLOCKED",
-  "verdict": "PARTIAL_ACCEPTANCE_11_LIMITED_15_BLOCKED",
+  "overall_status": "PARTIAL_ACCEPTANCE_12_LIMITED_14_BLOCKED",
+  "verdict": "PARTIAL_ACCEPTANCE_12_LIMITED_14_BLOCKED",
   "candidate": {
     "frontend_head": "9f660a9ca26f5738dd661652596a1e450ff34335",
     "backend_head": "3a50144e53268f6ef3ae704699ef9fa851e4a5ee",
@@ -11,12 +11,12 @@
   "environment_manifest_before_final_archive_sha256": "d3d1de8b3609721baba3e1f04ca19ef5990aaad2666e63f9aab7786cb6101641",
   "summary": {
     "total": 26,
-    "PASS_LIMITED_SCOPE": 11,
+    "PASS_LIMITED_SCOPE": 12,
     "FAIL_LOCAL_DEV_ROUTE": 0,
-    "BLOCKED_NOT_IMPLEMENTED": 13,
+    "BLOCKED_NOT_IMPLEMENTED": 12,
     "BLOCKED_PRODUCT": 1,
     "BLOCKED_ENV": 1,
-    "blocked_total": 15
+    "blocked_total": 14
   },
   "supersession": {
     "core_report": "CORE-PHASE-REPORT.md",
@@ -97,10 +97,36 @@
       "prd": "编辑伪造role/guid/auth_version",
       "owner": "FE+BE",
       "expected_evidence": "请求拒绝且无部分越权修改",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "v2编辑未实现；旧伪造更新拒绝仅为只读/安全子集证据。",
-      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+      "latest_evidence": "本地真实A05 nickname-only PATCH联合验收通过：严格DTO/header/error envelope、角色层级/self/Root/删除目标拒绝、auth_version冲突单次刷新且PATCH不重放、nullable/Unicode、late callback、浏览器隐私与数据库审计隐私均通过。",
+      "accepted_candidate": {
+        "backend": "6bb54007879adeb16a532d792ab471f16ee9100a",
+        "frontend": "5a41f5679c1c35e5c2850665db54ae83e58db436"
+      },
+      "canonical_evidence_commits": {
+        "backend": "76e0d2f650989ffecd7519b0d042ec2696cd60a8",
+        "frontend": "34b23fc8d00771cd03b9072e00ceda40b421c6bd"
+      },
+      "emergency_merge_heads": {
+        "backend": "bf53c6a98452f624a6061e9be7317f9f596ea908",
+        "frontend": "a93893bc4a8739ba158cf45c6f32779873d9b028"
+      },
+      "test_counts": {
+        "r5_backend_service": "40 records / 0 fail / 0 skip",
+        "r5_backend_dto_handler_router": "71 records / 0 fail / 0 skip",
+        "r5_real_http_operations": "10/10 PASS",
+        "r10_visible_browser": "allowed UI, conflict/late ownership, visibility/denial PASS",
+        "r10_http_adversarial": "22/22 PASS",
+        "r10_privacy": "browser and database audit privacy PASS",
+        "r10_cleanup": "exact processes/containers/network/private files removed; residue 0"
+      },
+      "scope_boundary": "仅本地A05 managed-user nickname PATCH切片；只允许nickname string/null且auth_version保持不变。金额余额仍为Mock边界，A14范围不变；生产migration、deploy、production acceptance及真实business accounts均NOT_RUN。",
+      "evidence_paths": [
+        "backend:docs/superpowers/reports/validation/2026-09-08-a05-managed-user-edit/manifest.json",
+        "frontend:docs/agents/validation/a05-managed-user-edit-20260908/browser-results.json",
+        "frontend:docs/agents/validation/a05-managed-user-edit-20260908/report.md"
+      ]
     },
     {
       "id": "A06",
@@ -408,6 +434,33 @@
       },
       "evidence": "backend:docs/superpowers/reports/validation/2026-09-06-a03-admin-user-create/canonical-3a50144-9f660a9-final/manifest.json",
       "note": "仅A03从BLOCKED_NOT_IMPLEMENTED提升为PASS_LIMITED_SCOPE；A14及其余25项状态保持不变。金额仍是Mock边界；生产迁移、部署、生产验收与真实业务账号均NOT_RUN。A03专用fixture和私有临时文件已exact cleanup，应用监听仍为0。"
+    },
+    {
+      "at": "2026-09-08",
+      "status": "PARTIAL_ACCEPTANCE_12_LIMITED_14_BLOCKED",
+      "counts": {
+        "total": 26,
+        "PASS_LIMITED_SCOPE": 12,
+        "FAIL_LOCAL_DEV_ROUTE": 0,
+        "BLOCKED_NOT_IMPLEMENTED": 12,
+        "BLOCKED_PRODUCT": 1,
+        "BLOCKED_ENV": 1,
+        "blocked_total": 14
+      },
+      "candidate": {
+        "backend": "6bb54007879adeb16a532d792ab471f16ee9100a",
+        "frontend": "5a41f5679c1c35e5c2850665db54ae83e58db436"
+      },
+      "canonical_evidence_commits": {
+        "backend": "76e0d2f650989ffecd7519b0d042ec2696cd60a8",
+        "frontend": "34b23fc8d00771cd03b9072e00ceda40b421c6bd"
+      },
+      "emergency_merge_heads": {
+        "backend": "bf53c6a98452f624a6061e9be7317f9f596ea908",
+        "frontend": "a93893bc4a8739ba158cf45c6f32779873d9b028"
+      },
+      "evidence": "backend:docs/superpowers/reports/validation/2026-09-08-a05-managed-user-edit/manifest.json",
+      "note": "仅A05从BLOCKED_NOT_IMPLEMENTED提升为PASS_LIMITED_SCOPE；其他25行不变。该确认来自本地联合验收证据，不臆造后端project_manager书面确认。生产migration/deploy/business accounts均NOT_RUN。"
     }
   ],
   "code_under_test": {
@@ -421,5 +474,35 @@
     "spec_evidence": "PASS",
     "quality_evidence": "PASS",
     "security_evidence": "PASS"
+  },
+  "a05_acceptance": {
+    "status": "PASS_LIMITED_SCOPE",
+    "code_under_test": {
+      "backend": "6bb54007879adeb16a532d792ab471f16ee9100a",
+      "frontend": "5a41f5679c1c35e5c2850665db54ae83e58db436"
+    },
+    "canonical_evidence_commits": {
+      "backend": "76e0d2f650989ffecd7519b0d042ec2696cd60a8",
+      "frontend": "34b23fc8d00771cd03b9072e00ceda40b421c6bd"
+    },
+    "emergency_merge_heads": {
+      "backend": "bf53c6a98452f624a6061e9be7317f9f596ea908",
+      "frontend": "a93893bc4a8739ba158cf45c6f32779873d9b028"
+    },
+    "tests": {
+      "r5_backend_service": "40 records / 0 fail / 0 skip",
+      "r5_backend_dto_handler_router": "71 records / 0 fail / 0 skip",
+      "r5_real_http_operations": "10/10 PASS",
+      "r10_visible_browser": "allowed UI, conflict/late ownership, visibility/denial PASS",
+      "r10_http_adversarial": "22/22 PASS",
+      "r10_privacy": "browser and database audit privacy PASS",
+      "r10_cleanup": "exact processes/containers/network/private files removed; residue 0"
+    },
+    "scope_boundary": "仅本地A05 managed-user nickname PATCH切片；只允许nickname string/null且auth_version保持不变。金额余额仍为Mock边界，A14范围不变；生产migration、deploy、production acceptance及真实business accounts均NOT_RUN。",
+    "production": {
+      "migration": "NOT_RUN",
+      "deployment": "NOT_RUN",
+      "business_accounts": "NOT_RUN"
+    }
   }
 }
