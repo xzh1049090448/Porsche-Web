@@ -70,3 +70,17 @@ test('real password dialog renders pending recovery read-only and disables reset
     await confirm.trigger('click');await flush();assert.equal(state.submits,0)
   }finally{wrapper.unmount();document.body.innerHTML=''}
 })
+
+for(const [name,Dialog,useStore,capabilities] of [
+  ['group',GroupDialog,groupStoreModule.useAdminUserGroupChangeStore,['users.group.change','groups.read']],
+  ['plan',PlanDialog,planStoreModule.useAdminUserPlanChangeStore,['users.plan.change']],
+])test(`real ${name} select closes its dialog on the first Escape`,async()=>{
+  const state={store:null,owner:ref(null)}
+  const Harness=defineComponent({setup(){state.store=useStore();return()=>h('main',[h('button',{id:`escape-${name}`,onClick(){state.owner.value=state.store.open(ownership(capabilities))}},'open'),h(Dialog,{owner:state.owner.value})])}})
+  const wrapper=mount(Harness,{attachTo:document.body,global:{plugins:[createPinia(),ElementPlus]}})
+  try{
+    const trigger=wrapper.get(`#escape-${name}`);await trigger.trigger('click');await flush()
+    const dialog=wrapper.get('[role="dialog"]');dialog.element.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await flush()
+    assert.equal(state.store.isOpen,false)
+  }finally{wrapper.unmount();document.body.innerHTML=''}
+})

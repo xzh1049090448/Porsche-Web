@@ -530,10 +530,11 @@ function onEntitlementFailed(kind,code){
   if(code==='user_not_found'||code==='group_not_found'||code==='action_target_not_found'){entitlementStores[kind].close(token);void load().catch(()=>{});return true}
   return true
 }
+function anotherEntitlementOwns(kind){return ['password','group','plan'].some(other=>other!==kind&&entitlementTokens[other].value&&entitlementStores[other].owns(entitlementTokens[other].value))}
 function restoreEntitlementFocus(kind,token){
   if(!token||token!==entitlementTokens[kind].value||entitlementStores[kind].owns(token))return false
   const trigger=entitlementTriggers[kind];entitlementTriggers[kind]=null;entitlementTokens[kind].value=null;entitlementContexts[kind]=null
-  nextTick(()=>{if(!entitlementTokens[kind].value)(trigger?.isConnected?trigger:pageHeading.value?.$el??pageHeading.value)?.focus?.()});return true
+  nextTick(()=>{if(!entitlementTokens[kind].value&&!anotherEntitlementOwns(kind))(trigger?.isConnected?trigger:pageHeading.value?.$el??pageHeading.value)?.focus?.()});return true
 }
 
 onMounted(() => { void load().catch(() => {}) })

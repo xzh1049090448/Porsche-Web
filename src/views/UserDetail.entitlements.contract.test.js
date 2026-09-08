@@ -11,3 +11,7 @@ test('UserDetail exposes three capability-gated mutually exclusive A07 dialogs',
 test('UserDetail reconciles reset stable results through one owned GET and handles authentication failure',()=>{
   assert.match(source,/resultingAuthVersion/);assert.match(source,/getAdminUser/);assert.match(source,/authentication_failed/);assert.match(source,/refreshEntitlementConflict/)
 })
+test('closing one entitlement dialog cannot steal focus from a newly opened entitlement dialog',()=>{
+  assert.match(source,/anotherEntitlementOwns/)
+  assert.match(source,/!anotherEntitlementOwns\(kind\)/)
+})

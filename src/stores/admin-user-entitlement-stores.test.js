@@ -61,3 +61,19 @@ test('password reset coordinator cannot issue execute or query again after pendi
   assert.equal((await reset.submit(token,input)).state,'pending_recovery')
   assert.deepEqual(calls,{issue:1,execute:1,query:1})
 })
+
+test('direct conflict refresh shares one detail GET and drops it after a new owner opens',async()=>{
+  const plan=createPlanChangeCoordinator({api:async()=>{throw{code:'auth_version_conflict'}}})
+  const token=plan.open(context(['users.plan.change']))
+  await plan.submit(token,{planType:'professional',reason:'change'})
+  let calls=0,resolveLoad
+  const load=()=>{calls++;return new Promise(resolve=>{resolveLoad=resolve})}
+  const first=plan.refreshConflict(token,load)
+  const second=plan.refreshConflict(token,load)
+  assert.equal(calls,1)
+  const next=plan.open(context(['users.plan.change']))
+  resolveLoad({...target,authVersion:8})
+  assert.deepEqual(await Promise.all([first,second]),[false,false])
+  assert.equal(plan.owns(next),true)
+  assert.equal(plan.state.target.authVersion,7)
+})
