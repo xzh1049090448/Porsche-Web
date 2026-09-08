@@ -1,1 +1,98 @@
-{"slice":"A05 managed-user nickname edit","date":"2026-09-08","status":"BLOCKED","supersedes":["r1","r2","r3","r4","r5","r6"],"r5_backend_http":"PASS: 40 service records and 71 DTO/handler/router records, zero fail/skip; isolated HTTP matrix passed","r7":{"runtime":"PASS: fresh migration/bootstrap/seed","browser":"visible localhost Chrome started through temporary same-origin proxy","cookie_gate":{"porsche_refresh_present":false,"required_attributes":"NOT_VERIFIABLE","result":"BLOCKED"},"reload":{"refresh_statuses":[401,200],"editor_visible":true,"result":"INSUFFICIENT without required persistent Secure cookie"}},"scenarios":"NOT_RUN_BLOCKED after cookie gate; no token injection or cookie bypass.","privacy":"No token value, credential, username, nickname value, request body, screenshot, or internal ID recorded."}
+{
+  "slice": "A05 managed-user nickname edit",
+  "date": "2026-09-08",
+  "status": "PASS",
+  "scope": "local isolated joint acceptance only",
+  "supersedes": ["r1", "r2", "r3", "r4", "r5-browser-blocked", "r6", "r7", "r8", "r9"],
+  "candidates": {
+    "frontend_runtime": "5a41f5679c1c35e5c2850665db54ae83e58db436",
+    "frontend_evidence_base": "c32bca8bc5dd6f7d8159ce9ce3106eb590799734",
+    "backend_runtime": "6bb54007879adeb16a532d792ab471f16ee9100a",
+    "backend_evidence_base": "667639b7446724c5e3ea6109a3ec728d496a4027"
+  },
+  "retained_r5": {
+    "service_records": 40,
+    "dto_handler_router_records": 71,
+    "failures": 0,
+    "skips": 0,
+    "http_operations": 10,
+    "result": "PASS"
+  },
+  "r10": {
+    "cookie_gate": {
+      "query_path": "/api/v1/auth/refresh",
+      "present_once": true,
+      "http_only": true,
+      "secure": true,
+      "same_site": "Lax",
+      "path": "/api/v1/auth"
+    },
+    "allowed_ui": {
+      "login": true,
+      "desktop_1440": true,
+      "mobile_375": true,
+      "direct_reload": true,
+      "initial_focus": true,
+      "focus_trap_forward_reverse": true,
+      "escape_focus_restore": true,
+      "duplicate_disabled": true,
+      "duplicate_patch_count": 1,
+      "exact_two_key_body": true,
+      "nickname_64_code_points": true,
+      "nickname_null_clear": true,
+      "success_aria_live": true
+    },
+    "conflict_and_races": {
+      "real_stale_409": true,
+      "conflict_target_get_count": 1,
+      "conflict_patch_replay_count": 0,
+      "exact_409_envelope": true,
+      "route_late_response_dropped": true,
+      "identity_late_response_dropped": true,
+      "dialog_late_response_dropped": true
+    },
+    "visibility_and_denial": {
+      "root_to_user": true,
+      "root_to_admin": true,
+      "admin_to_user": true,
+      "root_self_hidden_404": true,
+      "admin_self_hidden_404": true,
+      "equal_admin_hidden_404": true,
+      "root_target_hidden_404": true,
+      "deleted_target_hidden_404": true,
+      "ordinary_user_no_entry": true,
+      "ordinary_user_admin_request_count": 0,
+      "live_capability_downgrade_403": true,
+      "identity_refresh_count": 1,
+      "target_refresh_count": 1,
+      "patch_replay_count": 0,
+      "entry_remained_closed": true
+    },
+    "http_adversarial": {
+      "cases": 22,
+      "all_exact_envelopes": true,
+      "no_user_side_effect": true,
+      "no_audit_side_effect": true
+    },
+    "privacy": {
+      "page_errors": 0,
+      "unexpected_console_errors": 0,
+      "console_secret_matches": 0,
+      "legacy_secret_storage_keys": 0,
+      "network_evidence_minimized": true,
+      "canonical_evidence_secret_matches": 0,
+      "audit_contains_nickname_or_payload": false
+    }
+  },
+  "cleanup": {
+    "listeners": 0,
+    "containers": 0,
+    "networks": 0,
+    "temporary_paths": 0
+  },
+  "boundaries": {
+    "code_changed": false,
+    "tracker_changed": false,
+    "production_run": false
+  }
+}
