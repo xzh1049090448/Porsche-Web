@@ -104,7 +104,27 @@ test('late conflict target is discarded after route identity context changes', a
     await openStatus(state); state.statusStore.state='conflict'; state.statusStore.requiresTargetRefresh=true
     await state.wrapper.get('#emit-status-conflict').trigger('click'); await nextTick(); assert.equal(state.getCalls(),1)
     state.route.params.guid='223456789012345678'; state.userStore.identityEpoch='epoch-2'; await flush()
-    refresh.resolve({...target,authVersion:9}); await flush()
-    assert.notEqual(state.store.selected?.authVersion,9); assert.equal(state.statusStore.isOpen,false)
+    const announcement=state.wrapper.get('[role="status"]').text(); refresh.resolve({...target,authVersion:9}); await flush()
+    assert.notEqual(state.store.selected?.authVersion,9); assert.equal(state.statusStore.isOpen,false); assert.equal(state.wrapper.get('[role="status"]').text(),announcement)
+  } finally { state.wrapper.unmount(); document.body.innerHTML=''; delete globalThis.__a06View }
+})
+
+test('closing the dialog cancels a pending conflict result without changing detail, rows, permissions, or announcement', async()=>{
+  const refresh=deferred(); const state=await mountHarness({ getAdminUser:()=>refresh.promise })
+  try {
+    await openStatus(state); state.statusStore.state='conflict'; state.statusStore.requiresTargetRefresh=true
+    await state.wrapper.get('#emit-status-conflict').trigger('click'); await nextTick(); assert.equal(state.getCalls(),1)
+    const before={selected:state.store.selected,rows:state.store.rows,permissions:state.store.permissions,announcement:state.wrapper.get('[role="status"]').text()}
+    state.statusStore.close(); await nextTick(); refresh.resolve({...target,authVersion:10}); await flush()
+    assert.equal(state.store.selected,before.selected); assert.equal(state.store.rows,before.rows); assert.equal(state.store.permissions,before.permissions)
+    assert.equal(state.wrapper.get('[role="status"]').text(),before.announcement)
+  } finally { state.wrapper.unmount(); document.body.innerHTML=''; delete globalThis.__a06View }
+})
+
+test('status action stays hidden while route is noncanonical or does not own the selected target', async()=>{
+  const state=await mountHarness({ getAdminUser:async()=>({...target}) })
+  try {
+    assert.ok(statusButton(state.wrapper)?.exists()); state.route.params.guid='0123456789012345678'; await flush(); assert.equal(statusButton(state.wrapper),undefined)
+    state.route.params.guid='223456789012345678'; await flush(); assert.equal(statusButton(state.wrapper),undefined)
   } finally { state.wrapper.unmount(); document.body.innerHTML=''; delete globalThis.__a06View }
 })

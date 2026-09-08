@@ -147,7 +147,9 @@ const canEditTarget = computed(() => editInvalidatedGuid.value !== store.selecte
 const statusInvalidatedGuid = ref(null)
 const nextStatus = computed(() => store.selected?.status === 'active' ? 'disabled' : store.selected?.status === 'disabled' ? 'active' : null)
 const statusCapability = computed(() => nextStatus.value === 'disabled' ? 'users.disable' : nextStatus.value === 'active' ? 'users.enable' : null)
-const canStatusTarget = computed(() => statusInvalidatedGuid.value !== store.selected?.guid && userStore.permissionProjection?.capabilities?.includes(statusCapability.value) === true
+const statusRouteCurrent = computed(() => typeof route.params.guid === 'string' && /^[1-9]\d{0,18}$/.test(route.params.guid)
+  && (route.params.guid.length < 19 || route.params.guid <= '9223372036854775807') && route.params.guid === store.selected?.guid)
+const canStatusTarget = computed(() => statusRouteCurrent.value && statusInvalidatedGuid.value !== store.selected?.guid && userStore.permissionProjection?.capabilities?.includes(statusCapability.value) === true
   && canOpenAdminUserStatus({ actorRole:userStore.user?.role, actorGuid:userStore.user?.guid,
   capabilities:userStore.permissionProjection?.capabilities, target:store.selected, status:nextStatus.value }))
 const showPermissions = computed(() => canRead.value && store.selected?.status !== 'deleted' && store.selected?.role === 'admin' && userStore.user?.role === 'root')
@@ -253,15 +255,14 @@ function onStatusConflict(token) {
       const refreshed = await statusStore.refreshConflict(token, async guid => {
         try { fresh = await getAdminUser(guid, { signal:controller.signal }); return fresh } catch (error) { refreshError = error; throw error }
       })
-      const contextCurrent = requestId === statusRefreshRequest && route.params.guid === captured.targetGuid
-        && userStore.identityEpoch === captured.identityEpoch && userStore.permissionRevision === captured.permissionVersion
+      const contextCurrent = requestId === statusRefreshRequest && statusContext === captured && statusBaseCurrent(token, captured) && statusStore.isOpen
       if (fresh && contextCurrent && store.selected?.guid === captured.targetGuid && store.selected.authVersion === captured.authVersion) {
         store.selected = fresh
         if (refreshed) statusContext = Object.freeze({ ...captured, authVersion:fresh.authVersion, targetStatus:fresh.status })
       }
       if (refreshError?.response?.status === 401 && contextCurrent) return onStatusFailed('authentication_failed', token)
       if (!refreshed && contextCurrent && statusStore.owns(token)) statusStore.close(token)
-      statusAnnouncement.value = refreshed ? '用户信息已刷新，请重新确认操作。' : '用户状态已变化，操作已关闭。'
+      if (contextCurrent) statusAnnouncement.value = refreshed ? '用户信息已刷新，请重新确认操作。' : '用户状态已变化，操作已关闭。'
       return refreshed
     } finally {
       if (requestId === statusRefreshRequest && statusRefreshAbort === controller) statusRefreshAbort = null
@@ -438,6 +439,7 @@ watch(() => store.selected, target => {
   if (editToken.value && editStore.owns(editToken.value)) editStore.updateContext(editToken.value, { target })
   if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.updateContext(statusToken.value, { target })
 })
+watch(() => statusStore.isOpen, (open, previous) => { if (!open && previous) cancelStatusRefresh() })
 onBeforeUnmount(() => {
   cancelEditRefresh(); editPermissionRefreshRequest++; if (editToken.value) editStore.dispose(editToken.value); editToken.value = null; editTrigger = null; editContext = null
   cancelStatusRefresh(); if (statusToken.value) statusStore.dispose(statusToken.value); statusToken.value = null; statusTrigger = null; statusContext = null
