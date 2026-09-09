@@ -37,7 +37,7 @@ All three mutations require one original `Idempotency-Key`, one single-use `X-Ac
 - Self and Root targets expose none of these controls.
 - Capability-driven visibility never substitutes for backend authorization.
 
-Promotion defaults to the Admin baseline and may expand a permission editor. The editor groups capabilities and displays the three input states `inherit`, `allow`, `deny`, final effective value and source. Unknown, unavailable and Root-only grants cannot be serialized.
+Promotion defaults to the Admin baseline and may expand a permission editor. The editor groups capabilities and displays the three input states `inherit`, `allow`, `deny`, final effective value and source. Serialization includes only `allow` and `deny` entries and omits every capability selected as `inherit`; an explicit wire `effect: "inherit"` is invalid. Unknown, unavailable and Root-only grants cannot be serialized.
 
 Demotion warns that Admin permissions stop applying and all sessions become invalid. Permission save carries the same session-invalidating warning. Each dialog requires a normalized reason and the Root actor's current password for ticket issuance.
 
