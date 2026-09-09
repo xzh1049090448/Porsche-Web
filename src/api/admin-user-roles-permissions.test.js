@@ -201,7 +201,16 @@ const errorEnvelope = (status, code, extra = {}) => ({
 })
 
 test('maps only exact safe errors and never exposes transport or secret values', () => {
-  assert.equal(mapRolePermissionError({ response: { status: 401, headers: {}, data: { detail: '未登录' } } }).code, 'authentication_failed')
+  assert.equal(mapRolePermissionError({ response: { status: 401, headers, data: { detail: '未登录' } } }).code, 'authentication_failed')
+  for (const invalidHeaders of [
+    { 'X-Request-ID': 'req-a08' },
+    { 'Cache-Control': 'private', 'X-Request-ID': 'req-a08' },
+    { 'Cache-Control': 'no-store' },
+    { 'Cache-Control': 'no-store', 'X-Request-ID': ' ' },
+    { ...headers, 'Retry-After': '1' },
+  ]) {
+    assert.equal(mapRolePermissionError({ response: { status: 401, headers: invalidHeaders, data: { detail: '未登录' } } }).code, 'request_failed')
+  }
   assert.equal(mapRolePermissionError(errorEnvelope(409, 'policy_version_conflict')).code, 'policy_version_conflict')
   assert.equal(mapRolePermissionError(errorEnvelope(503, 'operation_commit_unknown', { operationRef: OPERATION })).operationRef, OPERATION)
   assert.equal(mapRolePermissionError(errorEnvelope(429, 'action_rate_limited', { headers: { ...headers, 'Retry-After': '3' } })).retryAfter, 3)

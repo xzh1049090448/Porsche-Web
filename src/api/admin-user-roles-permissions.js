@@ -222,7 +222,9 @@ export function mapRolePermissionError(error) {
   const headers = error?.response?.headers
   const body = error?.response?.data
   const retryText = headerValue(headers, 'Retry-After')
-  if (status === 401 && retryText === null && exactKeys(body, ['detail']) && ['未登录', 'Token无效或已过期'].includes(body.detail)) {
+  const requestID = headerValue(headers, 'X-Request-ID')
+  if (status === 401 && retryText === null && headerValue(headers, 'Cache-Control') === 'no-store'
+      && requestID?.trim() && exactKeys(body, ['detail']) && ['未登录', 'Token无效或已过期'].includes(body.detail)) {
     return publicFailure('authentication_failed', status)
   }
   const payload = body?.error
@@ -231,7 +233,6 @@ export function mapRolePermissionError(error) {
   const expectedKeys = operationUnknown
     ? ['code', 'message', 'type', 'request_id', 'operation_ref']
     : ['code', 'message', 'type', 'request_id']
-  const requestID = headerValue(headers, 'X-Request-ID')
   const retryAfter = retryText !== null && /^[1-9]\d*$/.test(retryText) ? Number(retryText) : null
   const retryValid = status === 429 ? Number.isSafeInteger(retryAfter) : retryText === null
   const valid = exactKeys(body, ['error']) && exactKeys(payload, expectedKeys)
