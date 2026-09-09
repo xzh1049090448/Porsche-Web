@@ -1,6 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 
+const developmentOnlyChildren = import.meta.env.DEV ? [
+  { path: 'demo/admin/balance', name: 'AdminBalanceMockDemo', component: () => import('@/views/AdminBalanceMockDemo.vue') },
+] : []
+
 const routes = [
   { path: '/login', name: 'Login', component: () => import('@/views/Login.vue'), meta: { guest: true } },
   { path: '/register', name: 'Register', component: () => import('@/views/Register.vue'), meta: { guest: true } },
@@ -12,6 +16,7 @@ const routes = [
       { path: 'profile', name: 'Profile', component: () => import('@/views/Profile.vue') },
       { path: 'billing', name: 'Billing', component: () => import('@/views/Billing.vue') },
       { path: 'api-keys', name: 'ApiKeys', component: () => import('@/views/ApiKeys.vue') },
+      ...developmentOnlyChildren,
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
