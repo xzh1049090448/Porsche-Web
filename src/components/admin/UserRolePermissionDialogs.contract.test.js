@@ -34,6 +34,7 @@ test('promote defaults to baseline with an optional editor, permissions always e
   assert.match(promote, /UserPermissionEditor/)
   assert.match(promote, /editorExpanded/)
   assert.match(promote, /overrides[^=]*= ref\(\[\]\)/)
+  assert.doesNotMatch(parse(promote, { filename: 'UserPromoteDialog.vue' }).descriptor.scriptSetup.content, /policy:\s*\{[^}]*required:\s*true/)
   assert.match(permissions, /UserPermissionEditor/)
   assert.doesNotMatch(demote, /UserPermissionEditor|overrides/)
 })
@@ -56,6 +57,23 @@ test('dialog normalizers trim code-point reasons, preserve passwords, and omit d
     assert.throws(() => normalize({ reason: 'ok', currentPassword: '', overrides: [] }))
     assert.throws(() => normalize({ reason: '\uD800', currentPassword: 'Root1!!', overrides: [] }))
   }
+})
+
+test('promotion derives an explicit local baseline view from the trusted catalog and User target', async () => {
+  const promote = await vite.ssrLoadModule('/src/components/admin/UserPromoteDialog.vue')
+  const catalog = {
+    catalog_version: 1,
+    override_effects: ['inherit', 'allow', 'deny'],
+    capabilities: (await import('../../api/admin-users.js')).ADMIN_CAPABILITY_DEFINITIONS.map(item => ({
+      name: item.name, admin_default: item.baseline, grantable: item.grantable, root_only: item.rootOnly, available: item.available,
+    })),
+  }
+  const baseline = promote.buildPromoteBaselinePolicy(catalog, { guid: '9', role: 'user', status: 'active' })
+  assert.equal(baseline.user_guid, '9')
+  assert.equal(baseline.role, 'admin')
+  assert.equal(baseline.permissions_version, '0')
+  assert.equal(baseline.capabilities.length, 24)
+  assert.equal(baseline.capabilities.every(item => item.override === 'inherit'), true)
 })
 
 test('dialogs include session invalidation and safe terminal-state messages', () => {

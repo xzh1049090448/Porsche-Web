@@ -12,6 +12,30 @@ export function normalizePromoteDialogInput(input) {
   if (!reason || [...reason].length > 200 || !currentPassword) throw new TypeError('invalid_role_permission_dialog_input')
   return { reason, currentPassword, overrides: normalizeRolePermissionOverrides(input?.overrides).map(item => ({ ...item })) }
 }
+
+// Promotion has no Admin permissions endpoint projection. This local view is
+// derived only from the catalog and is used to render an all-inherit baseline.
+export function buildPromoteBaselinePolicy(catalog, target) {
+  if (!catalog || !Array.isArray(catalog.capabilities) || !target || target.role !== 'user') return null
+  const capabilities = catalog.capabilities.map(item => {
+    const policyEffective = item?.available === true && item?.root_only === false && item?.admin_default === true
+    return Object.freeze({
+      name: item?.name,
+      baseline: item?.admin_default,
+      override: 'inherit',
+      policy_effective: policyEffective,
+      effective: target.status === 'active' && policyEffective,
+    })
+  })
+  return Object.freeze({
+    user_guid: target.guid,
+    role: 'admin',
+    status: target.status,
+    catalog_version: catalog.catalog_version,
+    permissions_version: '0',
+    capabilities: Object.freeze(capabilities),
+  })
+}
 </script>
 
 <script setup>
@@ -22,7 +46,6 @@ import UserPermissionEditor, { buildPermissionEditorModel } from './UserPermissi
 const props = defineProps({
   owner: { type: Object, default: null },
   catalog: { type: Object, required: true },
-  policy: { type: Object, required: true },
 })
 const emit = defineEmits(['succeeded', 'conflict', 'failed', 'closed'])
 const rolePermissionStore = useAdminUserRolePermissionsStore()
@@ -39,7 +62,8 @@ let closingOwner = null
 
 const visible = computed(() => rolePermissionStore.isOpen && rolePermissionStore.action === 'users.promote' && rolePermissionStore.owns(props.owner))
 const busy = computed(() => validating.value || ['verifying', 'executing', 'querying'].includes(rolePermissionStore.phase))
-const editorValid = computed(() => props.policy?.user_guid === rolePermissionStore.target?.guid && buildPermissionEditorModel(props.catalog, props.policy, overrides.value).valid)
+const promotionPolicy = computed(() => buildPromoteBaselinePolicy(props.catalog, rolePermissionStore.target))
+const editorValid = computed(() => promotionPolicy.value != null && buildPermissionEditorModel(props.catalog, promotionPolicy.value, overrides.value).valid)
 const canSubmit = computed(() => Boolean(rolePermissionStore.target) && rolePermissionStore.phase === 'idle' && !busy.value && editorValid.value)
 const failureMessage = computed(() => ({
   authentication_failed: '认证会话已失效，请重新登录。',
@@ -103,7 +127,7 @@ onBeforeUnmount(() => { const token = props.owner; clearForm(); if (rolePermissi
       <el-form id="admin-user-promote-form" ref="formRef" :model="form" :rules="rules" label-position="top" scroll-to-error @submit.prevent="submit">
         <el-form-item prop="reason" label="操作原因"><el-input ref="reasonInput" v-model="form.reason" type="textarea" :rows="3" autocomplete="off" :disabled="busy" /></el-form-item>
         <el-button class="permission-toggle" type="primary" plain :disabled="busy" @click="editorExpanded = !editorExpanded">{{ editorExpanded ? '收起权限设置' : '展开权限设置（默认管理员基线）' }}</el-button>
-        <UserPermissionEditor v-if="editorExpanded" v-model="overrides" :catalog="catalog" :policy="policy" />
+        <UserPermissionEditor v-if="editorExpanded" v-model="overrides" :catalog="catalog" :policy="promotionPolicy" />
         <el-form-item prop="currentPassword" label="Root 当前密码"><el-input ref="passwordInput" v-model="form.currentPassword" type="password" autocomplete="current-password" :disabled="busy" /></el-form-item>
       </el-form>
     </template>
