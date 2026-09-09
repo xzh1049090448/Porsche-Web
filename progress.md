@@ -328,3 +328,13 @@
 - B1-A 内部协调任务已由后端 PM 提出并获前端协调者接受：BE-only 纯 authz evaluator，24cap/immutable snapshot/四入口/默认 deny 等细节以 BE 计划为准；不改公共接口 DRAFT、不交 projection、不开放 FE 管理入口，当前无 passing，等待 BE 测试结果。
 - B1-A 已完成限定 PASS：focused 8 tests/rerun、full 312（98 DB/Redis fixture SKIP、0 fail）、package 15 pass/4 no-tests SKIP、build/vet 0、独立并发 probe 与质量验证 PASS；来源为 BE plan/spec/report。仅限纯库策略，未接 DTO/HTTP/DB/旧路由/安全失效；完整 B1 未完成，web-012 等待后端整合，FE 入口保持关闭。
 - B1-B1 已完成限定 PASS：PM SPEC PASS；permission_snapshot_verify fresh build/vet/diff/json 0，real fixture full 456 pass/0 skip/0 fail，15 package pass/4 no-tests，反向锁 probe PASS 1.362s，SECURITY_REPORT Critical/High/Medium/Low 均 none、VERDICT PASS。仅限内部快照库，未接 HTTP/DTO/FE，`permissions_version` 未冻结，完整 B1 未完成；web-012 保持 `not_started/awaiting_backend_integration`，26 项 PRD 验收仍 `NOT_RUN`。
+
+## 2026-09-10：A09–A12 本地限定验收
+
+- 前后端均先合入最新 `origin/main`。后端保留主分支 `0011`，将未发布的 A07/A08 迁移顺延为 `0012/0013`；当前前端代码候选 `8612242`，后端边界候选 `258abb4`。
+- A09/A10 新增仅 Vite 开发环境注册的 `/demo/admin/balance`，使用合成用户和纯内存 CNY 整数分夹具；成功、失败、超时、冲突、重复提交、刷新重置和 Mock 标记均有自动化证据。
+- A11 生产构建扫描确认 demo 路由、marker 和合成用户名未进入 `dist`；真实用户列表/详情继续显示金额未接入，后端三条代表性金额写路径保持 404。
+- A12 沿用既有 `users.delete` 限定切片并在当前候选复验。前端 focused 65/65、后端 authz/dto/handler/router/service 定向测试通过。
+- 前端 focused 8/8、全量 455/455、生产构建通过；可见 Chromium 七项业务检查及 390px 布局通过。Mock 登录后台 `/api/v1/auth/self` 因未启动本地后端出现两条 500 控制台噪声，金额演示本身没有真实 API/DB 调用。
+- 后端全量测试、构建与路由边界通过。合并后的真实 MySQL `0011–0013` 迁移链及 A08 `0013` down 兼容通过；新的完整 A08 service fixture 复跑因 disposable MySQL host mapping 瞬断未闭环，继续单独引用原 A08 真实服务证据。三轮本次 fixture 均 exact cleanup、label 残留为零。
+- 当前矩阵为 18 项 `PASS_LIMITED_SCOPE`、8 项阻塞；`web-012` 保持 `in_progress`。外部后端 `project_manager` 对本轮当前候选的书面确认尚未获得，生产迁移、部署、生产验收与真实业务账号均未运行。

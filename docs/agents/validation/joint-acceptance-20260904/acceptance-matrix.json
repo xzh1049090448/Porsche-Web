@@ -1,23 +1,23 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-09T00:12:20+08:00",
-  "overall_status": "PARTIAL_ACCEPTANCE_14_LIMITED_12_BLOCKED",
-  "verdict": "PARTIAL_ACCEPTANCE_14_LIMITED_12_BLOCKED",
+  "generated_at": "2026-09-10T00:37:08+08:00",
+  "overall_status": "PARTIAL_ACCEPTANCE_18_LIMITED_8_BLOCKED",
+  "verdict": "PARTIAL_ACCEPTANCE_18_LIMITED_8_BLOCKED",
   "candidate": {
-    "frontend_head": "41648181ab42fb46fe7d45663e746121956b50b8",
-    "backend_head": "a600a0815b5eab5203333755a2466788fe67d61a",
+    "frontend_head": "86122422a8234db3d5ee486eda8a0def6646dcc6",
+    "backend_head": "258abb42a9e1f018845b3175e7dbca0a013231f1",
     "frontend_evidence_head": "39b79582110347ae11b95e58217b3afe3236b4f7",
     "backend_evidence_head": "5d5a1e9ee230bcc42fe9fde8d3f9f7badf34b658"
   },
   "environment_manifest_before_final_archive_sha256": "d3d1de8b3609721baba3e1f04ca19ef5990aaad2666e63f9aab7786cb6101641",
   "summary": {
     "total": 26,
-    "PASS_LIMITED_SCOPE": 14,
+    "PASS_LIMITED_SCOPE": 18,
     "FAIL_LOCAL_DEV_ROUTE": 0,
-    "BLOCKED_NOT_IMPLEMENTED": 10,
+    "BLOCKED_NOT_IMPLEMENTED": 6,
     "BLOCKED_PRODUCT": 1,
     "BLOCKED_ENV": 1,
-    "blocked_total": 12
+    "blocked_total": 8
   },
   "supersession": {
     "core_report": "CORE-PHASE-REPORT.md",
@@ -33,7 +33,9 @@
     "a07_backend_project_manager": "NOT_OBTAINED",
     "a07_backend_review": "PASS",
     "a07_frontend_review": "PASS",
-    "a07_document_review": "PASS"
+    "a07_document_review": "PASS",
+    "a09_a12_backend_project_manager": "NOT_OBTAINED",
+    "a09_a12_local_verification": "PASS"
   },
   "items": [
     {
@@ -188,37 +190,67 @@
       "prd": "提升/降级/权限覆盖",
       "owner": "FE+BE",
       "expected_evidence": "最新能力生效、降级无残留、旧入口不可绕过",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "v2提升/降级/权限写入未实现；catalog/permission read子集通过。",
-      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+      "latest_evidence": "本地 A08 角色与权限联合切片通过；本次合并后 no-fixture 全量回归通过，真实 MySQL 0011-0013 迁移链通过。完整 A08 service fixture 仍引用合并前候选证据。",
+      "accepted_candidate": {
+        "backend": "f2f976005c2331c0409c1b27da79e3a43d25bcb0",
+        "frontend": "25b073164dc3fccecbf3b74309f12dd7589c024b"
+      },
+      "evidence_paths": [
+        "backend:docs/superpowers/reports/validation/2026-09-09-a08-managed-user-roles-permissions/backend/manifest.json"
+      ]
     },
     {
       "id": "A09",
       "prd": "金额Mock增减覆盖",
       "owner": "FE",
       "expected_evidence": "分单位范围/精度/余额不足/Mock标记正确",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "金额Mock UI/API未实现。"
+      "latest_evidence": "开发专用 CNY 合成用户演示通过：整数分、精度/上限/余额不足、增加/扣减/覆盖、调整前后与永久 Mock 标记。",
+      "accepted_candidate": {
+        "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+        "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6"
+      },
+      "evidence_paths": [
+        "frontend:docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json"
+      ],
+      "backend_project_manager_confirmation": "NOT_OBTAINED"
     },
     {
       "id": "A10",
       "prd": "模拟调额异常与重复提交",
       "owner": "FE",
       "expected_evidence": "成功/失败/超时/冲突可演示且不调用真实写接口",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "模拟调额异常、冲突、超时及重复提交未实现。"
+      "latest_evidence": "纯内存夹具覆盖成功/失败/超时/版本冲突、同 key 单飞及完成重放；失败状态字节等价且可见 Chromium 验证通过。",
+      "accepted_candidate": {
+        "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+        "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6"
+      },
+      "evidence_paths": [
+        "frontend:docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json"
+      ],
+      "backend_project_manager_confirmation": "NOT_OBTAINED"
     },
     {
       "id": "A11",
       "prd": "Mock与生产隔离",
       "owner": "FE+BE",
       "expected_evidence": "无真实余额/流水写入，伪造金额动作拒绝，原调用行为不变",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "Mock与生产隔离的完整可执行入口未实现，无法联合验收。"
+      "latest_evidence": "生产构建不注册 demo 路由且产物扫描无 marker/合成用户名；真实列表和详情显示未接入，后端伪造金额写路径保持 404。",
+      "accepted_candidate": {
+        "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+        "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6"
+      },
+      "evidence_paths": [
+        "frontend:docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json"
+      ],
+      "backend_project_manager_confirmation": "NOT_OBTAINED"
     },
     {
       "id": "A12",
@@ -237,7 +269,14 @@
         "backend:docs/superpowers/reports/validation/2026-09-05-a14-user-soft-delete/spec-review.md",
         "backend:docs/superpowers/reports/validation/2026-09-05-a14-user-soft-delete/quality-review.md",
         "backend:docs/superpowers/reports/validation/2026-09-05-a14-user-soft-delete/security-review.md"
-      ]
+      ],
+      "current_revalidation": {
+        "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+        "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6",
+        "result": "PASS",
+        "evidence": "frontend:docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json",
+        "backend_project_manager_confirmation": "NOT_OBTAINED_FOR_CURRENT_RERUN"
+      }
     },
     {
       "id": "A13",
@@ -386,7 +425,8 @@
     "writer_report_sha256": "184b20cf7c446c4fc11ae15a02fe8698d8b03296f77ad432b766255f95034b24",
     "writer_results_sha256": "2b0394077c775257a8e89fc72a94195e4d358dfe0514a6b72445f17522c5115c",
     "independent_qa_results_sha256": "e822b1655465eb233d4a985f7b77dedfdd1120bce87bd1da1e9599fa7b536286",
-    "independent_qa_manifest_sha256": "a7cf2ba005ebad6ab8dbc08e299aa3af5f01a3404d630f2adb7f5c7af2ce3629"
+    "independent_qa_manifest_sha256": "a7cf2ba005ebad6ab8dbc08e299aa3af5f01a3404d630f2adb7f5c7af2ce3629",
+    "a09_a12_manifest": "docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json"
   },
   "secret_free": true,
   "production_touched": false,
@@ -522,8 +562,8 @@
     }
   ],
   "code_under_test": {
-    "backend": "3a50144e53268f6ef3ae704699ef9fa851e4a5ee",
-    "frontend": "9f660a9ca26f5738dd661652596a1e450ff34335"
+    "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+    "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6"
   },
   "a03_reviews": {
     "spec_code": "PASS",
@@ -590,5 +630,15 @@
     },
     "scope_boundary": "仅本地A06禁用/启用切片；生产migration、deploy、production acceptance及真实business accounts均NOT_RUN；拒绝管理动作审计仍为后续PRD残留。",
     "backend_project_manager_written_confirmation": "NOT_OBTAINED"
+  },
+  "a09_a12_acceptance": {
+    "status": "PASS_LIMITED_SCOPE",
+    "code_under_test": {
+      "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+      "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6"
+    },
+    "evidence": "frontend:docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json",
+    "backend_project_manager_confirmation": "NOT_OBTAINED",
+    "scope_boundary": "A09/A10 only development CNY Mock; A11 proves production isolation; A12 is current-candidate revalidation of the existing soft-delete slice. No production or real money capability was run."
   }
 }

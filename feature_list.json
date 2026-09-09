@@ -1,6 +1,6 @@
 {
   "project": "Porsche-Web（大模型聚合平台用户端前端）",
-  "last_updated": "2026-09-09",
+  "last_updated": "2026-09-10",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -45,7 +45,7 @@
       "title": "PRD-260903：管理员用户管理与公共页面体系",
       "user_visible_behavior": "形成管理员真实管理、公共页面、路由迁移与金额 Mock 隔离的可实施设计和契约草案。",
       "status": "in_progress",
-      "phase": "joint_acceptance_partial_15_limited_11_blocked",
+      "phase": "joint_acceptance_partial_18_limited_8_blocked",
       "verification": [
         "设计评审与独立 review",
         "文档 JSON parse/hash/diff-check",
@@ -54,7 +54,8 @@
         "A05 Task8：BE 6bb5400 / FE 5a41f56；r5 backend service/HTTP与r10 visible browser/adversarial/privacy/cleanup通过",
         "A06：BE 08617d4 / FE 07c7b9e；真实MySQL/Redis、race、no-fixture full、前端364/364、真实挂载13/13、生产构建、375/390 Chrome及双端独立复审通过",
         "A07：BE a600a08 / FE 4164818；真实 MySQL/Redis、race、回滚、登录/令牌、Bearer 套餐额度、前端 395/395、生产构建、375/390 Chrome 与三项独立复审通过",
-        "A08：BE f2f9760 / FE 25b0731；后端真实 fixture 11/11、前端 focused 41/41、full 446/446、生产构建、可见 Chromium 提升/权限修改/降级、375/390 与 exact cleanup 通过，状态 PASS_LIMITED_SCOPE"
+        "A08：BE f2f9760 / FE 25b0731；后端真实 fixture 11/11、前端 focused 41/41、full 446/446、生产构建、可见 Chromium 提升/权限修改/降级、375/390 与 exact cleanup 通过，状态 PASS_LIMITED_SCOPE",
+        "A09-A12：FE 8612242 / BE 258abb4；focused 8/8、前端全量 455/455、生产构建隔离扫描、可见 Chromium 7 项、后端全量/构建/伪造金额路由 404、A12 当前候选定向回归通过"
       ],
       "evidence": [
         "2026-09-04：B1-D 只读用户列表/详情、认证权限投影、分页回退及 F1/F2 候选闭合；132/132 Node 行为测试、build、writer Chrome 合成 API 矩阵通过。独立 Chrome 在 5177 复验分页/UI、详情错误重试、F1 撤权清理和权限恢复均 PASS；独立质量为本地 FE 候选 VERDICT PASS，offline audit freshness NOT_VERIFIED。",
@@ -65,9 +66,10 @@
         "2026-09-08：A06 managed-user status本地联合切片PASS_LIMITED_SCOPE。代码BE 08617d4/FE 07c7b9e；canonical evidence commits BE 1677bc5/FE b620552；合同SHA-256 c3662b25500879d67c6811fa270d4a6a39a44db812c7c493d6f02e535940b415。生产migration/deploy/business accounts均NOT_RUN。",
         "2026-09-09：A07 managed-user credentials/entitlements 本地联合切片 PASS_LIMITED_SCOPE。候选 BE a600a08/FE 4164818；canonical evidence commits BE 5d5a1e9ee230bcc42fe9fde8d3f9f7badf34b658/FE 39b79582110347ae11b95e58217b3afe3236b4f7；合同 SHA-256 9e1969b238911b6eee5b6aa85ed364e795a6854f0a026daac5d15e2ab78851be。Gateway Key plan/quota 消费仍 BLOCKED_NOT_IMPLEMENTED，生产均 NOT_RUN。",
         "2026-09-09：A08 managed-user roles/permissions 本地联合切片 PASS_LIMITED_SCOPE。候选 BE f2f9760/FE 25b0731，合同 SHA-256 dd202cb5019b10a891e10f03f77629b5f54e993110f148f417e05d089df35698；真实 MySQL/Redis/0012、事务/并发/运行时、前端 446/446、可见浏览器三步链路和 375/390 通过。生产及外部 PM 未运行。",
-        "2026-09-08：测试环境真实浏览器完成管理员列表、精确搜索、详情、刷新登录态、创建普通用户及软删除闭环；临时 GUID 355650202352226304 删除后活动列表恢复 4 条且 GUID 查询 0 条。发现删除后残留旧创建公告；隔离分支按 TDD 修复为删除成功公告，定向 10/10、全量 287/287、生产构建及 diff-check 通过。"
+        "2026-09-08：测试环境真实浏览器完成管理员列表、精确搜索、详情、刷新登录态、创建普通用户及软删除闭环；临时 GUID 355650202352226304 删除后活动列表恢复 4 条且 GUID 查询 0 条。发现删除后残留旧创建公告；隔离分支按 TDD 修复为删除成功公告，定向 10/10、全量 287/287、生产构建及 diff-check 通过。",
+        "2026-09-10：A09/A10 开发专用 CNY Mock、A11 生产隔离、A12 当前候选复验均为 PASS_LIMITED_SCOPE。证据见 docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json；外部后端 project_manager 本轮书面确认未获得。"
       ],
-      "notes": "当前权威本地结果为 15 PASS_LIMITED_SCOPE、0 FAIL_LOCAL_DEV_ROUTE、9 BLOCKED_NOT_IMPLEMENTED、1 BLOCKED_PRODUCT、1 BLOCKED_ENV，合计 11 项阻塞。web-012 继续 in_progress。Gateway Key owner plan/quota 原子重载与消费仍 BLOCKED_NOT_IMPLEMENTED；金额余额仍仅为 Mock 边界；真实 ledger/billing/recharge/refund/deduction、生产迁移、部署、生产验收和真实业务账号均 NOT_RUN。ACTION_SECURITY_HMAC_KEY v1 lacks key ID/multi-key verification; rotation is prohibited while replayable post-0010 active snapshots exist unless a separately approved multi-key verifier or atomic full re-HMAC migration is delivered.",
+      "notes": "当前权威本地结果为 18 PASS_LIMITED_SCOPE、0 FAIL_LOCAL_DEV_ROUTE、6 BLOCKED_NOT_IMPLEMENTED、1 BLOCKED_PRODUCT、1 BLOCKED_ENV，合计 8 项阻塞。web-012 继续 in_progress。A09/A10 仅开发环境 CNY Mock；真实 ledger/billing/recharge/refund/deduction、生产迁移、部署、生产验收和真实业务账号均 NOT_RUN。外部后端 project_manager 对本轮 A09-A12 当前候选的书面确认未获得。ACTION_SECURITY_HMAC_KEY v1 lacks key ID/multi-key verification; rotation is prohibited while replayable post-0010 active snapshots exist unless a separately approved multi-key verifier or atomic full re-HMAC migration is delivered.",
       "a07_joint_acceptance": {
         "status": "PASS_LIMITED_SCOPE",
         "code_under_test": {
@@ -125,6 +127,16 @@
         ],
         "scope_boundary": "本地 A08 角色与权限联合切片限定通过；可见 commit-unknown、disabled target 与 override-at-promotion 为自动化覆盖。生产与外部 PM 仍未运行。",
         "evidence": "docs/agents/validation/a08-managed-user-roles-permissions-20260909/manifest.json"
+      },
+      "a09_a12_joint_acceptance": {
+        "status": "PASS_LIMITED_SCOPE",
+        "code_under_test": {
+          "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+          "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6"
+        },
+        "evidence": "frontend:docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json",
+        "backend_project_manager_confirmation": "NOT_OBTAINED",
+        "scope_boundary": "A09/A10 only development CNY Mock; A11 proves production isolation; A12 is current-candidate revalidation of the existing soft-delete slice. No production or real money capability was run."
       }
     },
     {
