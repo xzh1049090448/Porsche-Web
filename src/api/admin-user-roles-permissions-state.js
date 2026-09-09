@@ -24,6 +24,35 @@ const CONFLICT_CODES = new Set([
   'target_state_conflict',
   'consumer_validation_failed',
 ])
+const PUBLIC_ERROR_CODES = Object.freeze([
+  'invalid_admin_action_request',
+  'action_verification_rejected',
+  'action_operation_rejected',
+  'action_target_not_found',
+  'action_operation_not_found',
+  'action_verification_conflict',
+  'idempotency_conflict',
+  'idempotency_cross_session',
+  'action_rejected',
+  'target_version_conflict',
+  'policy_version_conflict',
+  'target_state_conflict',
+  'consumer_validation_failed',
+  'operation_expired',
+  'request_body_too_large',
+  'action_inactive',
+  'action_rate_limited',
+  'action_dependency_unavailable',
+  'operation_commit_unknown',
+  'authentication_failed',
+])
+const OPERATION_FAILURE_CODES = Object.freeze([
+  'action_rejected',
+  'target_version_conflict',
+  'policy_version_conflict',
+  'target_state_conflict',
+  'consumer_validation_failed',
+])
 const BASE64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
 
 function createIdempotencyKey(randomBytes) {
@@ -41,7 +70,8 @@ function createIdempotencyKey(randomBytes) {
   return `ik_${encoded}`
 }
 
-const safeCode = error => typeof error?.code === 'string' ? error.code : 'request_failed'
+const safeCode = error => PUBLIC_ERROR_CODES.includes(error?.code) ? error.code : 'request_failed'
+const safeOperationFailureCode = code => OPERATION_FAILURE_CODES.includes(code) ? code : 'request_failed'
 const ambiguousExecute = error => error?.code === 'operation_commit_unknown' || !Number.isInteger(error?.status)
 const retryDelay = value => Math.min(30, Math.max(1, Number.isInteger(value) ? value : 1)) * 1000
 
@@ -156,7 +186,10 @@ export function createRolePermissionAttempt({ api, randomBytes, schedule } = {})
       }
       if (result.status === 'succeeded') return finish(ROLE_PERMISSION_PHASES.SUCCEEDED, null, result)
       if (result.status === 'pending_recovery') return finish(ROLE_PERMISSION_PHASES.PENDING_RECOVERY, null, result)
-      if (result.status === 'failed') return finish(CONFLICT_CODES.has(result.failureCode) ? ROLE_PERMISSION_PHASES.CONFLICT : ROLE_PERMISSION_PHASES.FAILED, result.failureCode ?? 'request_failed')
+      if (result.status === 'failed') {
+        const code = safeOperationFailureCode(result.failureCode)
+        return finish(CONFLICT_CODES.has(code) ? ROLE_PERMISSION_PHASES.CONFLICT : ROLE_PERMISSION_PHASES.FAILED, code)
+      }
       return fail(null)
     } catch (error) {
       if (disposed || generation !== runGeneration) return null

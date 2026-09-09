@@ -5,6 +5,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createAdminUserRolePermissionsCoordinator, createAdminUserRolePermissionsStore } from './admin-user-role-permissions.js'
 
 const target = Object.freeze({ guid: '9', username: 'target', role: 'user', status: 'active', authVersion: 7 })
+const ticket = 'av_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+const operation = 'op_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 const context = Object.freeze({
   target,
   routeGuid: '9',
@@ -125,4 +127,48 @@ test('Pinia submit consumes unsafe readers once and reports only safe terminal r
   assert.equal(getterReads, 1)
   assert.equal(errorValues.length, 0)
   assert.doesNotMatch(JSON.stringify({ afterValues, state: store.$state }), /raw-error|RootSecret1!!/)
+})
+
+test('Pinia action results and instrumentation never expose injected backend failure codes', async () => {
+  const rawMarker = 'raw-secret-BackendPassword1!!'
+  const apis = [
+    {
+      issueDemote: async () => { throw { code: rawMarker, status: 503 } },
+      executeDemote: async () => assert.fail('unexpected execute'),
+      query: async () => assert.fail('unexpected query'),
+    },
+    {
+      issueDemote: async () => ({ ticket }),
+      executeDemote: async () => { throw { code: rawMarker, status: 503 } },
+      query: async () => assert.fail('unexpected query'),
+    },
+    {
+      issueDemote: async () => ({ ticket }),
+      executeDemote: async () => { throw { code: 'operation_commit_unknown', status: 503, operationRef: operation } },
+      query: async () => ({ status: 'failed', operationRef: operation, failureCode: rawMarker }),
+    },
+  ]
+
+  for (const [index, api] of apis.entries()) {
+    setActivePinia(createPinia())
+    const useStore = createAdminUserRolePermissionsStore(`a08-untrusted-code-${index}`, {
+      api,
+      randomBytes: () => new Uint8Array(32),
+      schedule: () => () => {},
+    })
+    const store = useStore()
+    const afterValues = []
+    const errorValues = []
+    store.$onAction(({ name, after, onError }) => {
+      if (name !== 'submit') return
+      after(value => { afterValues.push(value) })
+      onError(error => { errorValues.push(error) })
+    })
+    const token = store.openDemote({ ...context, target: { ...target, role: 'admin' } })
+    const result = await store.submit(token, () => ({ reason: 'demote', currentPassword: 'FrontendPassword1!!' }))
+    assert.equal(result.failureCode, 'request_failed')
+    assert.equal(store.failureCode, 'request_failed')
+    assert.equal(errorValues.length, 0)
+    assert.doesNotMatch(JSON.stringify({ result, afterValues, state: store.$state }), /raw-secret|BackendPassword1!!|FrontendPassword1!!/)
+  }
 })

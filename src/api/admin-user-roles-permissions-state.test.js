@@ -127,3 +127,63 @@ test('attempt distinguishes conflicts failures and pending recovery and ignores 
   assert.equal((await running).failureCode, 'workflow_disposed')
   assert.equal(executeCalls, 0)
 })
+
+test('attempt maps untrusted Issue Execute and Query failure codes through frozen public allowlists', async () => {
+  const rawMarker = 'raw-secret-RootSecret1!!'
+  const scenarios = [
+    {
+      api: {
+        issueDemote: async () => { throw { code: rawMarker, status: 503 } },
+        executeDemote: async () => assert.fail('unexpected execute'),
+        query: async () => assert.fail('unexpected query'),
+      },
+    },
+    {
+      api: {
+        issueDemote: async () => ({ ticket: TICKET }),
+        executeDemote: async () => { throw { code: rawMarker, status: 503 } },
+        query: async () => assert.fail('unexpected query'),
+      },
+    },
+    {
+      api: {
+        issueDemote: async () => ({ ticket: TICKET }),
+        executeDemote: async () => { throw { code: 'operation_commit_unknown', status: 503, operationRef: OPERATION } },
+        query: async () => ({ status: 'failed', operationRef: OPERATION, failureCode: rawMarker }),
+      },
+    },
+  ]
+
+  for (const { api } of scenarios) {
+    const snapshots = []
+    const workflow = createRolePermissionAttempt({ api, randomBytes, schedule: () => () => {} })
+    workflow.subscribe(snapshot => { snapshots.push(snapshot) })
+    const result = await workflow.start('users.demote', { ...base, overrides: undefined })
+    assert.equal(result.failureCode, 'request_failed')
+    assert.doesNotMatch(JSON.stringify({ result, snapshots }), /raw-secret|RootSecret1!!/)
+  }
+
+  const knownError = createRolePermissionAttempt({
+    api: {
+      issueDemote: async () => { throw { code: 'action_dependency_unavailable', status: 503 } },
+      executeDemote: async () => assert.fail('unexpected execute'),
+      query: async () => assert.fail('unexpected query'),
+    },
+    randomBytes,
+    schedule: () => () => {},
+  })
+  assert.equal((await knownError.start('users.demote', { ...base, overrides: undefined })).failureCode, 'action_dependency_unavailable')
+
+  const knownQueryFailure = createRolePermissionAttempt({
+    api: {
+      issueDemote: async () => ({ ticket: TICKET }),
+      executeDemote: async () => { throw { code: 'operation_commit_unknown', status: 503, operationRef: OPERATION } },
+      query: async () => ({ status: 'failed', operationRef: OPERATION, failureCode: 'target_version_conflict' }),
+    },
+    randomBytes,
+    schedule: () => () => {},
+  })
+  const knownQueryResult = await knownQueryFailure.start('users.demote', { ...base, overrides: undefined })
+  assert.equal(knownQueryResult.phase, ROLE_PERMISSION_PHASES.CONFLICT)
+  assert.equal(knownQueryResult.failureCode, 'target_version_conflict')
+})
