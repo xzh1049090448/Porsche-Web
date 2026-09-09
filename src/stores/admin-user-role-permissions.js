@@ -72,6 +72,7 @@ export function createAdminUserRolePermissionsCoordinator({ state, api, createWo
   let workflow = null
   let unsubscribe = null
   let active = null
+  let inputConsumed = false
   let sequence = 0
 
   const resetPublic = revision => Object.assign(value, SAFE_INITIAL, { dialogRevision: revision })
@@ -94,6 +95,7 @@ export function createAdminUserRolePermissionsCoordinator({ state, api, createWo
     owner = null
     context = null
     active = null
+    inputConsumed = false
   }
   const open = (scope, input) => {
     const nextContext = safeContext(scope, input)
@@ -101,6 +103,7 @@ export function createAdminUserRolePermissionsCoordinator({ state, api, createWo
     const token = Object.freeze({ rolePermissionDialog: ++sequence })
     owner = token
     context = nextContext
+    inputConsumed = false
     const revision = (value.dialogRevision ?? 0) + 1
     resetPublic(revision)
     Object.assign(value, { open: true, action: scope, target: nextContext.target })
@@ -138,27 +141,75 @@ export function createAdminUserRolePermissionsCoordinator({ state, api, createWo
   // Pinia instruments action arguments for devtools. Accept a one-shot reader
   // so the password value is created inside this action and never becomes an
   // action argument or reactive store field.
+  const failInput = (scope, expectedWorkflow, expectedContext) => {
+    if (workflow === expectedWorkflow && context === expectedContext) {
+      Object.assign(value, {
+        phase: ROLE_PERMISSION_PHASES.FAILED,
+        failureCode: 'request_failed',
+        operationRef: null,
+        targetGuid: null,
+        resultingAuthVersion: null,
+        resultingPermissionsVersion: null,
+        resultingRole: null,
+      })
+    }
+    return Object.freeze({
+      phase: ROLE_PERMISSION_PHASES.FAILED,
+      scope,
+      operationRef: null,
+      failureCode: 'request_failed',
+      targetGuid: null,
+      resultingAuthVersion: null,
+      resultingPermissionsVersion: null,
+      resultingRole: null,
+    })
+  }
   const submit = (token, consumeInput) => {
     if (!owns(token) || typeof consumeInput !== 'function') return null
     if (active) return active
-    let supplied = consumeInput()
-    if (!supplied || typeof supplied !== 'object' || Array.isArray(supplied)) return null
-    const request = {
-      targetGuid: context.target.guid,
-      expectedAuthVersion: context.target.authVersion,
-      expectedPermissionsVersion: context.permissionsVersion,
-      catalogVersion: context.catalogVersion,
-      reason: supplied.reason,
-      currentPassword: supplied.currentPassword,
-    }
-    if (value.action !== 'users.demote') request.overrides = Array.isArray(supplied.overrides) ? supplied.overrides.map(item => ({ ...item })) : supplied.overrides
-    supplied = null
+    if (inputConsumed) return null
+    inputConsumed = true
     const ownedWorkflow = workflow
     const ownedContext = context
-    active = ownedWorkflow.start(value.action, request).finally(() => {
-      if (workflow === ownedWorkflow && context === ownedContext) active = null
+    const ownedAction = value.action
+    let supplied = null
+    let request = null
+    try {
+      supplied = consumeInput()
+      if (!supplied || typeof supplied !== 'object' || Array.isArray(supplied)) return Promise.resolve(failInput(ownedAction, ownedWorkflow, ownedContext))
+      if (!owns(token) || workflow !== ownedWorkflow || context !== ownedContext) return Promise.resolve(failInput(ownedAction, ownedWorkflow, ownedContext))
+      request = {
+        targetGuid: ownedContext.target.guid,
+        expectedAuthVersion: ownedContext.target.authVersion,
+        expectedPermissionsVersion: ownedContext.permissionsVersion,
+        catalogVersion: ownedContext.catalogVersion,
+        reason: supplied.reason,
+      }
+      if (ownedAction !== 'users.demote') request.overrides = Array.isArray(supplied.overrides) ? supplied.overrides.map(item => ({ ...item })) : supplied.overrides
+      request.currentPassword = supplied.currentPassword
+    } catch {
+      supplied = null
+      request = null
+      return Promise.resolve(failInput(ownedAction, ownedWorkflow, ownedContext))
+    }
+    supplied = null
+    let started
+    try {
+      started = ownedWorkflow.start(ownedAction, request)
+    } catch {
+      request = null
+      try { ownedWorkflow.dispose() } catch { /* disposal cannot expose reader failures */ }
+      return Promise.resolve(failInput(ownedAction, ownedWorkflow, ownedContext))
+    }
+    request = null
+    const tracked = Promise.resolve(started).catch(() => {
+      try { ownedWorkflow.dispose() } catch { /* disposal cannot expose workflow failures */ }
+      return failInput(ownedAction, ownedWorkflow, ownedContext)
+    }).finally(() => {
+      if (workflow === ownedWorkflow && context === ownedContext && active === tracked) active = null
     })
-    return active
+    active = tracked
+    return tracked
   }
   return Object.freeze({
     openPromote: input => open('users.promote', input),

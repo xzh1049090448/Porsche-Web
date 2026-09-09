@@ -61,17 +61,68 @@ test('Pinia state and action instrumentation never receive password ticket or ke
     createWorkflow: () => { const workflow = scriptedWorkflow(); workflows.push(workflow); return workflow },
   })
   const store = useStore()
-  const actionArgs = []
-  store.$onAction(({ args }) => { actionArgs.push(JSON.stringify(args)) })
+  const submitArguments = []
+  store.$onAction(({ name, args }) => {
+    if (name === 'submit') submitArguments.push(args)
+  })
   const token = store.openPermissions({ ...context, target: { ...target, role: 'admin' } })
   const running = store.submit(token, () => ({ reason: 'save', currentPassword: 'Root1!!', overrides: [{ capability: 'users.read', effect: 'deny' }] }))
   await tick()
   assert.doesNotMatch(JSON.stringify(store.$state), /Root1!!|av_|ik_/)
-  assert.doesNotMatch(actionArgs.join(''), /Root1!!|av_|ik_/)
+  assert.equal(submitArguments.length, 1)
+  assert.equal(submitArguments[0][0], token)
+  assert.equal(typeof submitArguments[0][1], 'function')
   workflows[0].settle({ phase: 'pending_recovery', failureCode: null, operationRef: 'op_safe' })
   assert.equal((await running).phase, 'pending_recovery')
   assert.equal(store.phase, 'pending_recovery')
   assert.equal(store.close(token), true)
   assert.equal(store.phase, 'idle')
   store.dispose()
+})
+
+test('Pinia submit consumes unsafe readers once and reports only safe terminal results', async () => {
+  setActivePinia(createPinia())
+  const useStore = createAdminUserRolePermissionsStore('a08-reader-failure-test', {
+    createWorkflow: () => scriptedWorkflow(),
+  })
+  const store = useStore()
+  const afterValues = []
+  const errorValues = []
+  const argumentShapes = []
+  store.$onAction(({ name, args, after, onError }) => {
+    if (name !== 'submit') return
+    argumentShapes.push(args.map(value => typeof value))
+    after(value => { afterValues.push(value) })
+    onError(error => { errorValues.push(error) })
+  })
+
+  let reads = 0
+  const rawMarker = 'raw-error-RootSecret1!!'
+  const token = store.openDemote({ ...context, target: { ...target, role: 'admin' } })
+  const throwingReader = () => { reads++; throw new Error(rawMarker) }
+  assert.equal((await store.submit(token, throwingReader)).phase, 'failed')
+  assert.equal(store.submit(token, throwingReader), null)
+  assert.equal(reads, 1)
+  assert.deepEqual(argumentShapes, [['object', 'function'], ['object', 'function']])
+  assert.equal(errorValues.length, 0)
+  assert.doesNotMatch(JSON.stringify({ afterValues, state: store.$state }), /raw-error|RootSecret1!!/)
+
+  const invalidToken = store.openPromote(context)
+  let invalidReads = 0
+  const invalidReader = () => { invalidReads++; return null }
+  assert.equal((await store.submit(invalidToken, invalidReader)).phase, 'failed')
+  assert.equal(store.submit(invalidToken, invalidReader), null)
+  assert.equal(invalidReads, 1)
+
+  const getterToken = store.openPermissions({ ...context, target: { ...target, role: 'admin' } })
+  let getterReads = 0
+  const getterReader = () => {
+    getterReads++
+    return { reason: 'save', get currentPassword() { throw new Error(rawMarker) }, overrides: [] }
+  }
+  assert.equal((await store.submit(getterToken, getterReader)).phase, 'failed')
+  assert.equal(store.submit(getterToken, getterReader), null)
+  assert.equal(getterReads, 1)
+  assert.equal(errorValues.length, 0)
+  assert.doesNotMatch(JSON.stringify({ afterValues, state: store.$state }), /raw-error|RootSecret1!!/)
 })
