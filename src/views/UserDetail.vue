@@ -13,7 +13,7 @@
     <template v-else-if="store.selected">
       <el-card shadow="never">
         <template #header>
-          <div class="title"><span class="title-name">{{ store.selected.username || '未设置用户名' }}</span><span class="title-actions"><el-tag>{{ statusLabel }}</el-tag><el-button v-if="canPasswordResetTarget" plain @click="openPasswordReset(store.selected, $event)">重置密码</el-button><el-button v-if="canStatusTarget" :type="nextStatus === 'disabled' ? 'danger' : 'primary'" plain @click="openStatus(store.selected, $event)">{{ nextStatus === 'disabled' ? '禁用' : '启用' }}</el-button><el-button v-if="canDeleteTarget" type="danger" plain @click="openDelete(store.selected, $event)">{{ t('deleteUser.confirm') }}</el-button></span></div>
+          <div class="title"><span class="title-name">{{ store.selected.username || '未设置用户名' }}</span><span class="title-actions"><el-tag>{{ statusLabel }}</el-tag><el-button v-if="canPromoteTarget" plain @click="openRolePermission('users.promote', store.selected, $event)">提升为管理员</el-button><el-button v-if="canPermissionsTarget" plain @click="openRolePermission('users.permissions.write', store.selected, $event)">权限设置</el-button><el-button v-if="canDemoteTarget" plain @click="openRolePermission('users.demote', store.selected, $event)">降级为普通用户</el-button><el-button v-if="canPasswordResetTarget" plain @click="openPasswordReset(store.selected, $event)">重置密码</el-button><el-button v-if="canStatusTarget" :type="nextStatus === 'disabled' ? 'danger' : 'primary'" plain @click="openStatus(store.selected, $event)">{{ nextStatus === 'disabled' ? '禁用' : '启用' }}</el-button><el-button v-if="canDeleteTarget" type="danger" plain @click="openDelete(store.selected, $event)">{{ t('deleteUser.confirm') }}</el-button></span></div>
         </template>
         <el-descriptions :column="2" border>
           <el-descriptions-item label="GUID">{{ store.selected.guid }}</el-descriptions-item>
@@ -44,13 +44,16 @@
         </el-table>
       </el-card>
     </template>
-    <p class="sr-only" role="status" aria-live="polite">{{ editAnnouncement }} {{ statusAnnouncement }} {{ entitlementAnnouncement }}</p>
+    <p class="sr-only" role="status" aria-live="polite">{{ editAnnouncement }} {{ statusAnnouncement }} {{ entitlementAnnouncement }} {{ rolePermissionAnnouncement }}</p>
     <UserStatusDialog :owner="statusToken" @succeeded="onStatusSucceeded" @conflict="onStatusConflict" @failed="onStatusFailed" @closed="restoreStatusFocus" />
     <UserNicknameEditDialog :owner="editToken" @succeeded="onEditSucceeded" @conflict="onEditConflict" @failed="onEditFailed" @closed="restoreEditFocus" />
     <UserSoftDeleteDialog @closed="restoreDeleteFocus" />
     <UserPasswordResetDialog :owner="passwordResetToken" @succeeded="onPasswordResetSucceeded" @conflict="() => refreshEntitlementConflict('password')" @failed="code => onEntitlementFailed('password', code)" @closed="token => restoreEntitlementFocus('password', token)" />
     <UserGroupChangeDialog :owner="groupChangeToken" @succeeded="(user, token) => onDirectEntitlementSucceeded('group', user, token)" @conflict="() => refreshEntitlementConflict('group')" @failed="code => onEntitlementFailed('group', code)" @closed="token => restoreEntitlementFocus('group', token)" />
     <UserPlanChangeDialog :owner="planChangeToken" @succeeded="(user, token) => onDirectEntitlementSucceeded('plan', user, token)" @conflict="() => refreshEntitlementConflict('plan')" @failed="code => onEntitlementFailed('plan', code)" @closed="token => restoreEntitlementFocus('plan', token)" />
+    <UserPromoteDialog v-if="rolePermissionToken && rolePermissionStore.action === 'users.promote'" :owner="rolePermissionToken" :catalog="store.catalog" @succeeded="onRolePermissionSucceeded" @conflict="onRolePermissionConflict" @failed="onRolePermissionFailed" @closed="restoreRolePermissionFocus" />
+    <UserDemoteDialog v-if="rolePermissionToken && rolePermissionStore.action === 'users.demote'" :owner="rolePermissionToken" @succeeded="onRolePermissionSucceeded" @conflict="onRolePermissionConflict" @failed="onRolePermissionFailed" @closed="restoreRolePermissionFocus" />
+    <UserPermissionsDialog v-if="rolePermissionToken && rolePermissionStore.action === 'users.permissions.write'" :owner="rolePermissionToken" :catalog="store.catalog" :policy="store.permissions" @succeeded="onRolePermissionSucceeded" @conflict="onRolePermissionConflict" @failed="onRolePermissionFailed" @closed="restoreRolePermissionFocus" />
   </section>
 </template>
 
@@ -115,13 +118,37 @@ export function createAdminUserEditConflictSingleflight() {
   }
   return Object.freeze({ run, cancel })
 }
+
+const eligibleRolePermissionTarget = ({ actorRole, actorGuid, capabilities, routeGuid, target, capability, role }) => actorRole === 'root'
+  && actorGuid !== target?.guid && routeGuid === target?.guid && target?.role === role && ['active', 'disabled'].includes(target?.status)
+  && Array.isArray(capabilities) && capabilities.includes(capability)
+export const canOpenPromote = input => eligibleRolePermissionTarget({ ...input, capability: 'users.promote', role: 'user' })
+export const canOpenDemote = input => eligibleRolePermissionTarget({ ...input, capability: 'users.demote', role: 'admin' })
+export const canOpenPermissions = input => eligibleRolePermissionTarget({ ...input, capability: 'users.permissions.write', role: 'admin' })
+
+export function reconcileRolePermissionSuccess({ state, context, result, fresh, isCurrent } = {}) {
+  if (typeof isCurrent !== 'function' || !isCurrent() || !state || !context || !result || !fresh?.target) return false
+  if (state.selected?.guid !== context.targetGuid || state.selected.role !== context.targetRole || state.selected.authVersion !== context.authVersion
+      || result.targetGuid !== context.targetGuid || result.resultingRole !== context.resultingRole
+      || result.resultingAuthVersion !== context.authVersion + 1 || result.resultingPermissionsVersion !== context.permissionsVersion + 1
+      || fresh.target.guid !== context.targetGuid || fresh.target.role !== result.resultingRole || fresh.target.authVersion !== result.resultingAuthVersion
+      || !['active', 'disabled'].includes(fresh.target.status)) return false
+  if (result.resultingRole === 'admin') {
+    if (!fresh.permissions || fresh.permissions.user_guid !== context.targetGuid || fresh.permissions.role !== 'admin'
+        || fresh.permissions.permissions_version !== String(result.resultingPermissionsVersion)) return false
+  } else if (fresh.permissions !== null) return false
+  state.selected = fresh.target
+  if (Array.isArray(state.rows)) state.rows = state.rows.map(row => row?.guid === context.targetGuid && row.role === context.targetRole && row.authVersion === context.authVersion ? fresh.target : row)
+  state.permissions = fresh.permissions
+  return true
+}
 </script>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import { useAdminUsersStore } from '@/stores/admin-users'
+import * as adminUsersStores from '@/stores/admin-users'
 import { useAdminUserActionsStore, canDeleteAdminUser, reconcileDeletedDetail, refreshDeleteTargetFailClosed, restoreDeleteTriggerFocus } from '@/stores/admin-user-actions'
 import { useAdminUserEditStore, canOpenAdminUserEdit } from '@/stores/admin-user-edit'
 import { useAdminUserStatusStore, canOpenAdminUserStatus } from '@/stores/admin-user-status'
@@ -141,7 +168,11 @@ import { ElMessage } from 'element-plus'
 
 const route = useRoute()
 const userStore = useUserStore()
-const store = useAdminUsersStore()
+const store = adminUsersStores.useAdminUsersStore()
+const rolePermissionStore = adminUsersStores.useAdminUserRolePermissionsStore?.() ?? { action:null, owns:()=>false, close:()=>false, dispose(){}, updateContext:()=>false }
+const UserPromoteDialog = defineAsyncComponent(() => import('@/components/admin/UserPromoteDialog.vue'))
+const UserDemoteDialog = defineAsyncComponent(() => import('@/components/admin/UserDemoteDialog.vue'))
+const UserPermissionsDialog = defineAsyncComponent(() => import('@/components/admin/UserPermissionsDialog.vue'))
 const actionStore = useAdminUserActionsStore()
 const editStore = useAdminUserEditStore()
 const statusStore = useAdminUserStatusStore()
@@ -169,6 +200,12 @@ const entitlementInput = computed(() => ({ actorRole:userStore.user?.role, actor
 const canPasswordResetTarget = computed(() => statusRouteCurrent.value && canOpenPasswordReset(entitlementInput.value))
 const canGroupChangeTarget = computed(() => statusRouteCurrent.value && canOpenGroupChange(entitlementInput.value))
 const canPlanChangeTarget = computed(() => statusRouteCurrent.value && canOpenPlanChange(entitlementInput.value))
+const rolePermissionInput = computed(() => ({ ...entitlementInput.value, routeGuid:route.params.guid }))
+const catalogReady = computed(() => store.catalog?.catalog_version === 1)
+const permissionsReady = computed(() => store.permissions?.permissions_version && /^([1-9]\d*)$/.test(store.permissions.permissions_version))
+const canPromoteTarget = computed(() => catalogReady.value && canOpenPromote(rolePermissionInput.value))
+const canPermissionsTarget = computed(() => catalogReady.value && permissionsReady.value && canOpenPermissions(rolePermissionInput.value))
+const canDemoteTarget = computed(() => catalogReady.value && permissionsReady.value && canOpenDemote(rolePermissionInput.value))
 const showPermissions = computed(() => canRead.value && store.selected?.status !== 'deleted' && store.selected?.role === 'admin' && userStore.user?.role === 'root')
 const permissionUnavailable = computed(() => showPermissions.value && !store.permissions)
 const permissionRows = computed(() => store.permissions?.capabilities || [])
@@ -183,6 +220,7 @@ function closeDetailInteractions() {
   cancelStatusRefresh(); if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.close(statusToken.value)
   cancelDeleteRefresh(); if (deleteToken && actionStore.owns(deleteToken)) actionStore.close(deleteToken)
   closeEntitlementInteractions()
+  closeRolePermissionInteraction()
 }
 function load() {
   const guid = route.params.guid
@@ -218,6 +256,7 @@ let deleteRefreshRequest = 0
 let deleteRefreshAbort = null
 function cancelDeleteRefresh() { deleteRefreshRequest++; deleteRefreshAbort?.abort(); deleteRefreshAbort = null }
 function openDelete(target, event) {
+  closeRolePermissionInteraction()
   closeEntitlementInteractions()
   cancelStatusRefresh()
   if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.close(statusToken.value)
@@ -240,6 +279,7 @@ function statusBaseCurrent(token, captured = statusContext) {
     && userStore.identityEpoch === captured.identityEpoch && userStore.permissionRevision === captured.permissionVersion)
 }
 function openStatus(target, event) {
+  closeRolePermissionInteraction()
   closeEntitlementInteractions()
   const intendedStatus = target.status === 'active' ? 'disabled' : target.status === 'disabled' ? 'active' : null
   cancelStatusRefresh(); cancelEditRefresh(); cancelDeleteRefresh()
@@ -336,6 +376,7 @@ function editBaseCurrent(token, captured = editContext) {
     && userStore.identityEpoch === captured.identityEpoch && userStore.permissionRevision === captured.permissionVersion)
 }
 function openEdit(target, event) {
+  closeRolePermissionInteraction()
   closeEntitlementInteractions()
   cancelStatusRefresh()
   if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.close(statusToken.value)
@@ -477,6 +518,7 @@ function closeEntitlementInteractions(except=null) {
   }
 }
 function openEntitlement(kind,target,event) {
+  closeRolePermissionInteraction()
   cancelStatusRefresh(); cancelEditRefresh(); cancelDeleteRefresh()
   entitlementConflictFlight = null
   if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.close(statusToken.value)
@@ -542,6 +584,147 @@ function restoreEntitlementFocus(kind,token){
   nextTick(()=>{if(!entitlementTokens[kind].value&&!anotherEntitlementOwns(kind))(trigger?.isConnected?trigger:pageHeading.value?.$el??pageHeading.value)?.focus?.()});return true
 }
 
+const rolePermissionToken = ref(null)
+const rolePermissionAnnouncement = ref('')
+let rolePermissionContext = null
+let rolePermissionTrigger = null
+let rolePermissionRefresh = null
+let rolePermissionRequest = 0
+let rolePermissionConflictUsed = false
+function cancelRolePermissionRefresh() {
+  rolePermissionRequest++
+  rolePermissionRefresh?.controller.abort()
+  rolePermissionRefresh = null
+}
+function closeRolePermissionInteraction() {
+  cancelRolePermissionRefresh()
+  const token = rolePermissionToken.value
+  if (token && rolePermissionStore.owns(token)) rolePermissionStore.close(token)
+  rolePermissionToken.value = null
+  rolePermissionContext = null
+  rolePermissionTrigger = null
+  rolePermissionConflictUsed = false
+}
+function rolePermissionVersion(target) {
+  if (target?.role === 'user') return 0
+  const version = Number(store.permissions?.permissions_version)
+  return Number.isSafeInteger(version) && version >= 1 ? version : null
+}
+function rolePermissionCurrent(token, captured = rolePermissionContext, requireOwner = true) {
+  if (!token || !captured || token !== rolePermissionToken.value || (requireOwner && !rolePermissionStore.owns(token))) return false
+  return route.params.guid === captured.targetGuid && userStore.identityEpoch === captured.identityEpoch
+    && userStore.permissionRevision === captured.capabilityRevision && store.selected?.guid === captured.targetGuid
+    && store.selected.role === captured.targetRole && store.selected.status === captured.targetStatus
+    && store.selected.authVersion === captured.authVersion && rolePermissionVersion(store.selected) === captured.permissionsVersion
+    && store.catalog?.catalog_version === captured.catalogVersion
+}
+function openRolePermission(scope, target, event) {
+  const predicate = scope === 'users.promote' ? canOpenPromote : scope === 'users.demote' ? canOpenDemote : canOpenPermissions
+  const input = { ...rolePermissionInput.value, target }
+  if (!predicate(input)) return false
+  const permissionsVersion = rolePermissionVersion(target)
+  const catalogVersion = store.catalog?.catalog_version
+  if (!Number.isSafeInteger(permissionsVersion) || !Number.isInteger(catalogVersion) || catalogVersion < 1) return false
+  closeDetailInteractions()
+  rolePermissionTrigger = event?.currentTarget ?? document.activeElement
+  rolePermissionAnnouncement.value = ''
+  rolePermissionConflictUsed = false
+  const context = Object.freeze({
+    targetGuid:target.guid, targetRole:target.role, targetStatus:target.status, authVersion:target.authVersion,
+    permissionsVersion, catalogVersion, identityEpoch:userStore.identityEpoch, capabilityRevision:userStore.permissionRevision,
+    resultingRole:scope === 'users.demote' ? 'user' : 'admin', scope,
+  })
+  const open = scope === 'users.promote' ? rolePermissionStore.openPromote : scope === 'users.demote' ? rolePermissionStore.openDemote : rolePermissionStore.openPermissions
+  const token = open.call(rolePermissionStore, {
+    target, routeGuid:route.params.guid, identityEpoch:context.identityEpoch, capabilityRevision:context.capabilityRevision,
+    permissionsVersion, catalogVersion,
+  })
+  if (!token) return false
+  rolePermissionToken.value = token
+  rolePermissionContext = context
+  return true
+}
+function onRolePermissionSucceeded(result, token) {
+  const captured = rolePermissionContext
+  if (!rolePermissionCurrent(token, captured) || result?.targetGuid !== captured.targetGuid || result.resultingRole !== captured.resultingRole
+      || result.resultingAuthVersion !== captured.authVersion + 1 || result.resultingPermissionsVersion !== captured.permissionsVersion + 1) return false
+  const requestId = ++rolePermissionRequest
+  const controller = new AbortController()
+  const receipt = { token, context:captured, controller, promise:null }
+  rolePermissionRefresh = receipt
+  const isCurrent = () => rolePermissionRefresh === receipt && requestId === rolePermissionRequest && rolePermissionCurrent(token, captured, false)
+  receipt.promise = store.refreshRolePermissionTarget(captured.targetGuid, { signal:controller.signal }).then(fresh => {
+    const applied = reconcileRolePermissionSuccess({ state:store, context:captured, result, fresh, isCurrent })
+    if (applied) rolePermissionAnnouncement.value = captured.scope === 'users.promote' ? '用户已提升为管理员。' : captured.scope === 'users.demote' ? '管理员已降级为普通用户。' : '管理员权限已更新。'
+    return applied
+  }).catch(error => {
+    if (isCurrent() && error?.response?.status === 401) { userStore.clearSession(); store.clear() }
+    else if (isCurrent()) rolePermissionAnnouncement.value = '操作已完成，但用户详情刷新失败，请手动重试。'
+    return false
+  }).finally(() => {
+    if (rolePermissionRefresh === receipt) {
+      rolePermissionRefresh = null
+      if (!rolePermissionStore.owns(token)) restoreRolePermissionFocus(token)
+    }
+  })
+  return receipt.promise
+}
+function applyRolePermissionConflictFresh(fresh, token, captured, current) {
+  if (!current() || !fresh?.target || fresh.target.guid !== captured.targetGuid || !['user','admin'].includes(fresh.target.role)
+      || !['active','disabled'].includes(fresh.target.status) || !Number.isInteger(fresh.target.authVersion)) return false
+  if (fresh.target.role === 'admin') {
+    if (!fresh.permissions || fresh.permissions.user_guid !== captured.targetGuid || fresh.permissions.role !== 'admin') return false
+  } else if (fresh.permissions !== null) return false
+  store.selected = fresh.target
+  if (Array.isArray(store.rows)) store.rows = store.rows.map(row => row?.guid === captured.targetGuid && row.role === captured.targetRole && row.authVersion === captured.authVersion ? fresh.target : row)
+  store.permissions = fresh.permissions
+  return true
+}
+function onRolePermissionConflict(token) {
+  const captured = rolePermissionContext
+  if (!rolePermissionCurrent(token, captured)) return Promise.resolve(false)
+  if (rolePermissionRefresh?.token === token && rolePermissionRefresh.context === captured) return rolePermissionRefresh.promise
+  if (rolePermissionConflictUsed) return Promise.resolve(false)
+  rolePermissionConflictUsed = true
+  const requestId = ++rolePermissionRequest
+  const controller = new AbortController()
+  const receipt = { token, context:captured, controller, promise:null }
+  rolePermissionRefresh = receipt
+  const current = () => rolePermissionRefresh === receipt && requestId === rolePermissionRequest && rolePermissionCurrent(token, captured)
+  receipt.promise = store.refreshRolePermissionTarget(captured.targetGuid, { signal:controller.signal }).then(fresh => {
+    const ownedBeforeApply = current()
+    const applied = applyRolePermissionConflictFresh(fresh, token, captured, current)
+    if (ownedBeforeApply && rolePermissionStore.owns(token)) rolePermissionStore.close(token)
+    if (applied) rolePermissionAnnouncement.value = '用户状态已刷新，请重新发起操作。'
+    return applied
+  }).catch(error => {
+    if (current() && error?.response?.status === 401) onRolePermissionFailed('authentication_failed', token)
+    else if (current() && rolePermissionStore.owns(token)) rolePermissionStore.close(token)
+    return false
+  }).finally(() => { if (rolePermissionRefresh === receipt) rolePermissionRefresh = null })
+  return receipt.promise
+}
+function onRolePermissionFailed(code, token) {
+  if (!rolePermissionCurrent(token)) return false
+  if (code === 'authentication_failed') {
+    rolePermissionStore.close(token); cancelRolePermissionRefresh(); userStore.clearSession(); store.clear(); return true
+  }
+  if (['forbidden','not_found','action_target_not_found','action_operation_rejected'].includes(code)) {
+    rolePermissionStore.close(token); cancelRolePermissionRefresh(); void load().catch(() => {}); return true
+  }
+  return true
+}
+function restoreRolePermissionFocus(token) {
+  if (!token || token !== rolePermissionToken.value || rolePermissionStore.owns(token)) return false
+  if (rolePermissionRefresh?.token === token) return true
+  const trigger = rolePermissionTrigger
+  rolePermissionTrigger = null
+  rolePermissionToken.value = null
+  rolePermissionContext = null
+  nextTick(() => { if (!rolePermissionToken.value) (trigger?.isConnected ? trigger : pageHeading.value?.$el ?? pageHeading.value)?.focus?.() })
+  return true
+}
+
 onMounted(() => { void load().catch(() => {}) })
 watch(() => route.params.guid, () => { editPermissionRefreshRequest++ })
 watch([() => route.params.guid, canRead, () => userStore.identityEpoch, () => userStore.permissionRevision], () => { void load().catch(() => {}) })
@@ -549,6 +732,10 @@ watch(() => store.selected, target => {
   if (editToken.value && editStore.owns(editToken.value)) editStore.updateContext(editToken.value, { target })
   if (statusToken.value && statusStore.owns(statusToken.value)) statusStore.updateContext(statusToken.value, { target })
   for(const kind of ['password','group','plan']){const token=entitlementTokens[kind].value;if(token&&entitlementStores[kind].owns(token))entitlementStores[kind].updateContext(token,{target})}
+  if (rolePermissionToken.value && rolePermissionStore.owns(rolePermissionToken.value)) rolePermissionStore.updateContext(rolePermissionToken.value, {
+    target, routeGuid:route.params.guid, identityEpoch:userStore.identityEpoch, capabilityRevision:userStore.permissionRevision,
+    permissionsVersion:rolePermissionVersion(target), catalogVersion:store.catalog?.catalog_version,
+  })
 })
 watch(() => statusStore.isOpen, (open, previous) => { if (!open && previous) cancelStatusRefresh() })
 onBeforeUnmount(() => {
@@ -556,6 +743,7 @@ onBeforeUnmount(() => {
   cancelStatusRefresh(); if (statusToken.value) statusStore.dispose(statusToken.value); statusToken.value = null; statusTrigger = null; statusContext = null
   cancelDeleteRefresh(); if (deleteToken) actionStore.dispose(deleteToken); deleteToken = null; deleteTrigger = null
   closeEntitlementInteractions(); for(const kind of ['password','group','plan']){entitlementTokens[kind].value=null;entitlementContexts[kind]=null;entitlementTriggers[kind]=null}
+  cancelRolePermissionRefresh(); if (rolePermissionToken.value) rolePermissionStore.dispose(rolePermissionToken.value); rolePermissionToken.value=null; rolePermissionContext=null; rolePermissionTrigger=null
 })
 </script>
 
