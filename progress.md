@@ -1,5 +1,13 @@
 # 当前验证进度
 
+## 2026-09-09：A08 managed-user roles and permissions 前端门禁通过，联合验收受 fixture 阻塞
+
+- 前端候选 `3fec2779381369907dba0e19c44580d23f614496` 配对后端归档候选 `9fdc07b3bcf4cb06049e4af0f5adde28e36facab`；共享合同 SHA-256 为 `dd202cb5019b10a891e10f03f77629b5f54e993110f148f417e05d089df35698`。A03/A05/A06/A14/A08 合同测试均显式指向后端权威绝对路径。
+- A08 focused 50/50、前端 full 445/445，均 0 fail/0 skip；`VITE_USE_MOCK=false npm run build` 通过并仅保留既有 PURE annotation、dynamic/static import 与 chunk-size warnings；archive 前 `git diff --check` 通过。
+- 可见 Chromium diagnostic 中，real-mode 4174 登录页因后端不可用出现 refresh 500；mock-mode 4175 登录页可见加载且 0 console error，但固定为普通 User 且无 A08 admin fixtures。两者均不计验收 PASS；baseline/override promote、permissions save、demote、409/commit-unknown、disabled target、keyboard/focus、375/390 布局仍为 `NOT_RUN / BLOCKED_FIXTURE`。Node/JSDOM 挂载测试不替代可见浏览器验收。
+- 后端 canonical 证据仍为 `BLOCKED_FIXTURE`：真实 MySQL 8、Redis 7、migration ledger 0001–0012、旧 Access/Refresh、Gateway Key、policy cleanup/repromotion、事务/并发/审计与 cleanup 均 `NOT_RUN`。独立 security、最终 frontend/visible-UX review、外部 backend project_manager、生产 migration/deploy/acceptance 均 `PENDING_NOT_RUN` 或 `NOT_RUN`。
+- A08 仅从 `BLOCKED_NOT_IMPLEMENTED` 更新为 `BLOCKED_FIXTURE`，不增加通过项。26 项保持 14 `PASS_LIMITED_SCOPE`、9 `BLOCKED_NOT_IMPLEMENTED`、1 `BLOCKED_FIXTURE`、1 `BLOCKED_PRODUCT`、1 `BLOCKED_ENV`，共 12 项阻塞；`web-012` 继续 `in_progress`，phase 保持 `joint_acceptance_partial_14_limited_12_blocked`。证据见 `docs/agents/validation/a08-managed-user-roles-permissions-20260909/`。
+
 ## 2026-09-09：A07 managed-user credentials and entitlements 本地联合切片限定通过
 
 - A07 从 `BLOCKED_NOT_IMPLEMENTED` 提升为 `PASS_LIMITED_SCOPE`。代码候选后端 `a600a0815b5eab5203333755a2466788fe67d61a`、前端 `41648181ab42fb46fe7d45663e746121956b50b8`；canonical evidence commits 后端 `5d5a1e9ee230bcc42fe9fde8d3f9f7badf34b658`、前端 `39b79582110347ae11b95e58217b3afe3236b4f7`；合同 SHA-256 `9e1969b238911b6eee5b6aa85ed364e795a6854f0a026daac5d15e2ab78851be`。

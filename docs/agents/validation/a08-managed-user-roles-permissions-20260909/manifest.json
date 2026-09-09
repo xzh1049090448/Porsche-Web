@@ -1,0 +1,127 @@
+{
+  "slice": "A08 managed-user roles and permissions frontend",
+  "status": "BLOCKED_FIXTURE",
+  "code_under_test": {
+    "frontend": "3fec2779381369907dba0e19c44580d23f614496",
+    "backend": "9fdc07b3bcf4cb06049e4af0f5adde28e36facab",
+    "backend_evidence_commit": "0d685a97f22e663e6cda01f7a7c0161c9febc798"
+  },
+  "contract": {
+    "frontend_path": "docs/agents/contracts/admin-user-roles-permissions-v1.json",
+    "backend_path": "/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-roles-permissions-v1.json",
+    "sha256": "dd202cb5019b10a891e10f03f77629b5f54e993110f148f417e05d089df35698",
+    "byte_identical": true
+  },
+  "environment": {
+    "node": "v24.19.0",
+    "npm": "11.17.0",
+    "VITE_USE_MOCK": "false_for_build",
+    "production": "NOT_USED"
+  },
+  "configured_authoritative_contracts": {
+    "A03_BACKEND_CONTRACT": {
+      "path": "/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-create-v1.json",
+      "sha256": "897fac0ba1a41ac05f72607a56e0e3fc4a5cd6afb0d6027052886bf8c74c894c"
+    },
+    "A05_BACKEND_CONTRACT": {
+      "path": "/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-edit-v1.json",
+      "sha256": "3b4822396fc0686a0d42b96ccc0a40fe7203fe08aefefc784493f798d66e9956"
+    },
+    "A06_BACKEND_CONTRACT": {
+      "path": "/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-status-v1.json",
+      "sha256": "c3662b25500879d67c6811fa270d4a6a39a44db812c7c493d6f02e535940b415"
+    },
+    "A14_BACKEND_CONTRACT": {
+      "path": "/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-action-future-contract.json",
+      "sha256": "01c49376f5c3dabf585f658bb11f48734afd3569ee8144f2355ff0b70de7d96c"
+    },
+    "A08_BACKEND_CONTRACT": {
+      "path": "/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-roles-permissions-v1.json",
+      "sha256": "dd202cb5019b10a891e10f03f77629b5f54e993110f148f417e05d089df35698"
+    }
+  },
+  "verification": {
+    "focused": {
+      "command": "node --test src/api/admin-user-roles-permissions*.test.js src/stores/admin-user-role-permissions.test.js src/components/admin/UserPermissionEditor*.test.js src/components/admin/UserRolePermissionDialogs*.test.js src/views/UserDetail.roles-permissions*.test.js",
+      "exit": 0,
+      "tests": 50,
+      "pass": 50,
+      "fail": 0,
+      "skip": 0,
+      "result": "PASS"
+    },
+    "full": {
+      "command": "npm test",
+      "exit": 0,
+      "tests": 445,
+      "pass": 445,
+      "fail": 0,
+      "skip": 0,
+      "result": "PASS"
+    },
+    "production_build": {
+      "command": "VITE_USE_MOCK=false npm run build",
+      "exit": 0,
+      "result": "PASS_WITH_WARNINGS",
+      "warnings": [
+        "two existing @vueuse/core misplaced PURE annotation warnings",
+        "existing mixed dynamic/static import warning for src/utils/export.js",
+        "existing mixed dynamic/static import warning for src/api/request.js",
+        "existing chunk-size warning"
+      ]
+    },
+    "diff_check_before_archive": {
+      "command": "git diff --check",
+      "exit": 0,
+      "result": "PASS"
+    }
+  },
+  "browser_acceptance": {
+    "status": "NOT_RUN",
+    "visible_chrome": "NOT_RUN",
+    "baseline_and_override_promotion": "NOT_RUN",
+    "permission_save": "NOT_RUN",
+    "demotion": "NOT_RUN",
+    "conflict_and_commit_unknown": "NOT_RUN",
+    "disabled_targets": "NOT_RUN",
+    "keyboard_focus_375_390": "NOT_RUN",
+    "diagnostic_smoke": {
+      "visible_chromium": "AVAILABLE",
+      "real_mode_4174": "login page reached; refresh returned 500 because the backend was unavailable; NOT_ACCEPTANCE",
+      "mock_mode_4175": "login page visibly loaded with zero console errors; fixed ordinary-User mock and no A08 admin fixtures; NOT_ACCEPTANCE"
+    },
+    "note": "Node JSDOM and Element Plus mounted tests are automated gates, not visible-browser acceptance."
+  },
+  "real_cross_stack_acceptance": {
+    "status": "BLOCKED_FIXTURE",
+    "mysql_8": "NOT_RUN",
+    "redis_7": "NOT_RUN",
+    "migration_ledger_0001_0012": "NOT_RUN",
+    "old_access_refresh_rejection": "NOT_RUN",
+    "gateway_key_authorization": "NOT_RUN",
+    "demoted_policy_cleanup": "NOT_RUN",
+    "repromotion": "NOT_RUN",
+    "database_audit_terminal_facts": "NOT_RUN",
+    "fixture_cleanup": "NOT_RUN",
+    "canonical_backend_manifest": "/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/superpowers/reports/validation/2026-09-09-a08-managed-user-roles-permissions/backend/manifest.json"
+  },
+  "reviews": {
+    "frontend_task_6_spec": "SPEC_REVIEW_PASS",
+    "independent_frontend_final": "PENDING_NOT_RUN",
+    "independent_security": "PENDING_NOT_RUN",
+    "visible_ux": "PENDING_NOT_RUN",
+    "external_backend_project_manager": "PENDING_NOT_RUN"
+  },
+  "production": {
+    "migration": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "acceptance": "NOT_RUN",
+    "business_accounts": "NOT_USED"
+  },
+  "tracker": {
+    "a08": "BLOCKED_FIXTURE",
+    "web_012": "in_progress",
+    "matrix": "14 PASS_LIMITED_SCOPE / 9 BLOCKED_NOT_IMPLEMENTED / 1 BLOCKED_FIXTURE / 1 BLOCKED_PRODUCT / 1 BLOCKED_ENV",
+    "blocked_total": 12
+  }
+}
