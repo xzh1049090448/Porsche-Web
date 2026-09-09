@@ -42,7 +42,7 @@
   },
   "verification": {
     "focused": {
-      "command": "node --test src/api/admin-user-roles-permissions*.test.js src/stores/admin-user-role-permissions.test.js src/components/admin/UserPermissionEditor*.test.js src/components/admin/UserRolePermissionDialogs*.test.js src/views/UserDetail.roles-permissions*.test.js",
+      "command": "A03_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-create-v1.json A05_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-edit-v1.json A06_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-status-v1.json A14_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-action-future-contract.json A08_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-roles-permissions-v1.json node --test src/api/admin-user-roles-permissions*.test.js src/stores/admin-user-role-permissions.test.js src/components/admin/UserPermissionEditor*.test.js src/components/admin/UserRolePermissionDialogs*.test.js src/views/UserDetail.roles-permissions*.test.js",
       "exit": 0,
       "tests": 50,
       "pass": 50,
@@ -51,7 +51,7 @@
       "result": "PASS"
     },
     "full": {
-      "command": "npm test",
+      "command": "A03_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-create-v1.json A05_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-edit-v1.json A06_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-status-v1.json A14_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-action-future-contract.json A08_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-roles-permissions-v1.json npm test",
       "exit": 0,
       "tests": 445,
       "pass": 445,
