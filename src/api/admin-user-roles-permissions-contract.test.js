@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, stat, symlink } from 'node:fs/promises'
+import { isAbsolute, join } from 'node:path'
+import { tmpdir } from 'node:os'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 const frontendContractURL = new URL('../../docs/agents/contracts/admin-user-roles-permissions-v1.json', import.meta.url)
 const SCOPES = ['users.promote', 'users.demote', 'users.permissions.write']
@@ -17,16 +20,57 @@ async function readContract(path) {
   return { bytes, document: JSON.parse(bytes.toString('utf8')) }
 }
 
-test('A08 contract requires the explicit authoritative backend path', () => {
-  assert.ok(process.env.A08_BACKEND_CONTRACT, 'missing_A08_BACKEND_CONTRACT')
+async function authoritativeBackendPath(configuredPath = process.env.A08_BACKEND_CONTRACT) {
+  assert.ok(configuredPath, 'missing_A08_BACKEND_CONTRACT')
+  assert.equal(isAbsolute(configuredPath), true, 'A08_BACKEND_CONTRACT_must_be_absolute')
+
+  const [frontendPath, backendPath] = await Promise.all([
+    realpath(fileURLToPath(frontendContractURL)),
+    realpath(configuredPath),
+  ])
+  const [frontendStat, backendStat] = await Promise.all([
+    stat(frontendPath),
+    stat(backendPath),
+  ])
+  assert.equal(backendStat.isFile(), true, 'A08_BACKEND_CONTRACT_must_be_regular_file')
+  assert.notEqual(backendPath, frontendPath, 'A08_BACKEND_CONTRACT_must_not_resolve_to_frontend_contract')
+  assert.equal(
+    backendStat.dev === frontendStat.dev && backendStat.ino === frontendStat.ino,
+    false,
+    'A08_BACKEND_CONTRACT_must_not_reference_frontend_contract_file',
+  )
+  return backendPath
+}
+
+test('A08 backend path validation rejects missing and frontend aliases', async t => {
+  await assert.rejects(authoritativeBackendPath(''), /missing_A08_BACKEND_CONTRACT/)
+
+  const frontendPath = fileURLToPath(frontendContractURL)
+  await assert.rejects(
+    authoritativeBackendPath(frontendPath),
+    /A08_BACKEND_CONTRACT_must_not_resolve_to_frontend_contract/,
+  )
+
+  const directory = await mkdtemp(join(tmpdir(), 'a08-frontend-contract-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const alias = join(directory, 'contract.json')
+  await symlink(frontendPath, alias)
+  await assert.rejects(
+    authoritativeBackendPath(alias),
+    /A08_BACKEND_CONTRACT_must_not_resolve_to_frontend_contract/,
+  )
+})
+
+test('A08 contract requires a distinct authoritative backend file', async () => {
+  await authoritativeBackendPath()
 })
 
 test('A08 frontend contract is byte-identical to the backend contract', async t => {
-  const backendPath = process.env.A08_BACKEND_CONTRACT
-  if (!backendPath) {
+  if (!process.env.A08_BACKEND_CONTRACT) {
     t.skip('missing_A08_BACKEND_CONTRACT')
     return
   }
+  const backendPath = await authoritativeBackendPath()
 
   const [frontend, backend] = await Promise.all([
     readContract(frontendContractURL),
