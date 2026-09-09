@@ -1,5 +1,13 @@
 # 当前验证进度
 
+## 2026-09-08：用户软删除成功提示修复
+
+- 测试环境 `https://aiportcloud.com/users` 以 `root_admin` 完成列表、搜索、详情、刷新、创建与软删除验收；临时用户 `accept_260908_0942`（GUID `355650202352226304`）创建成功并已软删除，按 GUID 查询为 0 条。
+- 线上验收发现软删除完成后仍显示旧的“已创建用户”页面公告。根因是 `onCreateSucceeded` 写入公告并提示成功，而 `onDeleteSucceeded` 只协调列表，未覆盖公告或发送删除成功提示。
+- TDD 回归先因中英文删除成功文案及列表回调缺失而 RED；修复后定向测试 10/10、携带后端 A03/A14 冻结契约的全量测试 287/287、`VITE_USE_MOCK=false npm run build` 与 `git diff --check` 通过。构建保留既有 Rollup 动态导入和大 chunk 警告。
+- 修复仅在隔离分支 `fix/user-delete-success-message`，尚未 push、合并或发布；测试环境仍运行前端 `43122191b0400db9d5e8042c8367b15711da6b6c`。
+
+
 ## 2026-09-09：A08 managed-user roles and permissions 本地联合切片限定通过
 
 - A08 从 `BLOCKED_FIXTURE` 提升为 `PASS_LIMITED_SCOPE`。前端代码候选 `25b073164dc3fccecbf3b74309f12dd7589c024b`，配对后端 `f2f976005c2331c0409c1b27da79e3a43d25bcb0`，共享合同 SHA-256 为 `dd202cb5019b10a891e10f03f77629b5f54e993110f148f417e05d089df35698`。

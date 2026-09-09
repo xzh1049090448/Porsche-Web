@@ -113,8 +113,15 @@ function openDelete(target, event) {
 }
 async function onDeleteSucceeded({ guid }, token) {
   if (!actionStore.owns(token)) return false
+  const deletedUser = actionStore.target
   await reconcileDeletedList({ state: store, filters, guid, reload })
-  return actionStore.owns(token)
+  if (!actionStore.owns(token)) return false
+  createAnnouncement.value = t('deleteUser.successKnown', {
+    username: deletedUser?.username || t('deleteUser.unsetUsername'),
+    guid,
+  })
+  ElMessage.success(createAnnouncement.value)
+  return true
 }
 async function onDeleteConflict(guid, token) {
   const contextRevision = listContextRevision
