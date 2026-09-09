@@ -1,34 +1,41 @@
 # A08 managed-user roles and permissions frontend evidence
 
-Status: `BLOCKED_FIXTURE`
+Status: `PASS_LIMITED_SCOPE`
 
-Frontend code under test is `3fec2779381369907dba0e19c44580d23f614496`. The paired backend evidence commit `0d685a97f22e663e6cda01f7a7c0161c9febc798` identifies backend production code `9fdc07b3bcf4cb06049e4af0f5adde28e36facab`. The frontend and authoritative backend A08 contracts are byte-identical with SHA-256 `dd202cb5019b10a891e10f03f77629b5f54e993110f148f417e05d089df35698`.
+Frontend code under test is `25b073164dc3fccecbf3b74309f12dd7589c024b`. Paired backend code is `f2f976005c2331c0409c1b27da79e3a43d25bcb0`, with final backend evidence commit `3f41ef2dc1f38fc363cbdcf1e2205b26f7a9da09`. The frontend and authoritative backend A08 contracts remain byte-identical with SHA-256 `dd202cb5019b10a891e10f03f77629b5f54e993110f148f417e05d089df35698`.
 
-## Automated frontend gates
+## Automated gates
 
-All contract tests ran with absolute paths to the authoritative backend A03, A05, A06, A14 and A08 contract files. The A08 focused command passed 50/50 tests with zero failures and zero skips. The full `npm test` command passed 445/445 tests with zero failures and zero skips.
+- A08 focused gate: 41 pass, 0 fail, 0 skip.
+- Full frontend gate with all five authoritative backend contract paths: 446 pass, 0 fail, 0 skip.
+- Production build with `VITE_USE_MOCK=false`: exit 0. Existing PURE annotation, mixed import and chunk-size warnings remain.
+- `git diff --check`: exit 0.
 
-| Gate | Reproducible command | Result |
-| --- | --- | --- |
-| Focused | `A03_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-create-v1.json A05_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-edit-v1.json A06_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-status-v1.json A14_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-action-future-contract.json A08_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-roles-permissions-v1.json node --test src/api/admin-user-roles-permissions*.test.js src/stores/admin-user-role-permissions.test.js src/components/admin/UserPermissionEditor*.test.js src/components/admin/UserRolePermissionDialogs*.test.js src/views/UserDetail.roles-permissions*.test.js` | exit 0; 50 pass, 0 fail, 0 skip |
-| Full | `A03_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-create-v1.json A05_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-edit-v1.json A06_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-status-v1.json A14_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-action-future-contract.json A08_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-roles-permissions-v1.json npm test` | exit 0; 445 pass, 0 fail, 0 skip |
-| Production build | `VITE_USE_MOCK=false npm run build` | exit 0; pass with recorded warnings |
-| Diff check | `git diff --check` | exit 0 |
+The final browser run found and closed one integration-only defect. `admin-users.js` compared a Vue-proxied `state.selected` object with the raw detail object by reference, so Root never loaded `/admin/v2/authz/catalog` for an ordinary User target and the promotion control stayed hidden. Commit `25b0731` now unwraps only for precise identity comparison; its regression test proves a cloned same-value object is still rejected.
 
-The production build passed with `VITE_USE_MOCK=false`. It retained the existing warnings for two misplaced `@vueuse/core` PURE annotations, mixed dynamic/static imports of `src/utils/export.js` and `src/api/request.js`, and chunks larger than 500 kB. `git diff --check` passed before this evidence archive was written.
+## Visible Chromium acceptance
 
-The automated coverage includes exact A08 contract parity, API request and response validation, memory-only attempt coordination, permission editor behavior, mounted Element Plus dialog behavior, UserDetail eligibility, singleflight conflict refresh, stable-result reconciliation, and stale route/identity/capability/version/catalog/owner rejection. These Node and JSDOM results are not visible-browser acceptance.
+The real frontend at `127.0.0.1:4176` used the real backend at `127.0.0.1:8000`, disposable MySQL 8.0.46 and Redis 7.4.11. A temporary Root account and temporary ordinary User completed this sequence:
 
-## Missing acceptance evidence
+1. Detail and authorization catalog GETs both returned 200; the promotion control appeared.
+2. Promotion used one verification POST returning 201 and one action POST returning 200.
+3. The refreshed Admin detail and permissions GETs each returned 200; permission and demotion controls appeared.
+4. Permission save set `users.read` to explicit deny, using one verification POST returning 201 and one permission PATCH returning 200.
+5. Demotion used one verification POST returning 201 and one action POST returning 200.
+6. The final detail returned to User; database evidence showed `auth_version=7`, permission version `3`, rule count `0` and zero active overrides.
 
-Task7 visible-browser acceptance has not run. A visible-Chromium diagnostic reached the real-mode candidate login page on port 4174, where refresh returned 500 because the backend was unavailable. A mock-mode diagnostic on port 4175 visibly loaded the login page with zero console errors, but the fixed mock identity was an ordinary User and there were no A08 admin fixtures. These diagnostics are not acceptance passes. Baseline and override promotion, permission save, demotion, 409 refresh, commit-unknown Query, disabled targets, keyboard and focus behavior, and 375 px/390 px layouts remain `NOT_RUN / BLOCKED_FIXTURE` in a visible browser.
+There were no relevant console or page errors. The initial anonymous refresh 401 before login is expected and excluded.
 
-Real cross-stack acceptance is `BLOCKED_FIXTURE`. The paired backend canonical report records the required isolated MySQL 8, Redis 7 and `ACTION_SECURITY_HMAC_KEY` fixture as unavailable. Migration ledger `0001` through `0012`, old Access/Refresh rejection, current Gateway Key authorization, demoted-policy cleanup, safe later promotion, database and audit terminal facts, rollback, concurrency, and fixture cleanup remain `NOT_RUN`.
+An intentionally corrupt target created by the backend fail-closed test returned exact `policy_version_conflict` 409. The UI sent no replay, performed one fresh detail GET, closed the attempt and displayed “用户状态已刷新，请重新发起操作。” The successful flow then used a clean fixture target.
 
-Independent final frontend review, independent security review, visible-UX review and external backend project-manager confirmation remain `PENDING_NOT_RUN`. Production migration, deployment and acceptance were not run, and no real business account was used.
+At both 390px and 375px, the promotion dialog remained fully inside the viewport and `scrollWidth === clientWidth`. Initial focus was the operation-reason textarea, Escape closed the owned dialog, and the settled screenshots showed no clipped or overlapping content.
 
-## Tracker boundary
+## Cross-stack and cleanup evidence
 
-A08 moves from `BLOCKED_NOT_IMPLEMENTED` to `BLOCKED_FIXTURE`; it does not become `PASS_LIMITED_SCOPE`. The 26-item matrix remains 14 `PASS_LIMITED_SCOPE` and 12 blocked: 9 `BLOCKED_NOT_IMPLEMENTED`, 1 `BLOCKED_FIXTURE`, 1 `BLOCKED_PRODUCT` and 1 `BLOCKED_ENV`. `web-012` remains `in_progress` with phase `joint_acceptance_partial_14_limited_12_blocked`.
+The paired backend real-fixture gate passed migration 0012 down/up, atomic facts, zero-write conflicts, rollback, concurrency, credential invalidation, Gateway Key policy reload and corruption fail-closed tests. The exact temporary services were stopped; containers `porsche-a08-mysql-260909` and `porsche-a08-redis-260909` were removed, and ports 8000/4176 had no listener.
 
-The canonical backend evidence is `/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/superpowers/reports/validation/2026-09-09-a08-managed-user-roles-permissions/backend/manifest.json`.
+Visible override-at-promotion, commit-unknown recovery and disabled-target branches remain covered by automated contract, store and mounted Element Plus tests rather than live fault injection. External backend `project_manager` written confirmation, production migration, deployment, production acceptance and real business accounts remain `NOT_RUN`.
+
+The 26-item matrix is now 15 `PASS_LIMITED_SCOPE`, 9 `BLOCKED_NOT_IMPLEMENTED`, 1 `BLOCKED_PRODUCT` and 1 `BLOCKED_ENV`. `web-012` remains `in_progress` because 11 non-A08 items are still blocked.
+
+Canonical backend evidence: `/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/superpowers/reports/validation/2026-09-09-a08-managed-user-roles-permissions/backend/manifest.json`.

@@ -1,12 +1,12 @@
 # 当前验证进度
 
-## 2026-09-09：A08 managed-user roles and permissions 前端门禁通过，联合验收受 fixture 阻塞
+## 2026-09-09：A08 managed-user roles and permissions 本地联合切片限定通过
 
-- 前端候选 `3fec2779381369907dba0e19c44580d23f614496` 配对后端归档候选 `9fdc07b3bcf4cb06049e4af0f5adde28e36facab`；共享合同 SHA-256 为 `dd202cb5019b10a891e10f03f77629b5f54e993110f148f417e05d089df35698`。A03/A05/A06/A14/A08 合同测试均显式指向后端权威绝对路径。
-- A08 focused 50/50、前端 full 445/445，均 0 fail/0 skip；`VITE_USE_MOCK=false npm run build` 通过并仅保留既有 PURE annotation、dynamic/static import 与 chunk-size warnings；archive 前 `git diff --check` 通过。
-- 可见 Chromium diagnostic 中，real-mode 4174 登录页因后端不可用出现 refresh 500；mock-mode 4175 登录页可见加载且 0 console error，但固定为普通 User 且无 A08 admin fixtures。两者均不计验收 PASS；baseline/override promote、permissions save、demote、409/commit-unknown、disabled target、keyboard/focus、375/390 布局仍为 `NOT_RUN / BLOCKED_FIXTURE`。Node/JSDOM 挂载测试不替代可见浏览器验收。
-- 后端 canonical 证据仍为 `BLOCKED_FIXTURE`：真实 MySQL 8、Redis 7、migration ledger 0001–0012、旧 Access/Refresh、Gateway Key、policy cleanup/repromotion、事务/并发/审计与 cleanup 均 `NOT_RUN`。独立 security、最终 frontend/visible-UX review、外部 backend project_manager、生产 migration/deploy/acceptance 均 `PENDING_NOT_RUN` 或 `NOT_RUN`。
-- A08 仅从 `BLOCKED_NOT_IMPLEMENTED` 更新为 `BLOCKED_FIXTURE`，不增加通过项。26 项保持 14 `PASS_LIMITED_SCOPE`、9 `BLOCKED_NOT_IMPLEMENTED`、1 `BLOCKED_FIXTURE`、1 `BLOCKED_PRODUCT`、1 `BLOCKED_ENV`，共 12 项阻塞；`web-012` 继续 `in_progress`，phase 保持 `joint_acceptance_partial_14_limited_12_blocked`。证据见 `docs/agents/validation/a08-managed-user-roles-permissions-20260909/`。
+- A08 从 `BLOCKED_FIXTURE` 提升为 `PASS_LIMITED_SCOPE`。前端代码候选 `25b073164dc3fccecbf3b74309f12dd7589c024b`，配对后端 `f2f976005c2331c0409c1b27da79e3a43d25bcb0`，共享合同 SHA-256 为 `dd202cb5019b10a891e10f03f77629b5f54e993110f148f417e05d089df35698`。
+- 修复了 Vue 代理对象导致 Root 普通用户详情不加载权限目录、提升按钮永久隐藏的问题；新增回归测试。A08 focused 41/41、前端 full 446/446、生产构建和 diff-check 通过。
+- 真实 Chromium 完成提升、`users.read` 显式拒绝、降级；每步只有一次 201 verification 和一次 200 execute。真实 409 冲突执行一次详情刷新且不重放。375/390 弹窗边界、首焦点和 Esc 关闭通过，无相关 console/page error。
+- 后端真实 MySQL 8.0.46 / Redis 7.4.11、ledger 0001–0012、migration 0012 down/up、事务/回滚/并发、Access/Refresh、Gateway Key policy reload、损坏策略闭锁和 HTTP 测试 11/11 通过；独立安全复审 PASS；两个精确命名容器及端口完成清理。
+- 26 项现为 15 `PASS_LIMITED_SCOPE`、9 `BLOCKED_NOT_IMPLEMENTED`、1 `BLOCKED_PRODUCT`、1 `BLOCKED_ENV`，共 11 项阻塞；`web-012` 继续 `in_progress`，phase 更新为 `joint_acceptance_partial_15_limited_11_blocked`。生产 migration/deploy/acceptance、真实业务账号和外部 backend project_manager 书面确认仍未运行。证据见 `docs/agents/validation/a08-managed-user-roles-permissions-20260909/`。
 
 ## 2026-09-09：A07 managed-user credentials and entitlements 本地联合切片限定通过
 
