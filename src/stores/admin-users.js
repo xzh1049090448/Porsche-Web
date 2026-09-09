@@ -1,9 +1,13 @@
 import { defineStore } from 'pinia'
-import { reactive, toRefs } from 'vue'
+import { reactive, toRaw, toRefs } from 'vue'
 import { listAdminUsers, getAdminUser, getAdminUserPermissions, getAdminUserRolePermissionSnapshot, getAuthzCatalog } from '../api/admin-users.js'
 import { createAdminUsersState } from '../api/admin-users-state.js'
 import { authSession } from '../api/request.js'
 export { useAdminUserRolePermissionsStore } from './admin-user-role-permissions.js'
+
+export function isCurrentAdminUserDetail(selected, detail) {
+  return toRaw(selected) === detail
+}
 
 export async function reconcileCreatedAdminUser({ state, filters, createdUser, reload }) {
   if (createdUser) {
@@ -19,12 +23,12 @@ export const useAdminUsersStore = defineStore('adminUsers', () => {
   const service = createAdminUsersState({ auth: authSession, state, api: { list: listAdminUsers, detail: getAdminUser, permissions: getAdminUserPermissions, catalog: getAuthzCatalog } })
   async function loadDetail(guid, options = {}) {
     const detail = await service.loadDetail(guid, options)
-    if (options.isRoot && detail?.role === 'user' && state.selected === detail && state.catalog == null) {
+    if (options.isRoot && detail?.role === 'user' && isCurrentAdminUserDetail(state.selected, detail) && state.catalog == null) {
       try {
         const catalog = await getAuthzCatalog()
-        if (state.selected === detail) state.catalog = catalog
+        if (isCurrentAdminUserDetail(state.selected, detail)) state.catalog = catalog
       } catch (error) {
-        if (state.selected !== detail) return undefined
+        if (!isCurrentAdminUserDetail(state.selected, detail)) return undefined
         state.selected = null
         state.permissions = null
         state.catalog = null
