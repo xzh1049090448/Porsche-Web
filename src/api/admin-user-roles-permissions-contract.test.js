@@ -94,7 +94,10 @@ test('A08 frontend contract is byte-identical to the backend contract', async t 
     assert.equal(action.execute.method, executeMethods[scope])
     assert.equal(action.execute.path, executePaths[scope])
     assert.deepEqual(action.execute.required_headers, ['Idempotency-Key', 'X-Action-Ticket'])
-    assert.deepEqual(Object.keys(action.execute.header_rules), ['Idempotency-Key', 'X-Action-Ticket'])
+    assert.deepEqual(action.execute.header_rules, {
+      'Idempotency-Key': 'exactly one unique original value',
+      'X-Action-Ticket': `exactly one valid ${scope} ticket bound to the path target and complete canonical intent`,
+    })
     assert.equal(action.execute.body.type, 'object')
     assert.equal(action.execute.body.additionalProperties, false)
     assert.deepEqual(action.execute.body.required, executeFields[scope])
@@ -103,6 +106,7 @@ test('A08 frontend contract is byte-identical to the backend contract', async t 
     assert.equal(action.execute.body.path_supplies_target_guid, true)
     assert.equal(action.execute.response_status, 200)
     assert.deepEqual(action.execute.response_keys, STABLE_RESULT_KEYS)
+    assert.equal(action.execute.success_rule, 'committed terminal result only; operation_commit_unknown is an error carrying operation_ref')
     assert.equal(action.execute.processing_success_response, false)
 
     assert.equal(action.query.method, 'GET')
@@ -116,6 +120,13 @@ test('A08 frontend contract is byte-identical to the backend contract', async t 
   }
 
   assert.deepEqual(contract.stable_result.exact_keys, STABLE_RESULT_KEYS)
+  assert.deepEqual(contract.stable_result.schema, {
+    operation_ref: 'valid opaque op_ value',
+    target_guid: 'canonical path target GUID string',
+    resulting_auth_version: 'positive INT32 equal to the single committed auth-version advance',
+    resulting_permissions_version: 'positive INT64 equal to the single committed policy-head advance',
+    resulting_role: 'user or admin as fixed by the exact scope',
+  })
   assert.deepEqual(contract.stable_result.role_by_scope, {
     'users.promote': 'admin',
     'users.demote': 'user',
@@ -131,7 +142,60 @@ test('A08 frontend contract is byte-identical to the backend contract', async t 
     'failure_code',
     ...STABLE_RESULT_KEYS.slice(1),
   ])
+  assert.equal(contract.operation_query.nullable_result_rule, 'all four nullable result keys are always present; succeeded uses the stored stable result and processing, failed, and pending_recovery use null for every result key')
+  assert.deepEqual(contract.operation_query.state_rules, {
+    processing: {
+      finished_at: null,
+      failure_code: null,
+      result_keys: 'all present and null',
+      'Retry-After': 'required integer seconds 1..30',
+    },
+    succeeded: {
+      finished_at: 'positive Unix milliseconds',
+      failure_code: null,
+      result_keys: 'all present from stored stable result',
+      'Retry-After': 'forbidden',
+    },
+    failed: {
+      finished_at: 'positive Unix milliseconds',
+      failure_code: 'one operation_failure_codes value',
+      result_keys: 'all present and null',
+      'Retry-After': 'forbidden',
+    },
+    pending_recovery: {
+      finished_at: null,
+      failure_code: null,
+      result_keys: 'all present and null',
+      'Retry-After': 'forbidden',
+    },
+  })
+  assert.equal(contract.operation_query.retry_after, 'processing only; integer seconds 1..30')
+  assert.equal(contract.operation_query.visibility, 'only the originating actor, current originating logical session, exact scope, and original key can query; hidden or unverifiable combinations return 404 and expired or tombstoned results return 410')
+  assert.equal(contract.operation_query.refresh, 'a succeeded query authorizes one owned target detail and permissions refresh; query never triggers mutation callbacks or consumes begin rate limit')
 
+  assert.deepEqual(contract.errors.authentication_401, {
+    exact_body_keys: ['detail'],
+    additionalProperties: false,
+    details: ['未登录', 'Token无效或已过期'],
+  })
+  assert.deepEqual(contract.errors.envelope, {
+    exact_body_keys: ['error'],
+    base_error: {
+      exact_keys: ['code', 'message', 'type', 'request_id'],
+      additionalProperties: false,
+      message: '请求无法完成',
+      type: 'admin_action_error',
+    },
+    operation_commit_unknown_error: {
+      exact_keys: ['code', 'message', 'type', 'request_id', 'operation_ref'],
+      required: ['code', 'message', 'type', 'request_id', 'operation_ref'],
+      additionalProperties: false,
+      code: 'operation_commit_unknown',
+      message: '请求无法完成',
+      type: 'admin_action_error',
+      operation_ref: 'required valid opaque op_ value',
+    },
+  })
   assert.deepEqual(contract.errors.status_code_allowlist, {
     400: ['invalid_admin_action_request'],
     403: ['action_verification_rejected', 'action_operation_rejected'],
@@ -150,6 +214,11 @@ test('A08 frontend contract is byte-identical to the backend contract', async t 
     'target_state_conflict',
     'consumer_validation_failed',
   ])
+  assert.deepEqual(contract.errors.header_rules, {
+    matched: 'Cache-Control no-store and nonempty X-Request-ID; admin_action_error request_id equals X-Request-ID',
+    'Retry-After': 'required only for action_rate_limited and processing query; forbidden otherwise',
+    operation_ref: 'present only in operation_commit_unknown error',
+  })
 
   assert.deepEqual(contract.frontend_security.memory_only, ['current_password', 'ticket', 'idempotency_key', 'unknown_state'])
   assert.deepEqual(contract.frontend_security.prohibited_values, ['current_password', 'ticket', 'idempotency_key', 'password_material', 'HMAC_input'])
