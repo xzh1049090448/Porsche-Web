@@ -21,10 +21,14 @@ function mapDetail(raw) {
 }
 
 function queryString(filters = {}) {
-  const allowed = new Set(['search', 'provider', 'capability', 'page', 'pageSize'])
+  const allowed = new Set(['search', 'provider', 'capability', 'endpointType', 'publicDisplayGroup', 'pricingType', 'page', 'pageSize', 'sort', 'order'])
   if (Object.keys(filters).some(key => !allowed.has(key))) throw new Error('invalid_public_models_query')
   const params = new URLSearchParams()
   for (const key of ['search', 'provider', 'capability']) if (filters[key] !== undefined && filters[key] !== '') { if (typeof filters[key] !== 'string') throw new Error('invalid_public_models_query'); params.set(key, filters[key]) }
+  for (const [key, name] of [['endpointType','endpoint_type'],['publicDisplayGroup','public_display_group']]) if (filters[key] !== undefined && filters[key] !== '') { if (typeof filters[key] !== 'string') throw new Error('invalid_public_models_query'); params.set(name, filters[key]) }
+  if (filters.pricingType !== undefined) { if (filters.pricingType !== 'token') throw new Error('invalid_public_models_query'); params.set('pricing_type', 'token') }
+  if (filters.sort !== undefined) { if (!['default','name','input_price','output_price'].includes(filters.sort)) throw new Error('invalid_public_models_query'); params.set('sort', filters.sort) }
+  if (filters.order !== undefined) { if (!['asc','desc'].includes(filters.order)) throw new Error('invalid_public_models_query'); params.set('order', filters.order) }
   if (filters.page !== undefined) { if (!positiveInteger(filters.page)) throw new Error('invalid_public_models_query'); params.set('page', String(filters.page)) }
   if (filters.pageSize !== undefined) { if (![20, 50, 100].includes(filters.pageSize)) throw new Error('invalid_public_models_query'); params.set('page_size', String(filters.pageSize)) }
   const encoded = params.toString(); return encoded ? `?${encoded}` : ''

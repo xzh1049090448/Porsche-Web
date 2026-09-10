@@ -1,14 +1,13 @@
-import { sortPublicModels } from './public-catalog.js'
-
 const PAGE_SIZES = new Set([20, 50, 100])
 const SORTS = new Set(['default', 'name', 'input', 'output'])
 const DIRECTIONS = new Set(['asc', 'desc'])
-const text = value => typeof value === 'string' ? value.trim().slice(0, 120) : ''
+const text = value => typeof value === 'string' ? value.trim() : ''
 const scalar = value => Array.isArray(value) ? value[0] : value
+const integer = value => /^\d+$/.test(String(value ?? '')) ? Number(value) : NaN
 
 export function canonicalPricingQuery(raw = {}) {
-  const page = Number.parseInt(scalar(raw.page), 10)
-  const pageSize = Number.parseInt(scalar(raw.pageSize ?? raw.page_size), 10)
+  const page = integer(scalar(raw.page))
+  const pageSize = integer(scalar(raw.pageSize ?? raw.page_size))
   const sort = text(scalar(raw.sort))
   const direction = text(scalar(raw.direction))
   return {
@@ -21,7 +20,8 @@ export function canonicalPricingQuery(raw = {}) {
 
 export function pricingAPIQuery(raw = {}) {
   const query = canonicalPricingQuery(raw)
-  return Object.fromEntries(Object.entries({ search: query.search, provider: query.provider, capability: query.capability, page: query.page, pageSize: query.pageSize }).filter(([, value]) => value !== ''))
+  const sort = ({ input: 'input_price', output: 'output_price' })[query.sort] || query.sort
+  return Object.fromEntries(Object.entries({ search: query.search, provider: query.provider, capability: query.capability, endpointType: query.endpoint, pricingType: 'token', page: query.page, pageSize: query.pageSize, sort, order: query.direction }).filter(([, value]) => value !== ''))
 }
 
 export function pricingQueryString(raw = {}) {
@@ -31,11 +31,29 @@ export function pricingQueryString(raw = {}) {
   return params.toString()
 }
 
+export function canonicalPricingRouteQuery(raw = {}) {
+  return Object.fromEntries(new URLSearchParams(pricingQueryString(raw)))
+}
+
+export function isCanonicalPricingRouteQuery(raw = {}) {
+  const keys = Object.keys(raw)
+  if (keys.some(key => Array.isArray(raw[key]))) return false
+  const canonical = canonicalPricingRouteQuery(raw)
+  return keys.length === Object.keys(canonical).length && Object.entries(canonical).every(([key, value]) => raw[key] === value)
+}
+
 export function applyPricingPresentation(models, raw = {}) {
-  const query = canonicalPricingQuery(raw)
-  let result = Array.isArray(models) ? models.filter(model => !query.endpoint || model.capabilities?.includes(query.endpoint)) : []
-  if (query.sort === 'name') result = [...result].sort((a, b) => (a.displayName || a.modelKey).localeCompare(b.displayName || b.modelKey) || a.modelKey.localeCompare(b.modelKey))
-  else if (query.sort === 'input' || query.sort === 'output') result = sortPublicModels(result, query.sort, query.direction)
-  if (query.sort === 'name' && query.direction === 'desc') result.reverse()
-  return result
+  canonicalPricingQuery(raw)
+  return Array.isArray(models) ? [...models] : []
+}
+
+export function publicPricingAuthOptions(auth) {
+  if (!auth || auth.state() !== 'authenticated' || !auth.accessToken()) return { authenticated: false }
+  return { authenticated: true, authContext: auth.capture() }
+}
+
+export function publicPriceState(model, component) {
+  if (model?.priceVisibility === 'authenticated_only') return { state: 'login_required' }
+  const value = component === 'input' ? model?.inputPrice : model?.outputPrice
+  return value === undefined ? { state: 'unpublished' } : { state: 'published', value }
 }

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { applyPricingPresentation, canonicalPricingQuery, pricingAPIQuery, pricingQueryString } from './public-pricing-query.js'
+import { applyPricingPresentation, canonicalPricingQuery, canonicalPricingRouteQuery, isCanonicalPricingRouteQuery, pricingAPIQuery, pricingQueryString, publicPriceState, publicPricingAuthOptions } from './public-pricing-query.js'
 
 test('canonicalizes every shareable pricing control and clamps unsafe values', () => {
   assert.deepEqual(canonicalPricingQuery({ search: [' x '], provider: 42, capability: ' chat ', endpoint: ' responses ', page: '-2', pageSize: '75', sort: 'cost', direction: 'sideways' }), {
     search: 'x', provider: '', capability: 'chat', endpoint: 'responses', page: 1, pageSize: 20, sort: 'default', direction: 'asc',
   })
+  assert.equal(canonicalPricingQuery({ page: '2x' }).page, 1)
   assert.deepEqual(canonicalPricingQuery({ page: '4', page_size: '100', sort: 'output', direction: 'desc' }), {
     search: '', provider: '', capability: '', endpoint: '', page: 4, pageSize: 100, sort: 'output', direction: 'desc',
   })
@@ -14,21 +15,42 @@ test('canonicalizes every shareable pricing control and clamps unsafe values', (
 test('serializes a stable URL while sending only frozen backend query fields', () => {
   const query = canonicalPricingQuery({ search: 'a&b', provider: '智谱', capability: 'chat', endpoint: 'responses', page: 2, pageSize: 50, sort: 'input', direction: 'desc' })
   assert.equal(pricingQueryString(query), 'search=a%26b&provider=%E6%99%BA%E8%B0%B1&capability=chat&endpoint=responses&page=2&pageSize=50&sort=input&direction=desc')
-  assert.deepEqual(pricingAPIQuery(query), { search: 'a&b', provider: '智谱', capability: 'chat', page: 2, pageSize: 50 })
+  assert.deepEqual(pricingAPIQuery(query), { search: 'a&b', provider: '智谱', capability: 'chat', endpointType: 'responses', pricingType: 'token', page: 2, pageSize: 50, sort: 'input_price', order: 'desc' })
 })
 
-test('sorts exact decimal strings numerically and keeps missing prices last', () => {
+test('canonicalizes the entire route query and removes arrays duplicates and unknown keys', () => {
+  const raw = { search: ['first', 'second'], page: ['2', '9'], pageSize: '50', sort: 'name', direction: 'asc', unknown: 'drop' }
+  assert.deepEqual(canonicalPricingRouteQuery(raw), { search: 'first', page: '2', pageSize: '50', sort: 'name', direction: 'asc' })
+  assert.equal(isCanonicalPricingRouteQuery(raw), false)
+  assert.equal(isCanonicalPricingRouteQuery(canonicalPricingRouteQuery(raw)), true)
+})
+
+test('keeps server ordered pages unchanged so global totals and sorting stay coherent', () => {
   const models = [
     { modelKey: 'missing', capabilities: ['chat'] },
     { modelKey: 'ten', capabilities: ['chat', 'responses'], inputPrice: '10.00000000', outputPrice: '2' },
     { modelKey: 'two', capabilities: ['responses'], inputPrice: '2.1', outputPrice: '11' },
   ]
-  assert.deepEqual(applyPricingPresentation(models, { endpoint: 'responses', sort: 'input', direction: 'asc' }).map(x => x.modelKey), ['two', 'ten'])
-  assert.deepEqual(applyPricingPresentation(models, { sort: 'output', direction: 'desc' }).map(x => x.modelKey), ['two', 'ten', 'missing'])
+  assert.deepEqual(applyPricingPresentation(models, { endpoint: 'responses', sort: 'input', direction: 'asc' }).map(x => x.modelKey), ['missing', 'ten', 'two'])
+  assert.deepEqual(applyPricingPresentation(models, { sort: 'output', direction: 'desc' }).map(x => x.modelKey), ['missing', 'ten', 'two'])
 })
 
-test('name sorting is stable and malformed presentation input fails closed', () => {
+test('presentation never reorders a server page', () => {
   const models = [{ modelKey: 'b', displayName: 'Zulu', capabilities: [] }, { modelKey: 'a', displayName: 'Alpha', capabilities: [] }]
-  assert.deepEqual(applyPricingPresentation(models, { sort: 'name', direction: 'asc' }).map(x => x.modelKey), ['a', 'b'])
-  assert.deepEqual(applyPricingPresentation(models, { sort: 'input', direction: 'asc' }).map(x => x.modelKey), ['a', 'b'])
+  assert.deepEqual(applyPricingPresentation(models, { sort: 'name', direction: 'asc' }).map(x => x.modelKey), ['b', 'a'])
+  assert.deepEqual(applyPricingPresentation(models, { sort: 'input', direction: 'asc' }).map(x => x.modelKey), ['b', 'a'])
+})
+
+test('authenticated representation uses only the actual current auth snapshot', () => {
+  const snapshot = { epoch: 'e', generation: 2, permissionRevision: 3, token: 'secret' }
+  const authenticated = { state: () => 'authenticated', accessToken: () => 'secret', capture: () => snapshot }
+  assert.deepEqual(publicPricingAuthOptions(authenticated), { authenticated: true, authContext: snapshot })
+  assert.deepEqual(publicPricingAuthOptions({ ...authenticated, state: () => 'anonymous' }), { authenticated: false })
+  assert.deepEqual(publicPricingAuthOptions({ ...authenticated, accessToken: () => null }), { authenticated: false })
+})
+
+test('redacted authenticated-only price is distinct from an unpublished value', () => {
+  assert.deepEqual(publicPriceState({ priceVisibility: 'authenticated_only' }, 'input'), { state: 'login_required' })
+  assert.deepEqual(publicPriceState({ priceVisibility: 'visible' }, 'input'), { state: 'unpublished' })
+  assert.deepEqual(publicPriceState({ priceVisibility: 'visible', inputPrice: '0' }, 'input'), { state: 'published', value: '0' })
 })

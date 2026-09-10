@@ -887,7 +887,10 @@
           "input_price_usd_per_million_tokens",
           "output_price_usd_per_million_tokens",
           "price_visibility",
-          "release_version"
+          "release_version",
+          "pricing_type",
+          "endpoint_types",
+          "updated_at"
         ],
         "properties": {
           "model_key": {
@@ -928,6 +931,41 @@
           },
           "release_version": {
             "type": "integer"
+          },
+          "pricing_type": {
+            "type": "string",
+            "enum": [
+              "token"
+            ]
+          },
+          "public_display_group": {
+            "type": "string"
+          },
+          "endpoint_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "public_restrictions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "price_source": {
+            "type": "string"
+          },
+          "price_reviewer": {
+            "type": "string"
+          },
+          "effective_at": {
+            "type": "string",
+            "format": "date-time-rfc3339-utc"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time-rfc3339-utc"
           }
         }
       },
@@ -940,7 +978,10 @@
           "capabilities",
           "context_window",
           "price_visibility",
-          "release_version"
+          "release_version",
+          "pricing_type",
+          "endpoint_types",
+          "updated_at"
         ],
         "properties": {
           "model_key": {
@@ -969,6 +1010,41 @@
           },
           "release_version": {
             "type": "integer"
+          },
+          "pricing_type": {
+            "type": "string",
+            "enum": [
+              "token"
+            ]
+          },
+          "public_display_group": {
+            "type": "string"
+          },
+          "endpoint_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "public_restrictions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "price_source": {
+            "type": "string"
+          },
+          "price_reviewer": {
+            "type": "string"
+          },
+          "effective_at": {
+            "type": "string",
+            "format": "date-time-rfc3339-utc"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time-rfc3339-utc"
           }
         }
       },
@@ -1041,6 +1117,31 @@
           "last_upstream_check_at": {
             "type": "integer",
             "nullable": true
+          },
+          "public_display_group": {
+            "type": "string"
+          },
+          "endpoint_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "public_restrictions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "price_source": {
+            "type": "string"
+          },
+          "price_reviewer": {
+            "type": "string"
+          },
+          "price_effective_at": {
+            "type": "integer",
+            "nullable": true
           }
         }
       },
@@ -1104,6 +1205,34 @@
               20,
               50,
               100
+            ]
+          },
+          "endpoint_type": {
+            "type": "string"
+          },
+          "public_display_group": {
+            "type": "string"
+          },
+          "pricing_type": {
+            "type": "string",
+            "enum": [
+              "token"
+            ]
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "default",
+              "name",
+              "input_price",
+              "output_price"
+            ]
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
             ]
           }
         }
@@ -1275,6 +1404,31 @@
             "pattern": "^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,8})?$",
             "minimum": "0",
             "maximum": "999999999999.99999999"
+          },
+          "public_display_group": {
+            "type": "string"
+          },
+          "endpoint_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "public_restrictions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "price_source": {
+            "type": "string"
+          },
+          "price_reviewer": {
+            "type": "string"
+          },
+          "price_effective_at": {
+            "type": "integer",
+            "nullable": true
           }
         }
       },
@@ -1316,6 +1470,31 @@
             "pattern": "^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,8})?$",
             "minimum": "0",
             "maximum": "999999999999.99999999"
+          },
+          "public_display_group": {
+            "type": "string"
+          },
+          "endpoint_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "public_restrictions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "price_source": {
+            "type": "string"
+          },
+          "price_reviewer": {
+            "type": "string"
+          },
+          "price_effective_at": {
+            "type": "integer",
+            "nullable": true
           }
         }
       },

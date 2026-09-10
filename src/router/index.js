@@ -69,6 +69,7 @@ export function installBootstrapHandoff(router, { mode, handoff } = {}) {
   router.beforeEach(to => {
     const targetMode = to.meta.public ? 'public' : 'auth'
     if (targetMode === mode) return true
+    if (mode === 'auth' && targetMode === 'public') return true
     handoff(to.fullPath)
     return false
   })

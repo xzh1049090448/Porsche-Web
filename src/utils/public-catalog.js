@@ -1,7 +1,8 @@
 const DECIMAL = /^(0|[1-9][0-9]{0,11})(\.[0-9]{1,8})?$/
 const MODEL_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
-const BASE_KEYS = ['model_key', 'display_name', 'provider', 'capabilities', 'context_window', 'price_visibility', 'release_version']
+const BASE_KEYS = ['model_key', 'display_name', 'provider', 'capabilities', 'context_window', 'price_visibility', 'release_version', 'pricing_type', 'endpoint_types', 'updated_at']
 const PRICE_KEYS = ['input_price_usd_per_million_tokens', 'output_price_usd_per_million_tokens']
+const OPTIONAL_KEYS = ['public_display_group', 'public_restrictions', 'price_source', 'price_reviewer', 'effective_at']
 
 export const PUBLIC_PRICING = Object.freeze({ currency: 'USD', unit: 'million_tokens', billingSemantics: 'references_only_no_automatic_charge' })
 export const PUBLIC_PRICE_DISCLAIMER = '价格仅供参考，不代表自动计费或最终账单。'
@@ -16,11 +17,18 @@ function validBase(raw) {
 
 export function mapPublicModel(raw) {
   const visible = raw?.price_visibility === 'visible'
-  const expected = visible ? [...BASE_KEYS, ...PRICE_KEYS] : BASE_KEYS
-  if (!exactKeys(raw, expected) || !validBase(raw)) throw new Error('invalid_public_model')
+  const required = visible ? [...BASE_KEYS, ...PRICE_KEYS] : BASE_KEYS
+  const keys = Object.keys(raw || {})
+  if (!required.every(key => keys.includes(key)) || keys.some(key => !required.includes(key) && !OPTIONAL_KEYS.includes(key)) || !validBase(raw)) throw new Error('invalid_public_model')
   if (visible && (typeof raw.input_price_usd_per_million_tokens !== 'string' || typeof raw.output_price_usd_per_million_tokens !== 'string' || !DECIMAL.test(raw.input_price_usd_per_million_tokens) || !DECIMAL.test(raw.output_price_usd_per_million_tokens))) throw new Error('invalid_public_model')
   if (!visible && raw.price_visibility !== 'authenticated_only') throw new Error('invalid_public_model')
-  const projected = { modelKey: raw.model_key, displayName: raw.display_name, provider: raw.provider, capabilities: [...raw.capabilities], contextWindow: raw.context_window, priceVisibility: raw.price_visibility, releaseVersion: raw.release_version }
+  if (raw.pricing_type !== 'token' || !Array.isArray(raw.endpoint_types) || !raw.endpoint_types.every(value => typeof value === 'string' && value) || new Set(raw.endpoint_types).size !== raw.endpoint_types.length || typeof raw.updated_at !== 'string' || !raw.updated_at.endsWith('Z') || Number.isNaN(Date.parse(raw.updated_at))) throw new Error('invalid_public_model')
+  if (raw.public_restrictions !== undefined && (!Array.isArray(raw.public_restrictions) || !raw.public_restrictions.every(value => typeof value === 'string'))) throw new Error('invalid_public_model')
+  for (const key of ['public_display_group','price_source','price_reviewer']) if (raw[key] !== undefined && typeof raw[key] !== 'string') throw new Error('invalid_public_model')
+  if (raw.effective_at !== undefined && (typeof raw.effective_at !== 'string' || !raw.effective_at.endsWith('Z') || Number.isNaN(Date.parse(raw.effective_at)))) throw new Error('invalid_public_model')
+  const projected = { modelKey: raw.model_key, displayName: raw.display_name, provider: raw.provider, capabilities: [...raw.capabilities], contextWindow: raw.context_window, priceVisibility: raw.price_visibility, releaseVersion: raw.release_version, pricingType: raw.pricing_type, endpointTypes: [...raw.endpoint_types], updatedAt: raw.updated_at }
+  for (const [rawKey, key] of [['public_display_group','publicDisplayGroup'],['price_source','priceSource'],['price_reviewer','priceReviewer'],['effective_at','effectiveAt']]) if (raw[rawKey] !== undefined) projected[key] = raw[rawKey]
+  if (raw.public_restrictions !== undefined) projected.publicRestrictions = [...raw.public_restrictions]
   if (visible) { projected.inputPrice = raw.input_price_usd_per_million_tokens; projected.outputPrice = raw.output_price_usd_per_million_tokens }
   return projected
 }
