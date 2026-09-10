@@ -80,10 +80,11 @@ test('logged-in guest navigation and missing login redirects use /chat', async (
 })
 
 test('bootstrap boundary uses one hard handoff and keeps same-boundary navigation in the SPA', async () => {
-  assert.equal(bootstrapModeForPath('/'), 'public')
-  assert.equal(bootstrapModeForPath('/pricing/model'), 'public')
-  assert.equal(bootstrapModeForPath('/chat'), 'auth')
-  assert.equal(bootstrapModeForPath('/login'), 'auth')
+  const resolver = createRouter({ history: createMemoryHistory(), routes: testRoutes })
+  assert.equal(bootstrapModeForPath(resolver, '/'), 'public')
+  assert.equal(bootstrapModeForPath(resolver, '/pricing/model'), 'public')
+  assert.equal(bootstrapModeForPath(resolver, '/chat'), 'auth')
+  assert.equal(bootstrapModeForPath(resolver, '/login'), 'auth')
 
   const handoffs = []
   const router = createRouter({ history: createMemoryHistory(), routes: testRoutes })
@@ -96,20 +97,31 @@ test('bootstrap boundary uses one hard handoff and keeps same-boundary navigatio
 })
 
 test('bootstrap classification follows the case-insensitive router matcher and encoded public paths', async () => {
+  const resolver = createRouter({ history: createMemoryHistory(), routes: testRoutes })
   for (const path of ['/LOGIN', '/Chat', '/PROFILE/', '/Users/123', '/API-KEYS']) {
-    assert.equal(bootstrapModeForPath(path), 'auth', path)
+    assert.equal(bootstrapModeForPath(resolver, path), 'auth', path)
   }
   for (const path of ['/PRICING', '/About/', '/Unknown', '/%6Cogin', '/%43hat', '/%70ricing']) {
-    assert.equal(bootstrapModeForPath(path), 'public', path)
+    assert.equal(bootstrapModeForPath(resolver, path), 'public', path)
   }
 
   for (const initialPath of ['/LOGIN', '/Chat', '/PROFILE/', '/Users/123', '/PRICING', '/Unknown']) {
     const handoffs = []
     const router = createRouter({ history: createMemoryHistory(), routes: testRoutes })
-    installBootstrapHandoff(router, { mode: bootstrapModeForPath(initialPath), handoff: path => handoffs.push(path) })
+    installBootstrapHandoff(router, { mode: bootstrapModeForPath(router, initialPath), handoff: path => handoffs.push(path) })
     await router.push(initialPath)
     assert.deepEqual(handoffs, [], initialPath)
   }
+})
+
+test('bootstrap classification derives future protected routes from router metadata', () => {
+  const router = createRouter({ history: createMemoryHistory(), routes: testRoutes })
+  router.addRoute({ path: '/future-admin', name: 'FutureAdmin', component: Stub, meta: { requiresAuth: true } })
+  router.addRoute({ path: '/future-guest', name: 'FutureGuest', component: Stub, meta: { guest: true } })
+  assert.equal(bootstrapModeForPath(router, '/future-admin'), 'auth')
+  assert.equal(bootstrapModeForPath(router, '/FUTURE-ADMIN/'), 'auth')
+  assert.equal(bootstrapModeForPath(router, '/future-guest'), 'auth')
+  assert.equal(bootstrapModeForPath(router, '/future-unknown'), 'public')
 })
 
 test('lazy import recovery reloads once then uses a constant safe fallback without loops', async () => {
@@ -128,4 +140,14 @@ test('lazy import recovery reloads once then uses a constant safe fallback witho
   assert.equal(handler(new Error('ordinary component error')), false)
   assert.equal(reloads, 1)
   assert.equal(fallbacks, 1)
+})
+
+test('lazy recovery contains broken session storage without throwing', () => {
+  const storage = { getItem() { throw new Error('blocked') }, setItem() { throw new Error('blocked') }, removeItem() { throw new Error('blocked') } }
+  let reloads = 0
+  const handler = createLazyLoadFailureHandler({ storage, reload: () => { reloads += 1 } })
+  assert.doesNotThrow(() => handler(new TypeError('Failed to fetch dynamically imported module: /assets/old.js')))
+  assert.equal(reloads, 1)
+  assert.doesNotThrow(() => handler(new TypeError('Failed to fetch dynamically imported module: /assets/old.js')))
+  assert.equal(reloads, 1)
 })

@@ -65,15 +65,12 @@ export function installAuthGuard(router, loadUserStore = async () => {
   return router
 }
 
-const AUTH_BOOTSTRAP_PATH = /^\/(?:login|register|chat|profile|billing|api-keys|users)(?:\/|$)/i
 const LAZY_RELOAD_MARKER = 'public_route_lazy_reload_v1'
 const LAZY_LOAD_ERROR = /Failed to fetch dynamically imported module|Importing a module script failed|Loading (?:CSS )?chunk .+ failed|ChunkLoadError/i
 
-export function bootstrapModeForPath(path = '/') {
-  let pathname
-  try { pathname = new URL(path, 'https://bootstrap.invalid').pathname }
+export function bootstrapModeForPath(router, path = '/') {
+  try { return router.resolve(path).meta.public ? 'public' : 'auth' }
   catch { return 'public' }
-  return AUTH_BOOTSTRAP_PATH.test(pathname) ? 'auth' : 'public'
 }
 
 export function installBootstrapHandoff(router, { mode, handoff } = {}) {
@@ -88,20 +85,24 @@ export function installBootstrapHandoff(router, { mode, handoff } = {}) {
 }
 
 export function createLazyLoadFailureHandler({ storage, reload, fallback } = {}) {
+  let attemptedInMemory = false
   return error => {
     if (!LAZY_LOAD_ERROR.test(String(error?.message || error))) return false
-    if (storage?.getItem(LAZY_RELOAD_MARKER) !== 'attempted') {
-      storage?.setItem(LAZY_RELOAD_MARKER, 'attempted')
-      reload?.()
+    let attempted = attemptedInMemory
+    try { attempted ||= storage?.getItem(LAZY_RELOAD_MARKER) === 'attempted' } catch {}
+    if (!attempted) {
+      attemptedInMemory = true
+      try { storage?.setItem(LAZY_RELOAD_MARKER, 'attempted') } catch {}
+      try { reload?.() } catch {}
     } else {
-      storage?.removeItem(LAZY_RELOAD_MARKER)
-      fallback?.()
+      try { storage?.removeItem(LAZY_RELOAD_MARKER) } catch {}
+      try { fallback?.() } catch {}
     }
     return true
   }
 }
 
-function renderSafeLoadError() {
+export function renderSafeLoadError(retry = () => window.location.reload()) {
   const host = document.querySelector('#app')
   if (!host) return
   host.replaceChildren()
@@ -113,7 +114,11 @@ function renderSafeLoadError() {
   const home = document.createElement('a')
   home.href = '/'
   home.textContent = '返回首页'
-  main.append(heading, detail, home)
+  const retryButton = document.createElement('button')
+  retryButton.type = 'button'
+  retryButton.textContent = '重试'
+  retryButton.addEventListener('click', retry)
+  main.append(heading, detail, retryButton, home)
   host.append(main)
 }
 
@@ -122,20 +127,22 @@ export function createAppRouter(
   options = {},
 ) {
   const router = createRouter({ history, routes })
-  const mode = options.bootstrapMode ?? (typeof window === 'undefined' ? 'public' : bootstrapModeForPath(window.location.pathname))
+  const mode = options.bootstrapMode ?? (typeof window === 'undefined' ? 'public' : bootstrapModeForPath(router, window.location.pathname))
   installBootstrapHandoff(router, {
     mode,
     handoff: options.handoff ?? (path => window.location.assign(path)),
   })
   installAuthGuard(router, options.loadUserStore)
-  const storage = options.storage ?? (typeof sessionStorage === 'undefined' ? null : sessionStorage)
+  let browserStorage = null
+  try { browserStorage = typeof sessionStorage === 'undefined' ? null : sessionStorage } catch {}
+  const storage = options.storage ?? browserStorage
   const handleLazyFailure = createLazyLoadFailureHandler({
     storage,
     reload: options.reload ?? (() => window.location.reload()),
     fallback: options.lazyFallback ?? renderSafeLoadError,
   })
   router.onError(handleLazyFailure)
-  router.afterEach(() => storage?.removeItem(LAZY_RELOAD_MARKER))
+  router.afterEach(() => { try { storage?.removeItem(LAZY_RELOAD_MARKER) } catch {} })
   return router
 }
 

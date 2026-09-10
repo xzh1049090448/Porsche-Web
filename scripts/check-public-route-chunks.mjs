@@ -6,6 +6,7 @@ const PUBLIC_LOCAL_MODULES = new Set([
   'repo:index.html',
   'repo:src/main.js',
   'repo:src/App.vue',
+  'repo:src/bootstrap-app.js',
   'repo:src/router/index.js',
   'repo:src/utils/auth-redirect.js',
   'repo:src/layouts/PublicLayout.vue',
