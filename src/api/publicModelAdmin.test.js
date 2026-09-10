@@ -145,6 +145,15 @@ test('writes are single-submit and one mutation cannot abort or replace another'
   finish({...dto,status:'active',revision:2});await first;assert.equal(state.statusSaving,false)
 })
 
+test('a mutation from route A cannot publish success or failure after context moves to B', async () => {
+  const {createPublicModelAdminCoordinator}=await import('../stores/publicModelAdmin.js');let resolveUpdate,rejectStatus
+  const api={update:()=>new Promise(resolve=>{resolveUpdate=resolve}),activate:()=>new Promise((_,reject)=>{rejectStatus=reject})}
+  const state={items:[{...dto,guid:'222'}],page:1,pageSize:20,total:1,detail:{...dto,guid:'222'},missing:null,loading:false,error:null};const store=createPublicModelAdminCoordinator({api,state})
+  store.setMutationContext('detail:111');const update=store.update('111',{expectedRevision:1},mappedCurrent);await Promise.resolve();store.setMutationContext('detail:222')
+  resolveUpdate({...dto,guid:'111',revision:2});assert.equal(await update,null);assert.equal(state.detail.guid,'222');assert.equal(state.modelSaving,false);assert.equal(state.mutationError,null)
+  store.setMutationContext('detail:111');const status=store.activate('111',1);await Promise.resolve();store.setMutationContext('detail:222');const error=new Error();error.code='revision_conflict';error.requestId='req-old';rejectStatus(error);assert.equal(await status,null);assert.equal(state.mutationError,null);assert.equal(state.statusSaving,false)
+})
+
 test('store exposes create update activate and inactivate without retaining request secrets', async () => {
   const {createPublicModelAdminCoordinator}=await import('../stores/publicModelAdmin.js');const calls=[]
   const changed={...dto,revision:2,status:'active'};const api={list:async()=>{},get:async()=>{},getMissing:async()=>{},sync:async()=>{},create:async(body)=>{calls.push(['create',body]);return dto},update:async(id,body)=>{calls.push(['update',id,body]);return changed},activate:async(id,rev)=>{calls.push(['activate',id,rev]);return changed},deactivate:async(id,rev,reason)=>{calls.push(['deactivate',id,rev,reason]);return {...changed,status:'inactive'}},issueDeleteVerification:async()=>({ticket,expiresAt:1}),deleteModel:async()=>true}

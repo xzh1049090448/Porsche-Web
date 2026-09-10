@@ -26,7 +26,7 @@ const stubs={ElButton:true,ElSkeleton:true,ElAlert:true,ElDropdown:true,ElDropdo
 
 test('mounted detail clears A synchronously and ignores A after route changes to B',async()=>{
   const route=reactive({params:{guid:'111'}}),calls=[],pending=new Map()
-  const store=reactive({detail:null,detailLoading:false,detailError:null,mutationError:null,modelSaving:false,statusSaving:false,deleteSaving:false,clearMutationError(){this.mutationError=null},clearDetail(){calls.push(['clear',this.detail?.guid??null]);this.detail=null},loadDetail(guid){calls.push(['load',guid]);this.detailLoading=true;return new Promise(resolve=>pending.set(guid,value=>{if(route.params.guid===guid)this.detail=value;this.detailLoading=false;resolve(value)}))},cancel(){},update(){},activate(){},deactivate(){},remove(){}})
+  const store=reactive({detail:null,detailLoading:false,detailError:null,mutationError:null,modelSaving:false,statusSaving:false,deleteSaving:false,setMutationContext(){},clearMutationError(){this.mutationError=null},clearDetail(){calls.push(['clear',this.detail?.guid??null]);this.detail=null},loadDetail(guid){calls.push(['load',guid]);this.detailLoading=true;return new Promise(resolve=>pending.set(guid,value=>{if(route.params.guid===guid)this.detail=value;this.detailLoading=false;resolve(value)}))},cancel(){},update(){},activate(){},deactivate(){},remove(){}})
   globalThis.__detailMount={route,store,router:{push(){},replace(){}}};const wrapper=mount(Detail,{global:{stubs}});await flush();assert.deepEqual(calls,[['clear',null],['load','111']])
   store.detail=model('111');route.params.guid='222';await nextTick();assert.equal(store.detail,null);assert.deepEqual(calls.at(-2),['clear','111']);assert.deepEqual(calls.at(-1),['load','222'])
   pending.get('222')(model('222'));await flush();pending.get('111')(model('111'));await flush();assert.equal(store.detail.guid,'222');wrapper.unmount()
@@ -34,6 +34,26 @@ test('mounted detail clears A synchronously and ignores A after route changes to
 
 test('mounted delete action clears component password before a hanging store request settles',async()=>{
   const route=reactive({params:{guid:'333'}}),seen=[];let finish
-  const store=reactive({detail:model('333'),detailLoading:false,detailError:null,mutationError:null,modelSaving:false,statusSaving:false,deleteSaving:false,clearMutationError(){},clearDetail(){},loadDetail(){return Promise.resolve()},cancel(){},remove(input){seen.push({...input});this.deleteSaving=true;return new Promise(resolve=>{finish=()=>{this.deleteSaving=false;resolve(true)}})}})
+  const store=reactive({detail:model('333'),detailLoading:false,detailError:null,mutationError:null,modelSaving:false,statusSaving:false,deleteSaving:false,setMutationContext(){},clearMutationError(){},clearDetail(){},loadDetail(){return Promise.resolve()},cancel(){},remove(input){seen.push({...input});this.deleteSaving=true;return new Promise(resolve=>{finish=()=>{this.deleteSaving=false;resolve(true)}})}})
   globalThis.__detailMount={route,store,router:{push(){},replace(){return Promise.resolve()}}};const wrapper=mount(Detail,{global:{stubs}});await flush();wrapper.vm.deleteForm.reason='retired';wrapper.vm.deleteForm.currentPassword='secret';const pending=wrapper.vm.remove();assert.equal(wrapper.vm.deleteForm.currentPassword,'');assert.equal(seen[0].currentPassword,'secret');finish();await pending;wrapper.unmount()
+})
+
+test('every mounted delete dismissal clears password and reason before close completion',async()=>{
+  const route=reactive({params:{guid:'444'}}),store=reactive({detail:model('444'),detailLoading:false,detailError:null,mutationError:null,modelSaving:false,statusSaving:false,deleteSaving:false,setMutationContext(){},clearDetail(){},loadDetail(){return Promise.resolve(this.detail)},cancel(){}})
+  globalThis.__detailMount={route,store,router:{push(){},replace(){}}};const wrapper=mount(Detail,{global:{stubs}});await flush()
+  wrapper.vm.showDelete=true;wrapper.vm.deleteForm.reason='reason';wrapper.vm.deleteForm.currentPassword='secret';wrapper.vm.deleteVisibility(false);assert.equal(wrapper.vm.showDelete,false);assert.deepEqual({...wrapper.vm.deleteForm},{reason:'',currentPassword:''})
+  wrapper.vm.showDelete=true;wrapper.vm.deleteForm.reason='again';wrapper.vm.deleteForm.currentPassword='secret2';let completed=false;wrapper.vm.beforeDeleteClose(()=>{completed=true});assert.equal(completed,true);assert.equal(wrapper.vm.showDelete,false);assert.deepEqual({...wrapper.vm.deleteForm},{reason:'',currentPassword:''});wrapper.unmount()
+})
+
+test('mounted conflict maps form prices to exact DTO fields only after matching refresh',async()=>{
+  const route=reactive({params:{guid:'555'}}),before=model('555'),latest={...model('555'),inputPriceUsdPerMillionTokens:'1.2300',outputPriceUsdPerMillionTokens:'4.5600',revision:2};let loads=0
+  const store=reactive({detail:before,detailLoading:false,detailError:null,mutationError:null,modelSaving:false,statusSaving:false,deleteSaving:false,setMutationContext(){},clearDetail(){this.detail=null},loadDetail(){this.detail=loads++?latest:before;return Promise.resolve(this.detail)},cancel(){},update(){this.mutationError={code:'revision_conflict',requestId:'req-conflict'};return Promise.resolve(null)}})
+  globalThis.__detailMount={route,store,router:{push(){},replace(){}}};const wrapper=mount(Detail,{global:{stubs}});await flush();await wrapper.vm.update({expectedRevision:1,inputPrice:'1.2300',outputPrice:'4.5600',displayName:'Changed'});await flush()
+  assert.deepEqual(wrapper.vm.conflictComparison.attempted,{displayName:'Changed',inputPriceUsdPerMillionTokens:'1.2300',outputPriceUsdPerMillionTokens:'4.5600'});assert.equal(wrapper.vm.conflictComparison.latest.guid,'555');assert.equal(wrapper.vm.conflictRows.find(x=>x.key==='inputPriceUsdPerMillionTokens').attempted,'1.2300');wrapper.unmount()
+})
+
+test('mounted conflict refresh failure reports correlation without inventing latest values',async()=>{
+  const route=reactive({params:{guid:'666'}}),before=model('666');let loads=0
+  const store=reactive({detail:before,detailLoading:false,detailError:null,mutationError:null,modelSaving:false,statusSaving:false,deleteSaving:false,setMutationContext(){},clearDetail(){this.detail=null},loadDetail(){if(loads++===0){this.detail=before;return Promise.resolve(before)}this.detailError={code:'unavailable',requestId:'req-refresh'};return Promise.resolve(null)},cancel(){},update(){this.mutationError={code:'revision_conflict',requestId:'req-conflict'};return Promise.resolve(null)}})
+  globalThis.__detailMount={route,store,router:{push(){},replace(){}}};const wrapper=mount(Detail,{global:{stubs}});await flush();await wrapper.vm.update({expectedRevision:1,inputPrice:'9.00'});await flush();assert.deepEqual(wrapper.vm.conflictComparison,{unavailable:true,requestId:'req-refresh'});assert.equal(wrapper.vm.conflictComparison.latest,undefined);wrapper.unmount()
 })
