@@ -1,52 +1,80 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { createMemoryHistory, createRouter } from 'vue-router'
+import { installAuthGuard, routes } from './index.js'
 
-const routerSource = readFileSync(new URL('./index.js', import.meta.url), 'utf8')
-const layoutSource = readFileSync(new URL('../layouts/MainLayout.vue', import.meta.url), 'utf8')
+const Stub = { template: '<div />' }
+const testRoutes = routes.map(route => ({
+  ...route,
+  component: Stub,
+  children: route.children?.map(child => ({ ...child, component: Stub })),
+}))
 
-test('public routes are named, lazy, and ordered before the public 404', () => {
-  assert.match(routerSource, /path: '\/',\s*component: \(\) => import\('@\/layouts\/PublicLayout\.vue'\)/)
+function routerFixture({ loggedIn = false } = {}) {
+  let storeLoads = 0
+  const router = createRouter({ history: createMemoryHistory(), routes: testRoutes })
+  installAuthGuard(router, async () => {
+    storeLoads += 1
+    return { isLoggedIn: loggedIn, ensureSession: async () => loggedIn }
+  })
+  return { router, storeLoads: () => storeLoads }
+}
+
+test('actual matcher resolves public routes and 404 through PublicLayout', () => {
+  const { router } = routerFixture()
   for (const [path, name] of [
-    ["''", 'PublicHome'],
-    ["'pricing'", 'PublicPricing'],
-    ["'pricing\/:modelKey'", 'PublicPricingDetail'],
-    ["'about'", 'PublicAbout'],
-    ["'terms'", 'PublicTerms'],
-    ["'privacy'", 'PublicPrivacy'],
+    ['/', 'PublicHome'], ['/pricing', 'PublicPricing'], ['/pricing/model-key', 'PublicPricingDetail'],
+    ['/about', 'PublicAbout'], ['/terms', 'PublicTerms'], ['/privacy', 'PublicPrivacy'],
+    ['/not-a-real-page', 'PublicNotFound'],
   ]) {
-    assert.match(routerSource, new RegExp(`path: ${path}, name: '${name}'`))
+    const resolved = router.resolve(path)
+    assert.equal(resolved.name, name, path)
+    assert.equal(resolved.meta.public, true, path)
+    assert.equal(resolved.meta.requiresAuth, undefined, path)
+    assert.equal(resolved.matched[0].path, '/', path)
   }
-  const home = routerSource.indexOf("name: 'PublicHome'")
-  const notFound = routerSource.indexOf("name: 'PublicNotFound'")
-  assert.ok(home >= 0 && notFound > home)
-  assert.match(routerSource, /path: ':pathMatch\(\.\*\)\*', name: 'PublicNotFound',[\s\S]*?import\('@\/views\/PublicNotFound\.vue'\)/)
-  assert.doesNotMatch(routerSource, /path: '\/:pathMatch\(\.\*\)\*',\s*redirect:/)
 })
 
-test('authenticated routes stay under lazy MainLayout with chat at /chat', () => {
-  assert.match(routerSource, /path: '\/',\s*component: \(\) => import\('@\/layouts\/MainLayout\.vue'\),\s*meta: \{ requiresAuth: true \}/)
+test('actual matcher keeps chat and existing account routes protected', () => {
+  const { router } = routerFixture()
   for (const [path, name] of [
-    ['chat', 'Chat'],
-    ['profile', 'Profile'],
-    ['billing', 'Billing'],
-    ['api-keys', 'ApiKeys'],
-    ['users', 'Users'],
-    ['users/:guid', 'UserDetail'],
-  ]) assert.match(routerSource, new RegExp(`path: '${path}', name: '${name}'`))
-  assert.doesNotMatch(routerSource, /path: '', name: 'Chat'/)
+    ['/chat', 'Chat'], ['/profile', 'Profile'], ['/billing', 'Billing'], ['/api-keys', 'ApiKeys'],
+    ['/users', 'Users'], ['/users/123', 'UserDetail'],
+  ]) {
+    const resolved = router.resolve(path)
+    assert.equal(resolved.name, name, path)
+    assert.equal(resolved.meta.requiresAuth, true, path)
+    assert.equal(resolved.meta.public, undefined, path)
+  }
 })
 
-test('auth guard keeps public 404 anonymous and uses /chat auth fallbacks', () => {
-  assert.match(routerSource, /import \{ safeAuthRedirect \} from '@\/utils\/auth-redirect'/)
-  assert.match(routerSource, /to\.meta\.requiresAuth && !userStore\.isLoggedIn/)
-  assert.match(routerSource, /to\.meta\.guest && userStore\.isLoggedIn\) return \{ path: '\/chat' \}/)
-  assert.match(routerSource, /name === 'Login'[\s\S]*?safeAuthRedirect\(to\.query\.redirect\)/)
-  assert.doesNotMatch(routerSource, /PublicNotFound[\s\S]*?requiresAuth: true/)
+test('anonymous public navigation never loads the protected user store', async () => {
+  const { router, storeLoads } = routerFixture()
+  for (const path of ['/', '/pricing', '/unknown-public']) {
+    await router.push(path)
+    await router.isReady()
+    assert.equal(router.currentRoute.value.path, path)
+  }
+  assert.equal(storeLoads(), 0)
 })
 
-test('main layout chat navigation and history fallback use /chat', () => {
-  assert.equal((layoutSource.match(/index="\/chat"/g) || []).length, 2)
-  assert.match(layoutSource, /route\.path !== '\/chat'/)
-  assert.match(layoutSource, /router\.push\('\/chat'\)/)
+test('anonymous protected navigation redirects to login with a safe full path', async () => {
+  const { router, storeLoads } = routerFixture()
+  await router.push('/profile?tab=security#sessions')
+  await router.isReady()
+  assert.equal(router.currentRoute.value.name, 'Login')
+  assert.equal(router.currentRoute.value.query.redirect, '/profile?tab=security#sessions')
+  assert.ok(storeLoads() >= 1)
+})
+
+test('logged-in guest navigation and missing login redirects use /chat', async () => {
+  const authenticated = routerFixture({ loggedIn: true })
+  await authenticated.router.push('/login')
+  await authenticated.router.isReady()
+  assert.equal(authenticated.router.currentRoute.value.path, '/chat')
+
+  const anonymous = routerFixture()
+  await anonymous.router.push('/login')
+  await anonymous.router.isReady()
+  assert.equal(anonymous.router.currentRoute.value.query.redirect, '/chat')
 })

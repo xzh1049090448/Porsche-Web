@@ -1,5 +1,6 @@
 <template>
   <el-container class="main-layout">
+    <AuthStatus />
     <el-header class="app-header" height="var(--header-h)">
       <div class="header-left">
         <el-button
@@ -103,7 +104,7 @@
     </MobileDrawer>
 
     <el-main class="app-main">
-      <router-view />
+      <router-view :key="userStore.identityEpoch" />
     </el-main>
   </el-container>
 </template>
@@ -126,6 +127,7 @@ import { ElMessageBox } from 'element-plus'
 import MobileDrawer from '@/components/mobile/MobileDrawer.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import LocaleToggle from '@/components/LocaleToggle.vue'
+import AuthStatus from '@/components/AuthStatus.vue'
 import { useBreakpoint } from '@/composables/useBreakpoint'
 import { useI18n } from '@/composables/useI18n'
 

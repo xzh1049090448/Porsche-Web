@@ -1,7 +1,6 @@
 import { h } from 'vue'
-import { createRouter, createWebHistory } from 'vue-router'
-import { useUserStore } from '@/stores/user'
-import { safeAuthRedirect } from '@/utils/auth-redirect'
+import { createMemoryHistory, createRouter, createWebHistory } from 'vue-router'
+import { safeAuthRedirect } from '../utils/auth-redirect.js'
 
 const publicPlaceholder = title => () => Promise.resolve({
   name: `${title.replace(/\s+/g, '')}Placeholder`,
@@ -11,19 +10,9 @@ const publicPlaceholder = title => () => Promise.resolve({
   ]),
 })
 
-const routes = [
-  { path: '/login', name: 'Login', component: () => import('@/views/Login.vue'), meta: { guest: true } },
-  { path: '/register', name: 'Register', component: () => import('@/views/Register.vue'), meta: { guest: true } },
-  {
-    path: '/', component: () => import('@/layouts/MainLayout.vue'), meta: { requiresAuth: true }, children: [
-      { path: 'chat', name: 'Chat', component: () => import('@/views/Chat.vue') },
-      { path: 'users', name: 'Users', component: () => import('@/views/Users.vue') },
-      { path: 'users/:guid', name: 'UserDetail', component: () => import('@/views/UserDetail.vue') },
-      { path: 'profile', name: 'Profile', component: () => import('@/views/Profile.vue') },
-      { path: 'billing', name: 'Billing', component: () => import('@/views/Billing.vue') },
-      { path: 'api-keys', name: 'ApiKeys', component: () => import('@/views/ApiKeys.vue') },
-    ],
-  },
+const mainLayout = () => import('@/layouts/MainLayout.vue')
+
+export const routes = [
   {
     path: '/', component: () => import('@/layouts/PublicLayout.vue'), meta: { public: true }, children: [
       { path: '', name: 'PublicHome', component: publicPlaceholder('首页') },
@@ -35,22 +24,49 @@ const routes = [
       { path: ':pathMatch(.*)*', name: 'PublicNotFound', component: () => import('@/views/PublicNotFound.vue') },
     ],
   },
+  { path: '/login', name: 'Login', component: () => import('@/views/Login.vue'), meta: { guest: true } },
+  { path: '/register', name: 'Register', component: () => import('@/views/Register.vue'), meta: { guest: true } },
+  { path: '/chat', component: mainLayout, meta: { requiresAuth: true }, children: [
+    { path: '', name: 'Chat', component: () => import('@/views/Chat.vue') },
+  ] },
+  { path: '/users', component: mainLayout, meta: { requiresAuth: true }, children: [
+    { path: '', name: 'Users', component: () => import('@/views/Users.vue') },
+    { path: ':guid', name: 'UserDetail', component: () => import('@/views/UserDetail.vue') },
+  ] },
+  { path: '/profile', component: mainLayout, meta: { requiresAuth: true }, children: [
+    { path: '', name: 'Profile', component: () => import('@/views/Profile.vue') },
+  ] },
+  { path: '/billing', component: mainLayout, meta: { requiresAuth: true }, children: [
+    { path: '', name: 'Billing', component: () => import('@/views/Billing.vue') },
+  ] },
+  { path: '/api-keys', component: mainLayout, meta: { requiresAuth: true }, children: [
+    { path: '', name: 'ApiKeys', component: () => import('@/views/ApiKeys.vue') },
+  ] },
 ]
 
-const router = createRouter({ history: createWebHistory(), routes })
-
-router.beforeEach(async (to) => {
-  const userStore = useUserStore()
-  if (to.meta.requiresAuth || to.meta.guest) await userStore.ensureSession()
-  if (to.meta.requiresAuth && !userStore.isLoggedIn) return { name: 'Login', query: { redirect: to.fullPath } }
-  if (to.meta.guest && userStore.isLoggedIn) return { path: '/chat' }
-  if (to.name === 'Login') {
-    const redirect = safeAuthRedirect(to.query.redirect)
-    if (to.query.redirect !== redirect) {
-      return { name: 'Login', query: { ...to.query, redirect }, replace: true }
+export function installAuthGuard(router, loadUserStore = async () => {
+  const { useUserStore } = await import('@/stores/user')
+  return useUserStore()
+}) {
+  router.beforeEach(async (to) => {
+    if (!to.meta.requiresAuth && !to.meta.guest) return true
+    const userStore = await loadUserStore()
+    await userStore.ensureSession()
+    if (to.meta.requiresAuth && !userStore.isLoggedIn) return { name: 'Login', query: { redirect: to.fullPath } }
+    if (to.meta.guest && userStore.isLoggedIn) return { path: '/chat' }
+    if (to.name === 'Login') {
+      const redirect = safeAuthRedirect(to.query.redirect)
+      if (to.query.redirect !== redirect) {
+        return { name: 'Login', query: { ...to.query, redirect }, replace: true }
+      }
     }
-  }
-  return true
-})
+    return true
+  })
+  return router
+}
 
-export default router
+export function createAppRouter(history = typeof window === 'undefined' ? createMemoryHistory() : createWebHistory()) {
+  return installAuthGuard(createRouter({ history, routes }))
+}
+
+export default createAppRouter()
