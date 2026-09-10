@@ -57,9 +57,31 @@ test('store cannot bypass API normalization with raw mutation payloads', async (
   const {createPublicModelAdminCoordinator}=await import('../stores/publicModelAdmin.js');let calls=0
   const api=createPublicModelAdminApi({request:async()=>{calls++;return ok(dto,201)}})
   const state={items:[],page:1,pageSize:20,total:0,detail:null,missing:null,loading:false,error:null};const store=createPublicModelAdminCoordinator({api,state})
-  await assert.rejects(Promise.resolve().then(()=>store.create({...form,unknown:'x'},new Set(['up/m']))),/invalid_public_model_form/)
-  await assert.rejects(Promise.resolve().then(()=>store.update('123',{expectedRevision:1,upstreamModelId:'changed'},mappedCurrent)),/invalid_public_model_form/)
+  assert.equal(await store.create({...form,unknown:'x'},new Set(['up/m'])),null);assert.equal(state.loading,false);assert.equal(state.error,'request_failed')
+  assert.equal(await store.update('123',{expectedRevision:1,upstreamModelId:'changed'},mappedCurrent),null);assert.equal(state.loading,false);assert.equal(state.error,'request_failed')
   assert.equal(calls,0)
+})
+
+test('every synchronous validator settles safely and a later valid load recovers', async () => {
+  let calls=0;const api=createPublicModelAdminApi({request:async args=>{calls++;if(args.method==='GET'&&args.path==='/admin/v2/public-models')return ok({items:[],page:1,page_size:20,total:0});return ok(dto)}})
+  const state={items:[],page:1,pageSize:20,total:0,detail:null,missing:null,loading:false,error:null};const store=(await import('../stores/publicModelAdmin.js')).createPublicModelAdminCoordinator({api,state})
+  const invalid=[
+    ()=>store.load({status:'deleted'}),
+    ()=>store.create({...form,unknown:'x'},new Set(['up/m'])),
+    ()=>store.update('123',{expectedRevision:1,modelKey:'changed'},mappedCurrent),
+    ()=>store.activate('123',0),
+    ()=>store.deactivate('123',1,' bad '),
+    ()=>store.remove({guid:'123',expectedRevision:1,reason:'retired',currentPassword:''}),
+  ]
+  for(const run of invalid){assert.equal(await run(),null);assert.equal(state.loading,false);assert.equal(state.error,'request_failed')}
+  assert.equal(calls,0);await store.load();assert.equal(calls,1);assert.equal(state.loading,false);assert.equal(state.error,null)
+})
+
+test('frozen delete input does not poison state and verification handoff is scrubbed', async () => {
+  let captured;const api={issueDeleteVerification:async value=>{captured=value;return {ticket,expiresAt:1}},deleteModel:async()=>true}
+  const state={items:[{guid:'123'}],page:1,pageSize:20,total:1,detail:null,missing:null,loading:false,error:null};const store=(await import('../stores/publicModelAdmin.js')).createPublicModelAdminCoordinator({api,state})
+  const input=Object.freeze({guid:'123',expectedRevision:1,reason:'retired',currentPassword:'secret'});assert.equal(await store.remove(input),true)
+  assert.equal(captured.currentPassword,null);assert.equal(state.loading,false);assert.equal(state.error,null);assert.equal(JSON.stringify(state).includes('secret'),false)
 })
 
 test('strict DTO enforces int64 identities and every backend-safe scalar and array', async () => {
