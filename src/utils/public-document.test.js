@@ -43,7 +43,8 @@ test('renders only normalized backend-approved local assets', () => {
   assert.match(html, /src="\/assets\/models\/a\.png"/)
   assert.equal((html.match(/<img/g) || []).length, 2)
   assert.equal(controlledAssetSrc('/assets/logo.svg'), true)
-  for (const value of ['/assets/', '/assets/models/', '/assets/../x', '/assets/%2e%2e/x', '/assets/a%2epng', '//assets/x', '\\assets\\x', 'https://x/assets/a']) assert.equal(controlledAssetSrc(value), false)
+  for (const value of ['/assets/', '/assets/models/', '/assets/../x', '/assets/%2e%2e/x', '//assets/x', '\\assets\\x', 'https://x/assets/a']) assert.equal(controlledAssetSrc(value), false)
+  for (const value of ['/assets/%61.png', '/assets/a%2epng']) assert.equal(controlledAssetSrc(value), true)
 })
 
 test('associates only controlled published model assets with stable model references', () => {
