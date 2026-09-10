@@ -10,7 +10,7 @@ test('pricing publication page is Root-only, explicit and accessible',()=>{
  assert.doesNotMatch(view,/localStorage|sessionStorage|rollbackSchema|restoreDeleted/)
 })
 test('diff, checks and history preserve pricing publication semantics',()=>{
- const diff=read('../components/public-admin/PricingDiff.vue'),checks=read('../components/public-admin/PublicationChecks.vue'),history=read('../components/public-admin/PriceSnapshotHistory.vue')
+ const diff=read('../components/public-admin/PricingDiff.vue')+read('../components/public-admin/pricing-diff.js'),checks=read('../components/public-admin/PublicationChecks.vue'),history=read('../components/public-admin/PriceSnapshotHistory.vue')
  assert.match(diff,/inputPriceUsdPerMillionTokens/);assert.match(diff,/outputPriceUsdPerMillionTokens/);assert.match(diff,/priceVisibility|price_visibility/)
  assert.match(checks,/issue\.field/);assert.match(checks,/issue\.code/);assert.match(checks,/role="alert"/)
  assert.match(history,/upstream_safety/);assert.match(history,/systemGenerated/);assert.match(history,/restore/);assert.doesNotMatch(history,/delete|rollback/)
