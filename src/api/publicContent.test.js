@@ -9,9 +9,9 @@ const documentBody = { document: '# hello', release_version: 7 }
 
 test('uses all seven exact public paths, query encoding, conditional headers and optional auth', async () => {
   const calls = []
-  const client = createPublicContentClient({ fetchImpl: async (url, options) => { calls.push([url, options]); return response(url.includes('/models/') ? { model: { model_key: 'key', display_name: 'M', provider: 'P', capabilities: [], context_window: 1, price_visibility: 'authenticated_only', release_version: 7, pricing_type: 'token', endpoint_types: ['responses'], updated_at: '2026-09-10T00:00:00Z' } } : url.includes('/models?') ? { items: [], page: 1, page_size: 20, total: 0, release_version: 7 } : url.endsWith('/site') ? { content_release_version: 7, price_release_version: 7, price_visibility: 'authenticated_only' } : documentBody) }, getAuthorization: () => 'Bearer token' })
-  await client.getSite(); await client.getHome(); await client.getModels({ search: 'a&b', provider: 'P', capability: 'chat', endpointType: 'responses', pricingType: 'token', sort: 'input_price', order: 'desc', page: 1, pageSize: 20 }, { etag: '"old"', authenticated: true }); await client.getModel('key'); await client.getAbout(); await client.getTerms(); await client.getPrivacy()
-  assert.deepEqual(calls.map(c => c[0]), ['/api/v1/public/site', '/api/v1/public/home', '/api/v1/public/models?search=a%26b&provider=P&capability=chat&endpoint_type=responses&pricing_type=token&sort=input_price&order=desc&page=1&page_size=20', '/api/v1/public/models/key', '/api/v1/public/pages/about', '/api/v1/public/pages/terms', '/api/v1/public/pages/privacy'])
+  const client = createPublicContentClient({ fetchImpl: async (url, options) => { calls.push([url, options]); return response(url.includes('/models/') ? { model: { model_key: 'key', display_name: 'M', provider: 'P', capabilities: [], context_window: 1, price_visibility: 'authenticated_only', release_version: 7, pricing_type: 'token', endpoint_types: ['responses'], updated_at: '2026-09-10T00:00:00Z' } } : url.includes('/models?') ? { items: [], page: 1, page_size: 20, total: 0, release_version: 7, facets: { providers: [], capabilities: [], endpoint_types: [], public_display_groups: [] } } : url.endsWith('/site') ? { content_release_version: 7, price_release_version: 7, price_visibility: 'authenticated_only' } : documentBody) }, getAuthorization: () => 'Bearer token' })
+  await client.getSite(); await client.getHome(); await client.getModels({ search: 'a&b', provider: 'P', capability: 'chat', endpointType: 'responses', publicDisplayGroup: 'featured', pricingType: 'token', sort: 'input_price', order: 'desc', page: 1, pageSize: 20 }, { etag: '"old"', authenticated: true }); await client.getModel('key'); await client.getAbout(); await client.getTerms(); await client.getPrivacy()
+  assert.deepEqual(calls.map(c => c[0]), ['/api/v1/public/site', '/api/v1/public/home', '/api/v1/public/models?search=a%26b&provider=P&capability=chat&endpoint_type=responses&public_display_group=featured&pricing_type=token&sort=input_price&order=desc&page=1&page_size=20', '/api/v1/public/models/key', '/api/v1/public/pages/about', '/api/v1/public/pages/terms', '/api/v1/public/pages/privacy'])
   assert.equal(calls[2][1].headers['If-None-Match'], '"old"'); assert.equal(calls[2][1].headers.Authorization, 'Bearer token')
   assert.equal(calls[0][1].headers.Authorization, undefined)
 })
@@ -23,7 +23,7 @@ test('304 reuses cached value and retains ETag and release version', async () =>
 })
 
 test('normalizes status/network errors without leaking response bodies and preserves aborts', async () => {
-  for (const [status, code] of [[404, 'not_found'], [410, 'gone'], [503, 'unavailable']]) {
+  for (const [status, code] of [[401, 'authentication_required'], [404, 'not_found'], [410, 'gone'], [503, 'unavailable']]) {
     const client = createPublicContentClient({ fetchImpl: async () => response({ error: { message: 'secret body' } }, { status }) })
     await assert.rejects(() => client.getHome(), e => e instanceof PublicContentError && e.code === code && !e.message.includes('secret'))
   }

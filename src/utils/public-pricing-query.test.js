@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { applyPricingPresentation, canonicalPricingQuery, canonicalPricingRouteQuery, isCanonicalPricingRouteQuery, pricingAPIQuery, pricingQueryString, publicPriceState, publicPricingAuthOptions } from './public-pricing-query.js'
+import { applyPricingPresentation, canonicalPricingQuery, canonicalPricingRouteQuery, isCanonicalPricingRouteQuery, loadPricingAuthSession, pricingAPIQuery, pricingQueryString, publicPriceState, publicPricingAuthOptions } from './public-pricing-query.js'
+import { createAuthSessionManager } from '../api/auth-session.js'
+import { browserFixture } from '../api/auth-test-browser.js'
 
 test('canonicalizes every shareable pricing control and clamps unsafe values', () => {
   assert.deepEqual(canonicalPricingQuery({ search: [' x '], provider: 42, capability: ' chat ', endpoint: ' responses ', page: '-2', pageSize: '75', sort: 'cost', direction: 'sideways' }), {
-    search: 'x', provider: '', capability: 'chat', endpoint: 'responses', page: 1, pageSize: 20, sort: 'default', direction: 'asc',
+    search: 'x', provider: '', capability: 'chat', endpoint: 'responses', group: '', page: 1, pageSize: 20, sort: 'default', direction: 'asc',
   })
   assert.equal(canonicalPricingQuery({ page: '2x' }).page, 1)
   assert.deepEqual(canonicalPricingQuery({ page: '4', page_size: '100', sort: 'output', direction: 'desc' }), {
-    search: '', provider: '', capability: '', endpoint: '', page: 4, pageSize: 100, sort: 'output', direction: 'desc',
+    search: '', provider: '', capability: '', endpoint: '', group: '', page: 4, pageSize: 100, sort: 'output', direction: 'desc',
   })
 })
 
@@ -53,4 +55,32 @@ test('redacted authenticated-only price is distinct from an unpublished value', 
   assert.deepEqual(publicPriceState({ priceVisibility: 'authenticated_only' }, 'input'), { state: 'login_required' })
   assert.deepEqual(publicPriceState({ priceVisibility: 'visible' }, 'input'), { state: 'unpublished' })
   assert.deepEqual(publicPriceState({ priceVisibility: 'visible', inputPrice: '0' }, 'input'), { state: 'published', value: '0' })
+})
+
+test('loads auth machinery only after pricing evidence and restores a fresh refresh-cookie manager', async () => {
+  let imports = 0
+  assert.equal(await loadPricingAuthSession(false, async () => { imports++; throw new Error('must_not_import') }), null)
+  let successState = 'initializing'
+  const success = { state: () => successState, ensureSession: async () => { successState = 'authenticated'; return true }, accessToken: () => 'restored', capture: () => ({ epoch: 'e', generation: 1, permissionRevision: 1, token: 'restored' }) }
+  assert.equal(await loadPricingAuthSession(true, async () => { imports++; return { authSession: success } }), success)
+  const failure = { state: () => 'initializing', ensureSession: async () => false, accessToken: () => null }
+  assert.equal(await loadPricingAuthSession(true, async () => { imports++; return { authSession: failure } }), null)
+  assert.equal(await loadPricingAuthSession(true, async () => { imports++; throw new Error('chunk_failed') }), null)
+  assert.equal(imports, 3)
+})
+
+test('fresh managers upgrade from a valid refresh cookie and fail closed without one', async () => {
+  const restored = createAuthSessionManager({ browser: browserFixture(), refresh: async () => ({ access_token: 'fresh-access', token_type: 'Bearer', expires_in: 300, user: { guid: '1', username: 'fresh', nickname: null, role: 'user', status: 'active' } }) })
+  assert.equal(await loadPricingAuthSession(true, async () => ({ authSession: restored })), restored)
+  assert.equal(restored.state(), 'authenticated')
+  const missing = createAuthSessionManager({ browser: browserFixture(), refresh: async () => { throw { response: { status: 401 } } } })
+  assert.equal(await loadPricingAuthSession(true, async () => ({ authSession: missing })), null)
+  assert.equal(missing.state(), 'anonymous')
+})
+
+test('public display group is canonical and sent to the backend', () => {
+  const canonical = canonicalPricingQuery({ group: ['featured', 'ignored'] })
+  assert.equal(canonical.group, 'featured')
+  assert.equal(canonicalPricingRouteQuery(canonical).group, 'featured')
+  assert.equal(pricingAPIQuery(canonical).publicDisplayGroup, 'featured')
 })

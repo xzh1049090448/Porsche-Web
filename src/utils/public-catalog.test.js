@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mapPublicModel, mapPublicModelList, formatPublicPrice, sortPublicModels, filterPublicModels, PUBLIC_PRICE_DISCLAIMER } from './public-catalog.js'
 
 const metadata = { pricing_type: 'token', endpoint_types: ['chat.completions'], updated_at: '2026-09-10T00:00:00Z' }
+const facets = { providers: ['Acme'], capabilities: ['chat'], endpoint_types: ['chat.completions'], public_display_groups: ['featured'] }
 const visible = (overrides = {}) => ({ model_key: 'stable-key', display_name: 'Model', provider: 'Acme', capabilities: ['chat'], context_window: 128000, input_price_usd_per_million_tokens: '0.00000001', output_price_usd_per_million_tokens: '999999999999.99999999', price_visibility: 'visible', release_version: 7, ...metadata, ...overrides })
 
 test('projects only exact safe model fields and retains decimal strings', () => {
@@ -11,9 +12,21 @@ test('projects only exact safe model fields and retains decimal strings', () => 
   assert.equal(typeof model.outputPrice, 'string')
 })
 
+test('timestamps require semantically valid RFC3339 UTC values', () => {
+  for (const updated_at of ['2026-09-10 00:00:00Z', '2026-02-30T00:00:00Z', '2026-09-10T24:00:00Z', '2026-09-10T00:00:00+00:00']) {
+    assert.throws(() => mapPublicModel(visible({ updated_at })), /invalid_public_model/)
+  }
+  assert.equal(mapPublicModel(visible({ updated_at: '2024-02-29T23:59:59.123456789Z', effective_at: '2026-09-10T00:00:00Z' })).effectiveAt, '2026-09-10T00:00:00Z')
+})
+
 test('rejects forbidden, malformed, mixed visibility and mixed generation DTOs', () => {
   for (const raw of [visible({ guid: '1' }), visible({ upstream_model_id: 'secret' }), visible({ route: '/internal' }), visible({ input_price_usd_per_million_tokens: 1 }), visible({ model_key: 'a/b' }), visible({ price_visibility: 'authenticated_only' })]) assert.throws(() => mapPublicModel(raw), /invalid_public_model/)
-  assert.throws(() => mapPublicModelList({ items: [visible(), visible({ model_key: 'other', release_version: 8 })], page: 1, page_size: 20, total: 2, release_version: 7 }), /mixed_publication_generation/)
+  assert.throws(() => mapPublicModelList({ items: [visible(), visible({ model_key: 'other', release_version: 8 })], page: 1, page_size: 20, total: 2, release_version: 7, facets }), /mixed_publication_generation/)
+})
+
+test('list projects exact global sorted facets independent from its current page', () => {
+  assert.deepEqual(mapPublicModelList({ items: [], page: 2, page_size: 20, total: 25, release_version: 7, facets }), { items: [], page: 2, pageSize: 20, total: 25, releaseVersion: 7, facets: { providers: ['Acme'], capabilities: ['chat'], endpointTypes: ['chat.completions'], publicDisplayGroups: ['featured'] } })
+  for (const invalid of [{ ...facets, providers: ['B', 'A'] }, { ...facets, capabilities: ['chat', 'chat'] }, { ...facets, endpoint_types: [1] }, { ...facets, extra: [] }]) assert.throws(() => mapPublicModelList({ items: [], page: 1, page_size: 20, total: 0, release_version: 7, facets: invalid }), /invalid_public_model_list/)
 })
 
 test('redacted and missing prices are omitted and never labelled free', () => {
@@ -21,6 +34,8 @@ test('redacted and missing prices are omitted and never labelled free', () => {
   assert.equal('inputPrice' in redacted, false)
   assert.deepEqual(formatPublicPrice(undefined), { state: 'missing', label: '价格未发布' })
   assert.equal(PUBLIC_PRICE_DISCLAIMER, '价格仅供参考，不代表自动计费或最终账单。')
+  const missingOutput = mapPublicModel(visible({ output_price_usd_per_million_tokens: undefined }))
+  assert.equal(missingOutput.inputPrice, '0.00000001'); assert.equal('outputPrice' in missingOutput, false)
 })
 
 test('filters safely and sorts comparable prices with missing prices last', () => {

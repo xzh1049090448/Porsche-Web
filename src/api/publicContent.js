@@ -56,7 +56,7 @@ export function createPublicContentClient({ fetchImpl = globalThis.fetch, authen
       if (!options.cached) throw new PublicContentError('invalid_304', 304)
       return { ...options.cached, notModified: true }
     }
-    if (!response.ok) throw new PublicContentError(({ 404: 'not_found', 410: 'gone', 503: 'unavailable' })[response.status] || 'request_failed', response.status)
+    if (!response.ok) throw new PublicContentError(({ 401: 'authentication_required', 404: 'not_found', 410: 'gone', 503: 'unavailable' })[response.status] || 'request_failed', response.status)
     const etag = response.headers.get('ETag'); const headerVersion = Number(response.headers.get('X-Public-Release-Version'))
     const cacheControl = response.headers.get('Cache-Control')
     if (!etag || !positiveInteger(headerVersion) || cacheControl !== 'public, max-age=60, stale-while-revalidate=300') throw new PublicContentError('invalid_response_headers')

@@ -11,7 +11,7 @@ export function canonicalPricingQuery(raw = {}) {
   const sort = text(scalar(raw.sort))
   const direction = text(scalar(raw.direction))
   return {
-    search: text(scalar(raw.search)), provider: text(scalar(raw.provider)), capability: text(scalar(raw.capability)), endpoint: text(scalar(raw.endpoint)),
+    search: text(scalar(raw.search)), provider: text(scalar(raw.provider)), capability: text(scalar(raw.capability)), endpoint: text(scalar(raw.endpoint)), group: text(scalar(raw.group)),
     page: Number.isSafeInteger(page) && page > 0 ? page : 1,
     pageSize: PAGE_SIZES.has(pageSize) ? pageSize : 20,
     sort: SORTS.has(sort) ? sort : 'default', direction: DIRECTIONS.has(direction) ? direction : 'asc',
@@ -21,12 +21,12 @@ export function canonicalPricingQuery(raw = {}) {
 export function pricingAPIQuery(raw = {}) {
   const query = canonicalPricingQuery(raw)
   const sort = ({ input: 'input_price', output: 'output_price' })[query.sort] || query.sort
-  return Object.fromEntries(Object.entries({ search: query.search, provider: query.provider, capability: query.capability, endpointType: query.endpoint, pricingType: 'token', page: query.page, pageSize: query.pageSize, sort, order: query.direction }).filter(([, value]) => value !== ''))
+  return Object.fromEntries(Object.entries({ search: query.search, provider: query.provider, capability: query.capability, endpointType: query.endpoint, publicDisplayGroup: query.group, pricingType: 'token', page: query.page, pageSize: query.pageSize, sort, order: query.direction }).filter(([, value]) => value !== ''))
 }
 
 export function pricingQueryString(raw = {}) {
   const query = canonicalPricingQuery(raw); const params = new URLSearchParams()
-  for (const key of ['search', 'provider', 'capability', 'endpoint']) if (query[key]) params.set(key, query[key])
+  for (const key of ['search', 'provider', 'capability', 'endpoint', 'group']) if (query[key]) params.set(key, query[key])
   params.set('page', String(query.page)); params.set('pageSize', String(query.pageSize)); params.set('sort', query.sort); params.set('direction', query.direction)
   return params.toString()
 }
@@ -50,6 +50,15 @@ export function applyPricingPresentation(models, raw = {}) {
 export function publicPricingAuthOptions(auth) {
   if (!auth || auth.state() !== 'authenticated' || !auth.accessToken()) return { authenticated: false }
   return { authenticated: true, authContext: auth.capture() }
+}
+
+export async function loadPricingAuthSession(required, loadAuth) {
+  if (!required) return null
+  try {
+    const auth = (await loadAuth())?.authSession
+    if (!auth || typeof auth.ensureSession !== 'function' || !await auth.ensureSession()) return null
+    return auth.state() === 'authenticated' && auth.accessToken() ? auth : null
+  } catch { return null }
 }
 
 export function publicPriceState(model, component) {

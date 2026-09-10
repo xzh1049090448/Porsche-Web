@@ -3,7 +3,7 @@ import { reactive } from 'vue'
 import { publicContentApi, publicModelsResourceKey } from '../api/publicContent.js'
 
 const slot = () => ({ status: 'idle', data: null, error: null })
-const statusFor = error => error?.code === 'not_found' ? 'not_found' : error?.code === 'gone' ? 'gone' : 'error'
+const statusFor = error => error?.code === 'not_found' ? 'not_found' : error?.code === 'gone' ? 'gone' : error?.code === 'authentication_required' ? 'login_required' : 'error'
 
 export function createPublicContentState({ api = publicContentApi } = {}) {
   const value = reactive({ site: slot(), home: slot(), models: slot(), details: {}, pages: { about: slot(), terms: slot(), privacy: slot() }, publicationVersions: { content: null, price: null }, cache: {} })

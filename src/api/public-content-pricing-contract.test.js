@@ -112,8 +112,9 @@ test('frontend public pricing contract matches every frozen backend route and re
 test('one_of schema-name unions are reachable while literal enums are not references', async () => {
   const backend = await readJSON(requireBackendContractPath())
   const schemaNames = referencedSchemaNames(backend)
-  assert.equal(schemaNames.length, 41)
+  assert.equal(schemaNames.length, 42)
   assert.ok(schemaNames.includes('PublicModelRedacted'))
+  assert.ok(schemaNames.includes('PublicCatalogFacets'))
 
   const missingUnionMember = structuredClone(backend)
   delete missingUnionMember.schemas.PublicModelRedacted

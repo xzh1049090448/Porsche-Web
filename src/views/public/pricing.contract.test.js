@@ -18,7 +18,7 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
   assert.match(page, /260px/); assert.match(page, /@media\s*\(max-width:\s*767px\)/)
   assert.match(page, /PricingFilters/); assert.match(page, /PricingTable/); assert.match(page, /PricingCards/)
   assert.match(page, /role="dialog"/); assert.match(page, /aria-modal="true"/)
-  for (const field of ['search', 'provider', 'capability', 'endpoint', 'sort']) assert.match(filters, new RegExp(`name="${field}"`))
+  for (const field of ['search', 'provider', 'capability', 'endpoint', 'group', 'sort']) assert.match(filters, new RegExp(`name="${field}"`))
   assert.match(table, /publicPriceState/); assert.match(cards, /publicPriceState/)
 })
 
@@ -27,6 +27,8 @@ test('pages use the shared publication store and distinguish required failure st
   assert.match(list, /inject\(['"]public-home-publication['"]\)/)
   assert.match(list, /loadModels/); assert.match(list, /cancel\(['"]models['"]\)/)
   assert.match(list, /pricingCatalog\.disclaimer/)
+  assert.match(list, /loadPricingAuthSession\(true,[\s\S]*import\(['"]@\/api\/request\.js['"]\)/)
+  assert.doesNotMatch(list, /onMounted\([\s\S]{0,300}import\(['"]@\/api\/request\.js['"]\)/)
   assert.match(detail, /status === ['"]not_found['"]/); assert.match(detail, /status === ['"]gone['"]/); assert.match(detail, /status === ['"]error['"]/)
   assert.match(detail, /encodeURIComponent/)
   assert.doesNotMatch(`${list}\n${detail}`, /fetch\(|axios|VITE_USE_MOCK|单次调用价|每请求/)
@@ -43,7 +45,7 @@ test('USD per million token labels, page sizes, theme and responsive gates are e
 })
 
 test('every Task5 runtime label has distinct Chinese and English text', () => {
-  for (const key of ['title','intro','disclaimer','filter','unavailable','previous','next','page','pageSize','search','provider','capability','endpoint','sort','order','inputPrice','outputPrice','unit','unpublished','loginRequired','notFound','gone','unavailableTitle','loadingModel','restrictions','source','reviewer','effectiveAt','updatedAt']) {
+  for (const key of ['title','intro','disclaimer','filter','unavailable','sortLoginRequired','previous','next','page','pageSize','search','provider','capability','endpoint','allGroups','sort','order','inputPrice','outputPrice','unit','unpublished','loginRequired','notFound','gone','unavailableTitle','loadingModel','restrictions','source','reviewer','effectiveAt','updatedAt']) {
     const zh = publicText('zh', `pricingCatalog.${key}`, { page: 1, pages: 2 })
     const en = publicText('en', `pricingCatalog.${key}`, { page: 1, pages: 2 })
     assert.equal(typeof zh, 'string'); assert.equal(typeof en, 'string'); assert.notEqual(zh, en)

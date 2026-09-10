@@ -99,8 +99,8 @@ test('bootstrap boundary uses one hard handoff and keeps same-boundary navigatio
   const authenticatedRouter = createRouter({ history: createMemoryHistory(), routes: testRoutes })
   installBootstrapHandoff(authenticatedRouter, { mode: 'auth', handoff: path => authenticatedHandoffs.push(path) })
   await authenticatedRouter.push('/chat'); await authenticatedRouter.push('/pricing')
-  assert.equal(authenticatedRouter.currentRoute.value.path, '/pricing')
-  assert.deepEqual(authenticatedHandoffs, [])
+  assert.equal(authenticatedRouter.currentRoute.value.path, '/chat')
+  assert.deepEqual(authenticatedHandoffs, ['/pricing'])
 })
 
 test('bootstrap classification follows the case-insensitive router matcher and encoded public paths', async () => {
