@@ -31,6 +31,10 @@ export const routes = [
   { path: '/admin/public-pricing', component: mainLayout, meta: { requiresAuth: true, rootOnly: true }, children: [
     { path: '', name: 'PublicPricingAdmin', component: () => import('@/views/PublicPricingAdmin.vue') },
   ] },
+  { path: '/admin/public-content', component: mainLayout, meta: { requiresAuth: true, rootOnly: true }, children: [
+    { path: '', name: 'PublicContentAdmin', component: () => import('@/views/PublicContentAdmin.vue') },
+  ] },
+  { path: '/admin/public-content/preview', name: 'PublicContentPreview', component: () => import('@/views/PublicContentPreview.vue'), meta: { requiresAuth: true, rootOnly: true } },
   { path: '/profile', component: mainLayout, meta: { requiresAuth: true }, children: [
     { path: '', name: 'Profile', component: () => import('@/views/Profile.vue') },
   ] },
