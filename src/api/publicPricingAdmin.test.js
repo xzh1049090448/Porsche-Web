@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createIdempotencyKey, createPublicPricingAdminApi, createPricingPublicationCoordinator } from './publicPricingAdmin.js'
+import { createIdempotencyKey, createPublicPricingAdminApi, createPublicPricingAdminProductionRequest, createPricingPublicationCoordinator, createPricingValidationCoordinator } from './publicPricingAdmin.js'
 
 const headers={'Cache-Control':'no-store','X-Request-ID':'req-8'}
 const ok=(data,status=200)=>({data,status,headers})
@@ -13,6 +13,12 @@ test('uses exact draft validation history and immutable release routes',async()=
  const calls=[];const api=createPublicPricingAdminApi({request:async x=>{calls.push(x);if(x.path==='/admin/v2/public-pricing/draft')return ok(x.method==='GET'?{revision:2,models:[adminModel],currency:'USD',unit:'million_tokens'}:{revision:3,models:[adminModel],currency:'USD',unit:'million_tokens'});if(x.path.endsWith('/validate'))return ok({valid:false,issues:[{field:'models[0].price_source',code:'required'}]});if(x.path.startsWith('/admin/v2/public-pricing/releases?'))return ok({items:[release],page:1,page_size:20,total:1});return ok({release,items:[visible]})}})
  assert.equal((await api.getDraft()).currency,'USD');await api.saveDraft(2,[adminModel]);assert.deepEqual(await api.validate(2),{valid:false,issues:[{field:'models[0].price_source',code:'required'}]});await api.listReleases({page:1,pageSize:20});const detail=await api.getRelease('101');assert.equal(detail.items[0].outputPriceUsdPerMillionTokens,null)
  assert.deepEqual(calls.map(x=>[x.method,x.path,x.body]),[['GET','/admin/v2/public-pricing/draft',undefined],['PUT','/admin/v2/public-pricing/draft',{expected_revision:2,models:[adminModel]}],['POST','/admin/v2/public-pricing/validate',{expected_revision:2}],['GET','/admin/v2/public-pricing/releases?page=1&page_size=20',undefined],['GET','/admin/v2/public-pricing/releases/101',undefined]])
+})
+
+test('production adapter preserves exact HTTP methods and action headers',async()=>{
+ const calls=[],adapter=createPublicPricingAdminProductionRequest({get:async(...x)=>{calls.push(['get',...x]);return ok({})},mutation:async x=>{calls.push(['mutation',x]);return ok({})},actionPost:async(...x)=>{calls.push(['action',...x]);return ok({})}})
+ const signal=new AbortController().signal;await adapter({method:'GET',path:'/g',signal});await adapter({method:'PUT',path:'/draft',body:{a:1},signal});await adapter({method:'POST',path:'/publish',body:{b:2},headers:{'Idempotency-Key':key,'X-Action-Ticket':ticket},signal})
+ assert.equal(calls[0][0],'get');assert.deepEqual(calls[1],["mutation",{method:'PUT',path:'/draft',body:{a:1},signal}]);assert.equal(calls[2][0],'action');assert.equal(calls[2][1],'/publish');assert.deepEqual(calls[2][3].headers,{'Idempotency-Key':key,'X-Action-Ticket':ticket})
 })
 
 test('publish and restore keep ticket/key in headers and password only in verification body',async()=>{
@@ -38,6 +44,15 @@ test('known failure clears logical attempt while 409 exposes refresh comparison'
  const state={draft:{revision:2},history:[]};const c=createPricingPublicationCoordinator({api,state,generateKey:()=>keys[n++]});await c.publish({currentPassword:'x'});assert.equal(state.pendingRecovery,false);assert.deepEqual(state.error,{code:'revision_conflict',requestId:'req-conflict'});assert.equal(state.conflict,true);await c.publish({currentPassword:'x'});assert.equal(n,2)
 })
 
+test('validated 503 clears the key while network ambiguity retains it',async()=>{
+ let keys=0,mode='unavailable';const api={issuePublishVerification:async()=>({ticket,expiresAt:1}),publish:async()=>{throw Object.assign(new Error(),{code:mode})}},state={draft:{revision:2},history:[]};const c=createPricingPublicationCoordinator({api,state,generateKey:()=>{keys++;return key}})
+ await c.publish({currentPassword:'x'});assert.equal(state.pendingRecovery,false);await c.publish({currentPassword:'x'});assert.equal(keys,2);mode='network_error';await c.publish({currentPassword:'x'});assert.equal(state.pendingRecovery,true);await c.publish({currentPassword:'x'});assert.equal(keys,3)
+})
+
+test('ambiguous retry is bound to its original revision and rejects drift',async()=>{
+ const api={issuePublishVerification:async()=>({ticket,expiresAt:1}),publish:async()=>{throw Object.assign(new Error(),{code:'network_error'})}},state={draft:{revision:2},history:[]};const c=createPricingPublicationCoordinator({api,state,generateKey:()=>key});await c.publish({currentPassword:'x'});state.draft={revision:3};assert.equal(await c.publish({currentPassword:'x'}),null);assert.equal(state.pendingRecovery,false);assert.equal(state.reconcileRequired,true);assert.equal(state.error.code,'revision_conflict')
+})
+
 test('route/demotion cancellation owns late ticket and never starts publish',async()=>{
  let resolveTicket,publishes=0;const api={issuePublishVerification:(_r,_p,o)=>new Promise(resolve=>{resolveTicket=resolve;assert.equal(o.signal.aborted,false)}),publish:async()=>{publishes++}}
  const state={draft:{revision:2},history:[]};const c=createPricingPublicationCoordinator({api,state,generateKey:()=>key});const pending=c.publish({currentPassword:'secret'});await Promise.resolve();c.cancel();resolveTicket({ticket,expiresAt:1});assert.equal(await pending,null);assert.equal(publishes,0);assert.equal(state.busy,false)
@@ -52,8 +67,18 @@ test('an ambiguous operation cannot lend its idempotency key to another action',
  const api={issuePublishVerification:async()=>({ticket,expiresAt:1}),publish:async()=>{throw Object.assign(new Error(),{code:'network_error'})},issueRestoreVerification:async()=>{throw new Error('must not run')}};const state={draft:{revision:2},history:[]};const c=createPricingPublicationCoordinator({api,state,generateKey:()=>key});await c.publish({currentPassword:'secret'});assert.equal(state.pendingOperation,'publish');assert.equal(await c.restore('101',{currentPassword:'other'}),null);assert.equal(state.pendingOperation,'publish')
 })
 
+test('validation belongs to one exact draft revision and ignores stale completion',async()=>{
+ const pending=new Map(),state={};const coordinator=createPricingValidationCoordinator({state,api:{validate:revision=>new Promise(resolve=>pending.set(revision,resolve))}});coordinator.setRevision(2);const old=coordinator.validate();coordinator.setRevision(3);const current=coordinator.validate();pending.get(2)({valid:true,issues:[]});assert.equal(await old,null);assert.equal(coordinator.isCurrent(3),false);pending.get(3)({valid:true,issues:[]});assert.equal((await current).validatedRevision,3);assert.equal(coordinator.isCurrent(3),true);coordinator.setRevision(4);assert.equal(coordinator.isCurrent(4),false);assert.equal(state.result,null)
+})
+
 test('rejects unsafe DTOs, unknown fields, raw errors and forbidden rollback inputs',async()=>{
  for(const bad of [{...release,rollback:true},{...release,reason:'manual'},{...release,created_at:'local time'}]){const api=createPublicPricingAdminApi({request:async()=>ok({items:[bad],page:1,page_size:20,total:1})});await assert.rejects(api.listReleases(),/invalid_public_pricing_admin_response/)}
  const api=createPublicPricingAdminApi({request:async()=>{throw {response:{status:409,data:{error:{code:'conflict',message:'secret raw',request_id:'req-8'}},headers}}}});await assert.rejects(api.publish(2,{ticket,idempotencyKey:key}),e=>e.code==='revision_conflict'&&e.requestId==='req-8'&&!e.message.includes('secret'))
  await assert.rejects(Promise.resolve().then(()=>api.restore('101',2,{ticket,idempotencyKey:key,rollbackSchema:true})),/invalid_public_pricing_admin_request/)
+})
+
+test('action verification maps only the exact admin-action envelope with request ID',async()=>{
+ const actionHeaders={'Cache-Control':'no-store','X-Request-ID':'req-action'}
+ for(const [status,code] of [[403,'action_verification_rejected'],[409,'action_verification_conflict'],[422,'action_inactive']]){const api=createPublicPricingAdminApi({request:async()=>{throw{response:{status,headers:actionHeaders,data:{error:{code,message:'请求无法完成',type:'admin_action_error',request_id:'req-action'}}}}}});await assert.rejects(api.issuePublishVerification(2,'wrong'),e=>e.code===code&&e.requestId==='req-action')}
+ const unsafe=createPublicPricingAdminApi({request:async()=>{throw{response:{status:403,headers:actionHeaders,data:{error:{code:'action_verification_rejected',message:'raw secret',type:'admin_action_error',request_id:'req-action'}}}}}});await assert.rejects(unsafe.issuePublishVerification(2,'wrong'),e=>e.code==='request_failed'&&!e.message.includes('secret'))
 })
