@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
 const frontendContractURL = new URL('../../interface-contract.json', import.meta.url)
@@ -36,13 +38,21 @@ function referencedSchemaNames(contract) {
     if (names.has(name)) return
     assert.ok(contract.schemas[name], `missing_schema:${name}`)
     names.add(name)
-    const pending = [contract.schemas[name]]
-    while (pending.length) {
-      const value = pending.pop()
-      if (!value || typeof value !== 'object') continue
+    const walk = value => {
+      if (!value || typeof value !== 'object') return
       if (typeof value.$ref === 'string') visit(value.$ref)
-      pending.push(...Object.values(value))
+      for (const [key, child] of Object.entries(value)) {
+        if (key === 'one_of' && Array.isArray(child)) {
+          for (const member of child) {
+            if (typeof member === 'string') visit(member)
+            else walk(member)
+          }
+          continue
+        }
+        walk(child)
+      }
     }
+    walk(contract.schemas[name])
   }
   for (const route of contract.routes) {
     for (const key of ['path_schema', 'query_schema', 'body_schema', 'response_schema']) visit(route[key])
@@ -85,10 +95,36 @@ test('invalid explicit backend path fails safely', async () => {
   await assert.rejects(readJSON(missingContractPath), error => error?.code === 'ENOENT')
 })
 
+test('malformed explicit backend contract fails safely', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'public-pricing-contract-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const path = join(directory, 'malformed.json')
+  await writeFile(path, '{"routes":[')
+  await assert.rejects(readJSON(path), SyntaxError)
+})
+
 test('frontend public pricing contract matches every frozen backend route and reachable DTO', async () => {
   const backendPath = requireBackendContractPath()
   const [frontend, backend] = await Promise.all([readJSON(frontendContractURL), readJSON(backendPath)])
   assertFrozenContract(frontend, backend)
+})
+
+test('one_of schema-name unions are reachable while literal enums are not references', async () => {
+  const backend = await readJSON(requireBackendContractPath())
+  const schemaNames = referencedSchemaNames(backend)
+  assert.equal(schemaNames.length, 41)
+  assert.ok(schemaNames.includes('PublicModelRedacted'))
+
+  const missingUnionMember = structuredClone(backend)
+  delete missingUnionMember.schemas.PublicModelRedacted
+  assert.throws(
+    () => referencedSchemaNames(missingUnionMember),
+    /missing_schema:PublicModelRedacted/,
+  )
+
+  const literalEnum = structuredClone(backend)
+  literalEnum.schemas.PublicModelVisible.properties.price_visibility.enum.push('PublicModelRedacted')
+  assert.deepEqual(referencedSchemaNames(literalEnum), schemaNames)
 })
 
 test('public pricing invariants and existing SSE contract remain fixed', async () => {
@@ -122,6 +158,7 @@ test('route, DTO, header, status, and error drift probes are rejected', async ()
   for (const mutate of [
     contract => { contract.public_content_pricing.routes[0].status = 201 },
     contract => { contract.public_content_pricing.schemas.Error.properties.code.type = 'integer' },
+    contract => { contract.public_content_pricing.schemas.PublicModelRedacted.required.pop() },
     contract => { contract.public_content_pricing.public_response_headers.ETag = 'optional' },
     contract => { contract.public_content_pricing.errors.statuses['410'] = 'gone' },
   ]) {
