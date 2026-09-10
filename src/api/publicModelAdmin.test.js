@@ -10,9 +10,10 @@ const form={upstreamModelId:'up/m',modelKey:'m',displayName:'M',provider:'P',cap
 const ok = (data,status=200) => ({data,status,headers})
 
 test('list query is canonical and has no deleted/restore filter', () => {
-  assert.equal(publicModelAdminListResource({search:'a b',status:'inactive',upstreamState:'missing',page:2,pageSize:50}),'/admin/v2/public-models?search=a+b&status=inactive&upstream_state=missing&page=2&page_size=50')
+  assert.equal(publicModelAdminListResource({search:'a b',status:'inactive',upstreamState:'missing',completeness:'incomplete',page:2,pageSize:50}),'/admin/v2/public-models?search=a+b&status=inactive&upstream_state=missing&completeness=incomplete&page=2&page_size=50')
   assert.throws(() => publicModelAdminListResource({status:'deleted'}))
   assert.throws(() => publicModelAdminListResource({includeDeleted:true}))
+  for(const completeness of ['all','Complete',' complete ','']) assert.throws(()=>publicModelAdminListResource({completeness}),/invalid_public_model_admin_query/)
   for(const search of [' padded ','bad\nsearch','bad\u200bsearch','x'.repeat(129)]) assert.throws(()=>publicModelAdminListResource({search}),/invalid_public_model_admin_query/)
 })
 test('CRUD lifecycle missing and sync use exact routes and bodies', async () => {
