@@ -15,6 +15,8 @@ const PUBLIC_LOCAL_MODULES = new Set([
   'repo:src/i18n/public-runtime.js',
   'repo:src/i18n/index.js',
   'repo:src/i18n/messages.js',
+  'repo:src/api/publicContent.js',
+  'repo:src/utils/public-catalog.js',
   'repo:src/styles/public-bootstrap.css',
 ])
 const PUBLIC_RUNTIME_PACKAGES = /^npm:(?:vue|vue-router|@vue\/(?:reactivity|runtime-core|runtime-dom|shared))(?:\/|$)/

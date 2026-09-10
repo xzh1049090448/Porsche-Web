@@ -39,6 +39,10 @@ test('about and legal pages expose safe published states and metadata', () => {
   assert.match(state, /error/)
   assert.match(state, /retry/)
   assert.match(`${about}${legal}`, /<h1/)
+  assert.equal((about.match(/<h1/g) || []).length, 1)
+  assert.equal((legal.match(/<h1/g) || []).length, 1)
+  assert.match(about, /content\.bodyHTML/)
+  assert.match(legal, /content\.legalBodyHTML/)
   assert.match(`${about}${legal}${state}`, /\bt\('/)
 })
 

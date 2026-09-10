@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
-import { createPublishedDocumentCodec, safePublishedHref, selectCuratedModels } from './public-document.js'
+import { controlledAssetSrc, createPublishedDocumentCodec, safePublishedHref, selectCuratedModels } from './public-document.js'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>')
 const codec = createPublishedDocumentCodec({ window: dom.window })
@@ -15,6 +15,7 @@ test('renders CommonMark and derives ordered deduplicated curated model keys', (
   assert.equal(value.sections.announcements.length > 0, true)
   assert.equal(value.sections.faq.length > 0, true)
   assert.equal(value.sections.cta.length > 0, true)
+  assert.equal((value.bodyHTML.match(/<h1/g) || []).length, 0)
 })
 
 test('curated model wall preserves reference order and intersects the published catalog', () => {
@@ -36,6 +37,34 @@ test('sanitizer blocks executable and bypass URLs, handlers, remote media and em
   assert.doesNotMatch(html, /evil\.example|javascript:|data:|vbscript:|onerror|onclick|iframe|<img/i)
 })
 
+test('renders only normalized backend-approved local assets', () => {
+  const html = codec.decode('![logo](/assets/logo.svg) ![nested](/assets/models/a.png) ![remote](https://evil.example/x.png) ![relative](//evil/x) ![encoded](/assets/%2e%2e/x) ![traversal](/assets/../x) ![data](data:image/png,x)').html
+  assert.match(html, /src="\/assets\/logo\.svg"/)
+  assert.match(html, /src="\/assets\/models\/a\.png"/)
+  assert.equal((html.match(/<img/g) || []).length, 2)
+  assert.equal(controlledAssetSrc('/assets/logo.svg'), true)
+  for (const value of ['/assets/', '/assets/../x', '/assets/%2e%2e/x', '//assets/x', '\\assets\\x', 'https://x/assets/a']) assert.equal(controlledAssetSrc(value), false)
+})
+
+test('associates only controlled published model assets with stable model references', () => {
+  const value = codec.decode('# 首页\n\n## 支持模型\n\n[![Alpha](/assets/models/alpha.svg)](/pricing/alpha-chat) [![Bad](https://evil/x)](/pricing/beta)')
+  assert.deepEqual(value.modelAssets, { 'alpha-chat': '/assets/models/alpha.svg' })
+})
+
+test('advantages use repeated level-three CommonMark cards capped at eight', () => {
+  const cards = Array.from({ length: 10 }, (_, index) => `### 优势 ${index + 1}\n\n说明 ${index + 1}`).join('\n\n')
+  const value = codec.decode(`# 首页\n\n## 产品优势\n\n${cards}`)
+  assert.equal(value.advantageCards.length, 8)
+  assert.deepEqual(value.advantageCards.slice(0, 2).map(card => card.title), ['优势 1', '优势 2'])
+  assert.match(value.advantageCards[7].html, /说明 8/)
+})
+
+test('shell links use an explicit CommonMark links section and omit absent or unsafe entries', () => {
+  const present = codec.decode('# 首页\n\n## 导航链接\n\n- [文档](https://docs.example.com)\n- [服务状态](https://status.example.com)\n- [联系我们](mailto:help@example.com)\n- [占位](#)\n- [内部管理](/users)')
+  assert.deepEqual(present.shellLinks, [{ label: '文档', href: 'https://docs.example.com', placement: 'header' }, { label: '服务状态', href: 'https://status.example.com', placement: 'header' }, { label: '联系我们', href: 'mailto:help@example.com', placement: 'contact' }])
+  assert.deepEqual(codec.decode('# 首页\n\n正文').shellLinks, [])
+})
+
 test('sanitizer allows approved local paths, real fragments and configured external contacts only', () => {
   assert.equal(safePublishedHref('/pricing/alpha-chat'), true)
   assert.equal(safePublishedHref('/users'), false)
@@ -48,6 +77,6 @@ test('sanitizer allows approved local paths, real fragments and configured exter
 
 test('legal CommonMark requires nonblank title version effective date body toc and contact', () => {
   const valid = codec.decode(`# 服务协议\n\n版本：v1\n\n生效日期：2026-09-10\n\n## 使用规则\n\n正文内容。\n\n## 联系方式\n\n[support@example.com](mailto:support@example.com)`)
-  assert.equal(codec.legal(valid).valid, true)
+  const legal = codec.legal(valid); assert.equal(legal.valid, true); assert.equal((legal.legalBodyHTML.match(/<h1/g) || []).length, 0); assert.equal((legal.legalBodyHTML.match(/联系方式/g) || []).length, 0)
   for (const markdown of ['# 标题\n\n版本：v1\n\n生效日期：2026-09-10\n\n## 正文\n\n内容', '# 标题\n\n版本： \n\n生效日期：2026-09-10\n\n## 正文\n\n内容\n\n## 联系方式\n\nx', '# 标题\n\n版本：v1\n\n生效日期：2026-09-10\n\n## 正文\n\n## 联系方式\n\nx']) assert.equal(codec.legal(codec.decode(markdown)).valid, false)
 })
