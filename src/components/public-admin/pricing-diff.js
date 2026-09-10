@@ -1,5 +1,5 @@
 const sorted = value => Array.isArray(value) ? [...value].sort() : []
-const instant = value => value == null ? null : new Date(value).toISOString()
+export const canonicalPricingInstant = value => {if(value==null)return null;const date=new Date(value);return Number.isFinite(date.getTime())?date.toISOString():`invalid:${String(value)}`}
 
 export const pricingBusinessFields = Object.freeze([
   Object.freeze({ key: 'modelKey', draft: 'model_key', live: 'modelKey' }),
@@ -28,7 +28,7 @@ function projection(side, model) {
   const projected = { included: true }
   for (const field of pricingBusinessFields) {
     const value = model[field[side]]
-    projected[field.key] = field.array ? sorted(value) : field.instant ? instant(value) : value
+    projected[field.key] = field.array ? sorted(value) : field.instant ? canonicalPricingInstant(value) : value
   }
   return Object.freeze(projected)
 }

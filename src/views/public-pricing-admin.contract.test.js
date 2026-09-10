@@ -14,4 +14,5 @@ test('diff, checks and history preserve pricing publication semantics',()=>{
  assert.match(diff,/inputPriceUsdPerMillionTokens/);assert.match(diff,/outputPriceUsdPerMillionTokens/);assert.match(diff,/priceVisibility|price_visibility/)
  assert.match(checks,/issue\.field/);assert.match(checks,/issue\.code/);assert.match(checks,/role="alert"/)
  assert.match(history,/upstream_safety/);assert.match(history,/systemGenerated/);assert.match(history,/restore/);assert.doesNotMatch(history,/delete|rollback/)
+ for(const token of ['load-more','aria-live','total','loading'])assert.ok(history.includes(token),token)
 })

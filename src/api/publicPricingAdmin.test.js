@@ -49,6 +49,10 @@ test('validated 503 clears the key while network ambiguity retains it',async()=>
  await c.publish({currentPassword:'x'});assert.equal(state.pendingRecovery,false);await c.publish({currentPassword:'x'});assert.equal(keys,2);mode='network_error';await c.publish({currentPassword:'x'});assert.equal(state.pendingRecovery,true);await c.publish({currentPassword:'x'});assert.equal(keys,3)
 })
 
+test('verification network failure is known before dispatch for publish and restore',async()=>{
+ for(const kind of ['publish','restore']){let keys=0,executes=0;const api={issuePublishVerification:async()=>{throw Object.assign(new Error(),{code:'network_error'})},issueRestoreVerification:async()=>{throw Object.assign(new Error(),{code:'network_error'})},publish:async()=>{executes++},restore:async()=>{executes++}},state={draft:{revision:2}};const c=createPricingPublicationCoordinator({api,state,generateKey:()=>{keys++;return key}});await(kind==='publish'?c.publish({currentPassword:'x'}):c.restore('101',{currentPassword:'x'}));assert.equal(state.pendingRecovery,false);assert.equal(state.error.code,'action_dependency_unavailable');await(kind==='publish'?c.publish({currentPassword:'x'}):c.restore('101',{currentPassword:'x'}));assert.equal(keys,2);assert.equal(executes,0)}
+})
+
 test('ambiguous retry is bound to its original revision and rejects drift',async()=>{
  const api={issuePublishVerification:async()=>({ticket,expiresAt:1}),publish:async()=>{throw Object.assign(new Error(),{code:'network_error'})}},state={draft:{revision:2},history:[]};const c=createPricingPublicationCoordinator({api,state,generateKey:()=>key});await c.publish({currentPassword:'x'});state.draft={revision:3};assert.equal(await c.publish({currentPassword:'x'}),null);assert.equal(state.pendingRecovery,false);assert.equal(state.reconcileRequired,true);assert.equal(state.error.code,'revision_conflict')
 })
@@ -75,6 +79,10 @@ test('rejects unsafe DTOs, unknown fields, raw errors and forbidden rollback inp
  for(const bad of [{...release,rollback:true},{...release,reason:'manual'},{...release,created_at:'local time'}]){const api=createPublicPricingAdminApi({request:async()=>ok({items:[bad],page:1,page_size:20,total:1})});await assert.rejects(api.listReleases(),/invalid_public_pricing_admin_response/)}
  const api=createPublicPricingAdminApi({request:async()=>{throw {response:{status:409,data:{error:{code:'conflict',message:'secret raw',request_id:'req-8'}},headers}}}});await assert.rejects(api.publish(2,{ticket,idempotencyKey:key}),e=>e.code==='revision_conflict'&&e.requestId==='req-8'&&!e.message.includes('secret'))
  await assert.rejects(Promise.resolve().then(()=>api.restore('101',2,{ticket,idempotencyKey:key,rollbackSchema:true})),/invalid_public_pricing_admin_request/)
+})
+
+test('visible snapshot timestamps require real UTC calendar instants',async()=>{
+ for(const field of ['updated_at','effective_at'])for(const value of ['2026-13-10T00:00:00Z','2026-02-30T00:00:00Z','2026-09-10T25:00:00Z']){const bad={...visible,[field]:value};const api=createPublicPricingAdminApi({request:async()=>ok({release,items:[bad]})});await assert.rejects(api.getRelease('101'),/invalid_public_pricing_admin_response/)}
 })
 
 test('action verification maps only the exact admin-action envelope with request ID',async()=>{

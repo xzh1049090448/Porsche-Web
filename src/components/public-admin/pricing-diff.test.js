@@ -49,3 +49,7 @@ test('diff is a deterministic full union including excluded draft-only records',
   assert.deepEqual(rows.map(row => row.modelKey), ['a', 'm', 'z'])
   assert.equal(rows.find(row => row.modelKey === 'z').changed, false)
 })
+
+test('defensive diff formatting never throws on invalid dates', () => {
+ assert.doesNotThrow(()=>diff([draftModel({price_effective_at:Number.NaN})],[liveModel({effectiveAt:'2026-99-99T99:99:99Z'})]))
+})
