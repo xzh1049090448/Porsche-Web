@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createPublicContentState } from './publicContent.js'
-import { createPublicHomePublication, loadVerifiedPublicPage, verifiedPublicPageData } from './publicHomePublication.js'
+import { createPublicHomePublication, createPublicLayoutPublication, loadVerifiedPublicPage, verifiedPublicPageData } from './publicHomePublication.js'
 
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
 const response = (data, versions) => ({ data, etag: '"x"', releaseVersion: Object.values(versions)[0], publicationVersions: versions })
@@ -36,4 +36,28 @@ test('route cleanup invalidates pending terms so it cannot survive after privacy
   const store = createPublicContentState({ api: { getSite: () => Promise.resolve(response({ contentReleaseVersion: 2, priceReleaseVersion: 4, priceVisibility: 'visible' }, { content: 2, price: 4 })), getTerms: () => terms.promise, getPrivacy: () => Promise.resolve(response({ document: 'privacy-v2', releaseVersion: 2 }, { content: 2 })) } })
   await store.loadSite(); const pending = store.loadPage('terms'); store.invalidatePage('terms'); const privacy = await loadVerifiedPublicPage(store, 'privacy'); terms.resolve(response({ document: 'terms-v2', releaseVersion: 2 }, { content: 2 })); await pending
   assert.equal(store.value.pages.terms.data, null); assert.equal(store.value.pages.terms.status, 'idle'); assert.equal(privacy.document, 'privacy-v2')
+})
+
+test('a hanging homepage model cannot block a verified about page after site readiness', async () => {
+  const never = new Promise(() => {})
+  const store = createPublicContentState({ api: {
+    getSite: () => Promise.resolve(response({ contentReleaseVersion: 2, priceReleaseVersion: 4, priceVisibility: 'visible' }, { content: 2, price: 4 })),
+    getHome: () => Promise.resolve(response({ document: 'home-v2', releaseVersion: 2 }, { content: 2 })),
+    getModel: () => never,
+    getAbout: () => Promise.resolve(response({ document: 'about-v2', releaseVersion: 2 }, { content: 2 })),
+  } })
+  const lifecycle = createPublicLayoutPublication({ store, loadCodec: async () => ({ decode: () => ({ shellLinks: [], modelKeys: ['slow-model'] }) }) })
+  void lifecycle.init(); await lifecycle.siteReady
+  const about = await loadVerifiedPublicPage(store, 'about')
+  assert.equal(about.document, 'about-v2'); assert.equal(store.value.details['slow-model'].status, 'loading')
+  lifecycle.dispose()
+})
+
+test('disposing during deferred codec initialization settles readiness without starting network', async () => {
+  const codec = deferred(); let networkCalls = 0
+  const store = createPublicContentState({ api: { getSite: () => { networkCalls++; return Promise.reject(new Error('unexpected_network')) } } })
+  const lifecycle = createPublicLayoutPublication({ store, loadCodec: () => codec.promise })
+  const initializing = lifecycle.init(); lifecycle.dispose(); codec.resolve({ decode: () => ({ shellLinks: [], modelKeys: [] }) })
+  await initializing; await lifecycle.siteReady
+  assert.equal(networkCalls, 0); assert.equal(lifecycle.publication.value, null); assert.equal(store.value.site.status, 'idle')
 })

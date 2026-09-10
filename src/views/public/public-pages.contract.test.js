@@ -17,6 +17,8 @@ test('public shell and homepage preserve the published-content contract', () => 
   assert.match(home, /localStorage/)
   assert.match(layout, /usePublicContentStore/)
   assert.match(layout, /provide\(['"]public-home-publication['"]/)
+  assert.match(layout, /createPublicLayoutPublication/)
+  assert.match(layout, /lifecycle\.dispose\(\)/)
   assert.doesNotMatch(layout, /publicContentApi|getHome\(/)
   assert.match(home, /inject\(['"]public-home-publication['"]\)/)
   assert.doesNotMatch(home, /createPublicContentState|createPublishedDocumentCodec/)

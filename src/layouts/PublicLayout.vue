@@ -1,17 +1,18 @@
 <script setup>
-import { computed, onMounted, onUnmounted, provide, shallowRef } from 'vue'
+import { computed, onMounted, onUnmounted, provide } from 'vue'
 import PublicHeader from '@/components/public/PublicHeader.vue'
 import PublicFooter from '@/components/public/PublicFooter.vue'
 import { usePublicContentStore } from '@/stores/publicContent.js'
-import { createPublicHomePublication } from '@/stores/publicHomePublication.js'
+import { createPublicLayoutPublication } from '@/stores/publicHomePublication.js'
 import { usePublicI18n } from '@/i18n/public-runtime.js'
-const store = usePublicContentStore(); const publication = shallowRef(null)
-let signalReady; const ready = new Promise(resolve => { signalReady = resolve })
+const store = usePublicContentStore()
+const lifecycle = createPublicLayoutPublication({ store, loadCodec: async () => { const { createPublishedDocumentCodec } = await import('@/utils/public-document.js'); return createPublishedDocumentCodec() } })
+const publication = lifecycle.publication; const ready = lifecycle.siteReady
 const shellLinks = computed(() => publication.value?.home.value?.shellLinks || [])
 provide('public-home-publication', { store, publication, ready })
 const { t } = usePublicI18n()
-onMounted(async () => { try { const { createPublishedDocumentCodec } = await import('@/utils/public-document.js'); const codec = createPublishedDocumentCodec(); publication.value = createPublicHomePublication({ store, decode: document => codec.decode(document) }); await publication.value.load() } finally { signalReady() } })
-onUnmounted(() => publication.value?.cancel())
+onMounted(() => lifecycle.init())
+onUnmounted(() => lifecycle.dispose())
 </script>
 <template><div class="public-layout"><a class="public-skip-link" href="#public-content">{{ t('skip') }}</a><PublicHeader :links="shellLinks" /><main id="public-content" tabindex="-1"><RouterView /></main><PublicFooter :links="shellLinks" /></div></template>
 <style>

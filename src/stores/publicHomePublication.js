@@ -9,7 +9,8 @@ export function createPublicHomePublication({ store, decode }) {
   }
   async function load() {
     home.value = null
-    await Promise.allSettled([store.loadSite(), store.loadHome()])
+    const loads = [store.loadHome()]; if (store.value.site.status !== 'ready') loads.unshift(store.loadSite())
+    await Promise.allSettled(loads)
     home.value = verifiedHome()
     if (!home.value) return null
     const contentVersion = store.value.publicationVersions.content; const priceVersion = store.value.publicationVersions.price
@@ -19,6 +20,26 @@ export function createPublicHomePublication({ store, decode }) {
   }
   function cancel() { store.cancel('site'); store.cancel('home'); for (const key of home.value?.modelKeys || []) store.cancel(`detail:${key}`); home.value = null }
   return { home, load, cancel }
+}
+
+export function createPublicLayoutPublication({ store, loadCodec }) {
+  const publication = shallowRef(null); let disposed = false; let settled = false; let resolveReady
+  const siteReady = new Promise(resolve => { resolveReady = resolve })
+  const settle = () => { if (!settled) { settled = true; resolveReady() } }
+  async function init() {
+    try {
+      const codec = await loadCodec()
+      if (disposed) return
+      await store.loadSite()
+      if (disposed) return
+      settle()
+      if (store.value.site.status !== 'ready') return
+      publication.value = createPublicHomePublication({ store, decode: document => codec.decode(document) })
+      await publication.value.load()
+    } catch {} finally { settle() }
+  }
+  function dispose() { disposed = true; publication.value?.cancel(); publication.value = null; store.cancel('site'); settle() }
+  return { publication, siteReady, init, dispose }
 }
 
 export function verifiedPublicPageData(store, name) {
