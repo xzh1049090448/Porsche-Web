@@ -1,0 +1,14 @@
+import {defineStore} from 'pinia'
+import {reactive,toRefs} from 'vue'
+import {publicModelAdminApi} from '../api/publicModelAdmin.js'
+export function createPublicModelAdminCoordinator({api=publicModelAdminApi,state}={}){
+  const value=state??reactive({items:[],page:1,pageSize:20,total:0,detail:null,missing:null,loading:false,error:null})
+  let generation=0,abort=null
+  const begin=()=>{generation+=1;abort?.abort();abort=new AbortController();value.loading=true;value.error=null;return {generation,signal:abort.signal}}
+  const owns=t=>t.generation===generation
+  const settle=async(t,work,apply)=>{try{const out=await work;if(owns(t))apply(out);return owns(t)?out:null}catch(e){if(owns(t)&&e?.name!=='AbortError')value.error=e.code??'request_failed';return null}finally{if(owns(t))value.loading=false}}
+  const replace=out=>{value.items=value.items.map(item=>item.guid===out.guid?out:item);if(value.detail?.guid===out.guid)value.detail=out}
+  const mutation=work=>{const t=begin();return settle(t,work(t.signal),replace)}
+  return {state:value,cancel(){generation+=1;abort?.abort();abort=null;value.loading=false},load(filters={}){const t=begin();return settle(t,api.list(filters,{signal:t.signal}),out=>Object.assign(value,{items:out.items,page:out.page,pageSize:out.pageSize,total:out.total}))},loadDetail(guid){const t=begin();return settle(t,api.get(guid,{signal:t.signal}),out=>{value.detail=out})},loadMissing(){const t=begin();return settle(t,api.getMissing({signal:t.signal}),out=>{value.missing=out})},sync(){const t=begin();return settle(t,api.sync({signal:t.signal}),()=>{})},create(body){const t=begin();return settle(t,api.create(body,{signal:t.signal}),out=>{value.items=[out,...value.items];value.total+=1;value.detail=out})},update(guid,body){return mutation(signal=>api.update(guid,body,{signal}))},activate(guid,expectedRevision){return mutation(signal=>api.activate(guid,expectedRevision,{signal}))},deactivate(guid,expectedRevision,reason){return mutation(signal=>api.deactivate(guid,expectedRevision,reason,{signal}))},async remove(input){const t=begin();return settle(t,(async()=>{const issued=await api.issueDeleteVerification(input,{signal:t.signal});if(!owns(t))return null;return api.deleteModel(input.guid,{expectedRevision:input.expectedRevision,reason:input.reason,ticket:issued.ticket},{signal:t.signal})})(),()=>{value.items=value.items.filter(item=>item.guid!==input.guid);value.total=Math.max(0,value.total-1);if(value.detail?.guid===input.guid)value.detail=null})}}
+}
+export const usePublicModelAdminStore=defineStore('publicModelAdmin',()=>{const state=reactive({items:[],page:1,pageSize:20,total:0,detail:null,missing:null,loading:false,error:null});const coordinator=createPublicModelAdminCoordinator({state});return {...toRefs(state),...coordinator}})
