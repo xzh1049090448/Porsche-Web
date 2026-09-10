@@ -28,6 +28,9 @@ export const routes = [
     { path: '', name: 'PublicModelsAdmin', component: () => import('@/views/PublicModelsAdmin.vue') },
     { path: ':guid', name: 'PublicModelDetail', component: () => import('@/views/PublicModelDetail.vue') },
   ] },
+  { path: '/admin/public-pricing', component: mainLayout, meta: { requiresAuth: true, rootOnly: true }, children: [
+    { path: '', name: 'PublicPricingAdmin', component: () => import('@/views/PublicPricingAdmin.vue') },
+  ] },
   { path: '/profile', component: mainLayout, meta: { requiresAuth: true }, children: [
     { path: '', name: 'Profile', component: () => import('@/views/Profile.vue') },
   ] },

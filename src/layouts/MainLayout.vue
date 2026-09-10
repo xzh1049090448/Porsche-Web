@@ -40,6 +40,7 @@
         <el-menu-item index="/profile">{{ t('nav.profile') }}</el-menu-item>
         <el-menu-item v-if="canManageUsers" index="/users">用户管理</el-menu-item>
         <el-menu-item v-if="isRoot" index="/admin/public-models">{{ t('publicModelsAdmin.nav') }}</el-menu-item>
+        <el-menu-item v-if="isRoot" index="/admin/public-pricing">{{ t('publicPricingAdmin.nav') }}</el-menu-item>
       </el-menu>
       <div class="header-right">
         <LocaleToggle />
@@ -102,6 +103,7 @@
         </el-menu-item>
         <el-menu-item v-if="canManageUsers" index="/users"><el-icon><User /></el-icon><span>用户管理</span></el-menu-item>
         <el-menu-item v-if="isRoot" index="/admin/public-models"><el-icon><Setting /></el-icon><span>{{ t('publicModelsAdmin.nav') }}</span></el-menu-item>
+        <el-menu-item v-if="isRoot" index="/admin/public-pricing"><el-icon><Setting /></el-icon><span>{{ t('publicPricingAdmin.nav') }}</span></el-menu-item>
       </el-menu>
     </MobileDrawer>
 
