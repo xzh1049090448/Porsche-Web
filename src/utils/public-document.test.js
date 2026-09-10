@@ -47,6 +47,13 @@ test('renders only normalized backend-approved local assets', () => {
   for (const value of ['/assets/%61.png', '/assets/a%2epng']) assert.equal(controlledAssetSrc(value), true)
 })
 
+test('controlled assets require complete bounded canonical decoding', () => {
+  const nest = count => { let value = '/assets/a%2epng'; for (let index = 1; index < count; index++) value = value.replaceAll('%', '%25'); return value }
+  for (const depth of [9, 10, 12, 63]) assert.equal(controlledAssetSrc(nest(depth)), true, `depth ${depth}`)
+  for (const depth of [65, 512]) assert.equal(controlledAssetSrc(nest(depth)), false, `depth ${depth}`)
+  assert.equal(controlledAssetSrc('/assets/%zz.png'), false)
+})
+
 test('associates only controlled published model assets with stable model references', () => {
   const value = codec.decode('# 首页\n\n## 支持模型\n\n[![Alpha](/assets/models/alpha.svg)](/pricing/alpha-chat) [![Bad](https://evil/x)](/pricing/beta)')
   assert.deepEqual(value.modelAssets, { 'alpha-chat': '/assets/models/alpha.svg' })
