@@ -38,12 +38,12 @@ test('sanitizer blocks executable and bypass URLs, handlers, remote media and em
 })
 
 test('renders only normalized backend-approved local assets', () => {
-  const html = codec.decode('![logo](/assets/logo.svg) ![nested](/assets/models/a.png) ![remote](https://evil.example/x.png) ![relative](//evil/x) ![encoded](/assets/%2e%2e/x) ![traversal](/assets/../x) ![data](data:image/png,x)').html
+  const html = codec.decode('![logo](/assets/logo.svg) ![nested](/assets/models/a.png) ![remote](https://evil.example/x.png) ![relative](//evil/x) ![encoded](/assets/%2e%2e/x) ![traversal](/assets/../x) ![directory](/assets/models/) ![data](data:image/png,x)').html
   assert.match(html, /src="\/assets\/logo\.svg"/)
   assert.match(html, /src="\/assets\/models\/a\.png"/)
   assert.equal((html.match(/<img/g) || []).length, 2)
   assert.equal(controlledAssetSrc('/assets/logo.svg'), true)
-  for (const value of ['/assets/', '/assets/../x', '/assets/%2e%2e/x', '//assets/x', '\\assets\\x', 'https://x/assets/a']) assert.equal(controlledAssetSrc(value), false)
+  for (const value of ['/assets/', '/assets/models/', '/assets/../x', '/assets/%2e%2e/x', '/assets/a%2epng', '//assets/x', '\\assets\\x', 'https://x/assets/a']) assert.equal(controlledAssetSrc(value), false)
 })
 
 test('associates only controlled published model assets with stable model references', () => {
@@ -60,8 +60,8 @@ test('advantages use repeated level-three CommonMark cards capped at eight', () 
 })
 
 test('shell links use an explicit CommonMark links section and omit absent or unsafe entries', () => {
-  const present = codec.decode('# 首页\n\n## 导航链接\n\n- [文档](https://docs.example.com)\n- [服务状态](https://status.example.com)\n- [联系我们](mailto:help@example.com)\n- [占位](#)\n- [内部管理](/users)')
-  assert.deepEqual(present.shellLinks, [{ label: '文档', href: 'https://docs.example.com', placement: 'header' }, { label: '服务状态', href: 'https://status.example.com', placement: 'header' }, { label: '联系我们', href: 'mailto:help@example.com', placement: 'contact' }])
+  const present = codec.decode('# 首页\n\n## 导航链接\n\n- [文档](https://docs.example.com)\n- [服务状态](https://status.example.com)\n- [联系我们](https://contact.example.com)\n- [邮件](mailto:help@example.com)\n- [占位](#)\n- [内部管理](/users)')
+  assert.deepEqual(present.shellLinks, [{ label: '文档', href: 'https://docs.example.com', placement: 'header' }, { label: '服务状态', href: 'https://status.example.com', placement: 'header' }, { label: '联系我们', href: 'https://contact.example.com', placement: 'contact' }])
   assert.deepEqual(codec.decode('# 首页\n\n正文').shellLinks, [])
 })
 
@@ -71,12 +71,18 @@ test('sanitizer allows approved local paths, real fragments and configured exter
   assert.equal(safePublishedHref('#legal-contact'), true)
   assert.equal(safePublishedHref('#'), false)
   assert.equal(safePublishedHref('https://docs.example.com/help', ['https://docs.example.com/help']), true)
-  assert.equal(safePublishedHref('mailto:support@example.com', ['mailto:support@example.com']), true)
+  assert.equal(safePublishedHref('mailto:support@example.com', ['mailto:support@example.com']), false)
   assert.equal(safePublishedHref('https://other.example.com', ['https://docs.example.com/help']), false)
 })
 
+test('legal CommonMark removes every contact section and maps each TOC href to its rendered heading', () => {
+  const valid = codec.decode(`# 服务协议\n\n版本：v1\n\n生效日期：2026-09-10\n\n## 使用规则\n\n正文内容。\n\n## 联系方式\n\nsupport@example.com\n\n## 数据规则\n\n数据正文。\n\n## Contact\n\nbackup@example.com`)
+  const legal = codec.legal(valid); assert.equal(legal.valid, true); assert.equal((legal.legalBodyHTML.match(/<h1/g) || []).length, 0); assert.doesNotMatch(legal.legalBodyHTML, /联系方式|backup@example\.com|<h2[^>]*>Contact/)
+  const rendered = new JSDOM(`<article>${legal.legalBodyHTML}</article>`).window.document
+  assert.deepEqual(legal.toc.map(item => item.id), ['legal-section-1', 'legal-section-2'])
+  for (const item of legal.toc) assert.equal(rendered.getElementById(item.id)?.textContent.trim(), item.text)
+})
+
 test('legal CommonMark requires nonblank title version effective date body toc and contact', () => {
-  const valid = codec.decode(`# 服务协议\n\n版本：v1\n\n生效日期：2026-09-10\n\n## 使用规则\n\n正文内容。\n\n## 联系方式\n\n[support@example.com](mailto:support@example.com)`)
-  const legal = codec.legal(valid); assert.equal(legal.valid, true); assert.equal((legal.legalBodyHTML.match(/<h1/g) || []).length, 0); assert.equal((legal.legalBodyHTML.match(/联系方式/g) || []).length, 0)
   for (const markdown of ['# 标题\n\n版本：v1\n\n生效日期：2026-09-10\n\n## 正文\n\n内容', '# 标题\n\n版本： \n\n生效日期：2026-09-10\n\n## 正文\n\n内容\n\n## 联系方式\n\nx', '# 标题\n\n版本：v1\n\n生效日期：2026-09-10\n\n## 正文\n\n## 联系方式\n\nx']) assert.equal(codec.legal(codec.decode(markdown)).valid, false)
 })

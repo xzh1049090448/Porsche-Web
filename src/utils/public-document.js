@@ -4,7 +4,7 @@ import { marked } from 'marked'
 const MODEL_PATH = /^\/pricing\/([A-Za-z0-9][A-Za-z0-9._-]*)$/
 const controlOrSlashBypass = /[\u0000-\u001f\u007f\\]/
 export function selectCuratedModels(keys, catalog) { const byKey = new Map((Array.isArray(catalog) ? catalog : []).map(model => [model?.modelKey, model])); const seen = new Set(); return (Array.isArray(keys) ? keys : []).filter(key => typeof key === 'string' && !seen.has(key) && seen.add(key)).map(key => byKey.get(key)).filter(Boolean) }
-export function controlledAssetSrc(value) { return typeof value === 'string' && /^\/assets\/[A-Za-z0-9._/-]+$/.test(value) && !value.includes('%') && !value.includes('//') && value !== '/assets/' && value.split('/').every(segment => segment !== '.' && segment !== '..') }
+export function controlledAssetSrc(value) { return typeof value === 'string' && /^\/assets\/[A-Za-z0-9._/-]+$/.test(value) && !value.includes('%') && !value.includes('//') && !value.endsWith('/') && value.split('/').every(segment => segment !== '.' && segment !== '..') }
 function decoded(value) { let result = value; for (let i = 0; i < 3; i++) { try { const next = decodeURIComponent(result); if (next === result) break; result = next } catch { return '' } } return result }
 export function safePublishedHref(value, allowedExternal = []) {
   if (typeof value !== 'string' || !value || value === '#' || controlOrSlashBypass.test(value)) return false
@@ -15,10 +15,10 @@ export function safePublishedHref(value, allowedExternal = []) {
     return ['/', '/pricing', '/about', '/terms', '/privacy', '/chat', '/login', '/register'].includes(path) || MODEL_PATH.test(path)
   }
   let url; try { url = new URL(clean) } catch { return false }
-  if (!['http:', 'https:', 'mailto:'].includes(url.protocol)) return false
+  if (!['http:', 'https:'].includes(url.protocol) || !url.host) return false
   return allowedExternal.includes(clean)
 }
-function externalLinks(markdown) { return [...markdown.matchAll(/\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)(?:\s+['"][^'"]*['"])?\)/gi)].map(match => match[1]).filter(value => { try { return ['http:', 'https:', 'mailto:'].includes(new URL(value).protocol) } catch { return false } }) }
+function externalLinks(markdown) { return [...markdown.matchAll(/\]\((https?:\/\/[^\s)]+)(?:\s+['"][^'"]*['"])?\)/gi)].map(match => match[1]).filter(value => { try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && Boolean(url.host) } catch { return false } }) }
 function sectionName(text) { const value = text.trim().toLowerCase(); if (/优势|advantage|benefit/.test(value)) return 'advantages'; if (/支持模型|模型|models?/.test(value)) return 'models'; if (/公告|announcement|notice/.test(value)) return 'announcements'; if (/常见问题|faq|questions?/.test(value)) return 'faq'; if (/演示|demo|preview/.test(value)) return 'demo'; if (/导航|链接|navigation|links?/.test(value)) return 'links'; if (/开始|立即|cta|get started/.test(value)) return 'cta'; if (/联系|contact/.test(value)) return 'contact'; return 'other' }
 
 export function createPublishedDocumentCodec({ window = globalThis.window } = {}) {
@@ -56,7 +56,7 @@ export function createPublishedDocumentCodec({ window = globalThis.window } = {}
     const bodyRoot = window.document.createElement('div'); bodyRoot.innerHTML = document.bodyHTML
     const bodyPresent = [...bodyRoot.querySelectorAll('h2')].filter(heading => sectionName(heading.textContent) !== 'contact').some(heading => { let text = ''; let next = heading.nextSibling; while (next && !(next.nodeType === 1 && next.tagName === 'H2')) { text += next.textContent || ''; next = next.nextSibling } return Boolean(text.trim()) })
     for (const paragraph of [...bodyRoot.querySelectorAll('p')]) if (/^\s*(?:版本|version|生效日期|effective date)\s*[：:]/i.test(paragraph.textContent)) paragraph.remove()
-    const contactHeading = [...bodyRoot.querySelectorAll('h2')].find(heading => sectionName(heading.textContent) === 'contact'); if (contactHeading) { let next = contactHeading.nextSibling; while (next && !(next.nodeType === 1 && next.tagName === 'H2')) { const remove = next; next = next.nextSibling; remove.remove() } contactHeading.remove() }
+    const contactHeadings = [...bodyRoot.querySelectorAll('h2')].filter(heading => sectionName(heading.textContent) === 'contact'); for (const contactHeading of contactHeadings) { let next = contactHeading.nextSibling; while (next && !(next.nodeType === 1 && next.tagName === 'H2')) { const remove = next; next = next.nextSibling; remove.remove() } contactHeading.remove() }
     let index = 0; for (const heading of bodyRoot.querySelectorAll('h2')) heading.id = `legal-section-${++index}`
     return { ...document, version, effectiveDate, contact, toc: toc.map((item, itemIndex) => ({ ...item, id: `legal-section-${itemIndex + 1}` })), legalBodyHTML: bodyRoot.innerHTML, valid: Boolean(document.title && version && effectiveDate && bodyPresent && toc.length && contact) }
   }

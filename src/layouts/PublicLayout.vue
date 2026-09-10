@@ -1,13 +1,16 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, provide, shallowRef } from 'vue'
 import PublicHeader from '@/components/public/PublicHeader.vue'
 import PublicFooter from '@/components/public/PublicFooter.vue'
-import { publicContentApi } from '@/api/publicContent.js'
+import { usePublicContentStore } from '@/stores/publicContent.js'
+import { createPublicHomePublication } from '@/stores/publicHomePublication.js'
 import { usePublicI18n } from '@/i18n/public-runtime.js'
-const shellLinks = ref([]); const controller = new AbortController()
+const store = usePublicContentStore(); const publication = shallowRef(null)
+const shellLinks = computed(() => publication.value?.home.value?.shellLinks || [])
+provide('public-home-publication', { store, publication })
 const { t } = usePublicI18n()
-onMounted(async () => { try { const response = await publicContentApi.getHome({ signal: controller.signal }); const { createPublishedDocumentCodec } = await import('@/utils/public-document.js'); shellLinks.value = createPublishedDocumentCodec().decode(response.data.document).shellLinks } catch {} })
-onUnmounted(() => controller.abort())
+onMounted(async () => { const { createPublishedDocumentCodec } = await import('@/utils/public-document.js'); const codec = createPublishedDocumentCodec(); publication.value = createPublicHomePublication({ store, decode: document => codec.decode(document) }); await publication.value.load() })
+onUnmounted(() => publication.value?.cancel())
 </script>
 <template><div class="public-layout"><a class="public-skip-link" href="#public-content">{{ t('skip') }}</a><PublicHeader :links="shellLinks" /><main id="public-content" tabindex="-1"><RouterView /></main><PublicFooter :links="shellLinks" /></div></template>
 <style>
