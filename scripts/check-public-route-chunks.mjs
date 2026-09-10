@@ -19,6 +19,7 @@ const PUBLIC_LOCAL_MODULES = new Set([
   'repo:src/stores/publicContent.js',
   'repo:src/stores/publicHomePublication.js',
   'repo:src/utils/public-catalog.js',
+  'repo:src/utils/storage.js',
   'repo:src/styles/public-bootstrap.css',
 ])
 const PUBLIC_RUNTIME_PACKAGES = /^npm:(?:vue|vue-router|pinia|@vue\/(?:reactivity|runtime-core|runtime-dom|shared))(?:\/|$)/

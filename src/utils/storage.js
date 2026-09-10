@@ -1,16 +1,16 @@
 const PREFIX = 'llm_platform_'
 
-export function getItem(key, fallback = null) {
+export function getItem(key, fallback = null, storage = globalThis.localStorage) {
   try {
-    const raw = localStorage.getItem(PREFIX + key)
+    const raw = storage.getItem(PREFIX + key)
     return raw ? JSON.parse(raw) : fallback
   } catch {
     return fallback
   }
 }
 
-export function setItem(key, value) {
-  localStorage.setItem(PREFIX + key, JSON.stringify(value))
+export function setItem(key, value, storage = globalThis.localStorage) {
+  storage.setItem(PREFIX + key, JSON.stringify(value))
 }
 
 export function removeItem(key) {

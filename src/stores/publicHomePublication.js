@@ -20,3 +20,16 @@ export function createPublicHomePublication({ store, decode }) {
   function cancel() { store.cancel('site'); store.cancel('home'); for (const key of home.value?.modelKeys || []) store.cancel(`detail:${key}`); home.value = null }
   return { home, load, cancel }
 }
+
+export function verifiedPublicPageData(store, name) {
+  const state = store.value; const page = state.pages[name]; const version = state.publicationVersions.content
+  return state.site.status === 'ready' && page?.status === 'ready' && state.site.data?.contentReleaseVersion === version && page.data?.releaseVersion === version ? page.data : null
+}
+
+export async function loadVerifiedPublicPage(store, name) {
+  try {
+    if (store.value.site.status !== 'ready') await store.loadSite()
+    await store.loadPage(name)
+  } catch {}
+  return verifiedPublicPageData(store, name)
+}

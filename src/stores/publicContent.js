@@ -100,7 +100,8 @@ export function createPublicContentState({ api = publicContentApi } = {}) {
     sequences.set(key, (sequences.get(key) || 0) + 1); controllers.get(key)?.abort(); controllers.delete(key)
     const state = target(key); state.status = state.data ? 'ready' : 'idle'; state.error = null
   }
-  return { value, setApi, loadSite: options => load('site', 'getSite', [], options, '/api/v1/public/site'), loadHome: options => load('home', 'getHome', [], options, '/api/v1/public/home'), loadModels: (filters = {}, options = {}) => load('models', 'getModels', [filters], options, publicModelsResourceKey(filters)), loadModel: (key, options = {}) => load(`detail:${key}`, 'getModel', [key], options, `/api/v1/public/models/${encodeURIComponent(key)}`), loadPage: (name, options = {}) => load(`page:${name}`, `get${name[0].toUpperCase()}${name.slice(1)}`, [], options, `/api/v1/public/pages/${name}`), cancel }
+  function invalidatePage(name) { const key = `page:${name}`; cancel(key); const state = target(key); state.data = null; state.status = 'idle'; state.error = null; for (const partition of Object.keys(value.cache)) if (partition.includes(`/api/v1/public/pages/${name}`)) delete value.cache[partition] }
+  return { value, setApi, loadSite: options => load('site', 'getSite', [], options, '/api/v1/public/site'), loadHome: options => load('home', 'getHome', [], options, '/api/v1/public/home'), loadModels: (filters = {}, options = {}) => load('models', 'getModels', [filters], options, publicModelsResourceKey(filters)), loadModel: (key, options = {}) => load(`detail:${key}`, 'getModel', [key], options, `/api/v1/public/models/${encodeURIComponent(key)}`), loadPage: (name, options = {}) => load(`page:${name}`, `get${name[0].toUpperCase()}${name.slice(1)}`, [], options, `/api/v1/public/pages/${name}`), cancel, invalidatePage }
 }
 
 export const usePublicContentStore = defineStore('publicContent', () => createPublicContentState())
