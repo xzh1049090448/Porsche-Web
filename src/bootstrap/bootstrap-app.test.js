@@ -9,18 +9,15 @@ test('rejected auth bootstrap import reloads once then renders fallback without 
   const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }
   let reloads = 0
   let fallbacks = 0
-  const recover = createLazyLoadFailureHandler({ storage, reload: () => { reloads += 1 }, fallback: () => { fallbacks += 1 } })
+  const recovery = () => createLazyLoadFailureHandler({ storage, reload: () => { reloads += 1 }, fallback: () => { fallbacks += 1 } })
   const loadAuthApp = async () => { throw new TypeError('Failed to fetch dynamically imported module: /assets/AuthApp-old.js') }
 
-  assert.equal(await bootstrapApplication({ mode: 'auth', loadAuthApp, recover }), false)
+  assert.equal(await bootstrapApplication({ mode: 'auth', loadAuthApp, recover: recovery() }), false)
   assert.equal(reloads, 1)
   assert.equal(fallbacks, 0)
-  assert.equal(await bootstrapApplication({ mode: 'auth', loadAuthApp, recover }), false)
+  assert.equal(await bootstrapApplication({ mode: 'auth', loadAuthApp, recover: recovery() }), false)
   assert.equal(reloads, 1)
   assert.equal(fallbacks, 1)
-  assert.equal(await bootstrapApplication({ mode: 'auth', loadAuthApp, recover }), false)
-  assert.equal(reloads, 1)
-  assert.equal(fallbacks, 2)
 })
 
 test('safe bootstrap fallback is accessible and offers an explicit retry', () => {
@@ -36,6 +33,21 @@ test('safe bootstrap fallback is accessible and offers an explicit retry', () =>
     assert.equal(retry.textContent, '重试')
     retry.click()
     assert.equal(retries, 1)
+  } finally {
+    globalThis.document = previousDocument
+    dom.window.close()
+  }
+})
+
+test('a throwing fallback degrades to minimal safe text without escaping the handler', () => {
+  const dom = new JSDOM('<div id="app"></div>')
+  const previousDocument = globalThis.document
+  globalThis.document = dom.window.document
+  const storage = { getItem: () => 'attempted', setItem() {}, removeItem() {} }
+  try {
+    const handler = createLazyLoadFailureHandler({ storage, fallback: () => { throw new Error('render failed') } })
+    assert.doesNotThrow(() => handler(new TypeError('ChunkLoadError')))
+    assert.match(document.querySelector('#app').textContent, /页面暂时无法加载/)
   } finally {
     globalThis.document = previousDocument
     dom.window.close()

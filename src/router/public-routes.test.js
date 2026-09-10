@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { bootstrapModeForPath, createLazyLoadFailureHandler, installAuthGuard, installBootstrapHandoff, routes } from './index.js'
+import { bootstrapModeForPath, createLazyLoadFailureHandler, installAuthGuard, installBootstrapHandoff, installLoadFailureRecovery, routes } from './index.js'
 
 const Stub = { template: '<div />' }
 const testRoutes = routes.map(route => ({
@@ -129,25 +129,55 @@ test('lazy import recovery reloads once then uses a constant safe fallback witho
   const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }
   let reloads = 0
   let fallbacks = 0
-  const handler = createLazyLoadFailureHandler({ storage, reload: () => { reloads += 1 }, fallback: () => { fallbacks += 1 } })
   const stale = new TypeError('Failed to fetch dynamically imported module: /assets/Page-old.js')
-  assert.equal(handler(stale), true)
+  const firstPage = createLazyLoadFailureHandler({ storage, reload: () => { reloads += 1 }, fallback: () => { fallbacks += 1 } })
+  assert.equal(firstPage(stale), true)
   assert.equal(reloads, 1)
   assert.equal(fallbacks, 0)
-  assert.equal(handler(stale), true)
+  const secondPage = createLazyLoadFailureHandler({ storage, reload: () => { reloads += 1 }, fallback: () => { fallbacks += 1 } })
+  assert.equal(secondPage(stale), true)
   assert.equal(reloads, 1)
   assert.equal(fallbacks, 1)
-  assert.equal(handler(new Error('ordinary component error')), false)
+  assert.equal(storage.getItem('public_route_lazy_reload_v1'), null)
+  assert.equal(secondPage(new Error('ordinary component error')), false)
   assert.equal(reloads, 1)
   assert.equal(fallbacks, 1)
 })
 
-test('lazy recovery contains broken session storage without throwing', () => {
-  const storage = { getItem() { throw new Error('blocked') }, setItem() { throw new Error('blocked') }, removeItem() { throw new Error('blocked') } }
-  let reloads = 0
-  const handler = createLazyLoadFailureHandler({ storage, reload: () => { reloads += 1 } })
-  assert.doesNotThrow(() => handler(new TypeError('Failed to fetch dynamically imported module: /assets/old.js')))
-  assert.equal(reloads, 1)
-  assert.doesNotThrow(() => handler(new TypeError('Failed to fetch dynamically imported module: /assets/old.js')))
-  assert.equal(reloads, 1)
+test('lazy recovery never reloads when durable storage is unavailable or broken', () => {
+  const stale = new TypeError('Failed to fetch dynamically imported module: /assets/old.js')
+  for (const storage of [
+    null,
+    { getItem() { throw new Error('blocked') }, setItem() {}, removeItem() {} },
+    { getItem() { return null }, setItem() { throw new Error('quota') }, removeItem() {} },
+    { getItem() { return null }, setItem() {}, removeItem() {} },
+  ]) {
+    let reloads = 0
+    let fallbacks = 0
+    const handler = createLazyLoadFailureHandler({ storage, reload: () => { reloads += 1 }, fallback: () => { fallbacks += 1 } })
+    assert.doesNotThrow(() => handler(stale))
+    assert.equal(reloads, 0)
+    assert.equal(fallbacks, 1)
+  }
+})
+
+test('lazy recovery falls back immediately when reload throws or reports failure', () => {
+  const stale = new TypeError('ChunkLoadError')
+  for (const reload of [() => { throw new Error('blocked') }, () => false]) {
+    const values = new Map()
+    const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }
+    let fallbacks = 0
+    createLazyLoadFailureHandler({ storage, reload, fallback: () => { fallbacks += 1 } })(stale)
+    assert.equal(fallbacks, 1)
+  }
+})
+
+test('successful navigation clears the durable reload marker', async () => {
+  const values = new Map([['public_route_lazy_reload_v1', 'attempted']])
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }
+  const router = createRouter({ history: createMemoryHistory(), routes: testRoutes })
+  installLoadFailureRecovery(router, { storage })
+  await router.push('/pricing')
+  await router.isReady()
+  assert.equal(storage.getItem('public_route_lazy_reload_v1'), null)
 })

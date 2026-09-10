@@ -85,18 +85,42 @@ export function installBootstrapHandoff(router, { mode, handoff } = {}) {
 }
 
 export function createLazyLoadFailureHandler({ storage, reload, fallback } = {}) {
-  let attemptedInMemory = false
+  const lastResort = () => {
+    try {
+      const host = document.querySelector('#app')
+      if (host) host.textContent = '页面暂时无法加载，请刷新后重试。'
+    } catch {}
+  }
+  const showFallback = () => {
+    try { fallback ? fallback() : lastResort() }
+    catch { lastResort() }
+  }
   return error => {
     if (!LAZY_LOAD_ERROR.test(String(error?.message || error))) return false
-    let attempted = attemptedInMemory
-    try { attempted ||= storage?.getItem(LAZY_RELOAD_MARKER) === 'attempted' } catch {}
-    if (!attempted) {
-      attemptedInMemory = true
-      try { storage?.setItem(LAZY_RELOAD_MARKER, 'attempted') } catch {}
-      try { reload?.() } catch {}
-    } else {
+    let attempted
+    try {
+      if (!storage) throw new Error('durable storage unavailable')
+      attempted = storage.getItem(LAZY_RELOAD_MARKER) === 'attempted'
+    } catch {
+      showFallback()
+      return true
+    }
+    if (attempted) {
       try { storage?.removeItem(LAZY_RELOAD_MARKER) } catch {}
-      try { fallback?.() } catch {}
+      showFallback()
+      return true
+    }
+    try {
+      storage.setItem(LAZY_RELOAD_MARKER, 'attempted')
+      if (storage.getItem(LAZY_RELOAD_MARKER) !== 'attempted') throw new Error('durable marker was not written')
+    } catch {
+      showFallback()
+      return true
+    }
+    try {
+      if (typeof reload !== 'function' || reload() === false) showFallback()
+    } catch {
+      showFallback()
     }
     return true
   }
@@ -122,6 +146,13 @@ export function renderSafeLoadError(retry = () => window.location.reload()) {
   host.append(main)
 }
 
+export function installLoadFailureRecovery(router, { storage, reload, fallback } = {}) {
+  const handleLazyFailure = createLazyLoadFailureHandler({ storage, reload, fallback })
+  router.onError(handleLazyFailure)
+  router.afterEach(() => { try { storage?.removeItem(LAZY_RELOAD_MARKER) } catch {} })
+  return router
+}
+
 export function createAppRouter(
   history = typeof window === 'undefined' ? createMemoryHistory() : createWebHistory(),
   options = {},
@@ -136,13 +167,11 @@ export function createAppRouter(
   let browserStorage = null
   try { browserStorage = typeof sessionStorage === 'undefined' ? null : sessionStorage } catch {}
   const storage = options.storage ?? browserStorage
-  const handleLazyFailure = createLazyLoadFailureHandler({
+  installLoadFailureRecovery(router, {
     storage,
     reload: options.reload ?? (() => window.location.reload()),
     fallback: options.lazyFallback ?? renderSafeLoadError,
   })
-  router.onError(handleLazyFailure)
-  router.afterEach(() => { try { storage?.removeItem(LAZY_RELOAD_MARKER) } catch {} })
   return router
 }
 
