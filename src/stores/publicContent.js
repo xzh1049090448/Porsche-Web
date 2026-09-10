@@ -9,7 +9,15 @@ export function createPublicContentState({ api = publicContentApi } = {}) {
   const value = reactive({ site: slot(), home: slot(), models: slot(), details: {}, pages: { about: slot(), terms: slot(), privacy: slot() }, publicationVersions: { content: null, price: null }, cache: {} })
   const controllers = new Map(); const sequences = new Map()
   let activeRepresentation = null
-  const representationFor = options => options.authenticated ? `authenticated:${String(options.authContext ?? 'current')}` : 'anonymous'
+  function representationFor(options) {
+    if (!options.authenticated) return 'anonymous'
+    const context = options.authContext
+    const keys = context && typeof context === 'object' && !Array.isArray(context) ? Object.keys(context) : []
+    const exact = keys.length === 4 && keys.every(key => ['epoch', 'generation', 'permissionRevision', 'token'].includes(key))
+    const validToken = context?.token === null || typeof context?.token === 'string' && context.token.length > 0
+    if (!exact || typeof context.epoch !== 'string' || !context.epoch.trim() || !Number.isSafeInteger(context.generation) || context.generation < 0 || !Number.isSafeInteger(context.permissionRevision) || context.permissionRevision < 0 || !validToken) throw new Error('invalid_auth_context')
+    return `authenticated:${JSON.stringify([context.epoch, context.generation, context.permissionRevision])}`
+  }
   const cacheKey = (key, representation) => `${representation}:${key}`
   function setApi(next) { api = { ...api, ...next } }
   function target(key) { if (key.startsWith('detail:')) return value.details[key.slice(7)] ||= slot(); if (key.startsWith('page:')) return value.pages[key.slice(5)]; return value[key] }
@@ -21,7 +29,9 @@ export function createPublicContentState({ api = publicContentApi } = {}) {
     value.details = {}; value.cache = {}; value.publicationVersions.content = null; value.publicationVersions.price = null
   }
   function ensureRepresentation(options) {
-    const next = representationFor(options)
+    let next
+    try { next = representationFor(options) }
+    catch (error) { clearRenderState(); activeRepresentation = null; throw error }
     if (activeRepresentation !== null && activeRepresentation !== next) clearRenderState()
     activeRepresentation = next
     return next

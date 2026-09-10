@@ -61,7 +61,7 @@ test('auth to anonymous transition clears authenticated site list and detail bef
     getModels: async () => anonymous ? pending : ({ data: { items: [authenticatedModel], page: 1, pageSize: 20, total: 1, releaseVersion: 7 }, etag: 'm-auth', releaseVersion: 7, publicationVersions: { price: 7 } }),
     getModel: async () => ({ data: { model: authenticatedModel, releaseVersion: 7 }, etag: 'd-auth', releaseVersion: 7, publicationVersions: { price: 7 } }),
   } })
-  const auth = { authenticated: true, authContext: 'user:1' }
+  const auth = { authenticated: true, authContext: { epoch: 'user-1', generation: 1, permissionRevision: 1, token: 'secret-1' } }
   await state.loadSite(auth); await state.loadModels({}, auth); await state.loadModel('paid', auth)
   anonymous = true
   const loading = state.loadModels({}, { authenticated: false })
@@ -78,9 +78,9 @@ test('anonymous failure and cancel cannot restore an authenticated representatio
     if (mode === 'fail') throw Object.assign(new Error(), { code: 'unavailable' })
     return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
   } } })
-  await state.loadModels({}, { authenticated: true, authContext: 'user:1' })
+  await state.loadModels({}, { authenticated: true, authContext: { epoch: 'user-1', generation: 1, permissionRevision: 1, token: 'secret-1' } })
   mode = 'fail'; await state.loadModels({}, { authenticated: false }); assert.equal(state.value.models.data, null); assert.equal(state.value.models.status, 'error')
-  mode = 'pending'; const request = state.loadModels({}, { authenticated: true, authContext: 'user:2' }); state.cancel('models'); await request
+  mode = 'pending'; const request = state.loadModels({}, { authenticated: true, authContext: { epoch: 'user-2', generation: 1, permissionRevision: 1, token: 'secret-2' } }); state.cancel('models'); await request
   assert.equal(state.value.models.data, null); assert.equal(state.value.models.status, 'idle')
 })
 
@@ -91,11 +91,35 @@ test('authenticated identity generation change invalidates every old render resp
     getHome: async () => old,
     getModel: async () => ({ data: { model: { modelKey: 'safe', priceVisibility: 'authenticated_only', releaseVersion: 7 }, releaseVersion: 7 }, etag: 'new', releaseVersion: 7, publicationVersions: { price: 7 } }),
   } })
-  const stale = state.loadHome({ authenticated: true, authContext: 'generation:1' })
-  await state.loadModel('paid', { authenticated: true, authContext: 'generation:2' })
+  const stale = state.loadHome({ authenticated: true, authContext: { epoch: 'same-account', generation: 1, permissionRevision: 1, token: 'old-token' } })
+  await state.loadModel('paid', { authenticated: true, authContext: { epoch: 'same-account', generation: 2, permissionRevision: 1, token: 'new-token' } })
   resolveOld({ data: { document: 'private old user content', releaseVersion: 7 }, etag: 'old', releaseVersion: 7, publicationVersions: { content: 7 } }); await stale
   assert.equal(state.value.home.data, null)
   assert.equal(state.value.details.paid.data.model.inputPrice, undefined)
+})
+
+test('authenticated loads without an exact auth snapshot fail closed and clear rendered data', async () => {
+  const state = createPublicContentState({ api: { getModels: async () => ({ data: { items: [], page: 1, pageSize: 20, total: 0, releaseVersion: 7 }, etag: 'x', releaseVersion: 7, publicationVersions: { price: 7 } }) } })
+  const valid = { authenticated: true, authContext: { epoch: 'account-a', generation: 1, permissionRevision: 2, token: 'secret' } }
+  await state.loadModels({}, valid)
+  for (const authContext of [undefined, null, '[object Object]', {}, { epoch: 'a', generation: 1, permissionRevision: 2 }, { epoch: 'a', generation: -1, permissionRevision: 2, token: 'x' }, { epoch: 'a', generation: 1, permissionRevision: 2, token: 'x', guid: 'secret-guid' }]) {
+    await assert.rejects(() => state.loadModels({}, { authenticated: true, authContext }), /invalid_auth_context/)
+    assert.equal(state.value.models.data, null)
+  }
+})
+
+test('distinct object auth snapshots never share ETag or 304 data across identities', async () => {
+  const observations = []
+  const state = createPublicContentState({ api: { getModels: async (_filters, options) => {
+    observations.push({ etag: options.etag, cached: options.cached })
+    if (observations.length === 1) return { data: { items: [{ modelKey: 'private-a', inputPrice: '9', releaseVersion: 7 }], page: 1, pageSize: 20, total: 1, releaseVersion: 7 }, etag: 'identity-a', releaseVersion: 7, publicationVersions: { price: 7 } }
+    assert.equal(options.etag, undefined); assert.equal(options.cached, undefined)
+    return { data: { items: [{ modelKey: 'redacted-b', priceVisibility: 'authenticated_only', releaseVersion: 7 }], page: 1, pageSize: 20, total: 1, releaseVersion: 7 }, etag: 'identity-b', releaseVersion: 7, publicationVersions: { price: 7 } }
+  } } })
+  await state.loadModels({}, { authenticated: true, authContext: { epoch: 'account-a', generation: 1, permissionRevision: 1, token: 'same-looking-token' } })
+  await state.loadModels({}, { authenticated: true, authContext: { epoch: 'account-b', generation: 1, permissionRevision: 1, token: 'same-looking-token' } })
+  assert.equal(state.value.models.data.items[0].modelKey, 'redacted-b')
+  assert.equal(JSON.stringify(Object.keys(state.value.cache)).includes('same-looking-token'), false)
 })
 
 test('site retains independently versioned content and pricing bound by the response generation', async () => {
