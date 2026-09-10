@@ -32,10 +32,10 @@ test('mounted detail clears A synchronously and ignores A after route changes to
   pending.get('222')(model('222'));await flush();pending.get('111')(model('111'));await flush();assert.equal(store.detail.guid,'222');wrapper.unmount()
 })
 
-test('mounted delete action clears component password before a hanging store request settles',async()=>{
+test('mounted delete action preserves exact password bytes at handoff then clears its reactive copy',async()=>{
   const route=reactive({params:{guid:'333'}}),seen=[];let finish
   const store=reactive({detail:model('333'),detailLoading:false,detailError:null,mutationError:null,modelSaving:false,statusSaving:false,deleteSaving:false,setMutationContext(){},clearMutationError(){},clearDetail(){},loadDetail(){return Promise.resolve()},cancel(){},remove(input){seen.push({...input});this.deleteSaving=true;return new Promise(resolve=>{finish=()=>{this.deleteSaving=false;resolve(true)}})}})
-  globalThis.__detailMount={route,store,router:{push(){},replace(){return Promise.resolve()}}};const wrapper=mount(Detail,{global:{stubs}});await flush();wrapper.vm.deleteForm.reason='retired';wrapper.vm.deleteForm.currentPassword='secret';const pending=wrapper.vm.remove();assert.equal(wrapper.vm.deleteForm.currentPassword,'');assert.equal(seen[0].currentPassword,'secret');finish();await pending;wrapper.unmount()
+  globalThis.__detailMount={route,store,router:{push(){},replace(){return Promise.resolve()}}};const wrapper=mount(Detail,{global:{stubs}});await flush();wrapper.vm.deleteForm.reason='retired';wrapper.vm.deleteForm.currentPassword=' secret ';const pending=wrapper.vm.remove();assert.equal(wrapper.vm.deleteForm.currentPassword,'');assert.equal(seen[0].currentPassword,' secret ');finish();await pending;wrapper.unmount()
 })
 
 test('every mounted delete dismissal clears password and reason before close completion',async()=>{

@@ -182,3 +182,21 @@ test('delete ticket resolving after route change or unmount can never start DELE
     resolveTicket({ticket,expiresAt:1});assert.equal(await pending,null);assert.equal(deletes,0)
   }
 })
+
+test('every non-delete mutation receives an AbortSignal and suppresses its late result after cancel', async () => {
+  const {createPublicModelAdminCoordinator}=await import('../stores/publicModelAdmin.js')
+  const cases=[
+    ['sync',(store)=>store.sync(),(_args)=>_args[0]],
+    ['create',(store)=>store.create(form,new Set(['up/m'])),args=>args[1]],
+    ['update',(store)=>store.update('123',{expectedRevision:1},mappedCurrent),args=>args[2]],
+    ['activate',(store)=>store.activate('123',1),args=>args[2]],
+    ['deactivate',(store)=>store.deactivate('123',1,'retired'),args=>args[3]],
+  ]
+  for(const [name,start,options] of cases){let resolve,captured;const api={[name]:(...args)=>{captured=options(args);return new Promise(r=>{resolve=r})}};const original={...dto};const state={items:[original],page:1,pageSize:20,total:1,detail:original,missing:null,loading:false,error:null};const store=createPublicModelAdminCoordinator({api,state});store.setMutationContext('test');const pending=start(store);await Promise.resolve();assert.equal(captured.signal instanceof AbortSignal,true,name);store.cancel();assert.equal(captured.signal.aborted,true,name);resolve(name==='sync'?{accepted:true}:{...dto,revision:2});assert.equal(await pending,null,name);assert.equal(state.detail,original,name)}
+})
+
+test('admin API forwards the caller signal through every mutation transport', async () => {
+  const calls=[],controller=new AbortController(),api=createPublicModelAdminApi({request:async args=>{calls.push(args);if(args.path.endsWith('/sync'))return ok({accepted:true},202);return ok(dto,args.method==='POST'&&args.path==='/admin/v2/public-models'?201:200)}})
+  await api.sync({signal:controller.signal});await api.create(form,{recentlyObservedIds:new Set(['up/m']),signal:controller.signal});await api.update('123',{expectedRevision:1},{current:mappedCurrent,signal:controller.signal});await api.activate('123',1,{signal:controller.signal});await api.deactivate('123',1,'retired',{signal:controller.signal})
+  assert.equal(calls.length,5);for(const call of calls)assert.equal(call.signal,controller.signal)
+})

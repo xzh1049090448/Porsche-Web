@@ -64,6 +64,7 @@ test('detail handles revision conflicts and permanent verified soft deletion', (
   assert.match(view, /aria-describedby="inactivation-reason-help"/)
   assert.match(view, /deleteForm\.reason\.trim\(\)/)
   assert.match(view, /deleteForm\.currentPassword\.trim\(\)/)
+  assert.match(view, /currentPassword=deleteForm\.currentPassword;/)
   assert.match(view, /id="delete-validation"/)
   assert.match(view, /loadDetail/)
   assert.match(view, /currentPassword/)
