@@ -6,6 +6,10 @@ export const messages = {
       subtitle: '智谱 GLM / DeepSeek',
       tagline: '聚合国内主流大模型',
     },
+    publicSite: {
+      console: '进入控制台', pricing: '模型价格', about: '关于', terms: '服务协议', privacy: '隐私政策',
+      loading: '正在加载已发布内容…', preparing: '内容准备中', empty: '暂无内容', error: '暂时无法显示内容', retry: '重试', demo: '演示内容',
+    },
     nav: {
       chat: '对话',
       billing: '套餐与用量',
@@ -300,6 +304,10 @@ export const messages = {
       title: 'China LLM Hub',
       subtitle: 'Zhipu GLM / DeepSeek',
       tagline: 'Aggregated leading Chinese LLMs',
+    },
+    publicSite: {
+      console: 'Open console', pricing: 'Model pricing', about: 'About', terms: 'Terms', privacy: 'Privacy',
+      loading: 'Loading published content…', preparing: 'Content is being prepared', empty: 'No published content', error: 'Content is temporarily unavailable', retry: 'Retry', demo: 'Demonstration',
     },
     nav: {
       chat: 'Chat',

@@ -1,26 +1,19 @@
-import { h } from 'vue'
 import { createMemoryHistory, createRouter, createWebHistory } from 'vue-router'
 import { safeAuthRedirect } from '../utils/auth-redirect.js'
 
-const publicPlaceholder = title => () => Promise.resolve({
-  name: `${title.replace(/\s+/g, '')}Placeholder`,
-  render: () => h('section', { class: 'public-page-placeholder', 'aria-labelledby': 'public-placeholder-title' }, [
-    h('h1', { id: 'public-placeholder-title' }, title),
-    h('p', '公开内容准备中'),
-  ]),
-})
+const publicPlaceholder = title => () => Promise.resolve({ name: `${title}Placeholder`, template: '<p>公开内容准备中</p>' })
 
 const mainLayout = () => import('@/layouts/MainLayout.vue')
 
 export const routes = [
   {
     path: '/', component: () => import('@/layouts/PublicLayout.vue'), meta: { public: true }, children: [
-      { path: '', name: 'PublicHome', component: publicPlaceholder('首页') },
+      { path: '', name: 'PublicHome', component: () => import('@/views/public/Home.vue') },
       { path: 'pricing', name: 'PublicPricing', component: publicPlaceholder('模型价格') },
       { path: 'pricing/:modelKey', name: 'PublicPricingDetail', component: publicPlaceholder('模型价格详情') },
-      { path: 'about', name: 'PublicAbout', component: publicPlaceholder('关于') },
-      { path: 'terms', name: 'PublicTerms', component: publicPlaceholder('服务协议') },
-      { path: 'privacy', name: 'PublicPrivacy', component: publicPlaceholder('隐私政策') },
+      { path: 'about', name: 'PublicAbout', component: () => import('@/views/public/About.vue') },
+      { path: 'terms', name: 'PublicTerms', component: () => import('@/views/public/LegalPage.vue'), props: { page: 'terms' } },
+      { path: 'privacy', name: 'PublicPrivacy', component: () => import('@/views/public/LegalPage.vue'), props: { page: 'privacy' } },
       { path: ':pathMatch(.*)*', name: 'PublicNotFound', component: () => import('@/views/PublicNotFound.vue') },
     ],
   },
