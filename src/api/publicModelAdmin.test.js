@@ -57,9 +57,19 @@ test('store cannot bypass API normalization with raw mutation payloads', async (
   const {createPublicModelAdminCoordinator}=await import('../stores/publicModelAdmin.js');let calls=0
   const api=createPublicModelAdminApi({request:async()=>{calls++;return ok(dto,201)}})
   const state={items:[],page:1,pageSize:20,total:0,detail:null,missing:null,loading:false,error:null};const store=createPublicModelAdminCoordinator({api,state})
-  assert.equal(await store.create({...form,unknown:'x'},new Set(['up/m'])),null);assert.equal(state.loading,false);assert.equal(state.error,'request_failed')
-  assert.equal(await store.update('123',{expectedRevision:1,upstreamModelId:'changed'},mappedCurrent),null);assert.equal(state.loading,false);assert.equal(state.error,'request_failed')
+  assert.equal(await store.create({...form,unknown:'x'},new Set(['up/m'])),null);assert.equal(state.loading,false);assert.deepEqual(state.error,{code:'request_failed',requestId:null})
+  assert.equal(await store.update('123',{expectedRevision:1,upstreamModelId:'changed'},mappedCurrent),null);assert.equal(state.loading,false);assert.deepEqual(state.error,{code:'request_failed',requestId:null})
   assert.equal(calls,0)
+})
+
+test('store retains only validated safe error code and correlation request id', async () => {
+  const {createPublicModelAdminCoordinator}=await import('../stores/publicModelAdmin.js')
+  const state={items:[],page:1,pageSize:20,total:0,detail:null,missing:null,loading:false,error:null}
+  const api={list:async()=>{const error=new Error('safe public error');error.code='unavailable';error.requestId='req-safe-42';error.response={data:{secret:'must-not-survive'}};throw error}}
+  const store=createPublicModelAdminCoordinator({api,state})
+  await store.load()
+  assert.deepEqual(state.error,{code:'unavailable',requestId:'req-safe-42'})
+  assert.equal(JSON.stringify(state).includes('must-not-survive'),false)
 })
 
 test('every synchronous validator settles safely and a later valid load recovers', async () => {
@@ -73,7 +83,7 @@ test('every synchronous validator settles safely and a later valid load recovers
     ()=>store.deactivate('123',1,' bad '),
     ()=>store.remove({guid:'123',expectedRevision:1,reason:'retired',currentPassword:''}),
   ]
-  for(const run of invalid){assert.equal(await run(),null);assert.equal(state.loading,false);assert.equal(state.error,'request_failed')}
+  for(const run of invalid){assert.equal(await run(),null);assert.equal(state.loading,false);assert.deepEqual(state.error,{code:'request_failed',requestId:null})}
   assert.equal(calls,0);await store.load();assert.equal(calls,1);assert.equal(state.loading,false);assert.equal(state.error,null)
 })
 

@@ -39,6 +39,7 @@
         <el-menu-item index="/api-keys">{{ t('nav.apiKeys') }}</el-menu-item>
         <el-menu-item index="/profile">{{ t('nav.profile') }}</el-menu-item>
         <el-menu-item v-if="canManageUsers" index="/users">用户管理</el-menu-item>
+        <el-menu-item v-if="isRoot" index="/admin/public-models">{{ t('publicModelsAdmin.nav') }}</el-menu-item>
       </el-menu>
       <div class="header-right">
         <LocaleToggle />
@@ -100,6 +101,7 @@
           <span>{{ t('nav.profile') }}</span>
         </el-menu-item>
         <el-menu-item v-if="canManageUsers" index="/users"><el-icon><User /></el-icon><span>用户管理</span></el-menu-item>
+        <el-menu-item v-if="isRoot" index="/admin/public-models"><el-icon><Setting /></el-icon><span>{{ t('publicModelsAdmin.nav') }}</span></el-menu-item>
       </el-menu>
     </MobileDrawer>
 
@@ -120,6 +122,7 @@ import {
   Wallet,
   Key,
   User,
+  Setting,
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useSettingsStore } from '@/stores/settings'
@@ -145,6 +148,7 @@ const user = computed(() => userStore.user)
 const activeMenu = computed(() => route.path)
 const avatarText = computed(() => (user.value?.nickname || 'U').slice(0, 1))
 const canManageUsers = computed(() => user.value?.admin_permissions?.includes('users.read') === true)
+const isRoot = computed(() => user.value?.role === 'root')
 
 const planLabel = computed(() => {
   const p = user.value?.plan

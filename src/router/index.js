@@ -24,6 +24,10 @@ export const routes = [
     { path: '', name: 'Users', component: () => import('@/views/Users.vue') },
     { path: ':guid', name: 'UserDetail', component: () => import('@/views/UserDetail.vue') },
   ] },
+  { path: '/admin/public-models', component: mainLayout, meta: { requiresAuth: true, rootOnly: true }, children: [
+    { path: '', name: 'PublicModelsAdmin', component: () => import('@/views/PublicModelsAdmin.vue') },
+    { path: ':guid', name: 'PublicModelDetail', component: () => import('@/views/PublicModelDetail.vue') },
+  ] },
   { path: '/profile', component: mainLayout, meta: { requiresAuth: true }, children: [
     { path: '', name: 'Profile', component: () => import('@/views/Profile.vue') },
   ] },
@@ -44,6 +48,7 @@ export function installAuthGuard(router, loadUserStore = async () => {
     const userStore = await loadUserStore()
     await userStore.ensureSession()
     if (to.meta.requiresAuth && !userStore.isLoggedIn) return { name: 'Login', query: { redirect: to.fullPath } }
+    if (to.meta.rootOnly && userStore.user?.role !== 'root') return { path: '/chat', replace: true }
     if (to.meta.guest && userStore.isLoggedIn) return { path: '/chat' }
     if (to.name === 'Login') {
       const redirect = safeAuthRedirect(to.query.redirect)
