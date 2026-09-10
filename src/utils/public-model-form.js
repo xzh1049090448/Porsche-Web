@@ -2,6 +2,7 @@ const DECIMAL = /^(0|[1-9][0-9]{0,11})(\.[0-9]{1,8})?$/
 const CODE = /^[a-z][a-z0-9_-]{0,63}$/
 const MODEL_KEY = /^[a-z][a-z0-9-]{0,127}$/
 const UNSAFE_UNICODE = /[\p{Cc}\p{Cf}]/u
+const CREATE_KEYS = new Set(['upstreamModelId','modelKey','displayName','provider','capabilities','contextWindow','inputPrice','outputPrice','publicDisplayGroup','endpointTypes','publicRestrictions','priceSource','priceReviewer','priceEffectiveAt','currency','unit'])
 const fail = () => { throw new Error('invalid_public_model_form') }
 const own = (value, key) => Object.hasOwn(value, key)
 const text = (value, max, optional = false) => {
@@ -28,6 +29,7 @@ const observedHas = (observed, id) => observed instanceof Set ? observed.has(id)
 
 export function normalizePublicModelCreateForm(input, { recentlyObservedIds } = {}) {
   rejectUnsupported(input)
+  if(Object.keys(input).some(key=>!CREATE_KEYS.has(key)))fail()
   const upstream = text(input.upstreamModelId, 255)
   if (!validUpstreamID(upstream) || !observedHas(recentlyObservedIds, upstream) || !validModelKey(input.modelKey)) fail()
   const inputPrice = decimal(input.inputPrice), outputPrice = decimal(input.outputPrice)

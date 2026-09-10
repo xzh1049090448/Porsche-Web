@@ -5,6 +5,8 @@ import { createPublicModelAdminApi, publicModelAdminListResource } from './publi
 const headers = {'Cache-Control':'no-store','X-Request-ID':'req-1'}
 const ticket = `av_${'A'.repeat(43)}`
 const dto = {guid:'123',model_key:'m',upstream_model_id:'up/m',display_name:'M',provider:'P',capabilities:['chat'],context_window:1000,input_price_usd_per_million_tokens:'1.00',output_price_usd_per_million_tokens:null,status:'draft',revision:1,last_upstream_check_at:null,public_display_group:'general',endpoint_types:['chat'],public_restrictions:[],price_source:'catalog',price_reviewer:'root',price_effective_at:1720000000000}
+const mappedCurrent={inputPriceUsdPerMillionTokens:'1.00',outputPriceUsdPerMillionTokens:null,priceSource:'catalog',priceReviewer:'root',priceEffectiveAt:1720000000000}
+const form={upstreamModelId:'up/m',modelKey:'m',displayName:'M',provider:'P',capabilities:['chat'],contextWindow:'1000',inputPrice:'1.00',outputPrice:'',publicDisplayGroup:'general',endpointTypes:['chat'],publicRestrictions:[],priceSource:'catalog',priceReviewer:'root',priceEffectiveAt:'1720000000000'}
 const ok = (data,status=200) => ({data,status,headers})
 
 test('list query is canonical and has no deleted/restore filter', () => {
@@ -16,9 +18,9 @@ test('list query is canonical and has no deleted/restore filter', () => {
 test('CRUD lifecycle missing and sync use exact routes and bodies', async () => {
   const calls=[]; const api=createPublicModelAdminApi({request:async x=>{calls.push(x); if(x.path.endsWith('/missing')) return ok({observed_without_configuration:['up/new'],configured_missing_upstream:[dto]}); if(x.path.endsWith('/sync')) return ok({accepted:true},202); if(x.method==='DELETE') return ok(null,204); if(x.path==='/admin/v2/public-models'&&x.method==='GET') return ok({items:[dto],page:1,page_size:20,total:1}); return ok(dto,x.method==='POST'&&x.path==='/admin/v2/public-models'?201:200)}})
   assert.equal((await api.list()).items[0].inputPriceUsdPerMillionTokens,'1.00')
-  await api.create({upstream_model_id:'up/m'}); await api.update('123',{expected_revision:1}); await api.activate('123',1); await api.deactivate('123',2,'retired'); await api.getMissing(); await api.sync(); await api.deleteModel('123',{expectedRevision:3,reason:'retired',ticket})
+  await api.create(form,{recentlyObservedIds:new Set(['up/m'])}); await api.update('123',{expectedRevision:1,displayName:'M'},{current:mappedCurrent}); await api.activate('123',1); await api.deactivate('123',2,'retired'); await api.getMissing(); await api.sync(); await api.deleteModel('123',{expectedRevision:3,reason:'retired',ticket})
   assert.deepEqual(calls.map(c=>[c.method,c.path,c.body,c.headers]),[
-    ['GET','/admin/v2/public-models',undefined,undefined],['POST','/admin/v2/public-models',{upstream_model_id:'up/m'},undefined],['PATCH','/admin/v2/public-models/123',{expected_revision:1},undefined],['POST','/admin/v2/public-models/123/activate',{expected_revision:1},undefined],['POST','/admin/v2/public-models/123/deactivate',{expected_revision:2,reason:'retired'},undefined],['GET','/admin/v2/public-models/missing',undefined,undefined],['POST','/admin/v2/public-models/sync',undefined,undefined],['DELETE','/admin/v2/public-models/123',{expected_revision:3,reason:'retired'},{'X-Action-Ticket':ticket}]
+    ['GET','/admin/v2/public-models',undefined,undefined],['POST','/admin/v2/public-models',{upstream_model_id:'up/m',model_key:'m',display_name:'M',provider:'P',capabilities:['chat'],context_window:1000,input_price_usd_per_million_tokens:'1.00',output_price_usd_per_million_tokens:null,public_display_group:'general',endpoint_types:['chat'],public_restrictions:[],price_source:'catalog',price_reviewer:'root',price_effective_at:1720000000000},undefined],['PATCH','/admin/v2/public-models/123',{expected_revision:1,display_name:'M'},undefined],['POST','/admin/v2/public-models/123/activate',{expected_revision:1},undefined],['POST','/admin/v2/public-models/123/deactivate',{expected_revision:2,reason:'retired'},undefined],['GET','/admin/v2/public-models/missing',undefined,undefined],['POST','/admin/v2/public-models/sync',undefined,undefined],['DELETE','/admin/v2/public-models/123',{expected_revision:3,reason:'retired'},{'X-Action-Ticket':ticket}]
   ])
 })
 test('delete verification keeps password only in request and ticket out of body', async () => {
@@ -40,6 +42,24 @@ test('strict response rejects unknown fields, numeric decimals and unsafe errors
   await assert.rejects(conflict.get('123'),e=>e.code==='revision_conflict'&&e.message==='请求失败，请刷新后重试')
   const mismatched=createPublicModelAdminApi({request:async()=>{throw {response:{status:409,data:{error:{code:'conflict',message:'revision conflict',request_id:'other'}},headers}}}})
   await assert.rejects(mismatched.get('123'),e=>e.code==='request_failed')
+  await assert.rejects(conflict.get('123'),e=>e.requestId==='req-1'&&Object.getOwnPropertyDescriptor(e,'requestId').writable===false&&!Object.hasOwn(e,'response'))
+})
+
+test('API normalization is unavoidable for create and update bypass attempts', async () => {
+  let calls=0;const api=createPublicModelAdminApi({request:async()=>{calls++;return ok(dto,201)}})
+  for(const bad of [{...form,perCallPrice:'1'},{...form,currency:'CNY'},{...form,unknown:'x'}]) await assert.rejects(Promise.resolve().then(()=>api.create(bad,{recentlyObservedIds:new Set(['up/m'])})),/invalid_public_model_form/)
+  await assert.rejects(Promise.resolve().then(()=>api.create(form,{recentlyObservedIds:new Set()})),/invalid_public_model_form/)
+  for(const bad of [{expectedRevision:1,modelKey:'x'},{expectedRevision:1,upstreamModelId:'x'},{expectedRevision:1,unknown:'x'},{expectedRevision:1,priceSource:''}]) await assert.rejects(Promise.resolve().then(()=>api.update('123',bad,{current:mappedCurrent})),/invalid_public_model_form/)
+  assert.equal(calls,0)
+})
+
+test('store cannot bypass API normalization with raw mutation payloads', async () => {
+  const {createPublicModelAdminCoordinator}=await import('../stores/publicModelAdmin.js');let calls=0
+  const api=createPublicModelAdminApi({request:async()=>{calls++;return ok(dto,201)}})
+  const state={items:[],page:1,pageSize:20,total:0,detail:null,missing:null,loading:false,error:null};const store=createPublicModelAdminCoordinator({api,state})
+  await assert.rejects(Promise.resolve().then(()=>store.create({...form,unknown:'x'},new Set(['up/m']))),/invalid_public_model_form/)
+  await assert.rejects(Promise.resolve().then(()=>store.update('123',{expectedRevision:1,upstreamModelId:'changed'},mappedCurrent)),/invalid_public_model_form/)
+  assert.equal(calls,0)
 })
 
 test('strict DTO enforces int64 identities and every backend-safe scalar and array', async () => {
@@ -76,6 +96,15 @@ test('store exposes create update activate and inactivate without retaining requ
   const {createPublicModelAdminCoordinator}=await import('../stores/publicModelAdmin.js');const calls=[]
   const changed={...dto,revision:2,status:'active'};const api={list:async()=>{},get:async()=>{},getMissing:async()=>{},sync:async()=>{},create:async(body)=>{calls.push(['create',body]);return dto},update:async(id,body)=>{calls.push(['update',id,body]);return changed},activate:async(id,rev)=>{calls.push(['activate',id,rev]);return changed},deactivate:async(id,rev,reason)=>{calls.push(['deactivate',id,rev,reason]);return {...changed,status:'inactive'}},issueDeleteVerification:async()=>({ticket,expiresAt:1}),deleteModel:async()=>true}
   const state={items:[],page:1,pageSize:20,total:0,detail:null,missing:null,loading:false,error:null};const store=createPublicModelAdminCoordinator({api,state})
-  await store.create({model_key:'m'});await store.update('123',{expected_revision:1});await store.activate('123',2);await store.deactivate('123',3,'retired')
-  assert.deepEqual(calls,[['create',{model_key:'m'}],['update','123',{expected_revision:1}],['activate','123',2],['deactivate','123',3,'retired']]);assert.equal(JSON.stringify(state).includes('ticket'),false)
+  await store.create(form,new Set(['up/m']));await store.update('123',{expectedRevision:1},mappedCurrent);await store.activate('123',2);await store.deactivate('123',3,'retired')
+  assert.deepEqual(calls,[['create',form],['update','123',{expectedRevision:1}],['activate','123',2],['deactivate','123',3,'retired']]);assert.equal(JSON.stringify(state).includes('ticket'),false)
+})
+
+test('delete coordinator scrubs caller password before hanging delete phase', async () => {
+  const {createPublicModelAdminCoordinator}=await import('../stores/publicModelAdmin.js');let finishDelete,issueObject
+  const api={issueDeleteVerification:async value=>{issueObject=value;return {ticket,expiresAt:1}},deleteModel:()=>new Promise(r=>{finishDelete=r})}
+  const state={items:[{guid:'123'}],page:1,pageSize:20,total:1,detail:null,missing:null,loading:false,error:null};const store=createPublicModelAdminCoordinator({api,state});const input={guid:'123',expectedRevision:1,reason:'retired',currentPassword:'secret'}
+  const pending=store.remove(input);await new Promise(setImmediate)
+  assert.equal(input.currentPassword,null);assert.equal(issueObject.currentPassword,null);assert.equal(JSON.stringify(state).includes('secret'),false)
+  issueObject=null;finishDelete(true);await pending;assert.equal(JSON.stringify(state).includes(ticket),false)
 })
