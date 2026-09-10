@@ -133,16 +133,20 @@ import LocaleToggle from '@/components/LocaleToggle.vue'
 import AuthStatus from '@/components/AuthStatus.vue'
 import { useBreakpoint } from '@/composables/useBreakpoint'
 import { useI18n } from '@/composables/useI18n'
+import { usePublicModelAdminStore } from '@/stores/publicModelAdmin'
+import { installRuntimeRootGuard } from '@/router/runtime-root-guard.js'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const publicModelAdminStore = usePublicModelAdminStore()
 const settingsStore = useSettingsStore()
 const showMobileMenu = ref(false)
 const { isTablet } = useBreakpoint()
 const { t } = useI18n()
 
 watch(() => userStore.isLoggedIn, value => { if (!value) void router.replace('/login') })
+installRuntimeRootGuard({ route, userStore, router, cancelAdmin: () => { publicModelAdminStore.setMutationContext('unauthorized'); publicModelAdminStore.cancel() } })
 
 const user = computed(() => userStore.user)
 const activeMenu = computed(() => route.path)

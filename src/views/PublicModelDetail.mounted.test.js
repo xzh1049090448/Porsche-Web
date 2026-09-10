@@ -57,3 +57,12 @@ test('mounted conflict refresh failure reports correlation without inventing lat
   const store=reactive({detail:before,detailLoading:false,detailError:null,mutationError:null,modelSaving:false,statusSaving:false,deleteSaving:false,setMutationContext(){},clearDetail(){this.detail=null},loadDetail(){if(loads++===0){this.detail=before;return Promise.resolve(before)}this.detailError={code:'unavailable',requestId:'req-refresh'};return Promise.resolve(null)},cancel(){},update(){this.mutationError={code:'revision_conflict',requestId:'req-conflict'};return Promise.resolve(null)}})
   globalThis.__detailMount={route,store,router:{push(){},replace(){}}};const wrapper=mount(Detail,{global:{stubs}});await flush();await wrapper.vm.update({expectedRevision:1,inputPrice:'9.00'});await flush();assert.deepEqual(wrapper.vm.conflictComparison,{unavailable:true,requestId:'req-refresh'});assert.equal(wrapper.vm.conflictComparison.latest,undefined);wrapper.unmount()
 })
+
+test('mounted destructive dialogs reject whitespace and keep server errors inside the dialog',async()=>{
+  const route=reactive({params:{guid:'777'}}),calls=[]
+  const store=reactive({detail:model('777'),detailLoading:false,detailError:null,mutationError:null,modelSaving:false,statusSaving:false,deleteSaving:false,setMutationContext(){},clearDetail(){},loadDetail(){return Promise.resolve(this.detail)},cancel(){},deactivate(){calls.push('deactivate')},remove(){calls.push('remove');this.mutationError={code:'unavailable',requestId:'req-dialog'};return Promise.resolve(null)}})
+  globalThis.__detailMount={route,store,router:{push(){},replace(){}}};const wrapper=mount(Detail,{global:{stubs}});await flush()
+  wrapper.vm.showDeactivate=true;wrapper.vm.deactivateReason='   ';await wrapper.vm.deactivate();assert.equal(calls.includes('deactivate'),false);assert.equal(wrapper.vm.dialogError.code,'reason_required')
+  wrapper.vm.showDelete=true;wrapper.vm.deleteForm.reason='  ';wrapper.vm.deleteForm.currentPassword='  ';await wrapper.vm.remove();assert.equal(calls.includes('remove'),false);assert.equal(wrapper.vm.dialogError.code,'reason_required')
+  wrapper.vm.deleteForm.reason='valid';wrapper.vm.deleteForm.currentPassword='secret';await wrapper.vm.remove();assert.equal(calls.includes('remove'),true);assert.deepEqual(wrapper.vm.dialogError,{code:'unavailable',requestId:'req-dialog'});assert.equal(wrapper.vm.showDelete,true);wrapper.unmount()
+})

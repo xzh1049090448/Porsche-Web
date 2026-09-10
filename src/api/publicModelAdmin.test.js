@@ -170,3 +170,14 @@ test('delete coordinator scrubs caller password before hanging delete phase', as
   assert.equal(input.currentPassword,null);assert.equal(issueObject.currentPassword,null);assert.equal(JSON.stringify(state).includes('secret'),false)
   issueObject=null;finishDelete(true);await pending;assert.equal(JSON.stringify(state).includes(ticket),false)
 })
+
+test('delete ticket resolving after route change or unmount can never start DELETE', async () => {
+  const {createPublicModelAdminCoordinator}=await import('../stores/publicModelAdmin.js')
+  for (const invalidate of [store=>store.setMutationContext('detail:222'),store=>store.cancel()]) {
+    let resolveTicket,deletes=0,signal
+    const api={issueDeleteVerification:(_value,options)=>{signal=options.signal;return new Promise(resolve=>{resolveTicket=resolve})},deleteModel:async()=>{deletes++;return true}}
+    const state={items:[{guid:'111'}],page:1,pageSize:20,total:1,detail:{guid:'111'},missing:null,loading:false,error:null};const store=createPublicModelAdminCoordinator({api,state});store.setMutationContext('detail:111')
+    const pending=store.remove({guid:'111',expectedRevision:1,reason:'retired',currentPassword:'secret'});await Promise.resolve();invalidate(store);assert.equal(signal.aborted,true)
+    resolveTicket({ticket,expiresAt:1});assert.equal(await pending,null);assert.equal(deletes,0)
+  }
+})
