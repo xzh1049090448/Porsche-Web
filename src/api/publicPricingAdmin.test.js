@@ -85,6 +85,11 @@ test('visible snapshot timestamps require real UTC calendar instants',async()=>{
  for(const field of ['updated_at','effective_at'])for(const value of ['2026-13-10T00:00:00Z','2026-02-30T00:00:00Z','2026-09-10T25:00:00Z']){const bad={...visible,[field]:value};const api=createPublicPricingAdminApi({request:async()=>ok({release,items:[bad]})});await assert.rejects(api.getRelease('101'),/invalid_public_pricing_admin_response/)}
 })
 
+test('release list and detail require semantic UTC created timestamps',async()=>{
+ for(const created_at of ['2026-02-30T00:00:00Z','2026-13-01T00:00:00Z','2026-09-10T24:00:00Z','2026-09-10T00:00:00+00:00'])for(const detail of [false,true]){const bad={...release,created_at},api=createPublicPricingAdminApi({request:async()=>detail?ok({release:bad,items:[visible]}):ok({items:[bad],page:1,page_size:20,total:1})});await assert.rejects(detail?api.getRelease('101'):api.listReleases(),/invalid_public_pricing_admin_response/)}
+ const fractional={...release,created_at:'2026-09-10T00:00:00.123456789Z'};for(const detail of [false,true]){const api=createPublicPricingAdminApi({request:async()=>detail?ok({release:fractional,items:[visible]}):ok({items:[fractional],page:1,page_size:20,total:1})});const result=await(detail?api.getRelease('101'):api.listReleases());assert.equal(detail?result.release.createdAt:result.items[0].createdAt,fractional.created_at)}
+})
+
 test('action verification maps only the exact admin-action envelope with request ID',async()=>{
  const actionHeaders={'Cache-Control':'no-store','X-Request-ID':'req-action'}
  for(const [status,code] of [[403,'action_verification_rejected'],[409,'action_verification_conflict'],[422,'action_inactive']]){const api=createPublicPricingAdminApi({request:async()=>{throw{response:{status,headers:actionHeaders,data:{error:{code,message:'请求无法完成',type:'admin_action_error',request_id:'req-action'}}}}}});await assert.rejects(api.issuePublishVerification(2,'wrong'),e=>e.code===code&&e.requestId==='req-action')}
