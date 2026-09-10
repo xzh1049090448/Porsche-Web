@@ -11,7 +11,7 @@
           @click="showMobileMenu = true"
         />
         <el-button
-          v-if="isTablet && route.path !== '/'"
+          v-if="isTablet && route.path !== '/chat'"
           text
           class="header-back-btn touch-target"
           :icon="ArrowLeft"
@@ -33,7 +33,7 @@
         :ellipsis="false"
         router
       >
-        <el-menu-item index="/">{{ t('nav.chat') }}</el-menu-item>
+        <el-menu-item index="/chat">{{ t('nav.chat') }}</el-menu-item>
         <el-menu-item index="/billing">{{ t('nav.billing') }}</el-menu-item>
         <el-menu-item index="/api-keys">{{ t('nav.apiKeys') }}</el-menu-item>
         <el-menu-item index="/profile">{{ t('nav.profile') }}</el-menu-item>
@@ -82,7 +82,7 @@
         router
         @select="showMobileMenu = false"
       >
-        <el-menu-item index="/">
+        <el-menu-item index="/chat">
           <el-icon><ChatDotRound /></el-icon>
           <span>{{ t('nav.chat') }}</span>
         </el-menu-item>
@@ -172,7 +172,7 @@ function goBack() {
   if (window.history.length > 1) {
     router.back()
   } else {
-    router.push('/')
+    router.push('/chat')
   }
 }
 
