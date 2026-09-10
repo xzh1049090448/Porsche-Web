@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { installAuthGuard, routes } from './index.js'
+import { bootstrapModeForPath, createLazyLoadFailureHandler, installAuthGuard, installBootstrapHandoff, routes } from './index.js'
 
 const Stub = { template: '<div />' }
 const testRoutes = routes.map(route => ({
@@ -77,4 +77,38 @@ test('logged-in guest navigation and missing login redirects use /chat', async (
   await anonymous.router.push('/login')
   await anonymous.router.isReady()
   assert.equal(anonymous.router.currentRoute.value.query.redirect, '/chat')
+})
+
+test('bootstrap boundary uses one hard handoff and keeps same-boundary navigation in the SPA', async () => {
+  assert.equal(bootstrapModeForPath('/'), 'public')
+  assert.equal(bootstrapModeForPath('/pricing/model'), 'public')
+  assert.equal(bootstrapModeForPath('/chat'), 'auth')
+  assert.equal(bootstrapModeForPath('/login'), 'auth')
+
+  const handoffs = []
+  const router = createRouter({ history: createMemoryHistory(), routes: testRoutes })
+  installBootstrapHandoff(router, { mode: 'public', handoff: path => handoffs.push(path) })
+  await router.push('/pricing')
+  assert.equal(router.currentRoute.value.path, '/pricing')
+  await router.push('/login?redirect=%2Fchat')
+  assert.deepEqual(handoffs, ['/login?redirect=%2Fchat'])
+  assert.equal(router.currentRoute.value.path, '/pricing')
+})
+
+test('lazy import recovery reloads once then uses a constant safe fallback without loops', async () => {
+  const values = new Map()
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }
+  let reloads = 0
+  let fallbacks = 0
+  const handler = createLazyLoadFailureHandler({ storage, reload: () => { reloads += 1 }, fallback: () => { fallbacks += 1 } })
+  const stale = new TypeError('Failed to fetch dynamically imported module: /assets/Page-old.js')
+  assert.equal(handler(stale), true)
+  assert.equal(reloads, 1)
+  assert.equal(fallbacks, 0)
+  assert.equal(handler(stale), true)
+  assert.equal(reloads, 1)
+  assert.equal(fallbacks, 1)
+  assert.equal(handler(new Error('ordinary component error')), false)
+  assert.equal(reloads, 1)
+  assert.equal(fallbacks, 1)
 })

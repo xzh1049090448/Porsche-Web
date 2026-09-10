@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
+import { publicModuleGraphPlugin } from './scripts/public-module-graph.mjs'
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), publicModuleGraphPlugin()],
   build: { manifest: true },
   resolve: {
     alias: {

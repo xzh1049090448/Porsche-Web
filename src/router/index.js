@@ -65,8 +65,78 @@ export function installAuthGuard(router, loadUserStore = async () => {
   return router
 }
 
-export function createAppRouter(history = typeof window === 'undefined' ? createMemoryHistory() : createWebHistory()) {
-  return installAuthGuard(createRouter({ history, routes }))
+const AUTH_BOOTSTRAP_PATH = /^\/(?:login|register|chat|profile|billing|api-keys|users)(?:\/|$)/
+const LAZY_RELOAD_MARKER = 'public_route_lazy_reload_v1'
+const LAZY_LOAD_ERROR = /Failed to fetch dynamically imported module|Importing a module script failed|Loading (?:CSS )?chunk .+ failed|ChunkLoadError/i
+
+export function bootstrapModeForPath(path = '/') {
+  let pathname
+  try { pathname = new URL(path, 'https://bootstrap.invalid').pathname }
+  catch { return 'public' }
+  return AUTH_BOOTSTRAP_PATH.test(pathname) ? 'auth' : 'public'
+}
+
+export function installBootstrapHandoff(router, { mode, handoff } = {}) {
+  if (!mode || typeof handoff !== 'function') return router
+  router.beforeEach(to => {
+    const targetMode = to.meta.public ? 'public' : 'auth'
+    if (targetMode === mode) return true
+    handoff(to.fullPath)
+    return false
+  })
+  return router
+}
+
+export function createLazyLoadFailureHandler({ storage, reload, fallback } = {}) {
+  return error => {
+    if (!LAZY_LOAD_ERROR.test(String(error?.message || error))) return false
+    if (storage?.getItem(LAZY_RELOAD_MARKER) !== 'attempted') {
+      storage?.setItem(LAZY_RELOAD_MARKER, 'attempted')
+      reload?.()
+    } else {
+      storage?.removeItem(LAZY_RELOAD_MARKER)
+      fallback?.()
+    }
+    return true
+  }
+}
+
+function renderSafeLoadError() {
+  const host = document.querySelector('#app')
+  if (!host) return
+  host.replaceChildren()
+  const main = document.createElement('main')
+  const heading = document.createElement('h1')
+  heading.textContent = '页面暂时无法加载'
+  const detail = document.createElement('p')
+  detail.textContent = '请刷新后重试，或返回首页。'
+  const home = document.createElement('a')
+  home.href = '/'
+  home.textContent = '返回首页'
+  main.append(heading, detail, home)
+  host.append(main)
+}
+
+export function createAppRouter(
+  history = typeof window === 'undefined' ? createMemoryHistory() : createWebHistory(),
+  options = {},
+) {
+  const router = createRouter({ history, routes })
+  const mode = options.bootstrapMode ?? (typeof window === 'undefined' ? 'public' : bootstrapModeForPath(window.location.pathname))
+  installBootstrapHandoff(router, {
+    mode,
+    handoff: options.handoff ?? (path => window.location.assign(path)),
+  })
+  installAuthGuard(router, options.loadUserStore)
+  const storage = options.storage ?? (typeof sessionStorage === 'undefined' ? null : sessionStorage)
+  const handleLazyFailure = createLazyLoadFailureHandler({
+    storage,
+    reload: options.reload ?? (() => window.location.reload()),
+    fallback: options.lazyFallback ?? renderSafeLoadError,
+  })
+  router.onError(handleLazyFailure)
+  router.afterEach(() => storage?.removeItem(LAZY_RELOAD_MARKER))
+  return router
 }
 
 export default createAppRouter()
