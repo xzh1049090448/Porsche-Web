@@ -51,7 +51,10 @@ const recover = createLazyLoadFailureHandler({
 void bootstrapApplication({
   mode: bootstrapMode,
   loadAuthApp,
-  mountPublicApp: () => createApp(App).use(router).mount('#app'),
+  mountPublicApp: async () => {
+    const { createPinia } = await import('pinia')
+    return createApp(App).use(createPinia()).use(router).mount('#app')
+  },
   recover,
   fallback: () => renderSafeLoadError(),
 })
