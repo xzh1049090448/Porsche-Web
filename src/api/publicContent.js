@@ -44,7 +44,7 @@ async function productionAuthenticatedFetch(input, init) {
 export function createPublicContentClient({ fetchImpl = globalThis.fetch, authenticatedFetch: authenticatedFetchImpl, baseURL = import.meta.env?.VITE_API_BASE ?? '', getAuthorization = null } = {}) {
   async function request(path, mapper, options = {}) {
     const headers = {}
-    if (options.etag) headers['If-None-Match'] = options.etag
+    if (!options.authenticated && options.etag) headers['If-None-Match'] = options.etag
     if (options.authenticated && getAuthorization) { const authorization = getAuthorization(); if (authorization) headers.Authorization = authorization }
     let response
     try {
@@ -53,23 +53,28 @@ export function createPublicContentClient({ fetchImpl = globalThis.fetch, authen
     }
     catch (error) { if (error?.name === 'AbortError') throw error; throw new PublicContentError('network_error') }
     if (response.status === 304) {
+      if (options.authenticated) throw new PublicContentError('invalid_304', 304)
       if (!options.cached) throw new PublicContentError('invalid_304', 304)
       return { ...options.cached, notModified: true }
     }
     if (!response.ok) throw new PublicContentError(({ 401: 'authentication_required', 404: 'not_found', 410: 'gone', 503: 'unavailable' })[response.status] || 'request_failed', response.status)
     const etag = response.headers.get('ETag'); const headerVersion = Number(response.headers.get('X-Public-Release-Version'))
     const cacheControl = response.headers.get('Cache-Control')
-    if (!etag || !positiveInteger(headerVersion) || cacheControl !== 'public, max-age=60, stale-while-revalidate=300') throw new PublicContentError('invalid_response_headers')
+    const expectedCacheControl = options.authenticated ? 'private, no-store' : 'public, max-age=60, stale-while-revalidate=300'
+    if (!etag || !positiveInteger(headerVersion) || cacheControl !== expectedCacheControl) throw new PublicContentError('invalid_response_headers')
     let raw
     try { raw = await response.json() } catch { throw new PublicContentError('invalid_response') }
     let data
     try { data = mapper(raw) } catch (error) { throw Object.assign(new PublicContentError(error.message === 'mixed_publication_generation' ? error.message : 'invalid_response'), { cause: error }) }
+    const inferredProtected = data.priceVisibility === 'authenticated_only' || data.model?.priceVisibility === 'authenticated_only' || data.items?.some(item => item.priceVisibility === 'authenticated_only')
+    const expectedVary = options.varyAuthorization ?? inferredProtected
+    if ((response.headers.get('Vary') === 'Authorization') !== !!expectedVary) throw new PublicContentError('invalid_response_headers')
     const bodyVersions = data.releaseVersion === undefined ? [data.contentReleaseVersion, data.priceReleaseVersion] : [data.releaseVersion]
     if (!bodyVersions.includes(headerVersion)) throw new PublicContentError('mixed_publication_generation')
     const publicationVersions = data.contentReleaseVersion === undefined
       ? path.includes('/models') ? { price: data.releaseVersion } : { content: data.releaseVersion }
       : { content: data.contentReleaseVersion, price: data.priceReleaseVersion }
-    return { data, etag, releaseVersion: headerVersion, publicationVersions, notModified: false }
+    return { data, etag: options.authenticated ? undefined : etag, releaseVersion: headerVersion, publicationVersions, notModified: false }
   }
   const document = path => options => request(path, mapDocument, options)
   return {

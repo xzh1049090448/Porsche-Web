@@ -9,10 +9,10 @@ const documentBody = { document: '# hello', release_version: 7 }
 
 test('uses all seven exact public paths, query encoding, conditional headers and optional auth', async () => {
   const calls = []
-  const client = createPublicContentClient({ fetchImpl: async (url, options) => { calls.push([url, options]); return response(url.includes('/models/') ? { model: { model_key: 'key', display_name: 'M', provider: 'P', capabilities: [], context_window: 1, price_visibility: 'authenticated_only', release_version: 7, pricing_type: 'token', endpoint_types: ['responses'], updated_at: '2026-09-10T00:00:00Z' } } : url.includes('/models?') ? { items: [], page: 1, page_size: 20, total: 0, release_version: 7, facets: { providers: [], capabilities: [], endpoint_types: [], public_display_groups: [] } } : url.endsWith('/site') ? { content_release_version: 7, price_release_version: 7, price_visibility: 'authenticated_only' } : documentBody) }, getAuthorization: () => 'Bearer token' })
-  await client.getSite(); await client.getHome(); await client.getModels({ search: 'a&b', provider: 'P', capability: 'chat', endpointType: 'responses', publicDisplayGroup: 'featured', pricingType: 'token', sort: 'input_price', order: 'desc', page: 1, pageSize: 20 }, { etag: '"old"', authenticated: true }); await client.getModel('key'); await client.getAbout(); await client.getTerms(); await client.getPrivacy()
+  const client = createPublicContentClient({ fetchImpl: async (url, options) => { calls.push([url, options]); const body = url.includes('/models/') ? { model: { model_key: 'key', display_name: 'M', provider: 'P', capabilities: [], context_window: 1, price_visibility: 'authenticated_only', release_version: 7, pricing_type: 'token', endpoint_types: ['responses'], updated_at: '2026-09-10T00:00:00Z' } } : url.includes('/models?') ? { items: [], page: 1, page_size: 20, total: 0, release_version: 7, facets: { providers: [], capabilities: [], endpoint_types: [], public_display_groups: [] } } : url.endsWith('/site') ? { content_release_version: 7, price_release_version: 7, price_visibility: 'authenticated_only' } : documentBody; return response(body, { headers: { ...(options.headers.Authorization ? { 'Cache-Control': 'private, no-store' } : {}), ...((url.endsWith('/site') || url.includes('/models')) ? { Vary: 'Authorization' } : {}) } }) }, getAuthorization: () => 'Bearer token' })
+  await client.getSite(); await client.getHome(); await client.getModels({ search: 'a&b', provider: 'P', capability: 'chat', endpointType: 'responses', publicDisplayGroup: 'featured', pricingType: 'token', sort: 'input_price', order: 'desc', page: 1, pageSize: 20 }, { etag: '"old"', authenticated: true, varyAuthorization: true }); await client.getModel('key'); await client.getAbout(); await client.getTerms(); await client.getPrivacy()
   assert.deepEqual(calls.map(c => c[0]), ['/api/v1/public/site', '/api/v1/public/home', '/api/v1/public/models?search=a%26b&provider=P&capability=chat&endpoint_type=responses&public_display_group=featured&pricing_type=token&sort=input_price&order=desc&page=1&page_size=20', '/api/v1/public/models/key', '/api/v1/public/pages/about', '/api/v1/public/pages/terms', '/api/v1/public/pages/privacy'])
-  assert.equal(calls[2][1].headers['If-None-Match'], '"old"'); assert.equal(calls[2][1].headers.Authorization, 'Bearer token')
+  assert.equal(calls[2][1].headers['If-None-Match'], undefined); assert.equal(calls[2][1].headers.Authorization, 'Bearer token')
   assert.equal(calls[0][1].headers.Authorization, undefined)
 })
 
@@ -20,6 +20,34 @@ test('304 reuses cached value and retains ETag and release version', async () =>
   const cached = { data: documentBody, etag: '"abc"', releaseVersion: 7 }
   const client = createPublicContentClient({ fetchImpl: async () => new Response(null, { status: 304 }) })
   assert.deepEqual(await client.getHome({ cached }), { ...cached, notModified: true })
+})
+
+test('authenticated responses require private no-store and never use ETag revalidation or 304', async () => {
+  const calls = []
+  const client = createPublicContentClient({ authenticatedFetch: async (_url, init) => { calls.push(init); return response(documentBody, { headers: { 'Cache-Control': 'private, no-store' } }) } })
+  const result = await client.getHome({ authenticated: true, etag: '"old"', cached: { data: documentBody } })
+  assert.equal(calls[0].headers['If-None-Match'], undefined); assert.equal(result.etag, undefined)
+  const notModified = createPublicContentClient({ authenticatedFetch: async () => new Response(null, { status: 304 }) })
+  await assert.rejects(() => notModified.getHome({ authenticated: true, cached: { data: documentBody } }), error => error.code === 'invalid_304')
+  const publicForAuth = createPublicContentClient({ authenticatedFetch: async () => response(documentBody) })
+  await assert.rejects(() => publicForAuth.getHome({ authenticated: true }), error => error.code === 'invalid_response_headers')
+  const privateForAnonymous = createPublicContentClient({ fetchImpl: async () => response(documentBody, { headers: { 'Cache-Control': 'private, no-store' } }) })
+  await assert.rejects(() => privateForAnonymous.getHome(), error => error.code === 'invalid_response_headers')
+})
+
+test('client and store render private site list detail without retaining authenticated response cache', async () => {
+  const calls = []
+  const priced = { model_key: 'priced', display_name: 'Priced', provider: 'P', capabilities: [], context_window: 1, price_visibility: 'visible', release_version: 7, pricing_type: 'token', endpoint_types: ['responses'], updated_at: '2026-09-10T00:00:00Z', input_price_usd_per_million_tokens: '1', price_source: 'upstream', price_reviewer: 'root', effective_at: '2026-09-10T00:00:00Z' }
+  const facets = { providers: ['P'], capabilities: [], endpoint_types: ['responses'], public_display_groups: [] }
+  const client = createPublicContentClient({ authenticatedFetch: async (url, init) => { calls.push([url, init]); const body = url.endsWith('/site') ? { content_release_version: 7, price_release_version: 7, price_visibility: 'authenticated_only' } : url.includes('/models/') ? { model: priced } : { items: [priced], page: 1, page_size: 20, total: 1, release_version: 7, facets }; return response(body, { headers: { 'Cache-Control': 'private, no-store', Vary: 'Authorization' } }) } })
+  const state = createPublicContentState({ api: client })
+  const auth = { authenticated: true, authContext: { epoch: 'account', generation: 1, permissionRevision: 1, token: 'access' } }
+  await state.loadSite(auth); await state.loadModels({}, auth); await state.loadModel('priced', auth); await state.loadModels({}, auth)
+  assert.equal(state.value.models.data.items[0].inputPrice, '1'); assert.equal(state.value.details.priced.data.model.modelKey, 'priced')
+  assert.deepEqual(state.value.cache, {})
+  assert.ok(calls.every(([, init]) => init.headers['If-None-Match'] === undefined))
+  const wrongVary = createPublicContentClient({ authenticatedFetch: async () => response({ items: [priced], page: 1, page_size: 20, total: 1, release_version: 7, facets }, { headers: { 'Cache-Control': 'private, no-store' } }) })
+  await assert.rejects(() => wrongVary.getModels({}, { authenticated: true, varyAuthorization: true }), error => error.code === 'invalid_response_headers')
 })
 
 test('normalizes status/network errors without leaking response bodies and preserves aborts', async () => {
@@ -179,7 +207,7 @@ test('content and price generations advance independently and reject only their 
 
 test('authenticated production requests delegate to the shared authenticated fetch adapter', async () => {
   const calls = []
-  const authenticatedFetch = async (url, init) => { calls.push([url, init]); return response(documentBody) }
+  const authenticatedFetch = async (url, init) => { calls.push([url, init]); return response(documentBody, { headers: { 'Cache-Control': 'private, no-store' } }) }
   const rawFetch = async () => { throw new Error('anonymous transport must not run') }
   const client = createPublicContentClient({ fetchImpl: rawFetch, authenticatedFetch })
   await client.getHome({ authenticated: true })

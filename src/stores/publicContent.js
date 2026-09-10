@@ -72,9 +72,10 @@ export function createPublicContentState({ api = publicContentApi } = {}) {
     const current = (sequences.get(key) || 0) + 1; sequences.set(key, current)
     controllers.get(key)?.abort(); const controller = new AbortController(); controllers.set(key, controller)
     const state = target(key); state.status = state.data ? 'pending' : 'loading'; state.error = null
-    const partition = cacheKey(resource, representation); const cached = options.force ? undefined : value.cache[partition]
+    const partition = cacheKey(resource, representation); const cached = options.authenticated || options.force ? undefined : value.cache[partition]
     try {
-      const result = await api[method](...args, { signal: controller.signal, authenticated: !!options.authenticated, etag: cached?.etag, cached })
+      const varyAuthorization = value.site.data?.priceVisibility === 'authenticated_only'
+      const result = await api[method](...args, { signal: controller.signal, authenticated: !!options.authenticated, etag: cached?.etag, cached, varyAuthorization: key === 'site' ? undefined : varyAuthorization })
       if (sequences.get(key) !== current) return null
       const inferred = result.publicationVersions || (key === 'site' ? { content: result.data.contentReleaseVersion, price: result.data.priceReleaseVersion } : { [key === 'models' || key.startsWith('detail:') ? 'price' : 'content']: result.releaseVersion })
       const binding = bindVersions(key, inferred)
@@ -87,7 +88,7 @@ export function createPublicContentState({ api = publicContentApi } = {}) {
         }
         throw new Error('mixed_publication_generation')
       }
-      value.cache[partition] = { data: result.data, etag: result.etag, releaseVersion: result.releaseVersion, publicationVersions: inferred }
+      if (!options.authenticated) value.cache[partition] = { data: result.data, etag: result.etag, releaseVersion: result.releaseVersion, publicationVersions: inferred }
       state.data = result.data; state.status = Array.isArray(result.data?.items) && result.data.items.length === 0 ? 'ready-empty' : 'ready'; return result.data
     } catch (error) {
       if (sequences.get(key) !== current || error?.name === 'AbortError') return null
