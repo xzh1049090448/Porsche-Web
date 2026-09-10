@@ -1,14 +1,14 @@
 <script setup>
 import { computed, inject, watch } from 'vue'
-import { loadVerifiedPublicPage, verifiedPublicPageData } from '@/stores/publicHomePublication.js'
+import { verifiedPublicPageData } from '@/stores/publicHomePublication.js'
 import PublicContentState from '@/components/public/PublicContentState.vue'
 import { createPublishedDocumentCodec } from '@/utils/public-document.js'
 import { usePublicI18n } from '@/i18n/public-runtime.js'
 const props = defineProps({ page: { type: String, required: true, validator: value => ['terms', 'privacy'].includes(value) } })
-const { store: state, ready } = inject('public-home-publication'); const codec = createPublishedDocumentCodec(); const { t } = usePublicI18n()
+const { store: state, ready, loadPage } = inject('public-home-publication'); const codec = createPublishedDocumentCodec(); const { t } = usePublicI18n()
 const slot = computed(() => state.value.pages[props.page])
 const content = computed(() => { try { return codec.legal(codec.decode(verifiedPublicPageData(state, props.page)?.document || '')) } catch { return null } })
-const load = page => loadVerifiedPublicPage(state, page)
+const load = page => loadPage(page)
 const retry = () => load(props.page)
 watch(() => props.page, (page, previous, onCleanup) => { let active = true; if (previous) state.invalidatePage(previous); state.invalidatePage(page); (async () => { await ready; if (active) await load(page) })().catch(() => {}); onCleanup(() => { active = false; state.invalidatePage(page) }) }, { immediate: true })
 </script>

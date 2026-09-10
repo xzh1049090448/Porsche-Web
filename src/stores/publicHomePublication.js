@@ -1,7 +1,7 @@
 import { shallowRef } from 'vue'
 
 export function createPublicHomePublication({ store, decode }) {
-  const home = shallowRef(null)
+  const home = shallowRef(null); const activeModelKeys = new Set()
   function verifiedHome() {
     const state = store.value; const version = state.publicationVersions.content
     if (state.site.status !== 'ready' || state.home.status !== 'ready' || !state.home.data || state.site.data?.contentReleaseVersion !== version || state.home.data.releaseVersion !== version) return null
@@ -11,19 +11,21 @@ export function createPublicHomePublication({ store, decode }) {
     home.value = null
     const loads = [store.loadHome()]; if (store.value.site.status !== 'ready') loads.unshift(store.loadSite())
     await Promise.allSettled(loads)
-    home.value = verifiedHome()
-    if (!home.value) return null
+    const decoded = verifiedHome()
+    if (!decoded) return null
     const contentVersion = store.value.publicationVersions.content; const priceVersion = store.value.publicationVersions.price
-    await Promise.allSettled(home.value.modelKeys.map(key => store.loadModel(key)))
-    if (store.value.publicationVersions.content !== contentVersion || store.value.publicationVersions.price !== priceVersion || store.value.home.data?.releaseVersion !== contentVersion) home.value = null
+    for (const key of decoded.modelKeys) activeModelKeys.add(key)
+    await Promise.allSettled(decoded.modelKeys.map(key => store.loadModel(key)))
+    for (const key of decoded.modelKeys) activeModelKeys.delete(key)
+    if (store.value.publicationVersions.content === contentVersion && store.value.publicationVersions.price === priceVersion && store.value.home.data?.releaseVersion === contentVersion) home.value = decoded
     return home.value
   }
-  function cancel() { store.cancel('site'); store.cancel('home'); for (const key of home.value?.modelKeys || []) store.cancel(`detail:${key}`); home.value = null }
+  function cancel() { store.cancel('site'); store.cancel('home'); for (const key of activeModelKeys) store.cancel(`detail:${key}`); activeModelKeys.clear(); home.value = null }
   return { home, load, cancel }
 }
 
 export function createPublicLayoutPublication({ store, loadCodec }) {
-  const publication = shallowRef(null); let disposed = false; let settled = false; let resolveReady
+  const publication = shallowRef(null); const homeHydration = shallowRef(Promise.resolve(null)); const activePages = new Set(); let disposed = false; let settled = false; let resolveReady
   const siteReady = new Promise(resolve => { resolveReady = resolve })
   const settle = () => { if (!settled) { settled = true; resolveReady() } }
   async function init() {
@@ -35,11 +37,21 @@ export function createPublicLayoutPublication({ store, loadCodec }) {
       settle()
       if (store.value.site.status !== 'ready') return
       publication.value = createPublicHomePublication({ store, decode: document => codec.decode(document) })
-      await publication.value.load()
+      homeHydration.value = publication.value.load(); await homeHydration.value
     } catch {} finally { settle() }
   }
-  function dispose() { disposed = true; publication.value?.cancel(); publication.value = null; store.cancel('site'); settle() }
-  return { publication, siteReady, init, dispose }
+  async function loadPage(name) {
+    if (disposed) return null
+    if (publication.value) publication.value.home.value = null
+    activePages.add(name)
+    const page = await loadVerifiedPublicPage(store, name)
+    activePages.delete(name)
+    if (disposed || !page) return null
+    if (publication.value) homeHydration.value = publication.value.load()
+    return page
+  }
+  function dispose() { disposed = true; for (const name of activePages) store.invalidatePage(name); activePages.clear(); publication.value?.cancel(); publication.value = null; store.cancel('site'); settle() }
+  return { publication, homeHydration, siteReady, init, loadPage, dispose }
 }
 
 export function verifiedPublicPageData(store, name) {

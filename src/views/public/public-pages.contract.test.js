@@ -32,7 +32,7 @@ test('about and legal pages expose safe published states and metadata', () => {
   const about = source('./About.vue')
   const legal = source('./LegalPage.vue')
   const state = source('../../components/public/PublicContentState.vue')
-  assert.match(about, /loadVerifiedPublicPage\(state, ['"]about['"]\)/)
+  assert.match(about, /loadPage\(['"]about['"]\)/)
   assert.match(about, /inject\(['"]public-home-publication['"]\)/)
   assert.match(legal, /inject\(['"]public-home-publication['"]\)/)
   assert.doesNotMatch(`${about}${legal}`, /createPublicContentState/)

@@ -61,3 +61,32 @@ test('disposing during deferred codec initialization settles readiness without s
   await initializing; await lifecycle.siteReady
   assert.equal(networkCalls, 0); assert.equal(lifecycle.publication.value, null); assert.equal(store.value.site.status, 'idle')
 })
+
+for (const name of ['about', 'privacy']) test(`hydrated v1 shell disappears while ${name} v2 reconciles and returns only as v2`, async () => {
+  const homeV2 = deferred(); let siteCalls = 0; let homeCalls = 0; let pageCalls = 0
+  const pageMethod = `get${name[0].toUpperCase()}${name.slice(1)}`
+  const api = {
+    getSite: () => Promise.resolve(++siteCalls === 1 ? response({ contentReleaseVersion: 1, priceReleaseVersion: 4, priceVisibility: 'visible' }, { content: 1, price: 4 }) : response({ contentReleaseVersion: 2, priceReleaseVersion: 4, priceVisibility: 'visible' }, { content: 2, price: 4 })),
+    getHome: () => ++homeCalls === 1 ? Promise.resolve(response({ document: 'home-v1', releaseVersion: 1 }, { content: 1 })) : homeV2.promise,
+    [pageMethod]: () => { pageCalls++; return Promise.resolve(response({ document: `${name}-v2`, releaseVersion: 2 }, { content: 2 })) },
+  }
+  const store = createPublicContentState({ api }); const lifecycle = createPublicLayoutPublication({ store, loadCodec: async () => ({ decode: document => ({ marker: document, shellLinks: [{ label: document }], modelKeys: [] }) }) })
+  await lifecycle.init(); assert.equal(lifecycle.publication.value.home.value.shellLinks[0].label, 'home-v1')
+  const pagePromise = lifecycle.loadPage(name); assert.equal(lifecycle.publication.value.home.value, null)
+  const page = await pagePromise; assert.equal(page.document, `${name}-v2`); assert.equal(lifecycle.publication.value.home.value, null)
+  homeV2.resolve(response({ document: 'home-v2', releaseVersion: 2 }, { content: 2 })); await lifecycle.homeHydration.value
+  assert.equal(lifecycle.publication.value.home.value.shellLinks[0].label, 'home-v2'); assert.equal(pageCalls, 2)
+  lifecycle.dispose()
+})
+
+test('dispose cancels an in-flight page and prevents generation reconciliation or late shell mutation', async () => {
+  const aboutV2 = deferred(); let siteCalls = 0; let homeCalls = 0
+  const store = createPublicContentState({ api: {
+    getSite: () => { siteCalls++; return Promise.resolve(response({ contentReleaseVersion: 1, priceReleaseVersion: 4, priceVisibility: 'visible' }, { content: 1, price: 4 })) },
+    getHome: () => { homeCalls++; return Promise.resolve(response({ document: 'home-v1', releaseVersion: 1 }, { content: 1 })) },
+    getAbout: () => aboutV2.promise,
+  } })
+  const lifecycle = createPublicLayoutPublication({ store, loadCodec: async () => ({ decode: document => ({ marker: document, shellLinks: [{ label: document }], modelKeys: [] }) }) })
+  await lifecycle.init(); const pending = lifecycle.loadPage('about'); lifecycle.dispose(); aboutV2.resolve(response({ document: 'about-v2', releaseVersion: 2 }, { content: 2 })); assert.equal(await pending, null)
+  assert.equal(siteCalls, 1); assert.equal(homeCalls, 1); assert.equal(lifecycle.publication.value, null)
+})
