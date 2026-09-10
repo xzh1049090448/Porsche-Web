@@ -2,13 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mapPublicModel, mapPublicModelList, formatPublicPrice, sortPublicModels, filterPublicModels, PUBLIC_PRICE_DISCLAIMER } from './public-catalog.js'
 
-const metadata = { pricing_type: 'token', endpoint_types: ['chat.completions'], updated_at: '2026-09-10T00:00:00Z' }
+const metadata = { pricing_type: 'token', endpoint_types: ['chat.completions'], price_source: 'upstream', price_reviewer: 'root', effective_at: '2026-09-10T00:00:00Z', updated_at: '2026-09-10T00:00:00Z' }
 const facets = { providers: ['Acme'], capabilities: ['chat'], endpoint_types: ['chat.completions'], public_display_groups: ['featured'] }
 const visible = (overrides = {}) => ({ model_key: 'stable-key', display_name: 'Model', provider: 'Acme', capabilities: ['chat'], context_window: 128000, input_price_usd_per_million_tokens: '0.00000001', output_price_usd_per_million_tokens: '999999999999.99999999', price_visibility: 'visible', release_version: 7, ...metadata, ...overrides })
 
 test('projects only exact safe model fields and retains decimal strings', () => {
   const model = mapPublicModel(visible())
-  assert.deepEqual(model, { modelKey: 'stable-key', displayName: 'Model', provider: 'Acme', capabilities: ['chat'], contextWindow: 128000, inputPrice: '0.00000001', outputPrice: '999999999999.99999999', priceVisibility: 'visible', releaseVersion: 7, pricingType: 'token', endpointTypes: ['chat.completions'], updatedAt: '2026-09-10T00:00:00Z' })
+  assert.deepEqual(model, { modelKey: 'stable-key', displayName: 'Model', provider: 'Acme', capabilities: ['chat'], contextWindow: 128000, inputPrice: '0.00000001', outputPrice: '999999999999.99999999', priceVisibility: 'visible', releaseVersion: 7, pricingType: 'token', endpointTypes: ['chat.completions'], priceSource: 'upstream', priceReviewer: 'root', effectiveAt: '2026-09-10T00:00:00Z', updatedAt: '2026-09-10T00:00:00Z' })
   assert.equal(typeof model.outputPrice, 'string')
 })
 
@@ -36,6 +36,16 @@ test('redacted and missing prices are omitted and never labelled free', () => {
   assert.equal(PUBLIC_PRICE_DISCLAIMER, '价格仅供参考，不代表自动计费或最终账单。')
   const missingOutput = mapPublicModel(visible({ output_price_usd_per_million_tokens: undefined }))
   assert.equal(missingOutput.inputPrice, '0.00000001'); assert.equal('outputPrice' in missingOutput, false)
+})
+
+test('any present price component requires complete nonblank valid provenance', () => {
+  for (const overrides of [
+    { price_source: undefined }, { price_source: '' }, { price_reviewer: undefined }, { price_reviewer: '  ' },
+    { effective_at: undefined }, { effective_at: '2026-02-30T00:00:00Z' },
+  ]) assert.throws(() => mapPublicModel(visible(overrides)), /invalid_public_model/)
+  const unpriced = visible({ input_price_usd_per_million_tokens: undefined, output_price_usd_per_million_tokens: undefined, price_source: undefined, price_reviewer: undefined, effective_at: undefined })
+  assert.doesNotThrow(() => mapPublicModel(unpriced))
+  assert.throws(() => mapPublicModelList({ items: [visible({ price_reviewer: '' })], page: 1, page_size: 20, total: 1, release_version: 7, facets }), /invalid_public_model/)
 })
 
 test('filters safely and sorts comparable prices with missing prices last', () => {

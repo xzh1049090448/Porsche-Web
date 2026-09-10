@@ -32,6 +32,15 @@ test('normalizes status/network errors without leaking response bodies and prese
   await assert.rejects(() => createPublicContentClient({ fetchImpl: async () => { throw new Error('host secret') } }).getHome(), e => e.code === 'network_error' && e.message === 'public_content_network_error')
 })
 
+test('list and detail fail closed when priced models omit required provenance', async () => {
+  const priced = { model_key: 'priced', display_name: 'Priced', provider: 'P', capabilities: [], context_window: 1, price_visibility: 'visible', release_version: 7, pricing_type: 'token', endpoint_types: ['responses'], updated_at: '2026-09-10T00:00:00Z', input_price_usd_per_million_tokens: '1' }
+  const facets = { providers: ['P'], capabilities: [], endpoint_types: ['responses'], public_display_groups: [] }
+  const detail = createPublicContentClient({ fetchImpl: async () => response({ model: priced }) })
+  await assert.rejects(() => detail.getModel('priced'), error => error.code === 'invalid_response')
+  const list = createPublicContentClient({ fetchImpl: async () => response({ items: [priced], page: 1, page_size: 20, total: 1, release_version: 7, facets }) })
+  await assert.rejects(() => list.getModels(), error => error.code === 'invalid_response')
+})
+
 test('store distinguishes empty/error/not-found/gone and suppresses stale request completion', async () => {
   let resolveOld
   const old = new Promise(resolve => { resolveOld = resolve })

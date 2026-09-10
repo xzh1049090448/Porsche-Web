@@ -38,6 +38,7 @@ export function mapPublicModel(raw) {
   if (raw.public_restrictions !== undefined && (!Array.isArray(raw.public_restrictions) || !raw.public_restrictions.every(value => typeof value === 'string'))) throw new Error('invalid_public_model')
   for (const key of ['public_display_group','price_source','price_reviewer']) if (raw[key] !== undefined && typeof raw[key] !== 'string') throw new Error('invalid_public_model')
   if (raw.effective_at !== undefined && !validUTC(raw.effective_at)) throw new Error('invalid_public_model')
+  if (visible && PRICE_KEYS.some(key => raw[key] !== undefined) && (typeof raw.price_source !== 'string' || !raw.price_source.trim() || typeof raw.price_reviewer !== 'string' || !raw.price_reviewer.trim() || !validUTC(raw.effective_at))) throw new Error('invalid_public_model')
   const projected = { modelKey: raw.model_key, displayName: raw.display_name, provider: raw.provider, capabilities: [...raw.capabilities], contextWindow: raw.context_window, priceVisibility: raw.price_visibility, releaseVersion: raw.release_version, pricingType: raw.pricing_type, endpointTypes: [...raw.endpoint_types], updatedAt: raw.updated_at }
   for (const [rawKey, key] of [['public_display_group','publicDisplayGroup'],['price_source','priceSource'],['price_reviewer','priceReviewer'],['effective_at','effectiveAt']]) if (raw[rawKey] !== undefined) projected[key] = raw[rawKey]
   if (raw.public_restrictions !== undefined) projected.publicRestrictions = [...raw.public_restrictions]
