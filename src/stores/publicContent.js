@@ -8,9 +8,24 @@ const statusFor = error => error?.code === 'not_found' ? 'not_found' : error?.co
 export function createPublicContentState({ api = publicContentApi } = {}) {
   const value = reactive({ site: slot(), home: slot(), models: slot(), details: {}, pages: { about: slot(), terms: slot(), privacy: slot() }, publicationVersions: { content: null, price: null }, cache: {} })
   const controllers = new Map(); const sequences = new Map()
-  const cacheKey = (key, authenticated) => `${authenticated ? 'authenticated' : 'anonymous'}:${key}`
+  let activeRepresentation = null
+  const representationFor = options => options.authenticated ? `authenticated:${String(options.authContext ?? 'current')}` : 'anonymous'
+  const cacheKey = (key, representation) => `${representation}:${key}`
   function setApi(next) { api = { ...api, ...next } }
   function target(key) { if (key.startsWith('detail:')) return value.details[key.slice(7)] ||= slot(); if (key.startsWith('page:')) return value.pages[key.slice(5)]; return value[key] }
+  function clearRenderState() {
+    for (const controller of controllers.values()) controller.abort()
+    controllers.clear()
+    for (const key of sequences.keys()) sequences.set(key, sequences.get(key) + 1)
+    for (const state of [value.site, value.home, value.models, ...Object.values(value.pages)]) { state.data = null; state.status = 'idle'; state.error = null }
+    value.details = {}; value.cache = {}; value.publicationVersions.content = null; value.publicationVersions.price = null
+  }
+  function ensureRepresentation(options) {
+    const next = representationFor(options)
+    if (activeRepresentation !== null && activeRepresentation !== next) clearRenderState()
+    activeRepresentation = next
+    return next
+  }
   function clearDomain(domain) {
     const isDomainResource = cacheResource => domain === 'content'
       ? cacheResource.includes('/public/home') || cacheResource.includes('/public/pages/')
@@ -43,10 +58,11 @@ export function createPublicContentState({ api = publicContentApi } = {}) {
     return 'bound'
   }
   async function load(key, method, args = [], options = {}, resource = key, confirmed = false) {
+    const representation = ensureRepresentation(options)
     const current = (sequences.get(key) || 0) + 1; sequences.set(key, current)
     controllers.get(key)?.abort(); const controller = new AbortController(); controllers.set(key, controller)
     const state = target(key); state.status = state.data ? 'pending' : 'loading'; state.error = null
-    const partition = cacheKey(resource, !!options.authenticated); const cached = options.force ? undefined : value.cache[partition]
+    const partition = cacheKey(resource, representation); const cached = options.force ? undefined : value.cache[partition]
     try {
       const result = await api[method](...args, { signal: controller.signal, authenticated: !!options.authenticated, etag: cached?.etag, cached })
       if (sequences.get(key) !== current) return null
@@ -55,7 +71,7 @@ export function createPublicContentState({ api = publicContentApi } = {}) {
       if (binding === 'confirm') {
         delete value.cache[partition]
         if (!confirmed && typeof api.getSite === 'function') {
-          await load('site', 'getSite', [], { authenticated: !!options.authenticated, force: true }, '/api/v1/public/site', true)
+          await load('site', 'getSite', [], { authenticated: !!options.authenticated, authContext: options.authContext, force: true }, '/api/v1/public/site', true)
           if (sequences.get(key) !== current) return null
           return load(key, method, args, { ...options, force: true }, resource, true)
         }

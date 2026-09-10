@@ -50,6 +50,54 @@ test('store partitions auth representations and rejects mixed publication genera
   assert.equal(Object.keys(state.value.cache).some(key => key.includes('token')), false)
 })
 
+test('auth to anonymous transition clears authenticated site list and detail before anonymous pending settles', async () => {
+  let resolveAnonymous
+  const pending = new Promise(resolve => { resolveAnonymous = resolve })
+  const authenticatedModel = { modelKey: 'paid', inputPrice: '1', outputPrice: '2', priceVisibility: 'visible', releaseVersion: 7 }
+  const redactedModel = { modelKey: 'paid', priceVisibility: 'authenticated_only', releaseVersion: 7 }
+  let anonymous = false
+  const state = createPublicContentState({ api: {
+    getSite: async () => ({ data: { contentReleaseVersion: 5, priceReleaseVersion: 7, priceVisibility: anonymous ? 'authenticated_only' : 'visible' }, etag: 's', releaseVersion: 7, publicationVersions: { content: 5, price: 7 } }),
+    getModels: async () => anonymous ? pending : ({ data: { items: [authenticatedModel], page: 1, pageSize: 20, total: 1, releaseVersion: 7 }, etag: 'm-auth', releaseVersion: 7, publicationVersions: { price: 7 } }),
+    getModel: async () => ({ data: { model: authenticatedModel, releaseVersion: 7 }, etag: 'd-auth', releaseVersion: 7, publicationVersions: { price: 7 } }),
+  } })
+  const auth = { authenticated: true, authContext: 'user:1' }
+  await state.loadSite(auth); await state.loadModels({}, auth); await state.loadModel('paid', auth)
+  anonymous = true
+  const loading = state.loadModels({}, { authenticated: false })
+  assert.equal(state.value.models.data, null); assert.deepEqual(state.value.details, {}); assert.equal(state.value.site.data, null)
+  resolveAnonymous({ data: { items: [redactedModel], page: 1, pageSize: 20, total: 1, releaseVersion: 7 }, etag: 'm-anon', releaseVersion: 7, publicationVersions: { price: 7 } }); await loading
+  assert.equal(state.value.models.data.items[0].inputPrice, undefined)
+})
+
+test('anonymous failure and cancel cannot restore an authenticated representation', async () => {
+  const paid = { modelKey: 'paid', inputPrice: '1', priceVisibility: 'visible', releaseVersion: 7 }
+  let mode = 'auth'
+  const state = createPublicContentState({ api: { getModels: async (_filters, options) => {
+    if (mode === 'auth') return { data: { items: [paid], page: 1, pageSize: 20, total: 1, releaseVersion: 7 }, etag: 'auth', releaseVersion: 7, publicationVersions: { price: 7 } }
+    if (mode === 'fail') throw Object.assign(new Error(), { code: 'unavailable' })
+    return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+  } } })
+  await state.loadModels({}, { authenticated: true, authContext: 'user:1' })
+  mode = 'fail'; await state.loadModels({}, { authenticated: false }); assert.equal(state.value.models.data, null); assert.equal(state.value.models.status, 'error')
+  mode = 'pending'; const request = state.loadModels({}, { authenticated: true, authContext: 'user:2' }); state.cancel('models'); await request
+  assert.equal(state.value.models.data, null); assert.equal(state.value.models.status, 'idle')
+})
+
+test('authenticated identity generation change invalidates every old render response', async () => {
+  let resolveOld
+  const old = new Promise(resolve => { resolveOld = resolve })
+  const state = createPublicContentState({ api: {
+    getHome: async () => old,
+    getModel: async () => ({ data: { model: { modelKey: 'safe', priceVisibility: 'authenticated_only', releaseVersion: 7 }, releaseVersion: 7 }, etag: 'new', releaseVersion: 7, publicationVersions: { price: 7 } }),
+  } })
+  const stale = state.loadHome({ authenticated: true, authContext: 'generation:1' })
+  await state.loadModel('paid', { authenticated: true, authContext: 'generation:2' })
+  resolveOld({ data: { document: 'private old user content', releaseVersion: 7 }, etag: 'old', releaseVersion: 7, publicationVersions: { content: 7 } }); await stale
+  assert.equal(state.value.home.data, null)
+  assert.equal(state.value.details.paid.data.model.inputPrice, undefined)
+})
+
 test('site retains independently versioned content and pricing bound by the response generation', async () => {
   const client = createPublicContentClient({ fetchImpl: async () => response({ content_release_version: 5, price_release_version: 7, price_visibility: 'visible' }) })
   const result = await client.getSite()
