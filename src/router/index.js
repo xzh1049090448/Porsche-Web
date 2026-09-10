@@ -65,7 +65,7 @@ export function installAuthGuard(router, loadUserStore = async () => {
   return router
 }
 
-const AUTH_BOOTSTRAP_PATH = /^\/(?:login|register|chat|profile|billing|api-keys|users)(?:\/|$)/
+const AUTH_BOOTSTRAP_PATH = /^\/(?:login|register|chat|profile|billing|api-keys|users)(?:\/|$)/i
 const LAZY_RELOAD_MARKER = 'public_route_lazy_reload_v1'
 const LAZY_LOAD_ERROR = /Failed to fetch dynamically imported module|Importing a module script failed|Loading (?:CSS )?chunk .+ failed|ChunkLoadError/i
 

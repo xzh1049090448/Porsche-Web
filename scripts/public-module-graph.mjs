@@ -1,11 +1,24 @@
-import { relative, sep } from 'node:path'
+import { createHash } from 'node:crypto'
+import { basename, relative, sep } from 'node:path'
+
+const KNOWN_VIRTUAL_IDS = new Set([
+  'plugin-vue:export-helper',
+  'vite/modulepreload-polyfill.js',
+  'vite/preload-helper.js',
+])
+
+function opaqueId(value) {
+  return createHash('sha256').update(value).digest('hex').slice(0, 16)
+}
 
 function sanitizeModuleId(id, root) {
   const clean = id.replace(/^\0+/, '').split('?')[0]
   const nodeModules = clean.lastIndexOf(`${sep}node_modules${sep}`)
-  if (nodeModules >= 0) return clean.slice(nodeModules + 1).split(sep).join('/')
-  if (clean === root || clean.startsWith(`${root}${sep}`)) return relative(root, clean).split(sep).join('/')
-  return clean.startsWith('/') ? `external/${clean.split(sep).at(-1)}` : `virtual/${clean}`
+  if (nodeModules >= 0) return `npm:${clean.slice(nodeModules + `${sep}node_modules${sep}`.length).split(sep).join('/')}`
+  if (clean === root || clean.startsWith(`${root}${sep}`)) return `repo:${relative(root, clean).split(sep).join('/')}`
+  if (KNOWN_VIRTUAL_IDS.has(clean)) return `virtual:${clean}`
+  const kind = clean.startsWith('/') ? 'external' : 'virtual-unknown'
+  return `${kind}:${opaqueId(clean)}:${basename(clean)}`
 }
 
 export function publicModuleGraphPlugin() {

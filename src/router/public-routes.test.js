@@ -95,6 +95,23 @@ test('bootstrap boundary uses one hard handoff and keeps same-boundary navigatio
   assert.equal(router.currentRoute.value.path, '/pricing')
 })
 
+test('bootstrap classification follows the case-insensitive router matcher and encoded public paths', async () => {
+  for (const path of ['/LOGIN', '/Chat', '/PROFILE/', '/Users/123', '/API-KEYS']) {
+    assert.equal(bootstrapModeForPath(path), 'auth', path)
+  }
+  for (const path of ['/PRICING', '/About/', '/Unknown', '/%6Cogin', '/%43hat', '/%70ricing']) {
+    assert.equal(bootstrapModeForPath(path), 'public', path)
+  }
+
+  for (const initialPath of ['/LOGIN', '/Chat', '/PROFILE/', '/Users/123', '/PRICING', '/Unknown']) {
+    const handoffs = []
+    const router = createRouter({ history: createMemoryHistory(), routes: testRoutes })
+    installBootstrapHandoff(router, { mode: bootstrapModeForPath(initialPath), handoff: path => handoffs.push(path) })
+    await router.push(initialPath)
+    assert.deepEqual(handoffs, [], initialPath)
+  }
+})
+
 test('lazy import recovery reloads once then uses a constant safe fallback without loops', async () => {
   const values = new Map()
   const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }

@@ -3,14 +3,20 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const PUBLIC_LOCAL_MODULES = new Set([
-  'src/main.js',
-  'src/App.vue',
-  'src/router/index.js',
-  'src/utils/auth-redirect.js',
-  'src/layouts/PublicLayout.vue',
-  'src/styles/public-bootstrap.css',
+  'repo:index.html',
+  'repo:src/main.js',
+  'repo:src/App.vue',
+  'repo:src/router/index.js',
+  'repo:src/utils/auth-redirect.js',
+  'repo:src/layouts/PublicLayout.vue',
+  'repo:src/styles/public-bootstrap.css',
 ])
-const FORBIDDEN_DEPENDENCY = /^node_modules\/(?:element-plus|@element-plus\/icons-vue)(?:\/|$)/
+const PUBLIC_RUNTIME_PACKAGES = /^npm:(?:vue|vue-router|@vue\/(?:reactivity|runtime-core|runtime-dom|shared))(?:\/|$)/
+const PUBLIC_VIRTUAL_MODULES = new Set([
+  'virtual:plugin-vue:export-helper',
+  'virtual:vite/modulepreload-polyfill.js',
+  'virtual:vite/preload-helper.js',
+])
 const MAX_PUBLIC_CODE_BYTES = 200_000
 const MAX_PUBLIC_CSS_BYTES = 20_000
 
@@ -30,7 +36,7 @@ export function validatePublicGraph(graph) {
   if (graph?.version !== 1 || !graph.chunks || typeof graph.chunks !== 'object') throw new Error('invalid public module graph')
   const records = Object.entries(graph.chunks)
   const entry = records.find(([, chunk]) => chunk.isEntry)?.[0]
-  const publicLayout = records.find(([, chunk]) => chunk.modules?.includes('src/layouts/PublicLayout.vue'))?.[0]
+  const publicLayout = records.find(([, chunk]) => chunk.modules?.includes('repo:src/layouts/PublicLayout.vue'))?.[0]
   if (!entry || !publicLayout) throw new Error('missing entry or PublicLayout module')
   const files = closure(graph.chunks, [entry, publicLayout])
   let codeBytes = 0
@@ -40,8 +46,8 @@ export function validatePublicGraph(graph) {
     codeBytes += chunk.codeBytes || 0
     cssBytes += chunk.cssBytes || 0
     for (const moduleId of chunk.modules || []) {
-      if (FORBIDDEN_DEPENDENCY.test(moduleId)) throw new Error(`forbidden public dependency ${moduleId}`)
-      if (moduleId.startsWith('src/') && !PUBLIC_LOCAL_MODULES.has(moduleId)) throw new Error(`non-public local module ${moduleId}`)
+      if (PUBLIC_LOCAL_MODULES.has(moduleId) || PUBLIC_RUNTIME_PACKAGES.test(moduleId) || PUBLIC_VIRTUAL_MODULES.has(moduleId)) continue
+      throw new Error(`non-public module ${moduleId}`)
     }
   }
   if (codeBytes > MAX_PUBLIC_CODE_BYTES) throw new Error(`public JavaScript budget exceeded: ${codeBytes} > ${MAX_PUBLIC_CODE_BYTES}`)
