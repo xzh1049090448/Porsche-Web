@@ -5,13 +5,14 @@ const MODEL_KEY=/^[a-z][a-z0-9-]{0,127}$/
 const CODE=/^[a-z][a-z0-9_-]{0,63}$/
 const TICKET=/^av_[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/
 const UNSAFE=/[\p{Cc}\p{Cf}]/u
+const LONE_SURROGATE=/(?:[\uD800-\uDBFF](?![\uDC00-\uDFFF]))|(?:(?<![\uD800-\uDBFF])[\uDC00-\uDFFF])/
 const MODEL_KEYS=['guid','model_key','upstream_model_id','display_name','provider','capabilities','context_window','input_price_usd_per_million_tokens','output_price_usd_per_million_tokens','status','revision','last_upstream_check_at','public_display_group','endpoint_types','public_restrictions','price_source','price_reviewer','price_effective_at']
 const exact=(v,keys)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k))
 const positive=v=>Number.isSafeInteger(v)&&v>=1
 class InvalidPublicModelAdminResponse extends Error{constructor(){super('invalid_public_model_admin_response')}}
 const invalid=()=>{throw new InvalidPublicModelAdminResponse()}
 const validGuid=v=>typeof v==='string'&&GUID.test(v)&&(v.length<MAX_INT64.length||v.length===MAX_INT64.length&&v<=MAX_INT64)
-const validText=(v,max,optional=false)=>typeof v==='string'&&(optional||v!=='')&&v===v.trim()&&[...v].length<=max&&!UNSAFE.test(v)
+const validText=(v,max,optional=false)=>typeof v==='string'&&(optional||v!=='')&&v===v.trim()&&[...v].length<=max&&!UNSAFE.test(v)&&!LONE_SURROGATE.test(v)
 const validCodeList=v=>Array.isArray(v)&&v.length<=32&&new Set(v).size===v.length&&v.every(x=>typeof x==='string'&&CODE.test(x))
 const validModelKey=v=>typeof v==='string'&&MODEL_KEY.test(v)&&!v.endsWith('-')&&!v.includes('--')
 const validUpstream=v=>validText(v,255)&&v.split('/').every(s=>s&&s!=='.'&&s!=='..'&&!/[\\?#%\s]/u.test(s)&&!UNSAFE.test(s))
@@ -21,6 +22,7 @@ function metadata(result,status){if(!exact(result,['data','status','headers'])||
 function model(raw){
   if(!exact(raw,MODEL_KEYS)||!validGuid(raw.guid)||!validModelKey(raw.model_key)||!validUpstream(raw.upstream_model_id)||!validText(raw.display_name,128)||!validText(raw.provider,128)||!validCodeList(raw.capabilities)||!Number.isSafeInteger(raw.context_window)||raw.context_window<1||!['draft','active','inactive'].includes(raw.status)||!positive(raw.revision)||!(raw.last_upstream_check_at===null||positive(raw.last_upstream_check_at))||!validCodeList(raw.endpoint_types)||!validCodeList(raw.public_restrictions)||!(raw.public_display_group===''||CODE.test(raw.public_display_group))||!validText(raw.price_source,255,true)||!validText(raw.price_reviewer,128,true)||!(raw.price_effective_at===null||positive(raw.price_effective_at)))invalid()
   for(const key of ['input_price_usd_per_million_tokens','output_price_usd_per_million_tokens'])if(!(raw[key]===null||typeof raw[key]==='string'&&DECIMAL.test(raw[key])))invalid()
+  if((raw.input_price_usd_per_million_tokens!==null||raw.output_price_usd_per_million_tokens!==null)&&(!raw.price_source||!raw.price_reviewer||raw.price_effective_at===null))invalid()
   return Object.freeze({guid:raw.guid,modelKey:raw.model_key,upstreamModelId:raw.upstream_model_id,displayName:raw.display_name,provider:raw.provider,capabilities:Object.freeze([...raw.capabilities]),contextWindow:raw.context_window,inputPriceUsdPerMillionTokens:raw.input_price_usd_per_million_tokens,outputPriceUsdPerMillionTokens:raw.output_price_usd_per_million_tokens,status:raw.status,revision:raw.revision,lastUpstreamCheckAt:raw.last_upstream_check_at,publicDisplayGroup:raw.public_display_group,endpointTypes:Object.freeze([...raw.endpoint_types]),publicRestrictions:Object.freeze([...raw.public_restrictions]),priceSource:raw.price_source,priceReviewer:raw.price_reviewer,priceEffectiveAt:raw.price_effective_at})
 }
 function guid(value){if(!validGuid(value))throw new Error('invalid_public_model_admin_request');return encodeURIComponent(value)}

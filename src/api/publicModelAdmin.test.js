@@ -53,6 +53,16 @@ test('strict DTO enforces int64 identities and every backend-safe scalar and arr
   assert.throws(()=>createPublicModelAdminApi({request:async()=>ok(dto)}).get('9223372036854775808'),/invalid_public_model_admin_request/)
 })
 
+test('strict DTO rejects lone surrogates and incomplete price provenance while accepting unpriced drafts', async () => {
+  for(const change of [
+    {display_name:'bad\uD800'},{provider:'bad\uDC00'},{upstream_model_id:'org/\uD800'},
+    {price_source:'bad\uD800'},{price_reviewer:'bad\uDC00'},
+    {price_source:''},{price_reviewer:''},{price_effective_at:null},
+  ]){const api=createPublicModelAdminApi({request:async()=>ok({...dto,...change})});await assert.rejects(api.get('123'),/invalid_public_model_admin_response/)}
+  const unpriced={...dto,input_price_usd_per_million_tokens:null,output_price_usd_per_million_tokens:null,price_source:'',price_reviewer:'',price_effective_at:null}
+  const api=createPublicModelAdminApi({request:async()=>ok(unpriced)});assert.equal((await api.get('123')).inputPriceUsdPerMillionTokens,null)
+})
+
 test('store cancels old reads and suppresses stale responses and delete tickets', async () => {
   const {createPublicModelAdminCoordinator}=await import('../stores/publicModelAdmin.js')
   let resolveFirst; const state={items:[],page:1,pageSize:20,total:0,detail:null,missing:null,loading:false,error:null}
