@@ -53,4 +53,5 @@ void bootstrapApplication({
   loadAuthApp,
   mountPublicApp: () => createApp(App).use(router).mount('#app'),
   recover,
+  fallback: () => renderSafeLoadError(),
 })

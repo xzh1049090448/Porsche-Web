@@ -53,3 +53,21 @@ test('a throwing fallback degrades to minimal safe text without escaping the han
     dom.window.close()
   }
 })
+
+test('unknown bootstrap failures and throwing recovery always render a safe fallback without reload', async () => {
+  for (const recover of [() => false, () => { throw new Error('recovery failed') }]) {
+    let fallbacks = 0
+    let reloads = 0
+    const loadAuthApp = async () => () => { throw new Error('plugin mount secret detail') }
+    const result = await bootstrapApplication({
+      mode: 'auth',
+      loadAuthApp,
+      recover,
+      fallback: () => { fallbacks += 1 },
+      reload: () => { reloads += 1 },
+    })
+    assert.equal(result, false)
+    assert.equal(reloads, 0)
+    assert.equal(fallbacks, 1)
+  }
+})

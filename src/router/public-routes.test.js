@@ -172,6 +172,22 @@ test('lazy recovery falls back immediately when reload throws or reports failure
   }
 })
 
+test('exact Vite CSS preload failure uses the durable once-reload policy across page loads', () => {
+  const values = new Map()
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }
+  const error = new TypeError('Unable to preload CSS for /assets/Login-old.css')
+  let reloads = 0
+  let fallbacks = 0
+  createLazyLoadFailureHandler({ storage, reload: () => { reloads += 1 }, fallback: () => { fallbacks += 1 } })(error)
+  assert.deepEqual({ reloads, fallbacks }, { reloads: 1, fallbacks: 0 })
+  createLazyLoadFailureHandler({ storage, reload: () => { reloads += 1 }, fallback: () => { fallbacks += 1 } })(error)
+  assert.deepEqual({ reloads, fallbacks }, { reloads: 1, fallbacks: 1 })
+
+  const broken = { getItem() { throw new Error('security') }, setItem() {}, removeItem() {} }
+  createLazyLoadFailureHandler({ storage: broken, reload: () => { reloads += 1 }, fallback: () => { fallbacks += 1 } })(error)
+  assert.deepEqual({ reloads, fallbacks }, { reloads: 1, fallbacks: 2 })
+})
+
 test('successful navigation clears the durable reload marker', async () => {
   const values = new Map([['public_route_lazy_reload_v1', 'attempted']])
   const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }

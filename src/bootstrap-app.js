@@ -1,4 +1,11 @@
-export async function bootstrapApplication({ mode, loadAuthApp, mountPublicApp, recover }) {
+function renderMinimalError() {
+  try {
+    const host = document.querySelector('#app')
+    if (host) host.textContent = '页面暂时无法加载，请刷新后重试。'
+  } catch {}
+}
+
+export async function bootstrapApplication({ mode, loadAuthApp, mountPublicApp, recover, fallback }) {
   try {
     if (mode === 'auth') {
       const mountAuthApp = await loadAuthApp()
@@ -8,7 +15,12 @@ export async function bootstrapApplication({ mode, loadAuthApp, mountPublicApp, 
     }
     return true
   } catch (error) {
-    try { recover?.(error) } catch {}
+    let recovered = false
+    try { recovered = recover?.(error) === true } catch {}
+    if (!recovered) {
+      try { fallback ? fallback() : renderMinimalError() }
+      catch { renderMinimalError() }
+    }
     return false
   }
 }
