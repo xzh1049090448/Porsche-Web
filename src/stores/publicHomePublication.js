@@ -1,4 +1,4 @@
-import { shallowRef } from 'vue'
+import { shallowRef, watch } from 'vue'
 
 export function createPublicHomePublication({ store, decode }) {
   const home = shallowRef(null); const activeModelLoads = new Map(); let epoch = 0
@@ -45,12 +45,14 @@ export function createPublicLayoutPublication({ store, loadCodec }) {
   }
   async function loadPage(name) {
     if (disposed) return null
-    if (publication.value) publication.value.home.value = null
+    const generation = store.value.publicationVersions.content; let advanced = false
+    const stop = watch(() => store.value.publicationVersions.content, next => { if (Number.isSafeInteger(generation) && Number.isSafeInteger(next) && next > generation) { advanced = true; if (publication.value) publication.value.home.value = null } }, { flush: 'sync' })
     activePages.add(name)
     const page = await loadVerifiedPublicPage(store, name)
+    stop()
     activePages.delete(name)
-    if (disposed || !page) return null
-    if (publication.value) homeHydration.value = publication.value.load()
+    if (disposed) return null
+    if (advanced && publication.value) homeHydration.value = publication.value.load()
     return page
   }
   function dispose() { disposed = true; for (const name of activePages) store.invalidatePage(name); activePages.clear(); publication.value?.cancel(); publication.value = null; store.cancel('site'); settle() }
