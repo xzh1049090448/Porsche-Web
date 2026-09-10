@@ -30,13 +30,23 @@ function queryString(filters = {}) {
   const encoded = params.toString(); return encoded ? `?${encoded}` : ''
 }
 
-export function createPublicContentClient({ fetchImpl = globalThis.fetch, baseURL = '', getAuthorization = () => null } = {}) {
+export function publicModelsResourceKey(filters = {}) { return `/api/v1/public/models${queryString(filters)}` }
+
+async function productionAuthenticatedFetch(input, init) {
+  const { authenticatedFetch } = await import('./request.js')
+  return authenticatedFetch(input, init)
+}
+
+export function createPublicContentClient({ fetchImpl = globalThis.fetch, authenticatedFetch: authenticatedFetchImpl, baseURL = import.meta.env?.VITE_API_BASE ?? '', getAuthorization = null } = {}) {
   async function request(path, mapper, options = {}) {
     const headers = {}
     if (options.etag) headers['If-None-Match'] = options.etag
-    if (options.authenticated) { const authorization = getAuthorization(); if (authorization) headers.Authorization = authorization }
+    if (options.authenticated && getAuthorization) { const authorization = getAuthorization(); if (authorization) headers.Authorization = authorization }
     let response
-    try { response = await fetchImpl(`${baseURL}${path}`, { method: 'GET', headers, signal: options.signal }) }
+    try {
+      const transport = options.authenticated && !getAuthorization ? (authenticatedFetchImpl || productionAuthenticatedFetch) : fetchImpl
+      response = await transport(`${baseURL}${path}`, { method: 'GET', headers, signal: options.signal })
+    }
     catch (error) { if (error?.name === 'AbortError') throw error; throw new PublicContentError('network_error') }
     if (response.status === 304) {
       if (!options.cached) throw new PublicContentError('invalid_304', 304)
@@ -52,12 +62,15 @@ export function createPublicContentClient({ fetchImpl = globalThis.fetch, baseUR
     try { data = mapper(raw) } catch (error) { throw Object.assign(new PublicContentError(error.message === 'mixed_publication_generation' ? error.message : 'invalid_response'), { cause: error }) }
     const bodyVersions = data.releaseVersion === undefined ? [data.contentReleaseVersion, data.priceReleaseVersion] : [data.releaseVersion]
     if (!bodyVersions.includes(headerVersion)) throw new PublicContentError('mixed_publication_generation')
-    return { data, etag, releaseVersion: headerVersion, notModified: false }
+    const publicationVersions = data.contentReleaseVersion === undefined
+      ? path.includes('/models') ? { price: data.releaseVersion } : { content: data.releaseVersion }
+      : { content: data.contentReleaseVersion, price: data.priceReleaseVersion }
+    return { data, etag, releaseVersion: headerVersion, publicationVersions, notModified: false }
   }
   const document = path => options => request(path, mapDocument, options)
   return {
     getSite: options => request('/api/v1/public/site', mapSite, options), getHome: document('/api/v1/public/home'),
-    getModels: (filters = {}, options = {}) => request(`/api/v1/public/models${queryString(filters)}`, mapPublicModelList, options),
+    getModels: (filters = {}, options = {}) => request(publicModelsResourceKey(filters), mapPublicModelList, options),
     getModel: (modelKey, options = {}) => { if (typeof modelKey !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(modelKey)) throw new Error('invalid_model_key'); return request(`/api/v1/public/models/${encodeURIComponent(modelKey)}`, mapDetail, options) },
     getAbout: document('/api/v1/public/pages/about'), getTerms: document('/api/v1/public/pages/terms'), getPrivacy: document('/api/v1/public/pages/privacy'),
   }

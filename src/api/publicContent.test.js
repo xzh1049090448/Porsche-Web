@@ -64,3 +64,45 @@ test('explicit cancellation returns the store to its prior stable state', async 
   state.cancel('home'); await pending
   assert.equal(state.value.home.status, 'idle')
 })
+
+test('query-specific ETags and 304 values cannot cross model filters', async () => {
+  const calls = []
+  const api = {
+    getModels: async (filters, options) => {
+      calls.push({ filters, etag: options.etag, cached: options.cached })
+      if (filters.search === 'alpha') return { data: { items: [{ modelKey: 'alpha', releaseVersion: 7 }], page: 1, pageSize: 20, total: 1, releaseVersion: 7 }, etag: 'alpha-tag', releaseVersion: 7, publicationVersions: { price: 7 } }
+      assert.equal(options.etag, undefined)
+      assert.equal(options.cached, undefined)
+      return { data: { items: [{ modelKey: 'beta', releaseVersion: 7 }], page: 2, pageSize: 20, total: 1, releaseVersion: 7 }, etag: 'beta-tag', releaseVersion: 7, publicationVersions: { price: 7 } }
+    },
+  }
+  const state = createPublicContentState({ api })
+  await state.loadModels({ search: 'alpha', page: 1, pageSize: 20 })
+  await state.loadModels({ search: 'beta', page: 2, pageSize: 20 })
+  assert.equal(calls.length, 2)
+  assert.equal(state.value.models.data.items[0].modelKey, 'beta')
+})
+
+test('content and price generations advance independently and reject only their own domain mismatch', async () => {
+  const state = createPublicContentState({ api: {
+    getSite: async () => ({ data: { contentReleaseVersion: 5, priceReleaseVersion: 7, priceVisibility: 'visible' }, etag: 'site', releaseVersion: 7, publicationVersions: { content: 5, price: 7 } }),
+    getHome: async () => ({ data: { document: 'home', releaseVersion: 5 }, etag: 'home', releaseVersion: 5, publicationVersions: { content: 5 } }),
+    getModels: async () => ({ data: { items: [], page: 1, pageSize: 20, total: 0, releaseVersion: 7 }, etag: 'models', releaseVersion: 7, publicationVersions: { price: 7 } }),
+  } })
+  await state.loadSite(); await state.loadHome(); await state.loadModels()
+  assert.deepEqual(state.value.publicationVersions, { content: 5, price: 7 })
+  state.setApi({ getHome: async () => ({ data: { document: 'old', releaseVersion: 4 }, etag: 'old', releaseVersion: 4, publicationVersions: { content: 4 } }) })
+  await assert.rejects(() => state.loadHome(), /mixed_publication_generation/)
+  assert.equal(state.value.models.status, 'ready-empty')
+})
+
+test('authenticated production requests delegate to the shared authenticated fetch adapter', async () => {
+  const calls = []
+  const authenticatedFetch = async (url, init) => { calls.push([url, init]); return response(documentBody) }
+  const rawFetch = async () => { throw new Error('anonymous transport must not run') }
+  const client = createPublicContentClient({ fetchImpl: rawFetch, authenticatedFetch })
+  await client.getHome({ authenticated: true })
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0][0], '/api/v1/public/home')
+  assert.equal(calls[0][1].signal, undefined)
+})
