@@ -1,26 +1,29 @@
 import { shallowRef } from 'vue'
 
 export function createPublicHomePublication({ store, decode }) {
-  const home = shallowRef(null); const activeModelKeys = new Set()
+  const home = shallowRef(null); const activeModelLoads = new Map(); let epoch = 0
   function verifiedHome() {
     const state = store.value; const version = state.publicationVersions.content
     if (state.site.status !== 'ready' || state.home.status !== 'ready' || !state.home.data || state.site.data?.contentReleaseVersion !== version || state.home.data.releaseVersion !== version) return null
     try { return decode(state.home.data.document) } catch { return null }
   }
   async function load() {
+    const current = ++epoch
     home.value = null
     const loads = [store.loadHome()]; if (store.value.site.status !== 'ready') loads.unshift(store.loadSite())
     await Promise.allSettled(loads)
+    if (current !== epoch) return null
     const decoded = verifiedHome()
     if (!decoded) return null
     const contentVersion = store.value.publicationVersions.content; const priceVersion = store.value.publicationVersions.price
-    for (const key of decoded.modelKeys) activeModelKeys.add(key)
+    activeModelLoads.set(current, decoded.modelKeys)
     await Promise.allSettled(decoded.modelKeys.map(key => store.loadModel(key)))
-    for (const key of decoded.modelKeys) activeModelKeys.delete(key)
-    if (store.value.publicationVersions.content === contentVersion && store.value.publicationVersions.price === priceVersion && store.value.home.data?.releaseVersion === contentVersion) home.value = decoded
+    activeModelLoads.delete(current)
+    if (current !== epoch) return null
+    if (store.value.publicationVersions.content === contentVersion && store.value.publicationVersions.price === priceVersion && store.value.home.data?.releaseVersion === contentVersion && current === epoch) home.value = decoded
     return home.value
   }
-  function cancel() { store.cancel('site'); store.cancel('home'); for (const key of activeModelKeys) store.cancel(`detail:${key}`); activeModelKeys.clear(); home.value = null }
+  function cancel() { epoch++; store.cancel('site'); store.cancel('home'); for (const keys of activeModelLoads.values()) for (const key of keys) store.cancel(`detail:${key}`); activeModelLoads.clear(); home.value = null }
   return { home, load, cancel }
 }
 

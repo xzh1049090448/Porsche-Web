@@ -90,3 +90,19 @@ test('dispose cancels an in-flight page and prevents generation reconciliation o
   await lifecycle.init(); const pending = lifecycle.loadPage('about'); lifecycle.dispose(); aboutV2.resolve(response({ document: 'about-v2', releaseVersion: 2 }, { content: 2 })); assert.equal(await pending, null)
   assert.equal(siteCalls, 1); assert.equal(homeCalls, 1); assert.equal(lifecycle.publication.value, null)
 })
+
+test('dispose during v2 model hydration keeps the detached publication empty after abort settles', async () => {
+  let siteCalls = 0; let homeCalls = 0; let pageCalls = 0
+  const store = createPublicContentState({ api: {
+    getSite: () => Promise.resolve(++siteCalls === 1 ? response({ contentReleaseVersion: 1, priceReleaseVersion: 4, priceVisibility: 'visible' }, { content: 1, price: 4 }) : response({ contentReleaseVersion: 2, priceReleaseVersion: 4, priceVisibility: 'visible' }, { content: 2, price: 4 })),
+    getHome: () => Promise.resolve(++homeCalls === 1 ? response({ document: 'home-v1', releaseVersion: 1 }, { content: 1 }) : response({ document: 'home-v2', releaseVersion: 2 }, { content: 2 })),
+    getAbout: () => { pageCalls++; return Promise.resolve(response({ document: 'about-v2', releaseVersion: 2 }, { content: 2 })) },
+    getModel: (_key, options) => new Promise(resolve => options.signal.addEventListener('abort', () => resolve(response({ model: null }, { price: 4 })), { once: true })),
+  } })
+  const lifecycle = createPublicLayoutPublication({ store, loadCodec: async () => ({ decode: document => ({ marker: document, shellLinks: [{ label: document }], modelKeys: document === 'home-v2' ? ['slow-model'] : [] }) }) })
+  await lifecycle.init(); const detached = lifecycle.publication.value; await lifecycle.loadPage('about')
+  for (let index = 0; index < 6 && !store.value.details['slow-model']; index++) await Promise.resolve()
+  assert.equal(store.value.details['slow-model'].status, 'loading'); assert.equal(detached.home.value, null)
+  lifecycle.dispose(); await lifecycle.homeHydration.value
+  assert.equal(detached.home.value, null); assert.equal(lifecycle.publication.value, null); assert.equal(pageCalls, 2)
+})
