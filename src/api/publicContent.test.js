@@ -106,3 +106,40 @@ test('authenticated production requests delegate to the shared authenticated fet
   assert.equal(calls[0][0], '/api/v1/public/home')
   assert.equal(calls[0][1].signal, undefined)
 })
+
+test('authoritative site can atomically advance content and price from 5/7 to 6/8', async () => {
+  let versions = { content: 5, price: 7 }
+  const api = { getSite: async () => ({ data: { contentReleaseVersion: versions.content, priceReleaseVersion: versions.price, priceVisibility: 'visible' }, etag: `site-${versions.content}-${versions.price}`, releaseVersion: versions.price, publicationVersions: { ...versions } }) }
+  const state = createPublicContentState({ api })
+  await state.loadSite(); versions = { content: 6, price: 8 }; await state.loadSite()
+  assert.deepEqual(state.value.publicationVersions, { content: 6, price: 8 })
+  assert.equal(state.value.site.status, 'ready')
+})
+
+test('late or out-of-order site responses can never downgrade either publication domain', async () => {
+  let resolveOld
+  const old = new Promise(resolve => { resolveOld = resolve })
+  let call = 0
+  const state = createPublicContentState({ api: { getSite: async () => ++call === 1 ? old : ({ data: { contentReleaseVersion: 6, priceReleaseVersion: 8, priceVisibility: 'visible' }, etag: 'new', releaseVersion: 8, publicationVersions: { content: 6, price: 8 } }) } })
+  const stale = state.loadSite(); await state.loadSite()
+  resolveOld({ data: { contentReleaseVersion: 5, priceReleaseVersion: 7, priceVisibility: 'visible' }, etag: 'old', releaseVersion: 7, publicationVersions: { content: 5, price: 7 } }); await stale
+  assert.deepEqual(state.value.publicationVersions, { content: 6, price: 8 })
+  state.setApi({ getSite: async () => ({ data: { contentReleaseVersion: 5, priceReleaseVersion: 8, priceVisibility: 'visible' }, etag: 'downgrade', releaseVersion: 8, publicationVersions: { content: 5, price: 8 } }) })
+  await assert.rejects(() => state.loadSite(), /mixed_publication_generation/)
+  assert.deepEqual(state.value.publicationVersions, { content: 6, price: 8 })
+})
+
+test('a leading domain response refreshes site and refetches cleanly while a real mismatch stays rejected', async () => {
+  let homeCalls = 0; let siteVersion = 5
+  const state = createPublicContentState({ api: {
+    getSite: async () => ({ data: { contentReleaseVersion: siteVersion, priceReleaseVersion: 7, priceVisibility: 'visible' }, etag: `s${siteVersion}`, releaseVersion: 7, publicationVersions: { content: siteVersion, price: 7 } }),
+    getHome: async () => { homeCalls++; return { data: { document: 'new', releaseVersion: 6 }, etag: 'h6', releaseVersion: 6, publicationVersions: { content: 6 } } },
+  } })
+  await state.loadSite(); siteVersion = 6; await state.loadHome()
+  assert.equal(homeCalls, 2)
+  assert.equal(state.value.home.status, 'ready')
+  assert.deepEqual(state.value.publicationVersions, { content: 6, price: 7 })
+  state.setApi({ getHome: async () => ({ data: { document: 'bad', releaseVersion: 8 }, etag: 'h8', releaseVersion: 8, publicationVersions: { content: 8 } }) })
+  await assert.rejects(() => state.loadHome(), /mixed_publication_generation/)
+  assert.deepEqual(state.value.publicationVersions, { content: 6, price: 7 })
+})
