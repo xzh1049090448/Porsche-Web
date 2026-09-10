@@ -28,21 +28,31 @@ export function createPublicHomePublication({ store, decode }) {
 }
 
 export function createPublicLayoutPublication({ store, loadCodec }) {
-  const publication = shallowRef(null); const homeHydration = shallowRef(Promise.resolve(null)); const activePages = new Set(); let disposed = false; let settled = false; let resolveReady
+  const publication = shallowRef(null); const homeHydration = shallowRef(Promise.resolve(null)); const activePages = new Set(); let disposed = false; let settled = false; let resolveReady; let codecPromise = null; let retryPromise = null
   const siteReady = new Promise(resolve => { resolveReady = resolve })
   const settle = () => { if (!settled) { settled = true; resolveReady() } }
-  async function init() {
-    try {
-      const codec = await loadCodec()
-      if (disposed) return
-      await store.loadSite()
-      if (disposed) return
-      settle()
-      if (store.value.site.status !== 'ready') return
-      publication.value = createPublicHomePublication({ store, decode: document => codec.decode(document) })
-      homeHydration.value = publication.value.load(); await homeHydration.value
-    } catch {} finally { settle() }
+  async function codec() {
+    if (!codecPromise) codecPromise = Promise.resolve().then(loadCodec).catch(error => { codecPromise = null; throw error })
+    return codecPromise
   }
+  async function hydrate() {
+    const decoder = await codec()
+    if (disposed) return null
+    if (store.value.site.status !== 'ready') await store.loadSite()
+    if (disposed) return null
+    settle()
+    if (store.value.site.status !== 'ready') return null
+    if (!publication.value) publication.value = createPublicHomePublication({ store, decode: document => decoder.decode(document) })
+    homeHydration.value = publication.value.load(); return homeHydration.value
+  }
+  function loadHome() {
+    if (disposed) return Promise.resolve(null)
+    if (retryPromise) return retryPromise
+    const running = hydrate().catch(() => null).finally(() => { if (retryPromise === running) retryPromise = null; settle() })
+    retryPromise = running
+    return running
+  }
+  const init = () => loadHome()
   async function loadPage(name) {
     if (disposed) return null
     const generation = store.value.publicationVersions.content; let advanced = false
@@ -52,11 +62,12 @@ export function createPublicLayoutPublication({ store, loadCodec }) {
     stop()
     activePages.delete(name)
     if (disposed) return null
-    if (advanced && publication.value) homeHydration.value = publication.value.load()
+    if (page && advanced && publication.value) homeHydration.value = publication.value.load()
+    else if (page && !publication.value) void loadHome()
     return page
   }
   function dispose() { disposed = true; for (const name of activePages) store.invalidatePage(name); activePages.clear(); publication.value?.cancel(); publication.value = null; store.cancel('site'); settle() }
-  return { publication, homeHydration, siteReady, init, loadPage, dispose }
+  return { publication, homeHydration, siteReady, init, loadHome, loadPage, dispose }
 }
 
 export function verifiedPublicPageData(store, name) {

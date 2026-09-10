@@ -9,7 +9,7 @@ const store = usePublicContentStore()
 const lifecycle = createPublicLayoutPublication({ store, loadCodec: async () => { const { createPublishedDocumentCodec } = await import('@/utils/public-document.js'); return createPublishedDocumentCodec() } })
 const publication = lifecycle.publication; const ready = lifecycle.siteReady
 const shellLinks = computed(() => publication.value?.home.value?.shellLinks || [])
-provide('public-home-publication', { store, publication, ready, loadPage: lifecycle.loadPage })
+provide('public-home-publication', { store, publication, ready, loadHome: lifecycle.loadHome, loadPage: lifecycle.loadPage })
 const { t } = usePublicI18n()
 onMounted(() => lifecycle.init())
 onUnmounted(() => lifecycle.dispose())

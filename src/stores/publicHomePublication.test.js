@@ -100,6 +100,27 @@ test('same-generation page success retains verified home and skips model/home re
   lifecycle.dispose()
 })
 
+test('fail-first site initialization recovers through one deduplicated explicit home retry', async () => {
+  let siteCalls = 0; let homeCalls = 0
+  const store = createPublicContentState({ api: { getSite: () => ++siteCalls === 1 ? Promise.reject(new Error('temporary')) : Promise.resolve(response({ contentReleaseVersion: 2, priceReleaseVersion: 4, priceVisibility: 'visible' }, { content: 2, price: 4 })), getHome: () => { homeCalls++; return Promise.resolve(response({ document: 'home-v2', releaseVersion: 2 }, { content: 2 })) } } })
+  const lifecycle = createPublicLayoutPublication({ store, loadCodec: async () => ({ decode: document => ({ marker: document, shellLinks: [{ label: document }], modelKeys: [] }) }) })
+  assert.equal(await lifecycle.init(), null); assert.equal(store.value.site.status, 'error'); assert.equal(lifecycle.publication.value, null)
+  const first = lifecycle.loadHome(); const duplicate = lifecycle.loadHome(); assert.equal(first, duplicate); await first
+  assert.equal(siteCalls, 2); assert.equal(homeCalls, 1); assert.equal(lifecycle.publication.value.home.value.shellLinks[0].label, 'home-v2')
+  lifecycle.dispose()
+})
+
+test('a later verified About load recovers homepage publication after initial site failure', async () => {
+  let siteCalls = 0; let homeCalls = 0
+  const store = createPublicContentState({ api: { getSite: () => ++siteCalls === 1 ? Promise.reject(new Error('temporary')) : Promise.resolve(response({ contentReleaseVersion: 2, priceReleaseVersion: 4, priceVisibility: 'visible' }, { content: 2, price: 4 })), getHome: () => { homeCalls++; return Promise.resolve(response({ document: 'home-v2', releaseVersion: 2 }, { content: 2 })) }, getAbout: () => Promise.resolve(response({ document: 'about-v2', releaseVersion: 2 }, { content: 2 })) } })
+  const lifecycle = createPublicLayoutPublication({ store, loadCodec: async () => ({ decode: document => ({ marker: document, shellLinks: [{ label: document }], modelKeys: [] }) }) })
+  await lifecycle.init(); const about = await lifecycle.loadPage('about'); assert.equal(about.document, 'about-v2')
+  for (let index = 0; index < 8 && !lifecycle.publication.value; index++) await Promise.resolve()
+  await lifecycle.homeHydration.value
+  assert.equal(homeCalls, 1); assert.equal(lifecycle.publication.value.home.value.marker, 'home-v2')
+  lifecycle.dispose()
+})
+
 test('dispose cancels an in-flight page and prevents generation reconciliation or late shell mutation', async () => {
   const aboutV2 = deferred(); let siteCalls = 0; let homeCalls = 0
   const store = createPublicContentState({ api: {
