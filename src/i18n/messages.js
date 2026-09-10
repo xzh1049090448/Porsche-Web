@@ -7,8 +7,8 @@ export const messages = {
       tagline: '聚合国内主流大模型',
     },
     publicSite: {
-      console: '进入控制台', pricing: '模型价格', about: '关于', terms: '服务协议', privacy: '隐私政策',
-      loading: '正在加载已发布内容…', preparing: '内容准备中', empty: '暂无内容', error: '暂时无法显示内容', retry: '重试', demo: '演示内容',
+      home: '首页', advantages: '产品优势', models: '支持模型', announcements: '公告', faq: '常见问题', cta: '开始使用', console: '进入控制台', pricing: '模型价格', about: '关于', terms: '服务协议', privacy: '隐私政策',
+      loading: '正在加载已发布内容…', preparing: '内容准备中', empty: '暂无内容', error: '暂时无法显示内容', retry: '重试', demo: '演示内容', menu: '菜单', toc: '目录', version: '版本', effectiveDate: '生效日期', contact: '联系方式', acknowledge: '知道了', language: 'EN',
     },
     nav: {
       chat: '对话',
@@ -306,8 +306,8 @@ export const messages = {
       tagline: 'Aggregated leading Chinese LLMs',
     },
     publicSite: {
-      console: 'Open console', pricing: 'Model pricing', about: 'About', terms: 'Terms', privacy: 'Privacy',
-      loading: 'Loading published content…', preparing: 'Content is being prepared', empty: 'No published content', error: 'Content is temporarily unavailable', retry: 'Retry', demo: 'Demonstration',
+      home: 'Home', advantages: 'Advantages', models: 'Models', announcements: 'Announcements', faq: 'FAQ', cta: 'Get started', console: 'Open console', pricing: 'Model pricing', about: 'About', terms: 'Terms', privacy: 'Privacy',
+      loading: 'Loading published content…', preparing: 'Content is being prepared', empty: 'No published content', error: 'Content is temporarily unavailable', retry: 'Retry', demo: 'Demonstration', menu: 'Menu', toc: 'Contents', version: 'Version', effectiveDate: 'Effective date', contact: 'Contact', acknowledge: 'Got it', language: '中文',
     },
     nav: {
       chat: 'Chat',
