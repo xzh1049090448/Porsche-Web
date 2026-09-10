@@ -1,5 +1,5 @@
 <template>
-  <el-dialog :model-value="modelValue" :title="mode === 'edit' ? t('publicModelsAdmin.edit') : t('publicModelsAdmin.create')" width="min(760px, 96vw)" :close-on-click-modal="false" @closed="emit('closed')">
+  <el-dialog :model-value="modelValue" trap-focus :title="mode === 'edit' ? t('publicModelsAdmin.edit') : t('publicModelsAdmin.create')" width="min(760px, 96vw)" :close-on-click-modal="false" @update:model-value="emit('update:modelValue', $event)" @closed="emit('closed')">
     <el-form ref="formRef" :model="form" label-position="top" @submit.prevent="submit">
       <div class="grid">
         <el-form-item :label="t('publicModelsAdmin.upstreamModelId')" required>
@@ -26,7 +26,7 @@
       </div>
       <el-alert v-if="error" role="alert" type="error" :closable="false" :title="error" />
     </el-form>
-    <template #footer><el-button @click="emit('update:modelValue', false)">{{ t('publicModelsAdmin.cancel') }}</el-button><el-button type="primary" :loading="busy" @click="submit">{{ t('publicModelsAdmin.save') }}</el-button></template>
+    <template #footer><el-button :disabled="busy" @click="emit('update:modelValue', false)">{{ t('publicModelsAdmin.cancel') }}</el-button><el-button type="primary" :loading="busy" :disabled="busy" @click="submit">{{ t('publicModelsAdmin.save') }}</el-button></template>
   </el-dialog>
 </template>
 <script setup>

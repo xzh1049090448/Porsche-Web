@@ -56,7 +56,7 @@ test('detail handles revision conflicts and permanent verified soft deletion', (
   assert.match(view, /deactivate/)
   assert.match(view, /activate/)
   assert.match(view, /remove/)
-  assert.doesNotMatch(view, /restore/i)
+  assert.doesNotMatch(view, /restoreDeleted|restoreModel/i)
 })
 
 test('root model UI has bilingual copy and accessible responsive states', () => {

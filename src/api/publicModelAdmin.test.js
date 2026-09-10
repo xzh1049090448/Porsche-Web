@@ -84,7 +84,7 @@ test('every synchronous validator settles safely and a later valid load recovers
     ()=>store.remove({guid:'123',expectedRevision:1,reason:'retired',currentPassword:''}),
   ]
   for(const run of invalid){assert.equal(await run(),null);assert.equal(state.loading,false);assert.deepEqual(state.error,{code:'request_failed',requestId:null})}
-  assert.equal(calls,0);await store.load();assert.equal(calls,1);assert.equal(state.loading,false);assert.equal(state.error,null)
+  assert.equal(calls,0);await store.load();assert.equal(calls,1);assert.equal(state.loading,false);assert.deepEqual(state.mutationError,{code:'request_failed',requestId:null})
 })
 
 test('frozen delete input does not poison state and verification handoff is scrubbed', async () => {
@@ -115,13 +115,34 @@ test('strict DTO rejects lone surrogates and incomplete price provenance while a
   const api=createPublicModelAdminApi({request:async()=>ok(unpriced)});assert.equal((await api.get('123')).inputPriceUsdPerMillionTokens,null)
 })
 
-test('store cancels old reads and suppresses stale responses and delete tickets', async () => {
+test('store keeps list and missing request ownership independent', async () => {
   const {createPublicModelAdminCoordinator}=await import('../stores/publicModelAdmin.js')
-  let resolveFirst; const state={items:[],page:1,pageSize:20,total:0,detail:null,missing:null,loading:false,error:null}
-  const api={list:()=>new Promise(r=>{resolveFirst=r}),get:async()=>dto,getMissing:async()=>({}),sync:async()=>({accepted:true}),issueDeleteVerification:async()=>({ticket,expiresAt:1}),deleteModel:async()=>true}
-  const c=createPublicModelAdminCoordinator({api,state});const first=c.load();await c.loadDetail('123');resolveFirst({items:[dto],page:1,pageSize:20,total:1});await first
-  assert.equal(state.detail,dto);assert.deepEqual(state.items,[])
-  await c.remove({guid:'123',expectedRevision:1,reason:'retired',currentPassword:'secret'});assert.equal(JSON.stringify(state).includes(ticket),false)
+  let resolveList; const state={items:[],page:1,pageSize:20,total:0,detail:null,missing:null,loading:false,error:null}
+  const missingError=new Error();missingError.code='unavailable';missingError.requestId='req-missing'
+  const api={list:()=>new Promise(r=>{resolveList=r}),getMissing:async()=>{throw missingError}}
+  const c=createPublicModelAdminCoordinator({api,state});const list=c.load();await c.loadMissing()
+  assert.equal(state.listLoading,true);assert.equal(state.missingLoading,false);assert.deepEqual(state.missingError,{code:'unavailable',requestId:'req-missing'})
+  resolveList({items:[dto],page:1,pageSize:20,total:1});await list
+  assert.equal(state.listError,null);assert.deepEqual(state.missingError,{code:'unavailable',requestId:'req-missing'});assert.equal(state.items.length,1)
+})
+
+test('clearing detail invalidates an older route request before loading the next model', async () => {
+  const {createPublicModelAdminCoordinator}=await import('../stores/publicModelAdmin.js')
+  const pending=new Map();const api={get:(guid)=>new Promise(resolve=>pending.set(guid,resolve))}
+  const state={items:[],page:1,pageSize:20,total:0,detail:null,missing:null,loading:false,error:null};const store=createPublicModelAdminCoordinator({api,state})
+  const a=store.loadDetail('111');store.clearDetail();assert.equal(state.detail,null)
+  const b=store.loadDetail('222');pending.get('222')({...dto,guid:'222',modelKey:'b'});await b
+  pending.get('111')({...dto,guid:'111',modelKey:'a'});await a
+  assert.equal(state.detail.guid,'222');assert.equal(state.detail.modelKey,'b');assert.equal(state.detailLoading,false)
+})
+
+test('writes are single-submit and one mutation cannot abort or replace another', async () => {
+  const {createPublicModelAdminCoordinator}=await import('../stores/publicModelAdmin.js');let finish,calls=0
+  const api={activate:()=>{calls++;return new Promise(r=>{finish=r})}}
+  const state={items:[dto],page:1,pageSize:20,total:1,detail:dto,missing:null,loading:false,error:null};const store=createPublicModelAdminCoordinator({api,state})
+  const first=store.activate('123',1),second=store.activate('123',1)
+  await Promise.resolve();assert.equal(first,second);assert.equal(calls,1);assert.equal(state.statusSaving,true)
+  finish({...dto,status:'active',revision:2});await first;assert.equal(state.statusSaving,false)
 })
 
 test('store exposes create update activate and inactivate without retaining request secrets', async () => {
