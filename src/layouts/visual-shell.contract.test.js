@@ -33,6 +33,7 @@ async function mountedMainLayout() {
   const vueURL = new URL('../../node_modules/vue/index.mjs', import.meta.url).href
   const componentStub = dataModule(`import{h}from'${vueURL}';export default{setup(_,ctx){return()=>h('span',ctx.slots.default?.())}}`)
   const drawerStub = dataModule(`import{h}from'${vueURL}';export default{props:['show'],emits:['update:show'],setup(_,ctx){return()=>h('aside',{'data-mobile-drawer':''},ctx.slots.default?.())}}`)
+  const sidebarStub = dataModule(`import{h}from'${vueURL}';export default{props:['items','activeRoute'],setup(p){return()=>h('nav',{'class':'console-sidebar'},p.items.map(item=>h('a',{'data-route':item.to,'aria-current':item.to===p.activeRoute?'page':undefined},item.label)))}}`)
   const routerStub = dataModule('export const useRoute=()=>globalThis.__visualShell.route;export const useRouter=()=>globalThis.__visualShell.router')
   const userStub = dataModule('export const useUserStore=()=>globalThis.__visualShell.userStore')
   const settingsStub = dataModule('export const useSettingsStore=()=>globalThis.__visualShell.settingsStore')
@@ -48,6 +49,7 @@ async function mountedMainLayout() {
     ['@/stores/user', userStub], ['@/stores/settings', settingsStub],
     ['@/stores/publicModelAdmin', publicModelStub], ['@/stores/rootNotifications', notificationStub],
     ['@/components/mobile/MobileDrawer.vue', drawerStub], ['@/components/ThemeToggle.vue', componentStub],
+    ['@/components/shell/ConsoleSidebar.vue', sidebarStub], ['@/components/shell/AppBrand.vue', componentStub],
     ['@/components/LocaleToggle.vue', componentStub], ['@/components/AuthStatus.vue', componentStub],
     ['@/components/RootNotificationBadge.vue', componentStub], ['@/composables/useBreakpoint', breakpointStub],
     ['@/composables/useI18n', i18nStub], ['@/router/runtime-root-guard.js', rootGuardStub],
@@ -72,12 +74,12 @@ test('current public and authenticated layouts keep stable accessible landmarks'
   assert.match(publicLayout, /<PublicHeader/)
   assert.match(publicLayout, /<PublicFooter/)
 
-  assert.match(mainLayout, /class="main-layout"/)
+  assert.match(mainLayout, /class="main-layout console-shell"/)
   assert.match(mainLayout, /<AuthStatus/)
-  assert.match(mainLayout, /class="app-header"/)
-  assert.match(mainLayout, /class="header-menu desktop-only"/)
+  assert.match(mainLayout, /class="[^"]*app-header[^"]*"/)
+  assert.match(mainLayout, /<ConsoleSidebar/)
   assert.match(mainLayout, /<MobileDrawer/)
-  assert.match(mainLayout, /<el-main class="app-main">/)
+  assert.match(mainLayout, /<main[^>]+class="console-workspace"/)
 })
 
 test('authenticated navigation keeps users.read and Root visibility semantics', async () => {
@@ -130,7 +132,7 @@ test('users.read and Root permissions gate both desktop and mobile navigation', 
           ElDropdownMenu: Pass, ElDropdownItem: Pass, ElAvatar: Pass, ElIcon: Pass, ElTag: Pass,
           ElMenu: Menu, ElMenuItem: MenuItem, RouterView: Pass,
         } } })
-        for (const selector of ['nav.header-menu', 'nav.drawer-nav-menu']) {
+        for (const selector of ['nav.console-sidebar', 'nav.drawer-nav-menu']) {
           const routes = wrapper.get(selector).findAll('[data-route]').map(item => item.attributes('data-route'))
           assert.equal(routes.includes('/users'), scenario.users, `${selector} users.read ${scenario.permissions.length > 0}`)
           for (const route of rootRoutes) assert.equal(routes.includes(route), scenario.root, `${selector} ${route} role ${scenario.role}`)
@@ -220,4 +222,49 @@ test('theme toggle keeps translated tooltip, accessible label, and button behavi
 })
 
 test.todo('Task 4 replaces the current public-layout marker with public-shell')
-test.todo('Task 3 replaces the current authenticated layout with console-shell and console-sidebar landmarks')
+
+test('Task 3 builds one console shell around desktop, mobile, and main landmarks', async () => {
+  const [mainLayout, main, sidebar] = await Promise.all([
+    read('./MainLayout.vue'),
+    read('../main.js'),
+    read('../components/shell/ConsoleSidebar.vue'),
+  ])
+
+  assert.match(mainLayout, /class="[^"]*console-shell[^"]*"/)
+  assert.match(mainLayout, /class="[^"]*console-topbar[^"]*"/)
+  assert.match(mainLayout, /<ConsoleSidebar\s+:items="navigation"\s+:active-route="activeMenu"/)
+  assert.match(mainLayout, /class="drawer-nav-menu"[\s\S]*v-for="item in navigation"/)
+  assert.match(mainLayout, /<main[^>]+class="console-workspace"[^>]+tabindex="-1"/)
+  assert.match(main, /import\(['"]\.\/styles\/console-shell\.scss['"]\)/)
+  assert.match(sidebar, /aria-label=/)
+  assert.match(sidebar, /aria-current=/)
+})
+
+test('Task 3 exposes a single permission-filtered navigation model with grouped Root entries', async () => {
+  const mainLayout = await read('./MainLayout.vue')
+
+  assert.equal((mainLayout.match(/const navigation = computed/g) || []).length, 1)
+  assert.match(mainLayout, /visible:\s*canManageUsers\.value/)
+  assert.match(mainLayout, /visible:\s*isRoot\.value/)
+  assert.match(mainLayout, /group:\s*['"]root['"]/)
+  assert.match(mainLayout, /\.filter\(item => item\.visible\)/)
+  assert.match(mainLayout, /v-if="isRoot && item\.to === '\/admin\/notifications'"/)
+})
+
+test('Task 3 shared page primitives stay presentational and StatusBadge exposes text', async () => {
+  const [pageHeader, surfaceCard, statusBadge] = await Promise.all([
+    read('../components/shell/PageHeader.vue'),
+    read('../components/shell/SurfaceCard.vue'),
+    read('../components/shell/StatusBadge.vue'),
+  ])
+
+  assert.match(pageHeader, /name="actions"/)
+  assert.match(pageHeader, /eyebrow/)
+  assert.match(pageHeader, /description/)
+  assert.match(surfaceCard, /<section/)
+  assert.match(statusBadge, /status/)
+  assert.match(statusBadge, /<span[^>]*>[\s\S]*<slot/)
+  for (const source of [pageHeader, surfaceCard, statusBadge]) {
+    assert.doesNotMatch(source, /useUserStore|useRouter|@\/api|fetch\(|axios/)
+  }
+})

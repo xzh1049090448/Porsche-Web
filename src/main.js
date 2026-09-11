@@ -28,6 +28,7 @@ async function loadAuthApp() {
     import('element-plus/dist/index.css'),
     import('./styles/global.scss'),
     import('./styles/mobile.scss'),
+    import('./styles/console-shell.scss'),
   ])
   theme.applyTheme(theme.readStoredTheme())
   locale.applyLocale(locale.readStoredLocale())
