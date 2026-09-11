@@ -475,31 +475,44 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function recoverGeneration(run, { fromCancel = false } = {}) {
-    if (!runIsCurrent(run) || run.cancelRequested && !fromCancel) return
-    if (!fromCancel) setGenerationPhase(run, 'disconnected')
-    setGenerationPhase(run, 'recovering')
-    run.recoveryController = new AbortController()
-    try {
-      const result = await pollPlatformGeneration(run.generationId, { models: run.models, signal: run.recoveryController.signal })
-      if (!runIsCurrent(run) || run.cancelRequested && !fromCancel) return
-      run.terminalMeta = result
-      const snapshot = run.machine.resolveStatus(result)
-      applyMachineSnapshot(run, snapshot)
-    } catch (error) {
-      if (!runIsCurrent(run)) return
-      if (run.cancelRequested && !fromCancel) return
-      if (error?.status !== 403 && error?.status !== 404) {
-        const assistant = run.assistant
-        detachActiveRun({ preserveRecovery: true, preserveView: true })
-        assistant.generationStatus = 'recovering'
-        assistant.generationPhase = 'recovering'
-        assistant.viewOnly = true
-        return
+  function recoverGeneration(run, { fromCancel = false } = {}) {
+    if (!runIsCurrent(run) || run.cancelRequested && !fromCancel) return Promise.resolve(false)
+    if (run.recoveryPromise) return run.recoveryPromise
+    let pending
+    pending = (async () => {
+      try {
+        if (!fromCancel) {
+          setGenerationPhase(run, 'disconnected')
+          await Promise.resolve()
+          if (!runIsCurrent(run) || run.cancelRequested) return false
+        }
+        run.recoverable = false
+        setGenerationPhase(run, 'recovering')
+        run.recoveryController = new AbortController()
+        const result = await pollPlatformGeneration(run.generationId, { models: run.models, signal: run.recoveryController.signal })
+        if (!runIsCurrent(run) || run.cancelRequested && !fromCancel) return false
+        run.terminalMeta = result
+        applyMachineSnapshot(run, run.machine.resolveStatus(result))
+        return true
+      } catch (error) {
+        if (!runIsCurrent(run) || run.cancelRequested && !fromCancel) return false
+        const retryable = error instanceof PlatformGenerationIndeterminateError || error?.code === 'generation_indeterminate' || !Number.isInteger(error?.status) || error.status === 429 || error.status >= 500
+        if (retryable) {
+          run.recoverable = true
+          run.assistant.generationStatus = 'recovering'
+          run.assistant.generationPhase = 'disconnected'
+          run.assistant.viewOnly = true
+          setGenerationPhase(run, 'disconnected')
+          return false
+        }
+        applyMachineSnapshot(run, run.machine.fail(error?.status === 403 || error?.status === 404 ? 'GENERATION_OWNER_ERROR' : 'GENERATION_RECOVERY_ERROR'))
+        return false
+      } finally {
+        if (run.recoveryPromise === pending) run.recoveryPromise = null
       }
-      const snapshot = run.machine.fail(error?.status === 403 || error?.status === 404 ? 'GENERATION_OWNER_ERROR' : 'GENERATION_RECOVERY_ERROR')
-      applyMachineSnapshot(run, snapshot)
-    }
+    })()
+    run.recoveryPromise = pending
+    return pending
   }
 
   async function executeGeneration(run, body) {
@@ -560,6 +573,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function sendMessage(content, images = []) {
     if (!content.trim() && !images.length) return
+    if (activeRun && !['completed', 'failed', 'cancelled'].includes(generationState.value?.status)) return
     if (streaming.value) return
     if (activeRun) detachActiveRun({ preserveView: true })
     else forgetRun()
@@ -622,7 +636,7 @@ export const useChatStore = defineStore('chat', () => {
       conv, conversationKey: conversationKey(conv), user: userMsg, assistant: assistantMsg,
       originalTitle, originalUpdatedAt,
       controller: streamController, recoveryController: null, cancelController: null,
-      committed: false, cancelRequested: false, terminalMeta: null, machine: null, resumeRequiresHistory: false, historyPromise: null, cancelPromise: null, authoritativeAttempt: null,
+      committed: false, cancelRequested: false, terminalMeta: null, machine: null, resumeRequiresHistory: false, historyPromise: null, cancelPromise: null, recoveryPromise: null, recoverable: false, authoritativeAttempt: null,
     }
     activeRun = run
     streamController = run.controller
@@ -677,6 +691,12 @@ export const useChatStore = defineStore('chat', () => {
     return run.cancelPromise
   }
 
+  function retryPendingGeneration() {
+    const run = activeRun
+    if (!run || !runIsCurrent(run) || !run.recoverable) return false
+    return recoverGeneration(run, { fromCancel: run.cancelRequested })
+  }
+
   async function resumePendingGeneration() {
     if (streaming.value || activeRun) return false
     let saved
@@ -704,7 +724,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!assistant) assistant = { localKey: messageKey, role: 'assistant', generationStatus: 'recovering', viewOnly: true, transientAttempt: saved.generationId, createdAt: Date.now(), ...(saved.mode === 'single' ? { content: '' } : { multiModel: true, models: saved.models, replies: Object.fromEntries(saved.models.map(model => [model, ''])), modelStates: Object.fromEntries(saved.models.map(model => [model, { status: 'recovering', code: null }])) }) }
     conv.messages ||= []
     if (!conv.messages.includes(assistant)) conv.messages.push(assistant)
-    const run = { generationId: saved.generationId, mode: saved.mode, models: [...saved.models], context, userGuid: authSession.user()?.guid ?? null, conv, conversationKey: conversationKey(conv), user: null, assistant, originalTitle: conv.title, originalUpdatedAt: conv.updatedAt, controller: new AbortController(), recoveryController: null, cancelController: null, committed: false, cancelRequested: false, terminalMeta: null, machine: null, resumeRequiresHistory: true, historyPromise: null, cancelPromise: null, authoritativeAttempt: null }
+    const run = { generationId: saved.generationId, mode: saved.mode, models: [...saved.models], context, userGuid: authSession.user()?.guid ?? null, conv, conversationKey: conversationKey(conv), user: null, assistant, originalTitle: conv.title, originalUpdatedAt: conv.updatedAt, controller: new AbortController(), recoveryController: null, cancelController: null, committed: false, cancelRequested: false, terminalMeta: null, machine: null, resumeRequiresHistory: true, historyPromise: null, cancelPromise: null, recoveryPromise: null, recoverable: false, authoritativeAttempt: null }
     activeRun = run; streamController = run.controller; streaming.value = true
     rememberRun(run)
     run.machine = createChatGeneration({ generationId: run.generationId, conversationGuid: savedGuid, messageKey: assistant.localKey, mode: run.mode, models: run.models, onChange: snapshot => applyMachineSnapshot(run, snapshot) })
@@ -730,6 +750,7 @@ export const useChatStore = defineStore('chat', () => {
     refreshActiveConversation,
     sendMessage,
     cancelStream,
+    retryPendingGeneration,
     resumePendingGeneration,
   }
 })

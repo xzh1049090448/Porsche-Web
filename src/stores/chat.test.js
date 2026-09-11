@@ -334,6 +334,60 @@ test('disconnect recovers by GET and appends only the authoritative suffix once'
   } finally { globalThis.fetch = originalFetch }
 })
 
+test('temporary recovery failure stays blocked and retries one GET idempotently after an observable disconnect', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  route = () => ({ ...summary(A), messages: [
+    { guid: C, role: 'user', content: 'recoverable prompt', model: 'fixture-model', tokens: 0, created_at: 1 },
+    { guid: B, role: 'assistant', content: 'recovered answer', model: 'fixture-model', tokens: 2, created_at: 2 },
+  ] })
+  const originalFetch = globalThis.fetch; const firstGet = deferred(); const retryGet = deferred(); const recoveryStarted = deferred()
+  let generationId; let posts = 0; let gets = 0
+  globalThis.fetch = async (_url, options = {}) => {
+    if ((options.method || 'GET') === 'POST') { posts += 1; generationId = JSON.parse(options.body).generation_id; return sseResponse('') }
+    gets += 1
+    if (gets === 1) { recoveryStarted.resolve(); return firstGet.promise }
+    return retryGet.promise
+  }
+  const phases = []; const stop = store.$subscribe((_mutation, state) => { if (state.generationState?.phase) phases.push(state.generationState.phase) })
+  try {
+    const sending = store.sendMessage('recoverable prompt'); await recoveryStarted.promise; await new Promise(resolve => setTimeout(resolve, 0))
+    assert.ok(phases.indexOf('disconnected') >= 0)
+    assert.ok(phases.indexOf('disconnected') < phases.indexOf('recovering'))
+    firstGet.reject(new TypeError('temporary GET failure')); await sending
+    assert.equal(store.streaming, true)
+    assert.equal(store.generationState?.phase, 'disconnected')
+    assert.notEqual(sessionStorage.getItem('llm_platform_active_generation_v2'), null)
+    await store.sendMessage('must stay blocked')
+    assert.equal(posts, 1); assert.equal(store.getActive().messages.some(message => message.content === 'must stay blocked'), false)
+
+    const retryA = store.retryPendingGeneration(); const retryB = store.retryPendingGeneration()
+    await waitFor(() => gets === 2); assert.equal(gets, 2)
+    retryGet.resolve(jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 2, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: 'recovered answer', tokens: 2 } }))
+    await Promise.all([retryA, retryB]); await waitFor(() => store.generationState?.status === 'completed')
+    assert.equal(posts, 1); assert.equal(gets, 2)
+    assert.deepEqual(store.getActive().messages.map(message => message.content), ['recoverable prompt', 'recovered answer'])
+  } finally { stop(); globalThis.fetch = originalFetch }
+})
+
+test('switch and logout detach a recoverable pending run and invalidate its retry action', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    for (const action of ['switch', 'logout']) {
+      setActivePinia(createPinia())
+      const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+      store.conversations = [{ ...summary(A), messages: [] }, { ...summary(D), messages: [] }]; store.activeId = A
+      globalThis.fetch = async (_url, options = {}) => (options.method || 'GET') === 'POST' ? sseResponse('') : Promise.reject(new TypeError('temporary GET failure'))
+      await store.sendMessage(`recover then ${action}`)
+      assert.equal(store.streaming, true, action)
+      if (action === 'switch') store.selectConversation(D)
+      else authSession.clearSession()
+      assert.equal(store.streaming, false, action); assert.equal(store.generationState, null, action)
+      assert.equal(await store.retryPendingGeneration(), false, action)
+    }
+  } finally { globalThis.fetch = originalFetch }
+})
+
 test('authoritative prefix mismatch fails closed and never persists assistant partial or error text', async () => {
   const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
   store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
@@ -756,7 +810,8 @@ test('retryable null-guid resume failure preserves its isolated metadata', async
   try {
     assert.equal(await store.resumePendingGeneration(), true)
     assert.notEqual(sessionStorage.getItem('llm_platform_active_generation_v2'), null)
-    assert.equal(store.streaming, false)
+    assert.equal(store.streaming, true)
+    assert.equal(store.generationState?.phase, 'disconnected')
   } finally { globalThis.fetch = originalFetch }
 })
 
@@ -777,7 +832,7 @@ test('resume replaces stale or forged message-key collisions without mutating th
       store.conversations = [{ ...summary(A), messages: [collided] }]; store.activeId = A
       sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId, mode: 'single', models: ['fixture-model'], conversationGuid: A, messageKey: collisionKey, ownerGuid: '1', ownerEpoch: authSession.capture().epoch }))
       route = () => { throw new TypeError('history reload unavailable') }
-      globalThis.fetch = async () => jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 0, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: '', tokens: 0 } })
+      globalThis.fetch = async () => jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 1, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: 'view-only orphan', tokens: 1 } })
       assert.equal(await store.resumePendingGeneration(), true, name)
       await waitFor(() => store.streaming === false)
       assert.deepEqual(store.getActive().messages.find(message => message.localKey === collisionKey), original, name)
