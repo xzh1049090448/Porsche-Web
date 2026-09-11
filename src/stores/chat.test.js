@@ -6,12 +6,13 @@ import { setImmediate } from 'node:timers/promises'
 
 // Load the real store/API/mappers via the project's Vite aliases, replacing
 // only Axios's transport so every request stays inside these local fixtures.
-let server, useChatStore, projectConversationForPersistence, useSettingsStore, request, authSession, route, calls = [], writes = []
+let server, useChatStore, projectConversationForPersistence, useSettingsStore, useUserStore, request, authSession, route, calls = [], writes = []
 const browserGlobals = ['localStorage', 'sessionStorage', 'navigator', 'isSecureContext', 'BroadcastChannel', 'document']
 const originalGlobals = new Map(browserGlobals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
 const A = '9223372036854775701'
 const B = '9223372036854775702'
 const C = '9223372036854775703'
+const D = '9223372036854775704'
 const listPath = '/api/v1/conversations'
 const summary = (guid) => ({ guid, title: `History ${guid}`, model: 'fixture-model', created_at: 1, updated_at: 2 })
 const detail = (guid) => ({ ...summary(guid), messages: [{ guid: `${guid}1`, role: 'user', content: `Message ${guid}`, created_at: 1 }] })
@@ -71,6 +72,7 @@ before(async () => {
   })
   ;({ useChatStore, projectConversationForPersistence } = await server.ssrLoadModule('/src/stores/chat.js'))
   ;({ useSettingsStore } = await server.ssrLoadModule('/src/stores/settings.js'))
+  ;({ useUserStore } = await server.ssrLoadModule('/src/stores/user.js'))
   ;({ default: request, authSession } = await server.ssrLoadModule('/src/api/request.js'))
   globalThis.document = { documentElement: { setAttribute() {} } }
   request.defaults.adapter = async (config) => {
@@ -532,6 +534,77 @@ test('session-local generation metadata resumes through authoritative GET withou
     await store.sendMessage('follow-up'); await waitFor(() => store.generationState?.status === 'completed')
     assert.deepEqual(followUpBody.messages.map(message => message.role), ['user', 'assistant', 'user'])
     assert.deepEqual(followUpBody.messages.map(message => message.content), ['original prompt', 'restored', 'follow-up'])
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('recovered compare matches the exact tail attempt and preserves per-assistant tokens while accounting once', async () => {
+  const store = useChatStore(); store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const generationId = '123e4567-e89b-42d3-a456-426614174000'
+  sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId, mode: 'compare', models: ['model-a', 'model-b', 'model-c'], conversationGuid: A, messageKey: 'resume-compare', ownerGuid: '1', ownerEpoch: authSession.capture().epoch }))
+  route = () => ({ ...summary(A), messages: [
+    { guid: '11', role: 'user', content: 'older prompt', model: 'model-old', tokens: 0, created_at: 1 },
+    { guid: '12', role: 'assistant', content: 'older answer', model: 'model-old', tokens: 1, created_at: 2 },
+    { guid: C, role: 'user', content: 'compare prompt', model: 'model-a', tokens: 0, created_at: 3 },
+    { guid: B, role: 'assistant', content: 'answer a', model: 'model-a', tokens: 2, created_at: 4 },
+    { guid: D, role: 'assistant', content: 'answer c', model: 'model-c', tokens: 5, created_at: 5 },
+  ] })
+  const completed = { generation_id: generationId, status: 'completed', mode: 'compare', conversation_guid: A, total_tokens_used: 101, results: [
+    { model: 'model-a', status: 'completed', assistant_message_guid: B, content: 'answer a', tokens: 2 },
+    { model: 'model-b', status: 'failed', code: 'timeout' },
+    { model: 'model-c', status: 'completed', assistant_message_guid: D, content: 'answer c', tokens: 5 },
+  ] }
+  const originalFetch = globalThis.fetch; globalThis.fetch = async () => jsonResponse(completed)
+  const user = useUserStore(); const usageCalls = []; user.applyTokensUsed = (...args) => usageCalls.push(args)
+  try {
+    assert.equal(await store.resumePendingGeneration(), true)
+    await waitFor(() => store.generationState?.status === 'completed')
+    const assistants = store.getActive().messages.filter(message => message.role === 'assistant').slice(-2)
+    assert.deepEqual(assistants.map(message => [message.guid, message.model, message.content, message.tokens]), [
+      [B, 'model-a', 'answer a', 2],
+      [D, 'model-c', 'answer c', 5],
+    ])
+    assert.deepEqual(usageCalls, [[7, 101]])
+    assert.equal(await store.resumePendingGeneration(), false)
+    assert.deepEqual(usageCalls, [[7, 101]])
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('recovered completion rejects any non-exact or non-tail authoritative attempt graph', async () => {
+  const generationId = '123e4567-e89b-42d3-a456-426614174000'
+  const baseResult = () => ({ generation_id: generationId, status: 'completed', mode: 'compare', conversation_guid: A, total_tokens_used: 7, results: [
+    { model: 'model-a', status: 'completed', assistant_message_guid: B, content: 'answer a', tokens: 2 },
+    { model: 'model-b', status: 'completed', assistant_message_guid: D, content: 'answer b', tokens: 5 },
+  ] })
+  const baseMessages = () => [
+    { guid: C, role: 'user', content: 'target prompt', model: 'model-a', tokens: 0, created_at: 1 },
+    { guid: B, role: 'assistant', content: 'answer a', model: 'model-a', tokens: 2, created_at: 2 },
+    { guid: D, role: 'assistant', content: 'answer b', model: 'model-b', tokens: 5, created_at: 3 },
+  ]
+  const cases = [
+    ['old result followed by a newer round', result => result, messages => [...messages, { guid: '21', role: 'user', content: 'new prompt', model: 'model-a', tokens: 0, created_at: 4 }, { guid: '22', role: 'assistant', content: 'new answer', model: 'model-a', tokens: 1, created_at: 5 }]],
+    ['wrong model', result => result, messages => { messages[1].model = 'wrong-model'; return messages }],
+    ['wrong content', result => result, messages => { messages[1].content = 'wrong content'; return messages }],
+    ['wrong tokens', result => result, messages => { messages[1].tokens = 99; return messages }],
+    ['wrong assistant order', result => result, messages => [messages[0], messages[2], messages[1]]],
+    ['duplicate result and message GUID', result => { result.results[1].assistant_message_guid = B; return result }, messages => { messages[2].guid = B; return messages }],
+    ['missing result GUID in history', result => result, messages => messages.slice(0, 2)],
+    ['assistant block not directly adjacent to its user', result => result, messages => [messages[0], { guid: '31', role: 'system', content: 'boundary', model: null, tokens: 0, created_at: 2 }, ...messages.slice(1)]],
+  ]
+  const originalFetch = globalThis.fetch
+  try {
+    for (const [name, mutateResult, mutateMessages] of cases) {
+      setActivePinia(createPinia())
+      const store = useChatStore(); store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+      sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId, mode: 'compare', models: ['model-a', 'model-b'], conversationGuid: A, messageKey: `resume-${name}`, ownerGuid: '1', ownerEpoch: authSession.capture().epoch }))
+      const result = mutateResult(baseResult()); const messages = mutateMessages(baseMessages())
+      route = () => ({ ...summary(A), messages })
+      globalThis.fetch = async () => jsonResponse(result)
+      assert.equal(await store.resumePendingGeneration(), true, name)
+      await waitFor(() => store.streaming === false)
+      assert.notEqual(sessionStorage.getItem('llm_platform_active_generation_v2'), null, name)
+      assert.equal(store.getActive().messages.some(message => message.guid === B), false, name)
+      assert.notEqual(store.generationState?.status, 'completed', name)
+    }
   } finally { globalThis.fetch = originalFetch }
 })
 

@@ -320,16 +320,23 @@ export const useChatStore = defineStore('chat', () => {
     if (run.committed || run.resumeRequiresHistory || !runIsCurrent(run)) return
     run.committed = true
     forgetRun()
-    run.assistant.generationStatus = 'completed'
-    if (run.user) run.user.transientAttempt = undefined
-    run.assistant.transientAttempt = undefined
-    run.assistant.viewOnly = false
+    if (run.authoritativeAttempt) {
+      for (const assistant of run.authoritativeAttempt.assistants) {
+        assistant.generationStatus = 'completed'
+        assistant.viewOnly = false
+      }
+    } else {
+      run.assistant.generationStatus = 'completed'
+      if (run.user) run.user.transientAttempt = undefined
+      run.assistant.transientAttempt = undefined
+      run.assistant.viewOnly = false
+    }
     const resultTokens = run.mode === 'single'
       ? run.terminalMeta?.result?.tokens
       : run.terminalMeta?.results?.reduce((sum, result) => sum + (result.status === 'completed' ? result.tokens : 0), 0)
         ?? (run.terminalMeta?.models ? Object.values(run.terminalMeta.models).reduce((sum, result) => sum + (result.status === 'completed' ? result.tokens : 0), 0) : undefined)
     const tokens = run.terminalMeta?.tokens ?? resultTokens ?? 0
-    run.assistant.tokens = tokens
+    if (!run.authoritativeAttempt) run.assistant.tokens = tokens
     useUserStore().applyTokensUsed(tokens, run.terminalMeta?.total_tokens_used)
     run.conv.updatedAt = Date.now()
     streaming.value = false
@@ -368,9 +375,29 @@ export const useChatStore = defineStore('chat', () => {
     setGenerationPhase(run, phase, snapshot)
   }
 
-  const completedResults = run => run.mode === 'single'
-    ? [run.terminalMeta?.result]
-    : (run.terminalMeta?.results || []).filter(result => result.status === 'completed')
+  function matchRecoveredAttempt(run, conversation) {
+    const results = run.mode === 'single' ? [run.terminalMeta?.result] : run.terminalMeta?.results
+    if (!Array.isArray(results) || results.length !== run.models.length || results.some((result, index) => result?.model !== run.models[index])) return null
+    const completed = results.filter(result => result.status === 'completed')
+    if ((run.mode === 'single' && completed.length !== 1) || completed.length === 0) return null
+    const resultGuids = completed.map(result => result.assistant_message_guid)
+    if (new Set(resultGuids).size !== resultGuids.length || resultGuids.some(guid => canonicalConversationGuid(guid) !== guid)) return null
+    const messages = conversation.messages || []
+    const assistants = []
+    const indices = []
+    for (const result of completed) {
+      const matches = messages.map((message, index) => ({ message, index })).filter(item => item.message.guid === result.assistant_message_guid)
+      if (matches.length !== 1) return null
+      const { message, index } = matches[0]
+      if (message.role !== 'assistant' || canonicalConversationGuid(message.guid) !== result.assistant_message_guid || message.model !== result.model || message.content !== result.content || message.tokens !== result.tokens) return null
+      assistants.push(message)
+      indices.push(index)
+    }
+    const firstAssistantIndex = indices[0]
+    const userIndex = firstAssistantIndex - 1
+    if (userIndex < 0 || messages[userIndex]?.role !== 'user' || indices.some((index, offset) => index !== firstAssistantIndex + offset) || indices.at(-1) !== messages.length - 1) return null
+    return { user: messages[userIndex], assistants }
+  }
 
   async function reconcileRecoveredCompletion(run, snapshot) {
     try {
@@ -379,16 +406,14 @@ export const useChatStore = defineStore('chat', () => {
       const conversation = await getConversation(guid)
       authSession.assertCurrent(run.context)
       if (!runIsCurrent(run) || canonicalConversationGuid(conversation?.guid) !== guid) throw new Error('stale recovered conversation')
-      const results = completedResults(run)
-      const assistantGuids = new Set((conversation.messages || []).filter(message => message.role === 'assistant').map(message => message.guid))
-      if (!results.length || results.some(result => !result?.assistant_message_guid || !assistantGuids.has(result.assistant_message_guid))) throw new Error('recovered result missing from history')
-      const lastAssistantIndex = conversation.messages.map(message => message.role).lastIndexOf('assistant')
-      if (lastAssistantIndex < 1 || !conversation.messages.slice(0, lastAssistantIndex).some(message => message.role === 'user')) throw new Error('recovered prompt missing from history')
+      const attempt = matchRecoveredAttempt(run, conversation)
+      if (!attempt) throw new Error('recovered attempt does not match history')
       conversations.value = upsertConversationByGuid(conversations.value, conversation)
       run.conv = conversation
       run.conversationKey = guid
-      run.user = null
-      run.assistant = conversation.messages[lastAssistantIndex]
+      run.user = attempt.user
+      run.assistant = attempt.assistants.at(-1)
+      run.authoritativeAttempt = attempt
       run.resumeRequiresHistory = false
       commitCompleted(run, snapshot)
     } catch {
@@ -527,7 +552,7 @@ export const useChatStore = defineStore('chat', () => {
       userGuid: authSession.user()?.guid ?? null,
       conv, conversationKey: conversationKey(conv), user: userMsg, assistant: assistantMsg,
       controller: streamController, recoveryController: null, cancelController: null,
-      committed: false, cancelRequested: false, terminalMeta: null, machine: null, resumeRequiresHistory: false, historyPromise: null, cancelPromise: null,
+      committed: false, cancelRequested: false, terminalMeta: null, machine: null, resumeRequiresHistory: false, historyPromise: null, cancelPromise: null, authoritativeAttempt: null,
     }
     activeRun = run
     streamController = run.controller
@@ -596,7 +621,7 @@ export const useChatStore = defineStore('chat', () => {
     const assistant = { localKey: typeof saved.messageKey === 'string' && saved.messageKey ? saved.messageKey : genLocalId(), role: 'assistant', generationStatus: 'recovering', viewOnly: true, transientAttempt: saved.generationId, createdAt: Date.now(), ...(saved.mode === 'single' ? { content: '' } : { multiModel: true, models: saved.models, replies: Object.fromEntries(saved.models.map(model => [model, ''])), modelStates: Object.fromEntries(saved.models.map(model => [model, { status: 'recovering', code: null }])) }) }
     conv.messages ||= []
     if (!conv.messages.some(message => message.localKey === assistant.localKey)) conv.messages.push(assistant)
-    const run = { generationId: saved.generationId, mode: saved.mode, models: [...saved.models], context, userGuid: authSession.user()?.guid ?? null, conv, conversationKey: conversationKey(conv), user: null, assistant, controller: new AbortController(), recoveryController: null, cancelController: null, committed: false, cancelRequested: false, terminalMeta: null, machine: null, resumeRequiresHistory: true, historyPromise: null, cancelPromise: null }
+    const run = { generationId: saved.generationId, mode: saved.mode, models: [...saved.models], context, userGuid: authSession.user()?.guid ?? null, conv, conversationKey: conversationKey(conv), user: null, assistant, controller: new AbortController(), recoveryController: null, cancelController: null, committed: false, cancelRequested: false, terminalMeta: null, machine: null, resumeRequiresHistory: true, historyPromise: null, cancelPromise: null, authoritativeAttempt: null }
     activeRun = run; streamController = run.controller; streaming.value = true
     run.machine = createChatGeneration({ generationId: run.generationId, conversationGuid: canonicalConversationGuid(conv.guid), messageKey: assistant.localKey, mode: run.mode, models: run.models, onChange: snapshot => applyMachineSnapshot(run, snapshot) })
     setGenerationPhase(run, 'recovering')
