@@ -1,7 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { JSDOM } from 'jsdom'
 import { validatePublicGraph } from '../../scripts/check-public-route-chunks.mjs'
 import { publicModuleGraphPlugin } from '../../scripts/public-module-graph.mjs'
+
+const PUBLIC_FOUNDATION_MODULES = ['src/styles/tokens.scss', 'src/styles/foundations.scss']
 
 function fixture(extraModules = []) {
   const root = '/repo'
@@ -12,7 +16,7 @@ function fixture(extraModules = []) {
     emitFile(asset) { graph = JSON.parse(asset.source) },
   }, {}, {
     'assets/entry.js': { type: 'chunk', isEntry: true, imports: [], modules: Object.fromEntries([
-      'src/main.js', 'src/App.vue', 'src/router/index.js', 'src/utils/auth-redirect.js', ...extraModules,
+      'src/main.js', 'src/App.vue', 'src/router/index.js', 'src/utils/auth-redirect.js', ...PUBLIC_FOUNDATION_MODULES, ...extraModules,
     ].map(id => [id.startsWith('/') || id.startsWith('\0') ? id : `${root}/${id}`, {}])), code: 'bootstrap', viteMetadata: { importedCss: new Set() } },
     'assets/public.js': { type: 'chunk', isEntry: false, imports: ['assets/entry.js'], modules: { [`${root}/src/layouts/PublicLayout.vue`]: {} }, code: 'layout', viteMetadata: { importedCss: new Set(['assets/public.css']) } },
     'assets/public.css': { type: 'asset', source: 'x'.repeat(100) },
@@ -26,6 +30,54 @@ test('build plugin emits a sanitized graph accepted for the small public bootstr
   assert.doesNotMatch(JSON.stringify(graph), /\/repo\//)
 })
 
+test('early document theme uses valid storage first and otherwise follows the system', () => {
+  const html = readFileSync(new URL('../../index.html', import.meta.url), 'utf8')
+  const parsed = new JSDOM(html)
+  const earlyScript = parsed.window.document.querySelector('script:not([type])').textContent
+  parsed.window.close()
+
+  const scenarios = [
+    { name: 'stored light', stored: JSON.stringify('light'), systemDark: true, expected: 'light' },
+    { name: 'stored dark', stored: JSON.stringify('dark'), systemDark: false, expected: 'dark' },
+    { name: 'missing storage with dark system', stored: null, systemDark: true, expected: 'dark' },
+    { name: 'missing storage with light system', stored: null, systemDark: false, expected: 'light' },
+    { name: 'invalid JSON with dark system', stored: '{bad', systemDark: true, expected: 'dark' },
+    { name: 'invalid value with dark system', stored: JSON.stringify('sepia'), systemDark: true, expected: 'dark' },
+    { name: 'storage read error with dark system', storageError: true, systemDark: true, expected: 'dark' },
+    { name: 'missing matchMedia', stored: null, withMatchMedia: false, expected: 'light' },
+  ]
+
+  for (const scenario of scenarios) {
+    const dom = new JSDOM('<!doctype html><html><head><title></title></head></html>', {
+      url: 'https://local.test/',
+      runScripts: 'outside-only',
+    })
+    try {
+      Object.defineProperty(dom.window, 'localStorage', {
+        configurable: true,
+        value: {
+          getItem(key) {
+            if (scenario.storageError) throw new Error('storage unavailable')
+            return key === 'llm_platform_uiTheme' ? scenario.stored : null
+          },
+        },
+      })
+      if (scenario.withMatchMedia !== false) {
+        dom.window.matchMedia = query => ({
+          matches: query === '(prefers-color-scheme: dark)' && scenario.systemDark,
+        })
+      } else {
+        delete dom.window.matchMedia
+      }
+
+      dom.window.eval(earlyScript)
+      assert.equal(dom.window.document.documentElement.dataset.theme, scenario.expected, scenario.name)
+    } finally {
+      dom.window.close()
+    }
+  }
+})
+
 test('build-produced graph rejects a protected module injected into the public closure', () => {
   const graph = fixture(['src/stores/admin-user-actions.js'])
   assert.throws(() => validatePublicGraph(graph), /non-public module.*admin-user-actions/)
@@ -36,8 +88,14 @@ test('build-produced graph rejects an unknown local module even without protecte
   assert.throws(() => validatePublicGraph(graph), /non-public module.*innocent-looking-unknown/)
 })
 
-test('build-produced graph rejects Element Plus, all-icons, and global authenticated styles', () => {
-  for (const moduleId of ['node_modules/element-plus/es/index.mjs', 'node_modules/@element-plus/icons-vue/dist/index.mjs', 'src/styles/global.scss']) {
+test('build-produced graph rejects Element Plus, all-icons, auth modules, and non-foundation styles', () => {
+  for (const moduleId of [
+    'node_modules/element-plus/es/index.mjs',
+    'node_modules/@element-plus/icons-vue/dist/index.mjs',
+    'src/stores/theme.js',
+    'src/styles/global.scss',
+    'src/styles/mobile.scss',
+  ]) {
     const graph = fixture([moduleId])
     assert.throws(() => validatePublicGraph(graph), /non-public module/)
   }

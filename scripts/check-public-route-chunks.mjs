@@ -21,6 +21,8 @@ const PUBLIC_LOCAL_MODULES = new Set([
   'repo:src/utils/public-catalog.js',
   'repo:src/utils/storage.js',
   'repo:src/styles/public-bootstrap.css',
+  'repo:src/styles/tokens.scss',
+  'repo:src/styles/foundations.scss',
 ])
 const PUBLIC_RUNTIME_PACKAGES = /^npm:(?:vue|vue-router|pinia|@vue\/(?:reactivity|runtime-core|runtime-dom|shared))(?:\/|$)/
 const PUBLIC_VIRTUAL_MODULES = new Set([
