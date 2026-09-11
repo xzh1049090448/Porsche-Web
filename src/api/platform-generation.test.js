@@ -74,11 +74,11 @@ function controlledStreamResponse({ chunks = [], contentType = 'text/event-strea
   }
 }
 
-function controlledJSONResponse(data, { status = 200, cacheControl = 'no-store', retryAfter } = {}) {
+function controlledJSONResponse(data, { status = 200, cacheControl = 'no-store', retryAfter, contentType = 'application/json' } = {}) {
   let jsonReads = 0
   let bodyCancels = 0
   const values = new Map([
-    ['content-type', 'application/json'],
+    ['content-type', contentType],
     ...(cacheControl === null ? [] : [['cache-control', cacheControl]]),
     ...(retryAfter === undefined ? [] : [['retry-after', retryAfter]]),
   ])
@@ -93,6 +93,10 @@ function controlledJSONResponse(data, { status = 200, cacheControl = 'no-store',
     counts: () => ({ jsonReads, bodyCancels }),
   }
 }
+
+const publicError = (code, message, type, requestId = 'req-1') => ({
+  error: { code, message, type, request_id: requestId },
+})
 
 test('creates one canonical lowercase v4 UUID and reuses it in a single POST body', async () => {
   let uuidCalls = 0
@@ -388,11 +392,116 @@ test('GET accepts the sole no-store directive case-insensitively', async () => {
 })
 
 test('GET preserves HTTP failures and rejects noncanonical IDs before network', async () => {
-  const { client, calls } = harness([jsonResponse({ error: { code: 'generation_not_found', message: 'private', type: 'invalid_request_error', request_id: 'req-1' } }, 404)])
+  const { client, calls } = harness([jsonResponse(publicError('generation_not_found', 'Generation not found.', 'invalid_request_error'), 404)])
   await assert.rejects(client.get(generationId), error => error instanceof PlatformGenerationHTTPError && error.status === 404 && error.code === 'generation_not_found' && error.generation_id === generationId)
   await assert.rejects(client.get(generationId.toUpperCase()), /canonical lowercase UUID/)
   assert.equal(calls.length, 1)
 })
+
+test('GET and cancel accept only their exact closed public error combinations', async () => {
+  const getCases = [
+    [400, 'invalid_request', 'Invalid request.', 'invalid_request_error'],
+    [404, 'generation_not_found', 'Generation not found.', 'invalid_request_error'],
+    [503, 'generation_status_unavailable', 'Generation status is temporarily unavailable.', 'api_error'],
+  ]
+  const cancelCases = [
+    [400, 'invalid_request', 'Invalid request.', 'invalid_request_error'],
+    [503, 'generation_status_unavailable', 'Generation status is temporarily unavailable.', 'api_error'],
+  ]
+  for (const [status, code, message, type] of getCases) {
+    const { client } = harness([jsonResponse(publicError(code, message, type), status)])
+    await assert.rejects(client.get(generationId), error => error instanceof PlatformGenerationHTTPError && error.code === code && error.status === status)
+  }
+  for (const [status, code, message, type] of cancelCases) {
+    const { client, calls } = harness([jsonResponse(publicError(code, message, type), status)])
+    await assert.rejects(client.cancel(generationId), error => error instanceof PlatformGenerationHTTPError && error.code === code && error.status === status)
+    assert.deepEqual(calls.map(call => call.init.method), ['POST'])
+  }
+})
+
+test('single and compare POST accept only exact pre-stream public error combinations without replay', async () => {
+  const cases = [
+    [400, 'invalid_request', 'Invalid request.', 'invalid_request_error'],
+    [415, 'invalid_request', 'Invalid request.', 'invalid_request_error'],
+    [400, 'unsupported_parameter', 'Invalid request.', 'invalid_request_error'],
+    [400, 'missing_max_tokens', 'max_tokens is required.', 'invalid_request_error'],
+    [404, 'model_unavailable', 'Invalid request.', 'invalid_request_error'],
+    [413, 'request_too_large', 'Request body is too large.', 'invalid_request_error'],
+    [429, 'rate_limited', 'Invalid request.', 'api_error'],
+    [503, 'gateway_upstream_unavailable', 'The upstream service is unavailable.', 'api_error'],
+    [503, 'platform_stream_v2_unavailable', 'Invalid request.', 'api_error'],
+  ]
+  for (const compare of [false, true]) {
+    for (const [status, code, message, type] of cases) {
+      const { client, calls } = harness([jsonResponse(publicError(code, message, type), status)])
+      const operation = compare
+        ? client.streamCompare({ model: 'a', models: ['a', 'b'], messages: [], max_tokens: 1 })
+        : client.streamSingle({ model: 'a', messages: [], max_tokens: 1 })
+      await assert.rejects(operation, error => error instanceof PlatformGenerationHTTPError && error.code === code && error.status === status && error.generation_id === generationId)
+      assert.deepEqual(calls.map(call => call.init.method), ['POST'])
+    }
+  }
+})
+
+test('reviewer probes cannot promote malformed or route-mismatched HTTP errors', async () => {
+  const valid = publicError('generation_not_found', 'Generation not found.', 'invalid_request_error')
+  let coercions = 0
+  const attacker = { toString() { coercions++; throw new Error('private coercion detail') } }
+  const probes = [
+    { body: { ...valid, prompt: 'secret prompt' }, status: 404 },
+    { body: { error: { ...valid.error, token: 'secret-token' } }, status: 404 },
+    { body: { error: { ...valid.error, path: '/private', body: 'secret', upstream: 'secret' } }, status: 404 },
+    { body: publicError('generation_not_found', 'Generation not found.', 'invalid_request_error'), status: 503 },
+    { body: publicError('generation_status_unavailable', 'Generation not found.', 'api_error'), status: 503 },
+    { body: publicError('generation_status_unavailable', 'Generation status is temporarily unavailable.', 'invalid_request_error'), status: 503 },
+    { body: publicError('unknown_private_code', 'secret', 'api_error'), status: 503 },
+    { body: publicError('generation_not_found', 'Generation not found.', 'invalid_request_error', 'bad/request'), status: 404 },
+    { body: publicError('generation_not_found', 'Generation not found.', 'invalid_request_error', '请求'), status: 404 },
+    { body: publicError('generation_not_found', 'Generation not found.', 'invalid_request_error', 123), status: 404 },
+    { body: publicError('generation_not_found', 'Generation not found.', 'invalid_request_error', attacker), status: 404 },
+    { body: publicError('generation_not_found', 'Generation not found.', 'invalid_request_error', 'a'.repeat(129)), status: 404 },
+  ]
+  for (const probe of probes) {
+    const controlled = controlledJSONResponse(probe.body, { status: probe.status })
+    const { client } = harness([controlled.response])
+    await assert.rejects(
+      client.get(generationId),
+      error => error instanceof PlatformGenerationHTTPError
+        && error.code === 'request_failed'
+        && error.generation_id === generationId
+        && !error.message.includes('secret'),
+    )
+    assert.deepEqual(controlled.counts(), { jsonReads: 1, bodyCancels: 0 })
+  }
+  assert.equal(coercions, 0)
+})
+
+test('route-specific codes cannot cross GET, cancel, single, or compare boundaries', async () => {
+  const cases = [
+    ['get', 429, publicError('rate_limited', 'Invalid request.', 'api_error')],
+    ['cancel', 404, publicError('generation_not_found', 'Generation not found.', 'invalid_request_error')],
+    ['single', 404, publicError('generation_not_found', 'Generation not found.', 'invalid_request_error')],
+    ['compare', 503, publicError('generation_status_unavailable', 'Generation status is temporarily unavailable.', 'api_error')],
+  ]
+  for (const [route, status, body] of cases) {
+    const { client, calls } = harness([jsonResponse(body, status)])
+    const operation = route === 'get' ? client.get(generationId)
+      : route === 'cancel' ? client.cancel(generationId)
+        : route === 'single' ? client.streamSingle({ model: 'a', messages: [], max_tokens: 1 })
+          : client.streamCompare({ model: 'a', models: ['a', 'b'], messages: [], max_tokens: 1 })
+    await assert.rejects(operation, error => error instanceof PlatformGenerationHTTPError && error.code === 'request_failed' && error.generation_id === generationId)
+    assert.equal(calls.length, 1)
+  }
+})
+
+for (const contentType of [null, 'text/html', 'application/json-evil', 'application/json; broken']) {
+  test(`HTTP error rejects untrusted Content-Type ${JSON.stringify(contentType)} and cancels unread body`, async () => {
+    const controlled = controlledJSONResponse(publicError('generation_not_found', 'Generation not found.', 'invalid_request_error'), { status: 404, contentType })
+    const { client } = harness([controlled.response])
+    await assert.rejects(client.get(generationId), error => error instanceof PlatformGenerationHTTPError && error.code === 'request_failed' && error.generation_id === generationId)
+    assert.deepEqual(controlled.counts(), { jsonReads: 0, bodyCancels: 1 })
+  })
+}
 
 for (const cacheControl of [null, 'private', 'no-store, private']) {
   test(`GET does not trust an error envelope without contract Cache-Control ${JSON.stringify(cacheControl)}`, async () => {

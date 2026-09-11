@@ -6,12 +6,36 @@ const STREAM_VERSION = 'platform-chat-sse.v2'
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const POSITIVE_INT64 = /^[1-9][0-9]*$/
 const SAFE_CODES = new Set(['gateway_upstream_error', 'invalid_request', 'rate_limited', 'cancelled', 'timeout', 'internal_error', 'upstream_error'])
-const SAFE_HTTP_CODES = new Set([...SAFE_CODES, 'generation_not_found', 'generation_status_unavailable'])
 const TERMINAL = new Set(['cancelled', 'completed', 'failed'])
 const PENDING = new Set(['running', 'cancelling', 'committing'])
 const SINGLE_FIELDS = ['model', 'messages', 'conversation_guid', 'temperature', 'max_tokens', 'context_window', 'n', 'top_p', 'frequency_penalty', 'presence_penalty', 'stop', 'tools', 'response_format', 'stream_options', 'seed']
 const COMPARE_FIELDS = ['model', 'models', ...SINGLE_FIELDS.filter(field => field !== 'model')]
 const HTTP_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
+const SAFE_REQUEST_ID = /^[A-Za-z0-9._-]{1,128}$/
+const POST_GENERATION_ERRORS = [
+  [400, 'invalid_request', 'Invalid request.', 'invalid_request_error'],
+  [415, 'invalid_request', 'Invalid request.', 'invalid_request_error'],
+  [400, 'unsupported_parameter', 'Invalid request.', 'invalid_request_error'],
+  [400, 'missing_max_tokens', 'max_tokens is required.', 'invalid_request_error'],
+  [404, 'model_unavailable', 'Invalid request.', 'invalid_request_error'],
+  [413, 'request_too_large', 'Request body is too large.', 'invalid_request_error'],
+  [429, 'rate_limited', 'Invalid request.', 'api_error'],
+  [503, 'gateway_upstream_unavailable', 'The upstream service is unavailable.', 'api_error'],
+  [503, 'platform_stream_v2_unavailable', 'Invalid request.', 'api_error'],
+]
+const GENERATION_ERRORS = Object.freeze({
+  get: [
+    [400, 'invalid_request', 'Invalid request.', 'invalid_request_error'],
+    [404, 'generation_not_found', 'Generation not found.', 'invalid_request_error'],
+    [503, 'generation_status_unavailable', 'Generation status is temporarily unavailable.', 'api_error'],
+  ],
+  cancel: [
+    [400, 'invalid_request', 'Invalid request.', 'invalid_request_error'],
+    [503, 'generation_status_unavailable', 'Generation status is temporarily unavailable.', 'api_error'],
+  ],
+  single: POST_GENERATION_ERRORS,
+  compare: POST_GENERATION_ERRORS,
+})
 
 const hasExactKeys = (value, required, optional = []) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
@@ -103,14 +127,14 @@ function requestedModels(body, compare, generationId) {
   return [...body.models]
 }
 
-function isEventStreamContentType(value) {
+function isContentType(value, expected) {
   if (typeof value !== 'string') return false
   let index = 0
   const skipOWS = () => { while (value[index] === ' ' || value[index] === '\t') index += 1 }
   skipOWS()
   const typeStart = index
   while (index < value.length && value[index] !== ';' && value[index] !== ' ' && value[index] !== '\t') index += 1
-  if (value.slice(typeStart, index).toLowerCase() !== 'text/event-stream') return false
+  if (value.slice(typeStart, index).toLowerCase() !== expected) return false
   skipOWS()
   while (index < value.length) {
     if (value[index] !== ';') return false
@@ -148,6 +172,8 @@ function isEventStreamContentType(value) {
   }
   return true
 }
+
+const isEventStreamContentType = value => isContentType(value, 'text/event-stream')
 
 const hasNoStore = response => {
   const value = response.headers?.get?.('Cache-Control')
@@ -204,14 +230,30 @@ function validateStatus(value, generationId, expectedModels) {
   return null
 }
 
-async function safeHTTPError(response, generationId) {
-  let code = 'request_failed'
+function trustedHTTPErrorCode(data, status, route) {
+  if (!hasExactKeys(data, ['error']) || !hasExactKeys(data.error, ['code', 'message', 'type', 'request_id'])) return null
+  const { code, message, type, request_id: requestId } = data.error
+  if (typeof requestId !== 'string' || !SAFE_REQUEST_ID.test(requestId)) return null
+  const match = GENERATION_ERRORS[route]?.find(candidate => candidate[0] === status
+    && candidate[1] === code
+    && candidate[2] === message
+    && candidate[3] === type)
+  return match ? code : null
+}
+
+async function safeHTTPError(response, generationId, route) {
+  if (!isContentType(response.headers?.get?.('Content-Type'), 'application/json')) {
+    await cancelUnreadBody(response)
+    return new PlatformGenerationHTTPError(response.status, 'request_failed', generationId)
+  }
   try {
     const data = await response.json()
-    const candidate = data?.error?.code
-    if (SAFE_HTTP_CODES.has(candidate)) code = candidate
-  } catch { /* A private or malformed body is never exposed. */ }
-  return new PlatformGenerationHTTPError(response.status, code, generationId)
+    const code = trustedHTTPErrorCode(data, response.status, route) ?? 'request_failed'
+    return new PlatformGenerationHTTPError(response.status, code, generationId)
+  } catch {
+    await cancelUnreadBody(response)
+  }
+  return new PlatformGenerationHTTPError(response.status, 'request_failed', generationId)
 }
 
 function defaultSleep(ms, signal) {
@@ -234,7 +276,7 @@ export function createPlatformGenerationClient({
 } = {}) {
   const generationURL = generationId => `${baseURL}${PREFIX}/chat/generations/${generationId}`
 
-  async function requestJSON(url, init, generationId, expectedModels) {
+  async function requestJSON(url, init, generationId, expectedModels, route) {
     let response
     try { response = await authenticatedFetchImpl(url, init) }
     catch (error) { throw new PlatformGenerationIndeterminateError(generationId, init.signal?.aborted || error?.name === 'AbortError' ? 'aborted' : 'network_error') }
@@ -243,7 +285,7 @@ export function createPlatformGenerationClient({
       if (!response.ok) throw new PlatformGenerationHTTPError(response.status, 'request_failed', generationId)
       throw new PlatformGenerationIndeterminateError(generationId, 'invalid_cache_control')
     }
-    if (!response.ok) throw await safeHTTPError(response, generationId)
+    if (!response.ok) throw await safeHTTPError(response, generationId, route)
     let data
     try { data = await response.json() } catch { throw new PlatformGenerationIndeterminateError(generationId, 'invalid_status_response') }
     const status = validateStatus(data, generationId, expectedModels)
@@ -251,8 +293,8 @@ export function createPlatformGenerationClient({
     return { data: status, response }
   }
 
-  async function consumeStream(response, generationId, models, onEvent, signal) {
-    if (!response.ok) throw await safeHTTPError(response, generationId)
+  async function consumeStream(response, generationId, models, onEvent, signal, route) {
+    if (!response.ok) throw await safeHTTPError(response, generationId, route)
     if (!isEventStreamContentType(response.headers.get('Content-Type')) || !response.body) {
       try { await response.body?.cancel?.() } catch { /* Best-effort release of an unread invalid response. */ }
       throw new PlatformGenerationIndeterminateError(generationId, 'invalid_stream_response')
@@ -333,12 +375,12 @@ export function createPlatformGenerationClient({
     }).catch(error => {
       throw new PlatformGenerationIndeterminateError(generationId, error?.name === 'AbortError' || options?.signal?.aborted ? 'aborted' : 'network_error')
     })
-    return consumeStream(response, generationId, models, options?.onEvent, options?.signal)
+    return consumeStream(response, generationId, models, options?.onEvent, options?.signal, compare ? 'compare' : 'single')
   }
 
   async function get(generationId, options = {}) {
     assertCanonicalGenerationId(generationId)
-    return (await requestJSON(generationURL(generationId), { method: 'GET', signal: options.signal, cache: 'no-store' }, generationId, options.models)).data
+    return (await requestJSON(generationURL(generationId), { method: 'GET', signal: options.signal, cache: 'no-store' }, generationId, options.models, 'get')).data
   }
 
   async function poll(generationId, options = {}) {
@@ -361,7 +403,7 @@ export function createPlatformGenerationClient({
 
   async function cancel(generationId, options = {}) {
     assertCanonicalGenerationId(generationId)
-    const { data, response } = await requestJSON(`${generationURL(generationId)}/cancel`, { method: 'POST', signal: options.signal, cache: 'no-store' }, generationId, options.models)
+    const { data, response } = await requestJSON(`${generationURL(generationId)}/cancel`, { method: 'POST', signal: options.signal, cache: 'no-store' }, generationId, options.models, 'cancel')
     if (response.status === 200 && TERMINAL.has(data.status)) return data
     if (response.status !== 202 || !['cancelling', 'committing'].includes(data.status)) {
       throw new PlatformGenerationIndeterminateError(generationId, 'invalid_cancel_response')
