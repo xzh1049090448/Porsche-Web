@@ -3,18 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 import { publicModuleGraphPlugin } from './scripts/public-module-graph.mjs'
 
-import { publicContentPreviewHeaders } from './scripts/public-content-preview-headers.mjs'
-
-function publicContentPreviewProtection() {
-  const install = server => {
-    server.middlewares.use((req, res, next) => {
-      const headers = publicContentPreviewHeaders(new URL(req.url || '/', 'http://local.invalid').pathname)
-      if (headers) for (const [name, value] of Object.entries(headers)) res.setHeader(name, value)
-      next()
-    })
-  }
-  return { name: 'public-content-preview-protection', configureServer: install, configurePreviewServer: install }
-}
+import { publicContentPreviewProtection } from './scripts/public-content-preview-headers.mjs'
 
 export default defineConfig({
   plugins: [vue(), publicContentPreviewProtection(), publicModuleGraphPlugin()],
