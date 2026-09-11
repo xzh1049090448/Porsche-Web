@@ -28,6 +28,10 @@ export default defineConfig({
           })
         },
       },
+      '^/admin/v2(?:/|\\?|$)': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
 })
