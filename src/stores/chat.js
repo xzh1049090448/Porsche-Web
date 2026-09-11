@@ -344,6 +344,13 @@ export const useChatStore = defineStore('chat', () => {
     setGenerationPhase(run, 'completed', snapshot)
   }
 
+  function hasSuccessfulAuthoritativeResult(run) {
+    if (run.mode === 'single') return true
+    if (Array.isArray(run.terminalMeta?.results)) return run.terminalMeta.results.some(result => result?.status === 'completed')
+    if (run.terminalMeta?.models && typeof run.terminalMeta.models === 'object') return Object.values(run.terminalMeta.models).some(result => result?.status === 'completed')
+    return false
+  }
+
   function applyMachineSnapshot(run, snapshot) {
     if (!runIsCurrent(run)) return
     if (snapshot.conversationGuid && !bindRunConversation(run, snapshot.conversationGuid)) {
@@ -359,6 +366,14 @@ export const useChatStore = defineStore('chat', () => {
       run.assistant.contextReplies = Object.fromEntries(snapshot.models.filter(item => item.terminal === 'completed').map(item => [item.model, item.displayedText]))
     }
     if (snapshot.status === 'completed') {
+      if (!hasSuccessfulAuthoritativeResult(run)) {
+        forgetRun()
+        run.conv.title = run.originalTitle
+        run.conv.updatedAt = run.originalUpdatedAt
+        run.assistant.viewOnly = true
+        streaming.value = false
+        return setGenerationPhase(run, 'failed', { ...snapshot, status: 'failed' })
+      }
       if (run.resumeRequiresHistory) {
         if (!run.historyPromise) run.historyPromise = reconcileRecoveredCompletion(run, snapshot)
         return
@@ -439,6 +454,15 @@ export const useChatStore = defineStore('chat', () => {
       applyMachineSnapshot(run, snapshot)
     } catch (error) {
       if (!runIsCurrent(run)) return
+      if (run.cancelRequested && !fromCancel) return
+      if (error?.status !== 403 && error?.status !== 404) {
+        const assistant = run.assistant
+        detachActiveRun({ preserveRecovery: true, preserveView: true })
+        assistant.generationStatus = 'recovering'
+        assistant.generationPhase = 'recovering'
+        assistant.viewOnly = true
+        return
+      }
       const snapshot = run.machine.fail(error?.status === 403 || error?.status === 404 ? 'GENERATION_OWNER_ERROR' : 'GENERATION_RECOVERY_ERROR')
       applyMachineSnapshot(run, snapshot)
     }
@@ -520,6 +544,8 @@ export const useChatStore = defineStore('chat', () => {
 
     const userContent = content.trim()
     const generationId = createPlatformGenerationId()
+    const originalTitle = conv.title
+    const originalUpdatedAt = conv.updatedAt
     const userMsg = {
       localKey: genLocalId(),
       role: 'user',
@@ -530,7 +556,7 @@ export const useChatStore = defineStore('chat', () => {
     }
     if (!conv.messages) conv.messages = []
     conv.messages.push(userMsg)
-    if (conv.messages.filter((m) => m.role === 'user').length === 1) {
+    if (conv.messages.filter((m) => m.role === 'user' && !m.transientAttempt).length === 0) {
       conv.title = userContent.slice(0, 24) || useLocaleStore().t('chat.defaultTitle')
     }
     conv.updatedAt = Date.now()
@@ -551,6 +577,7 @@ export const useChatStore = defineStore('chat', () => {
       generationId, mode, models: modelIds, context,
       userGuid: authSession.user()?.guid ?? null,
       conv, conversationKey: conversationKey(conv), user: userMsg, assistant: assistantMsg,
+      originalTitle, originalUpdatedAt,
       controller: streamController, recoveryController: null, cancelController: null,
       committed: false, cancelRequested: false, terminalMeta: null, machine: null, resumeRequiresHistory: false, historyPromise: null, cancelPromise: null, authoritativeAttempt: null,
     }
@@ -615,15 +642,25 @@ export const useChatStore = defineStore('chat', () => {
     const validModels = Array.isArray(saved?.models) && saved.models.length >= 1 && saved.models.length <= 3 && new Set(saved.models).size === saved.models.length && saved.models.every(model => typeof model === 'string' && model.trim())
     const context = authSession.capture()
     const ownerMatches = typeof saved?.ownerGuid === 'string' && saved.ownerGuid === authSession.user()?.guid && typeof saved?.ownerEpoch === 'string' && saved.ownerEpoch === context.epoch
-    if (!validId || !['single', 'compare'].includes(saved?.mode) || !validModels || !ownerMatches || (saved.mode === 'single' ? saved.models.length !== 1 : saved.models.length < 2)) { forgetRun(); return false }
-    const conv = saved.conversationGuid ? conversations.value.find(item => item.guid === saved.conversationGuid) : getActive()
-    if (!conv) return false
-    const assistant = { localKey: typeof saved.messageKey === 'string' && saved.messageKey ? saved.messageKey : genLocalId(), role: 'assistant', generationStatus: 'recovering', viewOnly: true, transientAttempt: saved.generationId, createdAt: Date.now(), ...(saved.mode === 'single' ? { content: '' } : { multiModel: true, models: saved.models, replies: Object.fromEntries(saved.models.map(model => [model, ''])), modelStates: Object.fromEntries(saved.models.map(model => [model, { status: 'recovering', code: null }])) }) }
+    const savedGuid = saved?.conversationGuid == null ? null : canonicalConversationGuid(saved.conversationGuid)
+    if (!validId || !['single', 'compare'].includes(saved?.mode) || !validModels || !ownerMatches || (saved.conversationGuid != null && !savedGuid) || (saved.mode === 'single' ? saved.models.length !== 1 : saved.models.length < 2)) { forgetRun(); return false }
+    let conv = savedGuid
+      ? conversations.value.find(item => canonicalConversationGuid(item.guid) === savedGuid)
+      : conversations.value.find(item => item.recoveryGenerationId === saved.generationId)
+    if (!conv) {
+      const now = Date.now()
+      conv = { ...(savedGuid ? { guid: savedGuid } : { localKey: `recovery_${saved.generationId}` }), recoveryGenerationId: saved.generationId, title: useLocaleStore().t('chat.defaultTitle'), messages: [], createdAt: now, updatedAt: now }
+      conversations.value.push(conv)
+    }
+    activeId.value = conversationKey(conv)
+    const messageKey = typeof saved.messageKey === 'string' && saved.messageKey ? saved.messageKey : genLocalId()
+    let assistant = (conv.messages || []).find(message => message.localKey === messageKey)
+    if (!assistant) assistant = { localKey: messageKey, role: 'assistant', generationStatus: 'recovering', viewOnly: true, transientAttempt: saved.generationId, createdAt: Date.now(), ...(saved.mode === 'single' ? { content: '' } : { multiModel: true, models: saved.models, replies: Object.fromEntries(saved.models.map(model => [model, ''])), modelStates: Object.fromEntries(saved.models.map(model => [model, { status: 'recovering', code: null }])) }) }
     conv.messages ||= []
-    if (!conv.messages.some(message => message.localKey === assistant.localKey)) conv.messages.push(assistant)
-    const run = { generationId: saved.generationId, mode: saved.mode, models: [...saved.models], context, userGuid: authSession.user()?.guid ?? null, conv, conversationKey: conversationKey(conv), user: null, assistant, controller: new AbortController(), recoveryController: null, cancelController: null, committed: false, cancelRequested: false, terminalMeta: null, machine: null, resumeRequiresHistory: true, historyPromise: null, cancelPromise: null, authoritativeAttempt: null }
+    if (!conv.messages.includes(assistant)) conv.messages.push(assistant)
+    const run = { generationId: saved.generationId, mode: saved.mode, models: [...saved.models], context, userGuid: authSession.user()?.guid ?? null, conv, conversationKey: conversationKey(conv), user: null, assistant, originalTitle: conv.title, originalUpdatedAt: conv.updatedAt, controller: new AbortController(), recoveryController: null, cancelController: null, committed: false, cancelRequested: false, terminalMeta: null, machine: null, resumeRequiresHistory: true, historyPromise: null, cancelPromise: null, authoritativeAttempt: null }
     activeRun = run; streamController = run.controller; streaming.value = true
-    run.machine = createChatGeneration({ generationId: run.generationId, conversationGuid: canonicalConversationGuid(conv.guid), messageKey: assistant.localKey, mode: run.mode, models: run.models, onChange: snapshot => applyMachineSnapshot(run, snapshot) })
+    run.machine = createChatGeneration({ generationId: run.generationId, conversationGuid: savedGuid, messageKey: assistant.localKey, mode: run.mode, models: run.models, onChange: snapshot => applyMachineSnapshot(run, snapshot) })
     setGenerationPhase(run, 'recovering')
     await recoverGeneration(run)
     return true

@@ -90,11 +90,11 @@ test('authoritative completed rebuilds pending playback instead of duplicating r
   assert.equal(g.snapshot().status, 'completed'); assert.equal(g.snapshot().models[0].receivedText, 'ABC'); assert.equal(g.snapshot().models[0].displayedText, 'ABC')
 })
 
-test('model errors and failed compare siblings discard undisplayed queues', () => {
+test('model errors flush accepted partial text before discarding playback queues', () => {
   const clock = scheduler(); const g = createChatGeneration({ mode: 'compare', generationId: 'gen-1', conversationGuid: 'conv-1', messageKey: 'msg-1', models: ['a', 'b'], playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0, reducedMotion: true } })
   g.handleEvent(meta('gen-1', ['a', 'b'])); g.handleEvent(delta('a', 1, 'AB')); g.handleEvent({ type: 'model_error', generation_id: 'gen-1', model: 'a', code: 'gateway_upstream_error' });
   g.handleEvent(delta('b', 1, 'B')); g.handleEvent(modelDone('b')); g.handleEvent({ type: 'done', generation_id: 'gen-1', status: 'completed', conversation_guid: 'conv-1', total_tokens_used: 1, models: { a: { status: 'failed', code: 'gateway_upstream_error' }, b: { status: 'completed', tokens: 1 } } }); while (clock.step(1000)) {}
-  assert.equal(g.snapshot().status, 'completed'); assert.equal(g.snapshot().models[0].displayedText, ''); assert.equal(g.snapshot().models[0].code, 'gateway_upstream_error')
+  assert.equal(g.snapshot().status, 'completed'); assert.equal(g.snapshot().models[0].displayedText, 'AB'); assert.equal(g.snapshot().models[0].code, 'gateway_upstream_error')
 })
 
 test('noncompleted status payloads require a null conversation guid', () => {
