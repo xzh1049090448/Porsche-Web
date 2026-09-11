@@ -2,6 +2,8 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { bootstrapApplication } from './bootstrap-app.js'
 import router, { bootstrapModeForPath, createLazyLoadFailureHandler, renderSafeLoadError } from './router'
+import './styles/tokens.scss'
+import './styles/foundations.scss'
 import './styles/public-bootstrap.css'
 
 const bootstrapMode = bootstrapModeForPath(router, window.location.pathname)

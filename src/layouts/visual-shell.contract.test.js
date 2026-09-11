@@ -168,5 +168,56 @@ test('application startup preserves public/auth bootstrap and recovery boundarie
   assert.match(router, /installLoadFailureRecovery/)
 })
 
+test('public and authenticated bootstraps share semantic tokens and accessible foundations', async () => {
+  const [main, tokens, foundations] = await Promise.all([
+    read('../main.js'),
+    read('../styles/tokens.scss'),
+    read('../styles/foundations.scss'),
+  ])
+
+  assert.match(main, /import ['"]\.\/styles\/tokens\.scss['"]/)
+  assert.match(main, /import ['"]\.\/styles\/foundations\.scss['"]/)
+  assert.match(main, /mountPublicApp:/)
+  assert.match(main, /import\(['"]element-plus['"]\)/)
+
+  for (const token of [
+    '--color-brand',
+    '--color-brand-hover',
+    '--color-brand-soft',
+    '--surface-page',
+    '--surface-card',
+    '--text-primary',
+    '--text-secondary',
+    '--text-muted',
+    '--border-default',
+    '--state-success',
+    '--control-min-size',
+    '--header-height',
+    '--sidebar-width',
+  ]) assert.match(tokens, new RegExp(token))
+  for (const value of ['#2563eb', '#1d4ed8', '#eff6ff', '#f8fafc', '#ffffff', '#e5e7eb', '#111827', '#4b5563', '#9ca3af', '#10b981', '#0f172a', '#273449', '#334155', '#f8fafc', '#94a3b8', '#3b82f6']) {
+    assert.match(tokens.toLowerCase(), new RegExp(value))
+  }
+  assert.match(tokens, /--control-min-size:\s*44px/)
+  assert.match(tokens, /--el-color-primary:\s*var\(--color-brand\)/)
+  assert.match(tokens, /--el-bg-color-page:\s*var\(--surface-page\)/)
+  assert.match(tokens, /@mixin dark-theme-tokens/)
+  assert.equal(tokens.match(/@include dark-theme-tokens/g)?.length, 2)
+
+  assert.match(foundations, /:focus-visible/)
+  assert.match(foundations, /\.sr-only/)
+  assert.match(foundations, /prefers-reduced-motion:\s*reduce/)
+  assert.match(foundations, /font-family:/)
+})
+
+test('theme toggle keeps translated tooltip, accessible label, and button behavior', async () => {
+  const toggle = await read('../components/ThemeToggle.vue')
+  assert.match(toggle, /<el-tooltip :content="tooltip"/)
+  assert.match(toggle, /:aria-label="tooltip"/)
+  assert.match(toggle, /@click="themeStore\.toggleTheme\(\)"/)
+  assert.match(toggle, /t\('theme\.toLight'\)/)
+  assert.match(toggle, /t\('theme\.toDark'\)/)
+})
+
 test.todo('Task 4 replaces the current public-layout marker with public-shell')
 test.todo('Task 3 replaces the current authenticated layout with console-shell and console-sidebar landmarks')

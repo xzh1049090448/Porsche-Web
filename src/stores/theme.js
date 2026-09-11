@@ -5,12 +5,23 @@ import { getItem, setItem } from '@/utils/storage'
 export const THEME_STORAGE_KEY = 'uiTheme'
 
 export function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme
+  const value = theme === 'dark' ? 'dark' : 'light'
+  if (typeof document !== 'undefined' && document.documentElement) {
+    document.documentElement.dataset.theme = value
+  }
+  return value
 }
 
 export function readStoredTheme() {
-  const stored = getItem(THEME_STORAGE_KEY, 'light')
-  return stored === 'dark' ? 'dark' : 'light'
+  const stored = getItem(THEME_STORAGE_KEY, null)
+  if (stored === 'light' || stored === 'dark') return stored
+  try {
+    return typeof globalThis.matchMedia === 'function' && globalThis.matchMedia('(prefers-color-scheme: dark)').matches
+      ? 'dark'
+      : 'light'
+  } catch {
+    return 'light'
+  }
 }
 
 export const useThemeStore = defineStore('theme', () => {
@@ -22,7 +33,7 @@ export const useThemeStore = defineStore('theme', () => {
     const value = next === 'dark' ? 'dark' : 'light'
     theme.value = value
     applyTheme(value)
-    setItem(THEME_STORAGE_KEY, value)
+    try { setItem(THEME_STORAGE_KEY, value) } catch {}
   }
 
   function toggleTheme() {

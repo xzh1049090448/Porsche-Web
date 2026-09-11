@@ -91,8 +91,8 @@
   .conv-more,
   .conv-delete,
   .close-btn {
-    min-width: 44px;
-    min-height: 44px;
+    min-width: var(--control-min-size);
+    min-height: var(--control-min-size);
   }
 
   .el-input__inner,
@@ -123,7 +123,7 @@
 }
 
 @media (max-width: 767px) {
-  .public-header { padding: 12px 18px; }.public-nav-toggle { display: inline-flex; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; }.public-header nav { position: absolute; top: 100%; left: 0; right: 0; display: none; align-items: stretch; flex-direction: column; padding: 18px; border-bottom: 1px solid var(--public-border); background: var(--public-card); }.public-header nav.is-open { display: flex; }.public-header nav a { min-height: 44px; display: flex; align-items: center; }
+  .public-header { padding: 12px 18px; }.public-nav-toggle { display: inline-flex; min-width: var(--control-min-size); min-height: var(--control-min-size); align-items: center; justify-content: center; }.public-header nav { position: absolute; top: 100%; left: 0; right: 0; display: none; align-items: stretch; flex-direction: column; padding: 18px; border-bottom: 1px solid var(--public-border); background: var(--public-card); }.public-header nav.is-open { display: flex; }.public-header nav a { min-height: var(--control-min-size); display: flex; align-items: center; }
   .public-home, .public-document { width: min(100% - 32px, 1200px); }.public-hero { grid-template-columns: 1fr; gap: 28px; min-height: auto; padding: 72px 0; }.public-hero h1 { font-size: 38px; }.public-demo { padding: 24px; }.public-section { padding: 58px 0; }.public-card-grid, .public-model-wall, .public-info-grid { grid-template-columns: 1fr; }.public-cta, .public-footer { align-items: flex-start; flex-direction: column; }.public-footer { padding: 40px 24px; }.public-footer nav { align-items: flex-start; flex-direction: column; }.public-cta { margin-bottom: 64px; padding: 28px; }.public-document { padding-top: 48px; }.public-document > h1, .public-document header h1 { font-size: 32px; }
 }
 @media (min-width: 768px) and (max-width: 1279px) { .public-card-grid, .public-model-wall { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
