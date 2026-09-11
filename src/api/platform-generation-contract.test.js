@@ -163,7 +163,7 @@ const resultSchemas = {
 const platformCompareRequest = {
   required: ['model', 'models', 'messages', 'max_tokens', 'stream', 'stream_version', 'generation_id'],
   optional: ['conversation_guid', 'temperature', 'context_window', 'n', 'top_p', 'frequency_penalty', 'presence_penalty', 'stop', 'tools', 'response_format', 'stream_options', 'seed'],
-  explicit_null_equivalent_to_absent: ['conversation_guid', 'temperature', 'context_window', 'n', 'top_p', 'frequency_penalty', 'presence_penalty', 'tools', 'response_format', 'stream_options', 'seed'],
+  explicit_null_equivalent_to_absent: ['conversation_guid', 'temperature', 'context_window', 'n', 'top_p', 'frequency_penalty', 'presence_penalty', 'tools', 'response_format', 'seed'],
   required_non_null: ['model', 'models', 'messages', 'max_tokens', 'stream', 'stream_version', 'generation_id'],
   fields: {
     model: 'non-empty routing model ID string used only for shared request validation',
@@ -180,10 +180,10 @@ const platformCompareRequest = {
     top_p: 'optional null or finite number greater than 0 through 1; null is equivalent to absent',
     frequency_penalty: 'optional null or finite number strictly greater than -2 and strictly less than 2; null is equivalent to absent',
     presence_penalty: 'optional null or finite number strictly greater than -2 and strictly less than 2; null is equivalent to absent',
-    stop: 'optional null, any string including empty, or array of 0..4 string-or-null entries; null and null array entries decode as empty strings and are accepted as empty/absent-equivalent',
+    stop: 'optional; null is accepted and forwarded as JSON null; any string including empty is accepted and forwarded unchanged; arrays of 0..4 string-or-null entries, including [null], are accepted by local validation and forwarded as the original JSON array unchanged',
     tools: 'optional null or array of at most 32 closed function tools; null is equivalent to absent',
     response_format: 'optional null or closed OpenAI-compatible response format; null is equivalent to absent',
-    stream_options: 'optional null or closed object with required include_usage literal true; null is equivalent to absent',
+    stream_options: 'optional only by omission; when present must be the closed object {include_usage:true}; null is rejected by runner admission',
     seed: 'optional null or integer from -9223372036854775808 through 9223372036854775807; null is equivalent to absent',
   },
   additional_fields: 'forbidden',
