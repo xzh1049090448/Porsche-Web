@@ -1,6 +1,6 @@
 {
   "project": "Porsche-Web（大模型聚合平台用户端前端）",
-  "last_updated": "2026-09-08",
+  "last_updated": "2026-09-11",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -45,21 +45,23 @@
       "title": "PRD-260903：管理员用户管理与公共页面体系",
       "user_visible_behavior": "形成管理员真实管理、公共页面、路由迁移与金额 Mock 隔离的可实施设计和契约草案。",
       "status": "in_progress",
-      "phase": "joint_acceptance_partial_11_limited_15_blocked",
+      "phase": "public_content_pricing_frontend_local_pass_pending_live_acceptance",
       "verification": [
         "设计评审与独立 review",
         "文档 JSON parse/hash/diff-check",
         "A01-A14/P01-P08/V01-V02/R01-R02 后续逐项验收",
-        "A03 Task12：BE 3a50144e53268f6ef3ae704699ef9fa851e4a5ee / FE 9f660a9ca26f5738dd661652596a1e450ff34335；MySQL 8.4.11、Redis 7.4、ledger 0001–0010、后端focused/race/serial full/build/vet/diff、前端275/275及可见Chrome 13/13"
+        "A03 Task12：BE 3a50144e53268f6ef3ae704699ef9fa851e4a5ee / FE 9f660a9ca26f5738dd661652596a1e450ff34335；MySQL 8.4.11、Redis 7.4、ledger 0001–0010、后端focused/race/serial full/build/vet/diff、前端275/275及可见Chrome 13/13",
+        "Public content/pricing Task11：FE 8001346bcfcaf16889a967f53b2042993e11fddf / BE 7d7d1dd8d141e2847c431d9c58e07fb53238eb72；三份冻结契约显式注入，前端511/511、生产build、public module graph、diff-check"
       ],
       "evidence": [
         "2026-09-04：B1-D 只读用户列表/详情、认证权限投影、分页回退及 F1/F2 候选闭合；132/132 Node 行为测试、build、writer Chrome 合成 API 矩阵通过。独立 Chrome 在 5177 复验分页/UI、详情错误重试、F1 撤权清理和权限恢复均 PASS；独立质量为本地 FE 候选 VERDICT PASS，offline audit freshness NOT_VERIFIED。",
         "2026-09-04：真实本地FE+BE联合验收最终FAIL。26项为6 PASS_LIMITED_SCOPE（A01/A02/A04/A13/V01/V02）、2 FAIL_LOCAL_DEV_ROUTE（P02/R01）、18 BLOCKED；logout 204/Cookie清空/refresh 401通过，但本地Vite /api代理截获/api-keys硬刷新并返回404。SECOND仅在该早期logout路由解释上supersede CORE；原始证据保留。最终报告和机器矩阵见docs/agents/validation/joint-acceptance-20260904/。",
         "2026-09-04：Vite API路由边界补救在保留的真实本地FE+BE环境通过writer与独立QA。P02/R01由FAIL_LOCAL_DEV_ROUTE提升为本地PASS_LIMITED_SCOPE；当前8项限定通过、0项本地路由失败、18项阻塞。/api-keys、/users、/profile硬刷新及退出守卫通过，logout 204、Cookie清空、refresh 401保持；生产HTTPS、模型/chat/SSE与部署未运行。证据见docs/agents/validation/vite-api-route-proxy-fix-20260904/。",
         "2026-09-08：A03 users.create/users.create_admin本地联合切片经代码与证据spec/quality/security复审全部PASS，提升为PASS_LIMITED_SCOPE；canonical manifest见backend:docs/superpowers/reports/validation/2026-09-06-a03-admin-user-create/canonical-3a50144-9f660a9-final/manifest.json。唯一skip为TestAdminUsersReadPerformance显式opt-in 100k夹具。fixture及A03私有临时文件exact cleanup为PASS。",
-        "2026-09-08：测试环境真实浏览器完成管理员列表、精确搜索、详情、刷新登录态、创建普通用户及软删除闭环；临时 GUID 355650202352226304 删除后活动列表恢复 4 条且 GUID 查询 0 条。发现删除后残留旧创建公告；隔离分支按 TDD 修复为删除成功公告，定向 10/10、全量 287/287、生产构建及 diff-check 通过。"
+        "2026-09-08：测试环境真实浏览器完成管理员列表、精确搜索、详情、刷新登录态、创建普通用户及软删除闭环；临时 GUID 355650202352226304 删除后活动列表恢复 4 条且 GUID 查询 0 条。发现删除后残留旧创建公告；隔离分支按 TDD 修复为删除成功公告，定向 10/10、全量 287/287、生产构建及 diff-check 通过。",
+        "2026-09-11：public content/pricing 前端候选8001346绑定后端7d7d1dd及冻结契约89e94d9；显式A03/A14/public-pricing契约和VITE_USE_MOCK=false下全量511/511、0 skip，生产构建、8个公共chunk模块图（194574 JS bytes/5421 CSS bytes）及diff-check通过。P01/P03–P07仅为PASS_FRONTEND_LOCAL；浏览器夹具BLOCKED_FIXTURE、线上PENDING_LIVE_ACCEPTANCE，P08保持BLOCKED_PRODUCT。报告见docs/agents/validation/2026-09-09-public-content-pricing/frontend-report.md。"
       ],
-      "notes": "当前权威本地结果为11 PASS_LIMITED_SCOPE、0 FAIL_LOCAL_DEV_ROUTE、13 BLOCKED_NOT_IMPLEMENTED、1 BLOCKED_PRODUCT、1 BLOCKED_ENV，合计15项阻塞。A03与A14的测试环境创建/软删除闭环已有真实浏览器证据；其余验收行保持原状态，web-012继续in_progress。金额余额仍仅为Mock边界，真实ledger/billing/recharge/refund/deduction保持未来范围。删除成功提示修复尚未push、merge或发布。ACTION_SECURITY_HMAC_KEY v1 lacks key ID/multi-key verification; rotation is prohibited while replayable post-0010 active snapshots exist unless a separately approved multi-key verifier or atomic full re-HMAC migration is delivered."
+      "notes": "Public content/pricing当前仅完成前端本地代码门禁，P01/P03–P07为PASS_FRONTEND_LOCAL，不代表跨栈或生产验收；浏览器夹具为BLOCKED_FIXTURE，外部线上验收为PENDING_LIVE_ACCEPTANCE，P08为BLOCKED_PRODUCT，R02保持既有环境边界。A03与A14的既有测试环境创建/软删除证据不变，web-012继续in_progress。金额余额仍仅为Mock边界，真实ledger/billing/recharge/refund/deduction保持未来范围。ACTION_SECURITY_HMAC_KEY v1 lacks key ID/multi-key verification; rotation is prohibited while replayable post-0010 active snapshots exist unless a separately approved multi-key verifier or atomic full re-HMAC migration is delivered."
     },
     {
       "id": "web-009",

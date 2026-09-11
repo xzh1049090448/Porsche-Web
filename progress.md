@@ -1,5 +1,12 @@
 # 当前验证进度
 
+## 2026-09-11：公共内容与定价前端 Task 11 本地集成证据
+
+- 前端候选 `8001346bcfcaf16889a967f53b2042993e11fddf` 绑定后端 `7d7d1dd8d141e2847c431d9c58e07fb53238eb72`；公开内容/定价冻结契约 SHA-256 为 `89e94d93939876a62baeaba0ca0bfcc94dcdc2ee111a4aad4ce8a31db28dfe7e`，A03/A14 契约也通过显式路径注入测试进程。
+- `VITE_USE_MOCK=false` 且三份契约显式设置时，全量 Node 测试 511/511、0 fail、0 skip；首次沙箱运行仅因真实 Vite Preview 测试禁止监听 `127.0.0.1` 而为 510/511，允许回环监听后同一完整命令通过。生产构建完成 2387 modules，公共模块图校验通过（8 chunks、194574 JS bytes、5421 CSS bytes），`git diff --check` 通过。
+- P01/P03–P07 仅记为 `PASS_FRONTEND_LOCAL`。本轮没有可变隔离账号/数据且明确不改 fixture，375/768/1440、Root/匿名、CRUD/发布/通知等浏览器矩阵为 `BLOCKED_FIXTURE`；外部 HTTPS、CDN、生产迁移/部署/回滚与跨栈联合验收为 `PENDING_LIVE_ACCEPTANCE`。
+- P08 继续 `BLOCKED_PRODUCT`：代码已对 40+/100%/MIT 等原型断言及法律元数据 fail closed，但真实价格、claims、terms、privacy、品牌文案与最终生产内容仍未获产品/法务批准。未 push、merge、deploy，也未创建、修改或清理任何账号、数据库、Redis 或线上资源。完整报告见 `docs/agents/validation/2026-09-09-public-content-pricing/frontend-report.md`；`web-012` 保持 `in_progress`。
+
 ## 2026-09-08：用户软删除成功提示修复
 
 - 测试环境 `https://aiportcloud.com/users` 以 `root_admin` 完成列表、搜索、详情、刷新、创建与软删除验收；临时用户 `accept_260908_0942`（GUID `355650202352226304`）创建成功并已软删除，按 GUID 查询为 0 条。
