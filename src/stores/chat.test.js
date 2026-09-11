@@ -6,7 +6,7 @@ import { setImmediate } from 'node:timers/promises'
 
 // Load the real store/API/mappers via the project's Vite aliases, replacing
 // only Axios's transport so every request stays inside these local fixtures.
-let server, useChatStore, useSettingsStore, request, authSession, route, calls = [], writes = []
+let server, useChatStore, projectConversationForPersistence, useSettingsStore, request, authSession, route, calls = [], writes = []
 const browserGlobals = ['localStorage', 'sessionStorage', 'navigator', 'isSecureContext', 'BroadcastChannel', 'document']
 const originalGlobals = new Map(browserGlobals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
 const A = '9223372036854775701'
@@ -69,7 +69,7 @@ before(async () => {
       },
     }],
   })
-  ;({ useChatStore } = await server.ssrLoadModule('/src/stores/chat.js'))
+  ;({ useChatStore, projectConversationForPersistence } = await server.ssrLoadModule('/src/stores/chat.js'))
   ;({ useSettingsStore } = await server.ssrLoadModule('/src/stores/settings.js'))
   ;({ default: request, authSession } = await server.ssrLoadModule('/src/api/request.js'))
   globalThis.document = { documentElement: { setAttribute() {} } }
@@ -363,6 +363,55 @@ test('compare keeps a failed model separate while its sibling completes in reque
   } finally { globalThis.fetch = originalFetch }
 })
 
+test('compare completion keeps failed sibling partial only in the display overlay', async () => {
+  const store = useChatStore(); const settings = useSettingsStore()
+  settings.compareMode = true; settings.compareModelIds = ['model-a', 'model-b']
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; const bodies = []; let requestNumber = 0
+  globalThis.document.visibilityState = 'hidden'
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body); bodies.push(body); requestNumber += 1
+    const id = body.generation_id
+    if (requestNumber === 1) {
+      const encoder = new TextEncoder()
+      return new Response(new ReadableStream({ async start(controller) {
+        controller.enqueue(encoder.encode([
+          `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['model-a', 'model-b'] })}\n\n`,
+          `event: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'model-a', seq: 1, delta: 'authoritative success' })}\n\n`,
+          `event: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'model-b', seq: 1, delta: 'failed secret partial' })}\n\n`,
+        ].join('')))
+        await new Promise(resolve => setTimeout(resolve, 25))
+        controller.enqueue(encoder.encode([
+          `event: model_error\ndata: ${JSON.stringify({ generation_id: id, model: 'model-b', code: 'timeout' })}\n\n`,
+          `event: model_done\ndata: ${JSON.stringify({ generation_id: id, model: 'model-a', last_seq: 1 })}\n\n`,
+          `event: done\ndata: ${JSON.stringify({ generation_id: id, status: 'completed', conversation_guid: A, total_tokens_used: 1, models: { 'model-a': { status: 'completed', tokens: 1 }, 'model-b': { status: 'failed', code: 'timeout' } } })}\n\n`,
+        ].join(''))); controller.close()
+      } }), { status: 200, headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } })
+    }
+    return sseResponse([
+      `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['model-a', 'model-b'] })}\n\n`,
+      `event: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'model-a', seq: 1, delta: 'next a' })}\n\n`,
+      `event: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'model-b', seq: 1, delta: 'next b' })}\n\n`,
+      `event: model_done\ndata: ${JSON.stringify({ generation_id: id, model: 'model-a', last_seq: 1 })}\n\n`,
+      `event: model_done\ndata: ${JSON.stringify({ generation_id: id, model: 'model-b', last_seq: 1 })}\n\n`,
+      `event: done\ndata: ${JSON.stringify({ generation_id: id, status: 'completed', conversation_guid: A, total_tokens_used: 2, models: { 'model-a': { status: 'completed', tokens: 1 }, 'model-b': { status: 'completed', tokens: 1 } } })}\n\n`,
+    ].join(''))
+  }
+  try {
+    await store.sendMessage('compare'); await waitFor(() => store.generationState?.status === 'completed')
+    const assistant = store.getActive().messages.at(-1)
+    const failedOverlay = assistant.replies['model-b']
+    assert.match(failedOverlay, /^failed secret partia/)
+    assert.deepEqual(assistant.modelStates['model-b'], { status: 'failed', code: 'timeout' })
+    assert.equal(JSON.stringify(projectConversationForPersistence(store.getActive())).includes(failedOverlay), false)
+    assert.equal(JSON.stringify(projectConversationForPersistence(store.getActive())).includes('timeout'), false)
+    await store.sendMessage('follow-up'); await waitFor(() => requestNumber === 2 && store.generationState?.status === 'completed')
+    assert.equal(JSON.stringify(bodies[1].messages).includes(failedOverlay), false)
+    assert.equal(JSON.stringify(bodies[1].messages).includes('timeout'), false)
+    assert.equal(JSON.stringify(bodies[1].messages).includes('authoritative success'), true)
+  } finally { globalThis.document.visibilityState = undefined; globalThis.fetch = originalFetch }
+})
+
 test('cancel aborts local playback, keeps the user message, and converges from authoritative 200', async () => {
   const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
   store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
@@ -458,8 +507,19 @@ test('session-local generation metadata resumes through authoritative GET withou
   const store = useChatStore(); store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
   const generationId = '123e4567-e89b-42d3-a456-426614174000'
   sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId, mode: 'single', models: ['fixture-model'], conversationGuid: A, messageKey: 'resume-message', ownerGuid: '1', ownerEpoch: authSession.capture().epoch }))
-  const originalFetch = globalThis.fetch; const response = deferred(); const started = deferred()
-  globalThis.fetch = async () => { started.resolve(); return response.promise }
+  const originalFetch = globalThis.fetch; const response = deferred(); const started = deferred(); let followUpBody
+  route = ({ url }) => {
+    if (url !== `${listPath}/${A}`) throw new Error(`Unexpected history request: ${url}`)
+    return { ...summary(A), messages: [
+      { guid: C, role: 'user', content: 'original prompt', model: 'fixture-model', tokens: 0, created_at: 1 },
+      { guid: B, role: 'assistant', content: 'restored', model: 'fixture-model', tokens: 2, created_at: 2 },
+    ] }
+  }
+  globalThis.fetch = async (_url, options = {}) => {
+    if (!options.body) { started.resolve(); return response.promise }
+    followUpBody = JSON.parse(options.body); const id = followUpBody.generation_id
+    return sseResponse(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\nevent: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', seq: 1, delta: 'follow-up answer' })}\n\nevent: model_done\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', last_seq: 1 })}\n\nevent: done\ndata: ${JSON.stringify({ generation_id: id, status: 'completed', conversation_guid: A, tokens: 1, total_tokens_used: 3 })}\n\n`)
+  }
   try {
     const resuming = store.resumePendingGeneration(); await started.promise
     assert.equal(store.getActive().messages.at(-1).transientAttempt, generationId)
@@ -468,6 +528,36 @@ test('session-local generation metadata resumes through authoritative GET withou
     await waitFor(() => store.generationState?.status === 'completed')
     assert.equal(store.getActive().messages.at(-1).content, 'restored')
     assert.equal(sessionStorage.getItem('llm_platform_active_generation_v2'), null)
+    useSettingsStore().selectedModelId = 'fixture-model'
+    await store.sendMessage('follow-up'); await waitFor(() => store.generationState?.status === 'completed')
+    assert.deepEqual(followUpBody.messages.map(message => message.role), ['user', 'assistant', 'user'])
+    assert.deepEqual(followUpBody.messages.map(message => message.content), ['original prompt', 'restored', 'follow-up'])
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('resume completed history reload failure keeps the orphan assistant view-only and recoverable', async () => {
+  const store = useChatStore(); store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const generationId = '123e4567-e89b-42d3-a456-426614174000'
+  sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId, mode: 'single', models: ['fixture-model'], conversationGuid: A, messageKey: 'resume-message', ownerGuid: '1', ownerEpoch: authSession.capture().epoch }))
+  route = () => { throw httpError(500) }
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 2, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: 'orphan result', tokens: 2 } })
+  try {
+    await store.resumePendingGeneration()
+    await waitFor(() => store.getActive().messages.at(-1)?.content === 'orphan result')
+    const orphan = store.getActive().messages.at(-1)
+    assert.equal(orphan.content, 'orphan result')
+    assert.equal(orphan.viewOnly, true)
+    assert.equal(orphan.transientAttempt, generationId)
+    assert.notEqual(sessionStorage.getItem('llm_platform_active_generation_v2'), null)
+    assert.notEqual(store.generationState?.status, 'completed')
+    route = () => ({ ...summary(A), messages: [
+      { guid: C, role: 'user', content: 'recovered prompt', model: 'fixture-model', tokens: 0, created_at: 1 },
+      { guid: B, role: 'assistant', content: 'orphan result', model: 'fixture-model', tokens: 2, created_at: 2 },
+    ] })
+    assert.equal(await store.resumePendingGeneration(), true)
+    await waitFor(() => store.generationState?.status === 'completed')
+    assert.deepEqual(store.getActive().messages.map(message => message.content), ['recovered prompt', 'orphan result'])
   } finally { globalThis.fetch = originalFetch }
 })
 
@@ -533,6 +623,56 @@ test('switching conversations detaches local generation without cancel POST and 
     const recovery = JSON.parse(sessionStorage.getItem('llm_platform_active_generation_v2'))
     assert.deepEqual(Object.keys(recovery).sort(), ['conversationGuid', 'generationId', 'messageKey', 'mode', 'models', 'ownerEpoch', 'ownerGuid'])
     assert.equal(JSON.stringify(recovery).includes('secret partial'), false)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('switching during a 202 cancel aborts its controller before polling or late mutation', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }, { ...summary(B), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; const streamStarted = deferred(); const cancelStarted = deferred()
+  let generationId; let cancelPosts = 0; let gets = 0; let cancelSignal
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).endsWith('/cancel')) {
+      cancelPosts += 1; cancelSignal = options.signal; cancelStarted.resolve()
+      return jsonResponse({ generation_id: generationId, status: 'cancelling', mode: 'single', conversation_guid: null }, 202, { 'Retry-After': '1' })
+    }
+    if ((options.method || 'GET') === 'GET') { gets += 1; throw new Error('cancel polling must be detached') }
+    generationId = JSON.parse(options.body).generation_id; streamStarted.resolve()
+    return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true }))
+  }
+  try {
+    const sending = store.sendMessage('cancel then switch'); await streamStarted.promise
+    const cancelling = store.cancelStream(); await cancelStarted.promise
+    await store.selectConversation(B); await Promise.all([sending, cancelling])
+    assert.equal(cancelPosts, 1); assert.equal(gets, 0); assert.equal(cancelSignal.aborted, true)
+    assert.equal(store.activeId, B); assert.equal(store.generationState, null)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(store.activeId, B); assert.equal(gets, 0)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('logout during a 202 cancel aborts its controller before polling or late mutation', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; const streamStarted = deferred(); const cancelStarted = deferred()
+  let generationId; let cancelPosts = 0; let gets = 0; let cancelSignal
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).endsWith('/cancel')) {
+      cancelPosts += 1; cancelSignal = options.signal; cancelStarted.resolve()
+      return jsonResponse({ generation_id: generationId, status: 'cancelling', mode: 'single', conversation_guid: null }, 202, { 'Retry-After': '1' })
+    }
+    if ((options.method || 'GET') === 'GET') { gets += 1; throw new Error('cancel polling must stop after logout') }
+    generationId = JSON.parse(options.body).generation_id; streamStarted.resolve()
+    return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true }))
+  }
+  try {
+    const sending = store.sendMessage('cancel then logout'); await streamStarted.promise
+    const cancelling = store.cancelStream(); await cancelStarted.promise
+    authSession.clearSession(); await Promise.all([sending, cancelling])
+    assert.equal(cancelPosts, 1); assert.equal(gets, 0); assert.equal(cancelSignal.aborted, true)
+    assert.deepEqual(store.conversations, []); assert.equal(store.activeId, null); assert.equal(store.generationState, null)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(gets, 0); assert.deepEqual(store.conversations, [])
   } finally { globalThis.fetch = originalFetch }
 })
 

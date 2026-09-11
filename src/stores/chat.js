@@ -37,6 +37,27 @@ const cloneAndFreeze = value => {
   return value
 }
 
+const contextModels = message => (message.models || []).filter(model => Object.prototype.hasOwnProperty.call(message.contextReplies || {}, model))
+const isContextMessage = message => !message.transientAttempt && (!message.multiModel || !message.contextReplies || contextModels(message).length > 0)
+const projectPersistentMessage = message => {
+  if (!message.multiModel || !message.contextReplies) return { ...message }
+  const models = contextModels(message)
+  const { contextReplies: _contextReplies, ...persistent } = message
+  return {
+    ...persistent,
+    models,
+    replies: Object.fromEntries(models.map(model => [model, message.contextReplies[model]])),
+    modelStates: Object.fromEntries(models.map(model => [model, { status: 'completed', code: null }])),
+  }
+}
+
+export function projectConversationForPersistence(conversation) {
+  return {
+    ...conversation,
+    messages: (conversation.messages || []).filter(isContextMessage).map(projectPersistentMessage),
+  }
+}
+
 export const useChatStore = defineStore('chat', () => {
   const conversations = ref(USE_MOCK ? getItem('conversations', []) : [])
   const activeId = ref(USE_MOCK ? getItem('activeConversation', null) : null)
@@ -67,6 +88,7 @@ export const useChatStore = defineStore('chat', () => {
     activeRun = null
     run?.controller?.abort()
     run?.recoveryController?.abort()
+    run?.cancelController?.abort()
     streamController = null
     run?.machine?.dispose()
     generationState.value = null
@@ -86,10 +108,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function persistLocal() {
     if (USE_MOCK) {
-      const persistentConversations = conversations.value.map(conversation => ({
-        ...conversation,
-        messages: (conversation.messages || []).filter(message => !message.transientAttempt),
-      }))
+      const persistentConversations = conversations.value.map(projectConversationForPersistence)
       setItem('conversations', persistentConversations)
       setItem('activeConversation', activeId.value)
     }
@@ -251,7 +270,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function buildMessagesForApi(conv, userContent) {
-    const history = (conv.messages || []).filter(message => !message.transientAttempt).map((m) => ({
+    const history = (conv.messages || []).filter(isContextMessage).map((m) => ({
       role: m.role,
       content: toApiMessageContent(m),
     }))
@@ -298,7 +317,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function commitCompleted(run, snapshot) {
-    if (run.committed || !runIsCurrent(run)) return
+    if (run.committed || run.resumeRequiresHistory || !runIsCurrent(run)) return
     run.committed = true
     forgetRun()
     run.assistant.generationStatus = 'completed'
@@ -330,8 +349,15 @@ export const useChatStore = defineStore('chat', () => {
     } else {
       run.assistant.replies = Object.fromEntries(snapshot.models.map(item => [item.model, item.displayedText]))
       run.assistant.modelStates = Object.fromEntries(snapshot.models.map(item => [item.model, { status: item.terminal || snapshot.status, code: item.code || null }]))
+      run.assistant.contextReplies = Object.fromEntries(snapshot.models.filter(item => item.terminal === 'completed').map(item => [item.model, item.displayedText]))
     }
-    if (snapshot.status === 'completed') return commitCompleted(run, snapshot)
+    if (snapshot.status === 'completed') {
+      if (run.resumeRequiresHistory) {
+        if (!run.historyPromise) run.historyPromise = reconcileRecoveredCompletion(run, snapshot)
+        return
+      }
+      return commitCompleted(run, snapshot)
+    }
     if (snapshot.status === 'failed' || snapshot.status === 'cancelled') {
       forgetRun()
       run.assistant.viewOnly = true
@@ -340,6 +366,39 @@ export const useChatStore = defineStore('chat', () => {
     }
     const phase = snapshot.status === 'waiting' ? 'starting' : snapshot.status === 'receiving' || snapshot.status === 'draining' ? 'streaming' : snapshot.status
     setGenerationPhase(run, phase, snapshot)
+  }
+
+  const completedResults = run => run.mode === 'single'
+    ? [run.terminalMeta?.result]
+    : (run.terminalMeta?.results || []).filter(result => result.status === 'completed')
+
+  async function reconcileRecoveredCompletion(run, snapshot) {
+    try {
+      const guid = canonicalConversationGuid(snapshot.conversationGuid)
+      if (!guid) throw new Error('missing recovered conversation')
+      const conversation = await getConversation(guid)
+      authSession.assertCurrent(run.context)
+      if (!runIsCurrent(run) || canonicalConversationGuid(conversation?.guid) !== guid) throw new Error('stale recovered conversation')
+      const results = completedResults(run)
+      const assistantGuids = new Set((conversation.messages || []).filter(message => message.role === 'assistant').map(message => message.guid))
+      if (!results.length || results.some(result => !result?.assistant_message_guid || !assistantGuids.has(result.assistant_message_guid))) throw new Error('recovered result missing from history')
+      const lastAssistantIndex = conversation.messages.map(message => message.role).lastIndexOf('assistant')
+      if (lastAssistantIndex < 1 || !conversation.messages.slice(0, lastAssistantIndex).some(message => message.role === 'user')) throw new Error('recovered prompt missing from history')
+      conversations.value = upsertConversationByGuid(conversations.value, conversation)
+      run.conv = conversation
+      run.conversationKey = guid
+      run.user = null
+      run.assistant = conversation.messages[lastAssistantIndex]
+      run.resumeRequiresHistory = false
+      commitCompleted(run, snapshot)
+    } catch {
+      if (!runIsCurrent(run)) return
+      const assistant = run.assistant
+      detachActiveRun({ preserveRecovery: true, preserveView: true })
+      assistant.generationStatus = 'failed'
+      assistant.generationPhase = 'recovering'
+      assistant.viewOnly = true
+    }
   }
 
   async function recoverGeneration(run, { fromCancel = false } = {}) {
@@ -467,8 +526,8 @@ export const useChatStore = defineStore('chat', () => {
       generationId, mode, models: modelIds, context,
       userGuid: authSession.user()?.guid ?? null,
       conv, conversationKey: conversationKey(conv), user: userMsg, assistant: assistantMsg,
-      controller: streamController, recoveryController: null,
-      committed: false, cancelRequested: false, terminalMeta: null, machine: null,
+      controller: streamController, recoveryController: null, cancelController: null,
+      committed: false, cancelRequested: false, terminalMeta: null, machine: null, resumeRequiresHistory: false, historyPromise: null, cancelPromise: null,
     }
     activeRun = run
     streamController = run.controller
@@ -494,9 +553,10 @@ export const useChatStore = defineStore('chat', () => {
     return executeGeneration(run, body)
   }
 
-  async function cancelStream() {
+  function cancelStream() {
     const run = activeRun
     if (!run || !runIsCurrent(run) || ['completed', 'failed', 'cancelled'].includes(generationState.value?.status)) return
+    if (run.cancelPromise) return run.cancelPromise
     run.cancelRequested = true
     run.machine.cancelLocalQueue()
     setGenerationPhase(run, 'cancelling')
@@ -506,16 +566,20 @@ export const useChatStore = defineStore('chat', () => {
       applyMachineSnapshot(run, run.machine.resolveCancel({ generation_id: run.generationId, conversation_guid: null, mode: run.mode, status: 'cancelled' }))
       return
     }
-    try {
-      const result = await cancelPlatformGeneration(run.generationId, { models: run.models })
-      if (!runIsCurrent(run)) return
-      run.terminalMeta = result
-      applyMachineSnapshot(run, run.machine.resolveCancel(result))
-    } catch (error) {
-      if (!runIsCurrent(run)) return
-      if (error instanceof PlatformGenerationIndeterminateError || error?.code === 'generation_indeterminate') return recoverGeneration(run, { fromCancel: true })
-      applyMachineSnapshot(run, run.machine.fail(error?.status === 403 || error?.status === 404 ? 'GENERATION_OWNER_ERROR' : 'GENERATION_CANCEL_ERROR'))
-    }
+    run.cancelController = new AbortController()
+    run.cancelPromise = (async () => {
+      try {
+        const result = await cancelPlatformGeneration(run.generationId, { models: run.models, signal: run.cancelController.signal })
+        if (!runIsCurrent(run)) return
+        run.terminalMeta = result
+        applyMachineSnapshot(run, run.machine.resolveCancel(result))
+      } catch (error) {
+        if (!runIsCurrent(run)) return
+        if (error instanceof PlatformGenerationIndeterminateError || error?.code === 'generation_indeterminate') return recoverGeneration(run, { fromCancel: true })
+        applyMachineSnapshot(run, run.machine.fail(error?.status === 403 || error?.status === 404 ? 'GENERATION_OWNER_ERROR' : 'GENERATION_CANCEL_ERROR'))
+      }
+    })()
+    return run.cancelPromise
   }
 
   async function resumePendingGeneration() {
@@ -532,7 +596,7 @@ export const useChatStore = defineStore('chat', () => {
     const assistant = { localKey: typeof saved.messageKey === 'string' && saved.messageKey ? saved.messageKey : genLocalId(), role: 'assistant', generationStatus: 'recovering', viewOnly: true, transientAttempt: saved.generationId, createdAt: Date.now(), ...(saved.mode === 'single' ? { content: '' } : { multiModel: true, models: saved.models, replies: Object.fromEntries(saved.models.map(model => [model, ''])), modelStates: Object.fromEntries(saved.models.map(model => [model, { status: 'recovering', code: null }])) }) }
     conv.messages ||= []
     if (!conv.messages.some(message => message.localKey === assistant.localKey)) conv.messages.push(assistant)
-    const run = { generationId: saved.generationId, mode: saved.mode, models: [...saved.models], context, userGuid: authSession.user()?.guid ?? null, conv, conversationKey: conversationKey(conv), user: null, assistant, controller: new AbortController(), recoveryController: null, committed: false, cancelRequested: false, terminalMeta: null, machine: null }
+    const run = { generationId: saved.generationId, mode: saved.mode, models: [...saved.models], context, userGuid: authSession.user()?.guid ?? null, conv, conversationKey: conversationKey(conv), user: null, assistant, controller: new AbortController(), recoveryController: null, cancelController: null, committed: false, cancelRequested: false, terminalMeta: null, machine: null, resumeRequiresHistory: true, historyPromise: null, cancelPromise: null }
     activeRun = run; streamController = run.controller; streaming.value = true
     run.machine = createChatGeneration({ generationId: run.generationId, conversationGuid: canonicalConversationGuid(conv.guid), messageKey: assistant.localKey, mode: run.mode, models: run.models, onChange: snapshot => applyMachineSnapshot(run, snapshot) })
     setGenerationPhase(run, 'recovering')
