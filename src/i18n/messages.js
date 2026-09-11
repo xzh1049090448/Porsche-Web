@@ -99,6 +99,15 @@ export const messages = {
       compareNoImage: '模型对比模式下不支持上传图片',
       compareFailed: '对比请求失败',
       errorPrefix: '[错误]',
+      stopGeneration: '停止生成',
+      stoppingGeneration: '正在停止…',
+      viewOnlyPartial: '这是未完成的临时内容，仅供查看；不会保存，也不会用于后续对话。',
+      generationStates: {
+        waiting: '等待模型响应', receiving: '正在接收回复', draining: '正在完成本地展示', disconnected: '连接已中断，后台仍在生成', recovering: '正在恢复后台结果', cancelling: '正在向服务端停止生成', completed: '回复已完成', failed: '生成失败', cancelled: '生成已停止',
+      },
+      generationErrors: {
+        cancelled: '该模型已停止生成。', upstream: '该模型暂时无法完成回复。', invalidRequest: '请求参数无效，请检查模型设置。', rateLimited: '请求过于频繁，请稍后重试。', timeout: '该模型生成超时。', requestFailed: '生成未能完成，请稍后重试。',
+      },
     },
     model: {
       select: '模型选择',
@@ -111,6 +120,9 @@ export const messages = {
       compare: '模型对比',
       compareHint: '勾选要对比的模型，发送后各模型将流式并行输出',
       compareMin: '至少选择 1 个模型',
+      compareCardinality: '对比模式必须选择 2 至 3 个不同模型',
+      compareDuplicate: '不能重复选择同一模型',
+      compareValid: '已按顺序选择 {count} 个模型',
       catalogStale: '正在显示最近一次可用的模型目录。',
       catalogUnavailable: '暂时无法加载模型目录，请稍后重试。',
     },
@@ -421,6 +433,15 @@ export const messages = {
       compareNoImage: 'Image upload is unavailable in compare mode',
       compareFailed: 'Compare request failed',
       errorPrefix: '[Error]',
+      stopGeneration: 'Stop generation',
+      stoppingGeneration: 'Stopping…',
+      viewOnlyPartial: 'This incomplete content is view-only. It will not be saved or used in later context.',
+      generationStates: {
+        waiting: 'Waiting for the model', receiving: 'Receiving the reply', draining: 'Finishing local playback', disconnected: 'Connection lost; generation continues in the background', recovering: 'Recovering the background result', cancelling: 'Stopping generation on the server', completed: 'Reply completed', failed: 'Generation failed', cancelled: 'Generation stopped',
+      },
+      generationErrors: {
+        cancelled: 'This model was stopped.', upstream: 'This model could not complete its reply.', invalidRequest: 'The request is invalid. Check the model settings.', rateLimited: 'Too many requests. Try again later.', timeout: 'This model timed out.', requestFailed: 'Generation could not be completed. Try again later.',
+      },
     },
     model: {
       select: 'Models',
@@ -433,6 +454,9 @@ export const messages = {
       compare: 'Compare models',
       compareHint: 'Select models to compare. Replies stream in parallel after sending.',
       compareMin: 'Select at least one model',
+      compareCardinality: 'Compare mode requires 2 to 3 distinct models',
+      compareDuplicate: 'The same model cannot be selected twice',
+      compareValid: '{count} models selected in request order',
       catalogStale: 'Showing the most recently available model catalog.',
       catalogUnavailable: 'The model catalog is temporarily unavailable. Please try again later.',
     },

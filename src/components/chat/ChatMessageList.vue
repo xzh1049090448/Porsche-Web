@@ -30,7 +30,8 @@
           <div v-for="m in modelsForMessage(msg)" :key="m.id" class="reply-col">
             <div class="reply-header">
               <span class="model-icon">{{ m.icon }}</span>
-              {{ m.name }}
+              <span class="reply-model-name">{{ m.name }}</span>
+              <span class="reply-state">{{ t(`chat.generationStates.${modelReplyPresentation(msg, m.id).status}`) }}</span>
             </div>
             <div class="reply-body">
               <div v-if="isMultiModelWaiting(msg, m.id)" class="reply-loading">
@@ -41,10 +42,17 @@
               </div>
               <template v-else>
                 <MarkdownContent
-                  :content="replyFor(msg, m.id)"
+                  :content="modelReplyPresentation(msg, m.id).content"
                   :streaming="isMultiModelStreaming(msg, m.id)"
                 />
                 <span v-if="isMultiModelStreaming(msg, m.id)" class="cursor">|</span>
+                <p
+                  v-if="modelReplyPresentation(msg, m.id).errorKey"
+                  class="reply-error"
+                  role="status"
+                >
+                  {{ t(modelReplyPresentation(msg, m.id).errorKey) }}
+                </p>
               </template>
             </div>
             <div v-if="replyFor(msg, m.id)" class="col-actions">
@@ -74,6 +82,9 @@
               />
               <span v-else class="plain-text">{{ msg.content }}</span>
               <span v-if="streamingLast(msg) && msg.content" class="cursor">|</span>
+              <p v-if="singleErrorKey(msg)" class="reply-error" role="status">
+                {{ t(singleErrorKey(msg)) }}
+              </p>
             </template>
           </div>
           <div v-if="msg.role === 'assistant' && msg.content" class="msg-actions">
@@ -83,6 +94,14 @@
             </el-button>
           </div>
         </template>
+
+        <p
+          v-if="showViewOnlyWarning(msg)"
+          class="view-only-warning"
+          role="note"
+        >
+          {{ t('chat.viewOnlyPartial') }}
+        </p>
 
       </div>
     </div>
@@ -97,6 +116,7 @@ import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import MarkdownContent from '@/components/chat/MarkdownContent.vue'
 import { useI18n } from '@/composables/useI18n'
+import { generationErrorMessageKey, modelReplyPresentation } from '@/components/chat/generation-ui'
 
 const chatStore = useChatStore()
 const settings = useSettingsStore()
@@ -110,8 +130,7 @@ const messages = computed(() => chatStore.getActive()?.messages || [])
 
 function modelsForMessage(msg) {
   return (msg.models || [])
-    .map((id) => settings.models.find((m) => m.id === id))
-    .filter(Boolean)
+    .map((id) => settings.models.find((m) => m.id === id) || { id, name: id, icon: 'AI' })
 }
 
 function isLastMessage(msg) {
@@ -128,24 +147,38 @@ function streamingLast(msg) {
 }
 
 function replyFor(msg, modelId) {
-  return msg.replies?.[modelId] ?? ''
+  return modelReplyPresentation(msg, modelId).content
+}
+
+function showViewOnlyWarning(msg) {
+  if (msg.role !== 'assistant' || msg.viewOnly !== true) return false
+  if (msg.multiModel) return ['failed', 'cancelled'].includes(msg.generationStatus) || Object.values(msg.modelStates || {}).some(state => ['failed', 'cancelled'].includes(state?.status))
+  return ['failed', 'cancelled'].includes(msg.generationStatus)
+}
+
+function singleErrorKey(msg) {
+  return msg.role === 'assistant' && msg.generationStatus === 'failed' ? generationErrorMessageKey(msg.errorCode) : null
 }
 
 function isMultiModelWaiting(msg, modelId) {
+  const reply = modelReplyPresentation(msg, modelId)
   return (
     chatStore.streaming &&
     isLastMessage(msg) &&
     msg.multiModel &&
-    replyFor(msg, modelId).length === 0
+    ['waiting', 'receiving', 'draining', 'recovering'].includes(reply.status) &&
+    reply.content.length === 0
   )
 }
 
 function isMultiModelStreaming(msg, modelId) {
+  const reply = modelReplyPresentation(msg, modelId)
   return (
     chatStore.streaming &&
     isLastMessage(msg) &&
     msg.multiModel &&
-    replyFor(msg, modelId).length > 0
+    ['waiting', 'receiving', 'draining', 'recovering'].includes(reply.status) &&
+    reply.content.length > 0
   )
 }
 
@@ -406,6 +439,33 @@ watch(
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.reply-model-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reply-state {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.reply-error,
+.view-only-warning {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.view-only-warning {
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
 }
 
 .model-icon {

@@ -56,7 +56,7 @@
       </div>
 
       <ChatMessageList class="chat-messages" />
-      <el-button v-if="chatStore.streaming" @click="chatStore.cancelStream()">停止接收（已产生的用量仍可能计费）</el-button>
+      <GenerationStatus />
       <ChatInput :mobile="isTablet" @send="onSend" />
     </div>
 
@@ -91,6 +91,7 @@ import { Menu, Setting, DArrowLeft, DArrowRight } from '@element-plus/icons-vue'
 import ChatSidebar from '@/components/chat/ChatSidebar.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
+import GenerationStatus from '@/components/chat/GenerationStatus.vue'
 import ModelPanel from '@/components/chat/ModelPanel.vue'
 import MobileDrawer from '@/components/mobile/MobileDrawer.vue'
 import { USE_MOCK } from '@/api/request'
@@ -100,6 +101,7 @@ import { useBreakpoint } from '@/composables/useBreakpoint'
 import { getItem, setItem } from '@/utils/storage'
 
 import { useI18n } from '@/composables/useI18n'
+import { validateGenerationSelection } from '@/components/chat/generation-ui'
 
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
@@ -133,11 +135,15 @@ onMounted(async () => {
   if (!USE_MOCK) {
     await chatStore.fetchConversations()
   }
-  await chatStore.ensureActive()
+  const resumed = await chatStore.resumePendingGeneration()
+  if (!resumed) await chatStore.ensureActive()
 })
 
 function onSend(content, images) {
-  chatStore.sendMessage(content, images)
+  if (chatStore.streaming) return
+  const selection = validateGenerationSelection(settingsStore)
+  if (!selection.valid) return
+  void chatStore.sendMessage(content, images)
 }
 </script>
 

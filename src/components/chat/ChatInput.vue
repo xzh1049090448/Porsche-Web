@@ -47,6 +47,7 @@ import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { useI18n } from '@/composables/useI18n'
+import { validateGenerationSelection } from '@/components/chat/generation-ui'
 
 const props = defineProps({
   mobile: { type: Boolean, default: false },
@@ -67,9 +68,10 @@ const placeholder = computed(() =>
 const canMultimodal = computed(
   () => !settings.compareMode && settings.currentModel()?.multimodal
 )
+const selection = computed(() => validateGenerationSelection(settings))
 
 const canSend = computed(
-  () => (text.value.trim() || pendingImages.value.length) && !chatStore.streaming
+  () => (text.value.trim() || pendingImages.value.length) && selection.value.valid && !chatStore.streaming
 )
 
 function onKeydown(e) {
