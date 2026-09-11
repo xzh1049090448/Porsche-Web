@@ -1,22 +1,23 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-08T00:53:33+08:00",
-  "overall_status": "PARTIAL_ACCEPTANCE_11_LIMITED_15_BLOCKED",
-  "verdict": "PARTIAL_ACCEPTANCE_11_LIMITED_15_BLOCKED",
+  "generated_at": "2026-09-10T00:37:08+08:00",
+  "overall_status": "PARTIAL_ACCEPTANCE_18_LIMITED_8_BLOCKED",
+  "verdict": "PARTIAL_ACCEPTANCE_18_LIMITED_8_BLOCKED",
   "candidate": {
-    "frontend_head": "9f660a9ca26f5738dd661652596a1e450ff34335",
-    "backend_head": "3a50144e53268f6ef3ae704699ef9fa851e4a5ee",
-    "frontend_evidence_head": "37ae3845c6ae79b0fcb8a24c42f4730ae15a654d"
+    "frontend_head": "86122422a8234db3d5ee486eda8a0def6646dcc6",
+    "backend_head": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+    "frontend_evidence_head": "39b79582110347ae11b95e58217b3afe3236b4f7",
+    "backend_evidence_head": "5d5a1e9ee230bcc42fe9fde8d3f9f7badf34b658"
   },
   "environment_manifest_before_final_archive_sha256": "d3d1de8b3609721baba3e1f04ca19ef5990aaad2666e63f9aab7786cb6101641",
   "summary": {
     "total": 26,
-    "PASS_LIMITED_SCOPE": 11,
+    "PASS_LIMITED_SCOPE": 18,
     "FAIL_LOCAL_DEV_ROUTE": 0,
-    "BLOCKED_NOT_IMPLEMENTED": 13,
+    "BLOCKED_NOT_IMPLEMENTED": 6,
     "BLOCKED_PRODUCT": 1,
     "BLOCKED_ENV": 1,
-    "blocked_total": 15
+    "blocked_total": 8
   },
   "supersession": {
     "core_report": "CORE-PHASE-REPORT.md",
@@ -28,7 +29,13 @@
     "frontend_project_manager": "SPEC_PASS",
     "independent_qa": "PASS",
     "backend_project_manager": "HISTORICAL_FINAL_SIGNED",
-    "cleanup": "CLEANUP_PASS"
+    "cleanup": "CLEANUP_PASS",
+    "a07_backend_project_manager": "NOT_OBTAINED",
+    "a07_backend_review": "PASS",
+    "a07_frontend_review": "PASS",
+    "a07_document_review": "PASS",
+    "a09_a12_backend_project_manager": "NOT_OBTAINED",
+    "a09_a12_local_verification": "PASS"
   },
   "items": [
     {
@@ -97,67 +104,153 @@
       "prd": "编辑伪造role/guid/auth_version",
       "owner": "FE+BE",
       "expected_evidence": "请求拒绝且无部分越权修改",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "v2编辑未实现；旧伪造更新拒绝仅为只读/安全子集证据。",
-      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+      "latest_evidence": "本地真实A05 nickname-only PATCH联合验收通过：严格DTO/header/error envelope、角色层级/self/Root/删除目标拒绝、auth_version冲突单次刷新且PATCH不重放、nullable/Unicode、late callback、浏览器隐私与数据库审计隐私均通过。",
+      "accepted_candidate": {
+        "backend": "6bb54007879adeb16a532d792ab471f16ee9100a",
+        "frontend": "5a41f5679c1c35e5c2850665db54ae83e58db436"
+      },
+      "canonical_evidence_commits": {
+        "backend": "76e0d2f650989ffecd7519b0d042ec2696cd60a8",
+        "frontend": "34b23fc8d00771cd03b9072e00ceda40b421c6bd"
+      },
+      "emergency_merge_heads": {
+        "backend": "bf53c6a98452f624a6061e9be7317f9f596ea908",
+        "frontend": "a93893bc4a8739ba158cf45c6f32779873d9b028"
+      },
+      "test_counts": {
+        "r5_backend_service": "40 records / 0 fail / 0 skip",
+        "r5_backend_dto_handler_router": "71 records / 0 fail / 0 skip",
+        "r5_real_http_operations": "10/10 PASS",
+        "r10_visible_browser": "allowed UI, conflict/late ownership, visibility/denial PASS",
+        "r10_http_adversarial": "22/22 PASS",
+        "r10_privacy": "browser and database audit privacy PASS",
+        "r10_cleanup": "exact processes/containers/network/private files removed; residue 0"
+      },
+      "scope_boundary": "仅本地A05 managed-user nickname PATCH切片；只允许nickname string/null且auth_version保持不变。金额余额仍为Mock边界，A14范围不变；生产migration、deploy、production acceptance及真实business accounts均NOT_RUN。",
+      "evidence_paths": [
+        "backend:docs/superpowers/reports/validation/2026-09-08-a05-managed-user-edit/manifest.json",
+        "frontend:docs/agents/validation/a05-managed-user-edit-20260908/browser-results.json",
+        "frontend:docs/agents/validation/a05-managed-user-edit-20260908/report.md"
+      ]
     },
     {
       "id": "A06",
       "prd": "禁用与启用",
       "owner": "FE+BE",
       "expected_evidence": "旧Access/Refresh/Key不可用，启用不恢复旧会话",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "v2禁用/启用及完整Access/Refresh/Key失效链未实现。",
-      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+      "scope_boundary": "本地A06状态迁移切片；禁用和启用均撤销旧会话，启用不恢复旧会话，Key按owner状态及自身生命周期判定。生产未运行。",
+      "evidence": [
+        "backend:docs/superpowers/reports/validation/2026-09-08-a06-managed-user-status/manifest.json",
+        "frontend:docs/agents/validation/a06-managed-user-status-20260908/report.md",
+        "frontend:docs/agents/validation/a06-managed-user-status-20260908/browser-results.json"
+      ]
     },
     {
       "id": "A07",
       "prd": "密码重置/分组/套餐变化",
       "owner": "FE+BE",
       "expected_evidence": "旧会话失效、新权益生效、秘密不进日志",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "v2密码重置/分组/套餐变更未实现；已有读取仅为子集。",
-      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+      "latest_evidence": "密码重置、分组变更与套餐变更在真实 MySQL/Redis 下通过：旧密码及 Access/Refresh 失效、新密码语义、三会话逐项审计、Key 状态保持、稳定 Query、Bearer 套餐额度、并发、Redis/SQL 回滚；前端三弹窗、pending recovery、409 单飞与 late-owner、401、Escape/focus/375/390 均通过。",
+      "accepted_candidate": {
+        "backend": "a600a0815b5eab5203333755a2466788fe67d61a",
+        "frontend": "41648181ab42fb46fe7d45663e746121956b50b8"
+      },
+      "canonical_evidence_commits": {
+        "backend": "5d5a1e9ee230bcc42fe9fde8d3f9f7badf34b658",
+        "frontend": "39b79582110347ae11b95e58217b3afe3236b4f7"
+      },
+      "contract_sha256": "9e1969b238911b6eee5b6aa85ed364e795a6854f0a026daac5d15e2ab78851be",
+      "environment": {
+        "mysql": "8.0.46",
+        "redis": "7.4.11",
+        "migration_ledger": "0001-0011"
+      },
+      "test_counts": {
+        "backend_full_real": "2188 leaf PASS / 1 opt-in performance SKIP / 0 FAIL",
+        "backend_new_real_race": "6 top-level tests PASS / 0 SKIP",
+        "backend_no_fixture_full_build_vet": "PASS",
+        "frontend": "395/395 PASS / 0 SKIP",
+        "production_build": "PASS",
+        "visible_chrome": "375/390 PASS"
+      },
+      "scope_boundary": "Gateway Key owner plan/quota atomic reload and consumption remains BLOCKED_NOT_IMPLEMENTED. Production migration, deployment, production acceptance, and real business accounts remain NOT_RUN.",
+      "evidence_paths": [
+        "backend:docs/superpowers/reports/validation/2026-09-09-a07-managed-user-entitlements/manifest.json",
+        "frontend:docs/agents/validation/a07-managed-user-entitlements-20260909/manifest.json"
+      ]
     },
     {
       "id": "A08",
       "prd": "提升/降级/权限覆盖",
       "owner": "FE+BE",
       "expected_evidence": "最新能力生效、降级无残留、旧入口不可绕过",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "v2提升/降级/权限写入未实现；catalog/permission read子集通过。",
-      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+      "latest_evidence": "本地 A08 角色与权限联合切片通过；本次合并后 no-fixture 全量回归通过，真实 MySQL 0011-0013 迁移链通过。完整 A08 service fixture 仍引用合并前候选证据。",
+      "accepted_candidate": {
+        "backend": "f2f976005c2331c0409c1b27da79e3a43d25bcb0",
+        "frontend": "25b073164dc3fccecbf3b74309f12dd7589c024b"
+      },
+      "evidence_paths": [
+        "backend:docs/superpowers/reports/validation/2026-09-09-a08-managed-user-roles-permissions/backend/manifest.json"
+      ]
     },
     {
       "id": "A09",
       "prd": "金额Mock增减覆盖",
       "owner": "FE",
       "expected_evidence": "分单位范围/精度/余额不足/Mock标记正确",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "金额Mock UI/API未实现。"
+      "latest_evidence": "开发专用 CNY 合成用户演示通过：整数分、精度/上限/余额不足、增加/扣减/覆盖、调整前后与永久 Mock 标记。",
+      "accepted_candidate": {
+        "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+        "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6"
+      },
+      "evidence_paths": [
+        "frontend:docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json"
+      ],
+      "backend_project_manager_confirmation": "NOT_OBTAINED"
     },
     {
       "id": "A10",
       "prd": "模拟调额异常与重复提交",
       "owner": "FE",
       "expected_evidence": "成功/失败/超时/冲突可演示且不调用真实写接口",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "模拟调额异常、冲突、超时及重复提交未实现。"
+      "latest_evidence": "纯内存夹具覆盖成功/失败/超时/版本冲突、同 key 单飞及完成重放；失败状态字节等价且可见 Chromium 验证通过。",
+      "accepted_candidate": {
+        "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+        "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6"
+      },
+      "evidence_paths": [
+        "frontend:docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json"
+      ],
+      "backend_project_manager_confirmation": "NOT_OBTAINED"
     },
     {
       "id": "A11",
       "prd": "Mock与生产隔离",
       "owner": "FE+BE",
       "expected_evidence": "无真实余额/流水写入，伪造金额动作拒绝，原调用行为不变",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "Mock与生产隔离的完整可执行入口未实现，无法联合验收。"
+      "latest_evidence": "生产构建不注册 demo 路由且产物扫描无 marker/合成用户名；真实列表和详情显示未接入，后端伪造金额写路径保持 404。",
+      "accepted_candidate": {
+        "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+        "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6"
+      },
+      "evidence_paths": [
+        "frontend:docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json"
+      ],
+      "backend_project_manager_confirmation": "NOT_OBTAINED"
     },
     {
       "id": "A12",
@@ -176,7 +269,14 @@
         "backend:docs/superpowers/reports/validation/2026-09-05-a14-user-soft-delete/spec-review.md",
         "backend:docs/superpowers/reports/validation/2026-09-05-a14-user-soft-delete/quality-review.md",
         "backend:docs/superpowers/reports/validation/2026-09-05-a14-user-soft-delete/security-review.md"
-      ]
+      ],
+      "current_revalidation": {
+        "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+        "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6",
+        "result": "PASS",
+        "evidence": "frontend:docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json",
+        "backend_project_manager_confirmation": "NOT_OBTAINED_FOR_CURRENT_RERUN"
+      }
     },
     {
       "id": "A13",
@@ -325,7 +425,8 @@
     "writer_report_sha256": "184b20cf7c446c4fc11ae15a02fe8698d8b03296f77ad432b766255f95034b24",
     "writer_results_sha256": "2b0394077c775257a8e89fc72a94195e4d358dfe0514a6b72445f17522c5115c",
     "independent_qa_results_sha256": "e822b1655465eb233d4a985f7b77dedfdd1120bce87bd1da1e9599fa7b536286",
-    "independent_qa_manifest_sha256": "a7cf2ba005ebad6ab8dbc08e299aa3af5f01a3404d630f2adb7f5c7af2ce3629"
+    "independent_qa_manifest_sha256": "a7cf2ba005ebad6ab8dbc08e299aa3af5f01a3404d630f2adb7f5c7af2ce3629",
+    "a09_a12_manifest": "docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json"
   },
   "secret_free": true,
   "production_touched": false,
@@ -408,11 +509,61 @@
       },
       "evidence": "backend:docs/superpowers/reports/validation/2026-09-06-a03-admin-user-create/canonical-3a50144-9f660a9-final/manifest.json",
       "note": "仅A03从BLOCKED_NOT_IMPLEMENTED提升为PASS_LIMITED_SCOPE；A14及其余25项状态保持不变。金额仍是Mock边界；生产迁移、部署、生产验收与真实业务账号均NOT_RUN。A03专用fixture和私有临时文件已exact cleanup，应用监听仍为0。"
+    },
+    {
+      "at": "2026-09-08",
+      "status": "PARTIAL_ACCEPTANCE_12_LIMITED_14_BLOCKED",
+      "counts": {
+        "total": 26,
+        "PASS_LIMITED_SCOPE": 12,
+        "FAIL_LOCAL_DEV_ROUTE": 0,
+        "BLOCKED_NOT_IMPLEMENTED": 12,
+        "BLOCKED_PRODUCT": 1,
+        "BLOCKED_ENV": 1,
+        "blocked_total": 14
+      },
+      "candidate": {
+        "backend": "6bb54007879adeb16a532d792ab471f16ee9100a",
+        "frontend": "5a41f5679c1c35e5c2850665db54ae83e58db436"
+      },
+      "canonical_evidence_commits": {
+        "backend": "76e0d2f650989ffecd7519b0d042ec2696cd60a8",
+        "frontend": "34b23fc8d00771cd03b9072e00ceda40b421c6bd"
+      },
+      "emergency_merge_heads": {
+        "backend": "bf53c6a98452f624a6061e9be7317f9f596ea908",
+        "frontend": "a93893bc4a8739ba158cf45c6f32779873d9b028"
+      },
+      "evidence": "backend:docs/superpowers/reports/validation/2026-09-08-a05-managed-user-edit/manifest.json",
+      "note": "仅A05从BLOCKED_NOT_IMPLEMENTED提升为PASS_LIMITED_SCOPE；其他25行不变。该确认来自本地联合验收证据，不臆造后端project_manager书面确认。生产migration/deploy/business accounts均NOT_RUN。"
+    },
+    {
+      "at": "2026-09-08",
+      "status": "PARTIAL_ACCEPTANCE_13_LIMITED_13_BLOCKED",
+      "counts": {
+        "total": 26,
+        "PASS_LIMITED_SCOPE": 13,
+        "FAIL_LOCAL_DEV_ROUTE": 0,
+        "BLOCKED_NOT_IMPLEMENTED": 11,
+        "BLOCKED_PRODUCT": 1,
+        "BLOCKED_ENV": 1,
+        "blocked_total": 13
+      },
+      "candidate": {
+        "backend": "08617d400228c224fa2312583fde14f54f7a7686",
+        "frontend": "07c7b9e3caa5fe18bd69be74e71f577577943840"
+      },
+      "canonical_evidence_commits": {
+        "backend": "1677bc5384aa5968a213d6cae2efe62198b92964",
+        "frontend": "b62055245e2dc6d954a545caab2c02ee45fa3d3a"
+      },
+      "evidence": "backend:docs/superpowers/reports/validation/2026-09-08-a06-managed-user-status/manifest.json",
+      "note": "仅A06从BLOCKED_NOT_IMPLEMENTED提升为PASS_LIMITED_SCOPE；其他25行不变。本地证据与双端独立复审均PASS；未臆造后端project_manager外部书面确认。生产migration/deploy/business accounts均NOT_RUN。"
     }
   ],
   "code_under_test": {
-    "backend": "3a50144e53268f6ef3ae704699ef9fa851e4a5ee",
-    "frontend": "9f660a9ca26f5738dd661652596a1e450ff34335"
+    "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+    "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6"
   },
   "a03_reviews": {
     "spec_code": "PASS",
@@ -421,5 +572,73 @@
     "spec_evidence": "PASS",
     "quality_evidence": "PASS",
     "security_evidence": "PASS"
+  },
+  "a05_acceptance": {
+    "status": "PASS_LIMITED_SCOPE",
+    "code_under_test": {
+      "backend": "6bb54007879adeb16a532d792ab471f16ee9100a",
+      "frontend": "5a41f5679c1c35e5c2850665db54ae83e58db436"
+    },
+    "canonical_evidence_commits": {
+      "backend": "76e0d2f650989ffecd7519b0d042ec2696cd60a8",
+      "frontend": "34b23fc8d00771cd03b9072e00ceda40b421c6bd"
+    },
+    "emergency_merge_heads": {
+      "backend": "bf53c6a98452f624a6061e9be7317f9f596ea908",
+      "frontend": "a93893bc4a8739ba158cf45c6f32779873d9b028"
+    },
+    "tests": {
+      "r5_backend_service": "40 records / 0 fail / 0 skip",
+      "r5_backend_dto_handler_router": "71 records / 0 fail / 0 skip",
+      "r5_real_http_operations": "10/10 PASS",
+      "r10_visible_browser": "allowed UI, conflict/late ownership, visibility/denial PASS",
+      "r10_http_adversarial": "22/22 PASS",
+      "r10_privacy": "browser and database audit privacy PASS",
+      "r10_cleanup": "exact processes/containers/network/private files removed; residue 0"
+    },
+    "scope_boundary": "仅本地A05 managed-user nickname PATCH切片；只允许nickname string/null且auth_version保持不变。金额余额仍为Mock边界，A14范围不变；生产migration、deploy、production acceptance及真实business accounts均NOT_RUN。",
+    "production": {
+      "migration": "NOT_RUN",
+      "deployment": "NOT_RUN",
+      "business_accounts": "NOT_RUN"
+    }
+  },
+  "a06_acceptance": {
+    "status": "PASS_LIMITED_SCOPE",
+    "code_under_test": {
+      "backend": "08617d400228c224fa2312583fde14f54f7a7686",
+      "frontend": "07c7b9e3caa5fe18bd69be74e71f577577943840"
+    },
+    "canonical_evidence_commits": {
+      "backend": "1677bc5384aa5968a213d6cae2efe62198b92964",
+      "frontend": "b62055245e2dc6d954a545caab2c02ee45fa3d3a"
+    },
+    "contract_sha256": "c3662b25500879d67c6811fa270d4a6a39a44db812c7c493d6f02e535940b415",
+    "tests": {
+      "backend_real_mysql_redis": "PASS",
+      "backend_focused_race": "PASS",
+      "backend_no_fixture_full": "PASS",
+      "backend_build_vet_diff": "PASS",
+      "frontend_full": "364/364 PASS",
+      "frontend_mounted_status": "13/13 PASS",
+      "frontend_production_build": "PASS",
+      "chrome_375_390_overflow": "PASS"
+    },
+    "reviews": {
+      "backend": "PASS",
+      "frontend": "PASS"
+    },
+    "scope_boundary": "仅本地A06禁用/启用切片；生产migration、deploy、production acceptance及真实business accounts均NOT_RUN；拒绝管理动作审计仍为后续PRD残留。",
+    "backend_project_manager_written_confirmation": "NOT_OBTAINED"
+  },
+  "a09_a12_acceptance": {
+    "status": "PASS_LIMITED_SCOPE",
+    "code_under_test": {
+      "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+      "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6"
+    },
+    "evidence": "frontend:docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json",
+    "backend_project_manager_confirmation": "NOT_OBTAINED",
+    "scope_boundary": "A09/A10 only development CNY Mock; A11 proves production isolation; A12 is current-candidate revalidation of the existing soft-delete slice. No production or real money capability was run."
   }
 }

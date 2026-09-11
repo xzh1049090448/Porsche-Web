@@ -1,0 +1,128 @@
+{
+  "slice": "A08 managed-user roles and permissions frontend",
+  "status": "PASS_LIMITED_SCOPE",
+  "code_under_test": {
+    "frontend": "25b073164dc3fccecbf3b74309f12dd7589c024b",
+    "backend": "f2f976005c2331c0409c1b27da79e3a43d25bcb0",
+    "backend_evidence_commit": "3f41ef2dc1f38fc363cbdcf1e2205b26f7a9da09"
+  },
+  "contract": {
+    "frontend_path": "docs/agents/contracts/admin-user-roles-permissions-v1.json",
+    "backend_path": "/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-roles-permissions-v1.json",
+    "sha256": "dd202cb5019b10a891e10f03f77629b5f54e993110f148f417e05d089df35698",
+    "byte_identical": true
+  },
+  "environment": {
+    "node": "v24.19.0",
+    "npm": "11.17.0",
+    "VITE_USE_MOCK": "false_for_build",
+    "production": "NOT_USED"
+  },
+  "configured_authoritative_contracts": {
+    "A03_BACKEND_CONTRACT": {
+      "path": "/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-create-v1.json",
+      "sha256": "897fac0ba1a41ac05f72607a56e0e3fc4a5cd6afb0d6027052886bf8c74c894c"
+    },
+    "A05_BACKEND_CONTRACT": {
+      "path": "/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-edit-v1.json",
+      "sha256": "3b4822396fc0686a0d42b96ccc0a40fe7203fe08aefefc784493f798d66e9956"
+    },
+    "A06_BACKEND_CONTRACT": {
+      "path": "/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-status-v1.json",
+      "sha256": "c3662b25500879d67c6811fa270d4a6a39a44db812c7c493d6f02e535940b415"
+    },
+    "A14_BACKEND_CONTRACT": {
+      "path": "/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-action-future-contract.json",
+      "sha256": "01c49376f5c3dabf585f658bb11f48734afd3569ee8144f2355ff0b70de7d96c"
+    },
+    "A08_BACKEND_CONTRACT": {
+      "path": "/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-roles-permissions-v1.json",
+      "sha256": "dd202cb5019b10a891e10f03f77629b5f54e993110f148f417e05d089df35698"
+    }
+  },
+  "verification": {
+    "focused": {
+      "command": "<five absolute backend contract env vars> node --test src/api/admin-user-roles-permissions.contract.test.js src/api/admin-user-roles-permissions.test.js src/api/admin-user-roles-permissions.production.test.js src/stores/admin-user-role-permissions.test.js src/stores/admin-users.test.js src/components/admin/UserPermissionEditor.contract.test.js src/components/admin/UserRolePermissionDialogs.contract.test.js src/components/admin/UserRolePermissionDialogs.element-plus.test.js src/views/UserDetail.roles-permissions.contract.test.js src/views/UserDetail.roles-permissions.integration.test.js",
+      "exit": 0,
+      "tests": 41,
+      "pass": 41,
+      "fail": 0,
+      "skip": 0,
+      "result": "PASS"
+    },
+    "full": {
+      "command": "A03_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-create-v1.json A05_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-edit-v1.json A06_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-status-v1.json A14_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-action-future-contract.json A08_BACKEND_CONTRACT=/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/agents/contracts/admin-user-roles-permissions-v1.json npm test",
+      "exit": 0,
+      "tests": 446,
+      "pass": 446,
+      "fail": 0,
+      "skip": 0,
+      "result": "PASS"
+    },
+    "production_build": {
+      "command": "VITE_USE_MOCK=false npm run build",
+      "exit": 0,
+      "result": "PASS_WITH_WARNINGS",
+      "warnings": [
+        "two existing @vueuse/core misplaced PURE annotation warnings",
+        "existing mixed dynamic/static import warning for src/utils/export.js",
+        "existing mixed dynamic/static import warning for src/api/request.js",
+        "existing chunk-size warning"
+      ]
+    },
+    "diff_check_before_archive": {
+      "command": "git diff --check",
+      "exit": 0,
+      "result": "PASS"
+    }
+  },
+  "browser_acceptance": {
+    "status": "PASS_LIMITED_SCOPE",
+    "visible_chromium": "PASS",
+    "root_catalog_proxy_regression": "PASS; fixed by 25b0731 and covered by a Vue reactive proxy regression test",
+    "baseline_promotion": "PASS",
+    "override_promotion": "AUTOMATED_ONLY",
+    "permission_save": "PASS; users.read explicit deny",
+    "demotion": "PASS; final User with policy version 3 and zero active overrides",
+    "conflict_refresh": "PASS; corrupt fixture returned policy_version_conflict and UI performed one detail refresh without replay",
+    "commit_unknown": "AUTOMATED_ONLY",
+    "disabled_targets": "AUTOMATED_ONLY",
+    "keyboard_focus_375_390": "PASS; reason textarea focused, Escape closed dialog",
+    "layout_375_390": "PASS; dialog stayed inside viewport and scrollWidth equaled clientWidth",
+    "write_request_counts": "PASS; each of promote, permission save and demote used one 201 verification and one 200 execute request",
+    "console_errors": "NONE_RELEVANT; initial anonymous refresh 401 excluded"
+  },
+  "real_cross_stack_acceptance": {
+    "status": "PASS_LIMITED_SCOPE",
+    "mysql_8": "PASS 8.0.46",
+    "redis_7": "PASS 7.4.11",
+    "migration_ledger_0001_0012": "PASS",
+    "old_access_refresh_rejection": "PASS_BACKEND_REAL_FIXTURE",
+    "gateway_key_authorization": "PASS_BACKEND_REAL_FIXTURE",
+    "demoted_policy_cleanup": "PASS",
+    "repromotion": "PASS_BACKEND_REAL_FIXTURE",
+    "database_audit_terminal_facts": "PASS_BACKEND_REAL_FIXTURE",
+    "fixture_cleanup": "PASS; named containers absent and ports 8000/4176 closed",
+    "canonical_backend_manifest": "/Users/xuzhihao/code/Porsche/.worktrees/a07-managed-user-entitlements/docs/superpowers/reports/validation/2026-09-09-a08-managed-user-roles-permissions/backend/manifest.json"
+  },
+  "reviews": {
+    "frontend_task_6_spec": "SPEC_REVIEW_PASS / QUALITY_REVIEW_PASS",
+    "independent_frontend_final": "PENDING_NOT_RUN",
+    "independent_security": "SECURITY_REVIEW_PASS on paired backend after d9896e9",
+    "visible_ux": "PASS at desktop, 390 px and 375 px",
+    "external_backend_project_manager": "PENDING_NOT_RUN",
+    "frontend_proxy_regression": "TDD_PASS / visible browser confirmation PASS"
+  },
+  "production": {
+    "migration": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "acceptance": "NOT_RUN",
+    "business_accounts": "NOT_USED"
+  },
+  "tracker": {
+    "a08": "PASS_LIMITED_SCOPE",
+    "web_012": "in_progress",
+    "matrix": "15 PASS_LIMITED_SCOPE / 9 BLOCKED_NOT_IMPLEMENTED / 1 BLOCKED_PRODUCT / 1 BLOCKED_ENV",
+    "blocked_total": 11
+  }
+}

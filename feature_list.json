@@ -51,6 +51,11 @@
         "文档 JSON parse/hash/diff-check",
         "A01-A14/P01-P08/V01-V02/R01-R02 后续逐项验收",
         "A03 Task12：BE 3a50144e53268f6ef3ae704699ef9fa851e4a5ee / FE 9f660a9ca26f5738dd661652596a1e450ff34335；MySQL 8.4.11、Redis 7.4、ledger 0001–0010、后端focused/race/serial full/build/vet/diff、前端275/275及可见Chrome 13/13",
+        "A05 Task8：BE 6bb5400 / FE 5a41f56；r5 backend service/HTTP与r10 visible browser/adversarial/privacy/cleanup通过",
+        "A06：BE 08617d4 / FE 07c7b9e；真实MySQL/Redis、race、no-fixture full、前端364/364、真实挂载13/13、生产构建、375/390 Chrome及双端独立复审通过",
+        "A07：BE a600a08 / FE 4164818；真实 MySQL/Redis、race、回滚、登录/令牌、Bearer 套餐额度、前端 395/395、生产构建、375/390 Chrome 与三项独立复审通过",
+        "A08：BE f2f9760 / FE 25b0731；后端真实 fixture 11/11、前端 focused 41/41、full 446/446、生产构建、可见 Chromium 提升/权限修改/降级、375/390 与 exact cleanup 通过，状态 PASS_LIMITED_SCOPE",
+        "A09-A12：FE 8612242 / BE 258abb4；focused 8/8、前端全量 455/455、生产构建隔离扫描、可见 Chromium 7 项、后端全量/构建/伪造金额路由 404、A12 当前候选定向回归通过",
         "Public content/pricing Task11：FE 8001346bcfcaf16889a967f53b2042993e11fddf / BE 7d7d1dd8d141e2847c431d9c58e07fb53238eb72；三份冻结契约显式注入，前端511/511、生产build、public module graph、diff-check"
       ],
       "evidence": [
@@ -58,10 +63,83 @@
         "2026-09-04：真实本地FE+BE联合验收最终FAIL。26项为6 PASS_LIMITED_SCOPE（A01/A02/A04/A13/V01/V02）、2 FAIL_LOCAL_DEV_ROUTE（P02/R01）、18 BLOCKED；logout 204/Cookie清空/refresh 401通过，但本地Vite /api代理截获/api-keys硬刷新并返回404。SECOND仅在该早期logout路由解释上supersede CORE；原始证据保留。最终报告和机器矩阵见docs/agents/validation/joint-acceptance-20260904/。",
         "2026-09-04：Vite API路由边界补救在保留的真实本地FE+BE环境通过writer与独立QA。P02/R01由FAIL_LOCAL_DEV_ROUTE提升为本地PASS_LIMITED_SCOPE；当前8项限定通过、0项本地路由失败、18项阻塞。/api-keys、/users、/profile硬刷新及退出守卫通过，logout 204、Cookie清空、refresh 401保持；生产HTTPS、模型/chat/SSE与部署未运行。证据见docs/agents/validation/vite-api-route-proxy-fix-20260904/。",
         "2026-09-08：A03 users.create/users.create_admin本地联合切片经代码与证据spec/quality/security复审全部PASS，提升为PASS_LIMITED_SCOPE；canonical manifest见backend:docs/superpowers/reports/validation/2026-09-06-a03-admin-user-create/canonical-3a50144-9f660a9-final/manifest.json。唯一skip为TestAdminUsersReadPerformance显式opt-in 100k夹具。fixture及A03私有临时文件exact cleanup为PASS。",
+        "2026-09-08：A05 managed-user nickname edit本地联合切片PASS_LIMITED_SCOPE。代码BE 6bb5400/FE 5a41f56；canonical evidence commits BE 76e0d2f/FE 34b23fc；emergency merge heads BE bf53c6a/FE a93893b。生产migration/deploy/business accounts均NOT_RUN。",
+        "2026-09-08：A06 managed-user status本地联合切片PASS_LIMITED_SCOPE。代码BE 08617d4/FE 07c7b9e；canonical evidence commits BE 1677bc5/FE b620552；合同SHA-256 c3662b25500879d67c6811fa270d4a6a39a44db812c7c493d6f02e535940b415。生产migration/deploy/business accounts均NOT_RUN。",
+        "2026-09-09：A07 managed-user credentials/entitlements 本地联合切片 PASS_LIMITED_SCOPE。候选 BE a600a08/FE 4164818；canonical evidence commits BE 5d5a1e9ee230bcc42fe9fde8d3f9f7badf34b658/FE 39b79582110347ae11b95e58217b3afe3236b4f7；合同 SHA-256 9e1969b238911b6eee5b6aa85ed364e795a6854f0a026daac5d15e2ab78851be。Gateway Key plan/quota 消费仍 BLOCKED_NOT_IMPLEMENTED，生产均 NOT_RUN。",
+        "2026-09-09：A08 managed-user roles/permissions 本地联合切片 PASS_LIMITED_SCOPE。候选 BE f2f9760/FE 25b0731，合同 SHA-256 dd202cb5019b10a891e10f03f77629b5f54e993110f148f417e05d089df35698；真实 MySQL/Redis/0012、事务/并发/运行时、前端 446/446、可见浏览器三步链路和 375/390 通过。生产及外部 PM 未运行。",
         "2026-09-08：测试环境真实浏览器完成管理员列表、精确搜索、详情、刷新登录态、创建普通用户及软删除闭环；临时 GUID 355650202352226304 删除后活动列表恢复 4 条且 GUID 查询 0 条。发现删除后残留旧创建公告；隔离分支按 TDD 修复为删除成功公告，定向 10/10、全量 287/287、生产构建及 diff-check 通过。",
+        "2026-09-10：A09/A10 开发专用 CNY Mock、A11 生产隔离、A12 当前候选复验均为 PASS_LIMITED_SCOPE。证据见 docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json；外部后端 project_manager 本轮书面确认未获得。",
         "2026-09-11：public content/pricing 前端候选8001346绑定后端7d7d1dd及冻结契约89e94d9；显式A03/A14/public-pricing契约和VITE_USE_MOCK=false下全量511/511、0 skip，生产构建、8个公共chunk模块图（194574 JS bytes/5421 CSS bytes）及diff-check通过。P01/P03–P07仅为PASS_FRONTEND_LOCAL；浏览器夹具BLOCKED_FIXTURE、线上PENDING_LIVE_ACCEPTANCE，P08保持BLOCKED_PRODUCT。报告见docs/agents/validation/2026-09-09-public-content-pricing/frontend-report.md。"
       ],
-      "notes": "Public content/pricing当前仅完成前端本地代码门禁，P01/P03–P07为PASS_FRONTEND_LOCAL，不代表跨栈或生产验收；浏览器夹具为BLOCKED_FIXTURE，外部线上验收为PENDING_LIVE_ACCEPTANCE，P08为BLOCKED_PRODUCT，R02保持既有环境边界。A03与A14的既有测试环境创建/软删除证据不变，web-012继续in_progress。金额余额仍仅为Mock边界，真实ledger/billing/recharge/refund/deduction保持未来范围。ACTION_SECURITY_HMAC_KEY v1 lacks key ID/multi-key verification; rotation is prohibited while replayable post-0010 active snapshots exist unless a separately approved multi-key verifier or atomic full re-HMAC migration is delivered."
+      "notes": "Public content/pricing当前仅完成前端本地代码门禁，P01/P03–P07为PASS_FRONTEND_LOCAL，不代表跨栈或生产验收；浏览器夹具为BLOCKED_FIXTURE，外部线上验收为PENDING_LIVE_ACCEPTANCE，P08为BLOCKED_PRODUCT，R02保持既有环境边界。A03与A14的既有测试环境创建/软删除证据不变，web-012继续in_progress。金额余额仍仅为Mock边界，真实ledger/billing/recharge/refund/deduction保持未来范围。ACTION_SECURITY_HMAC_KEY v1 lacks key ID/multi-key verification; rotation is prohibited while replayable post-0010 active snapshots exist unless a separately approved multi-key verifier or atomic full re-HMAC migration is delivered.",
+      "a07_joint_acceptance": {
+        "status": "PASS_LIMITED_SCOPE",
+        "code_under_test": {
+          "backend": "a600a0815b5eab5203333755a2466788fe67d61a",
+          "frontend": "41648181ab42fb46fe7d45663e746121956b50b8"
+        },
+        "canonical_evidence_commits": {
+          "backend": "5d5a1e9ee230bcc42fe9fde8d3f9f7badf34b658",
+          "frontend": "39b79582110347ae11b95e58217b3afe3236b4f7"
+        },
+        "contract_sha256": "9e1969b238911b6eee5b6aa85ed364e795a6854f0a026daac5d15e2ab78851be",
+        "environment": {
+          "mysql": "8.0.46",
+          "redis": "7.4.11",
+          "migration_ledger": "0001-0011"
+        },
+        "tests": {
+          "backend_real_mysql_redis": "PASS",
+          "backend_real_race_login_token_quota_concurrency": "PASS / 0 SKIP",
+          "backend_real_race_rollback": "PASS / 0 SKIP",
+          "backend_no_fixture_full": "PASS",
+          "backend_build_vet_gofmt_diff": "PASS",
+          "frontend_full": "395/395 PASS / 0 SKIP",
+          "frontend_production_build": "PASS",
+          "chrome_375_390": "PASS"
+        },
+        "reviews": {
+          "backend": "PASS",
+          "frontend": "PASS",
+          "documents": "PASS"
+        },
+        "scope_boundary": "仅本地 A07 password reset、group change、plan change 切片。Gateway Key owner plan/quota 原子重载与消费仍为 BLOCKED_NOT_IMPLEMENTED；生产 migration、deploy、production acceptance 与真实 business accounts 均 NOT_RUN。",
+        "evidence": "backend:docs/superpowers/reports/validation/2026-09-09-a07-managed-user-entitlements/manifest.json"
+      },
+      "a08_joint_acceptance": {
+        "status": "PASS_LIMITED_SCOPE",
+        "code_under_test": {
+          "backend": "f2f976005c2331c0409c1b27da79e3a43d25bcb0",
+          "frontend": "25b073164dc3fccecbf3b74309f12dd7589c024b"
+        },
+        "backend_evidence_commit": "3f41ef2dc1f38fc363cbdcf1e2205b26f7a9da09",
+        "contract_sha256": "dd202cb5019b10a891e10f03f77629b5f54e993110f148f417e05d089df35698",
+        "frontend_gates": {
+          "focused": "41/41 PASS / 0 SKIP",
+          "full": "446/446 PASS / 0 SKIP",
+          "production_build": "PASS_WITH_WARNINGS",
+          "visible_chromium": "PASS",
+          "chrome_375_390": "PASS"
+        },
+        "backend_real_fixture": "11/11 PASS; MySQL 8.0.46, Redis 7.4.11, ledger 0001-0012",
+        "cleanup": "PASS",
+        "not_run": [
+          "production_migration_deployment_acceptance",
+          "external_backend_project_manager_confirmation"
+        ],
+        "scope_boundary": "本地 A08 角色与权限联合切片限定通过；可见 commit-unknown、disabled target 与 override-at-promotion 为自动化覆盖。生产与外部 PM 仍未运行。",
+        "evidence": "docs/agents/validation/a08-managed-user-roles-permissions-20260909/manifest.json"
+      },
+      "a09_a12_joint_acceptance": {
+        "status": "PASS_LIMITED_SCOPE",
+        "code_under_test": {
+          "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1",
+          "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6"
+        },
+        "evidence": "frontend:docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json",
+        "backend_project_manager_confirmation": "NOT_OBTAINED",
+        "scope_boundary": "A09/A10 only development CNY Mock; A11 proves production isolation; A12 is current-candidate revalidation of the existing soft-delete slice. No production or real money capability was run."
+      }
     },
     {
       "id": "web-009",

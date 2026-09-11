@@ -136,3 +136,13 @@ export async function getAdminUserPermissions(guid, options = {}) {
   return mapUserPermissions(await request.get(`/admin/v2/users/${encodeURIComponent(guid)}/permissions`, options), guid)
 }
 export async function getAuthzCatalog(options = {}) { const { default: request } = await import('./request.js'); return mapAuthzCatalog(await request.get('/admin/v2/authz/catalog', options)) }
+
+export function createAdminUserRolePermissionSnapshotReader({ detail = getAdminUser, permissions = getAdminUserPermissions } = {}) {
+  if (typeof detail !== 'function' || typeof permissions !== 'function') throw new TypeError('invalid_role_permission_snapshot_reader')
+  return async (guid, options = {}) => {
+    const target = await detail(guid, options)
+    const policy = target?.role === 'admin' ? await permissions(guid, options) : null
+    return Object.freeze({ target, permissions:policy })
+  }
+}
+export const getAdminUserRolePermissionSnapshot = createAdminUserRolePermissionSnapshotReader()

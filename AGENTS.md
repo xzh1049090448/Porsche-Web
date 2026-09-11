@@ -56,10 +56,11 @@
 
 - 协调层：front_end_project_coordinator，与后端 project_manager 唯一对口；Explorer 为协调者的只读探索阶段。
 - 执行层：front_end_developer，接受协调者委派（用户直接指令优先）。
-- 质量层：front_end_quality_gate，独立安全审查与验收。
-- 配置维护源：.agents/front_end_project_coordinator.toml、.agents/front_end_developer.toml、.agents/front_end_quality_gate.toml。
-- Codex 发现副本：.codex/agents 下同名三个文件，须与维护源一致。
+- 规格层：front_end_spec_compliance_reviewer，独立核对完整任务和版本化接口契约，不修改实现。
+- 质量层：front_end_quality_gate，仅在规格通过后独立进行安全、质量和验收核验。
+- 配置维护源：.agents 下四个角色 TOML；Codex 发现副本位于 .codex/agents，同名文件须逐字节一致。
+- 编排规则：执行或审查任务必须读取 docs/agents/orchestration.md，按风险选择流程并保持单一 Controller。
 - 必读：docs/agents/domain.md；接口任务另读 docs/conventions/frontend-standards.md、docs/conventions/api-contract-standards.md、docs/conventions/database-standards.md。
-- 接口、联调计划、范围变更及签收须双方协调者针对明确版本书面确认。执行/质量角色不直接跨团队收发任务，所有修复经协调层流转。
+- 接口、联调计划、范围变更及签收须双方协调者针对明确版本书面确认。执行/规格/质量角色不直接跨团队收发任务，所有修复经协调层流转。
 - 交付附最终代码和实际验证证据；草案、模板、Mock、跳过测试均不是联合验收通过。
 - 启动与权限限制见 [启动说明](docs/agents/README.md)，流转记录见 [协同模板](docs/agents/collaboration-templates.md)。

@@ -40,7 +40,8 @@
       "B1-A RESULT PASS: focused 8 tests plus rerun, full 312 tests with 98 DB/Redis fixture skips and 0 failures, package 15 pass plus 4 no-tests skips, build/vet clean; independent concurrency probe PASS and quality verification PASS; this remains a pure library result",
       "B1-B1 agreed_for_implementation and delegated: backend-only permission snapshot persistence/loader internal contract; FE has no business change and management entry remains closed",
       "B1-B1 RESULT PASS_LIMITED_SCOPE: PM SPEC PASS; independent permission_snapshot_verify fresh build/vet/diff/json all 0; real fixture full 456 tests pass, 0 skip, 0 fail; 15 packages pass and 4 no-tests; reverse-lock probe PASS (1.362s). SECURITY_REPORT Critical/High/Medium/Low all none, VERDICT PASS. This is limited to the internal snapshot library and does not freeze HTTP/DTO, permissions_version, or authorize FE wiring.",
-      "B1-B2 RESULT PASS_LIMITED_SCOPE: PM SPEC PASS; independent permission_snapshot_verify VERDICT PASS with Critical/High/Medium/Low none. Fresh fixture JSON: 512 pass, 0 fail, 0 skip; 15 packages pass and 4 no-tests. Strict PUT, session/AuthVersion/event10 and actor-attributed revoke audit are local BE scope only. allowed_models [] remains unrestricted user ACL; it is not Gateway Key ACL. FE has no business change and management entry remains closed."
+      "B1-B2 RESULT PASS_LIMITED_SCOPE: PM SPEC PASS; independent permission_snapshot_verify VERDICT PASS with Critical/High/Medium/Low none. Fresh fixture JSON: 512 pass, 0 fail, 0 skip; 15 packages pass and 4 no-tests. Strict PUT, session/AuthVersion/event10 and actor-attributed revoke audit are local BE scope only. allowed_models [] remains unrestricted user ACL; it is not Gateway Key ACL. FE has no business change and management entry remains closed.",
+      "A05 LOCAL_JOINT_ACCEPTANCE_EVIDENCE_CONFIRMED：代码BE 6bb5400/FE 5a41f56，canonical evidence BE 76e0d2f/FE 34b23fc，r5/r10与cleanup通过。未记录backend project_manager书面确认；生产migration/deploy/business accounts均NOT_RUN。"
     ]
   },
   "pending_product": [],
@@ -176,10 +177,24 @@
       "prd": "编辑伪造role/guid/auth_version",
       "owner": "FE+BE",
       "expected_evidence": "请求拒绝且无部分越权修改",
-      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "status": "PASS_LIMITED_SCOPE",
       "historical_status": "NOT_RUN",
-      "blocker": "v2编辑未实现；旧伪造更新拒绝仅为只读/安全子集证据。",
-      "limited_subscope": "读取/拒绝子集已有PASS_LIMITED_SCOPE证据，但不改变整项BLOCKED_NOT_IMPLEMENTED。"
+      "confirmation": "LOCAL_JOINT_ACCEPTANCE_EVIDENCE_CONFIRMED",
+      "backend_project_manager_written_confirmation": "NOT_RECORDED",
+      "accepted_candidate": {
+        "backend": "6bb54007879adeb16a532d792ab471f16ee9100a",
+        "frontend": "5a41f5679c1c35e5c2850665db54ae83e58db436"
+      },
+      "canonical_evidence_commits": {
+        "backend": "76e0d2f650989ffecd7519b0d042ec2696cd60a8",
+        "frontend": "34b23fc8d00771cd03b9072e00ceda40b421c6bd"
+      },
+      "emergency_merge_heads": {
+        "backend": "bf53c6a98452f624a6061e9be7317f9f596ea908",
+        "frontend": "a93893bc4a8739ba158cf45c6f32779873d9b028"
+      },
+      "evidence": "backend:docs/superpowers/reports/validation/2026-09-08-a05-managed-user-edit/manifest.json",
+      "scope_boundary": "仅本地A05 managed-user nickname PATCH切片；只允许nickname string/null且auth_version保持不变。金额余额仍为Mock边界，A14范围不变；生产migration、deploy、production acceptance及真实business accounts均NOT_RUN。"
     },
     {
       "id": "A06",
@@ -422,6 +437,25 @@
       "evidence": "docs/agents/validation/vite-api-route-proxy-fix-20260904/remediation-report.md",
       "matrix": "docs/agents/validation/joint-acceptance-20260904/acceptance-matrix.json",
       "note": "仅P02/R01更新为本地PASS_LIMITED_SCOPE；历史26/26 NOT_RUN与6/2/18失败记录不删除。生产HTTPS未运行，18项仍阻塞。"
+    },
+    {
+      "at": "2026-09-08",
+      "status": "A05_PASS_LIMITED_SCOPE",
+      "confirmation": "LOCAL_JOINT_ACCEPTANCE_EVIDENCE_CONFIRMED",
+      "backend_project_manager_written_confirmation": "NOT_RECORDED",
+      "candidate": {
+        "backend": "6bb54007879adeb16a532d792ab471f16ee9100a",
+        "frontend": "5a41f5679c1c35e5c2850665db54ae83e58db436"
+      },
+      "canonical_evidence_commits": {
+        "backend": "76e0d2f650989ffecd7519b0d042ec2696cd60a8",
+        "frontend": "34b23fc8d00771cd03b9072e00ceda40b421c6bd"
+      },
+      "emergency_merge_heads": {
+        "backend": "bf53c6a98452f624a6061e9be7317f9f596ea908",
+        "frontend": "a93893bc4a8739ba158cf45c6f32779873d9b028"
+      },
+      "note": "仅更新A05确认；其他25行保持原对象和状态。生产migration/deploy/business accounts均NOT_RUN。"
     }
   ],
   "remediation_candidate": {
@@ -429,5 +463,32 @@
     "backend": "aec1619ee710c80cd71dbe529660e2d12b3fda7b",
     "writer_evidence": "20ea497ae19a90ca3db949a88bf65e4f369fdb09",
     "task6_review_evidence": "37ae3845c6ae79b0fcb8a24c42f4730ae15a654d"
+  },
+  "a05_joint_acceptance": {
+    "status": "PASS_LIMITED_SCOPE",
+    "confirmation": "LOCAL_JOINT_ACCEPTANCE_EVIDENCE_CONFIRMED",
+    "backend_project_manager_written_confirmation": "NOT_RECORDED",
+    "code_under_test": {
+      "backend": "6bb54007879adeb16a532d792ab471f16ee9100a",
+      "frontend": "5a41f5679c1c35e5c2850665db54ae83e58db436"
+    },
+    "canonical_evidence_commits": {
+      "backend": "76e0d2f650989ffecd7519b0d042ec2696cd60a8",
+      "frontend": "34b23fc8d00771cd03b9072e00ceda40b421c6bd"
+    },
+    "emergency_merge_heads": {
+      "backend": "bf53c6a98452f624a6061e9be7317f9f596ea908",
+      "frontend": "a93893bc4a8739ba158cf45c6f32779873d9b028"
+    },
+    "tests": {
+      "r5_backend_service": "40 records / 0 fail / 0 skip",
+      "r5_backend_dto_handler_router": "71 records / 0 fail / 0 skip",
+      "r5_real_http_operations": "10/10 PASS",
+      "r10_visible_browser": "allowed UI, conflict/late ownership, visibility/denial PASS",
+      "r10_http_adversarial": "22/22 PASS",
+      "r10_privacy": "browser and database audit privacy PASS",
+      "r10_cleanup": "exact processes/containers/network/private files removed; residue 0"
+    },
+    "scope_boundary": "仅本地A05 managed-user nickname PATCH切片；只允许nickname string/null且auth_version保持不变。金额余额仍为Mock边界，A14范围不变；生产migration、deploy、production acceptance及真实business accounts均NOT_RUN。"
   }
 }

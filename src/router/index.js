@@ -3,6 +3,10 @@ import { safeAuthRedirect } from '../utils/auth-redirect.js'
 
 const mainLayout = () => import('@/layouts/MainLayout.vue')
 
+const developmentOnlyRoutes = import.meta.env?.DEV ? [
+  { path: 'demo/admin/balance', name: 'AdminBalanceMockDemo', component: () => import('@/views/AdminBalanceMockDemo.vue'), meta: { requiresAuth: true } },
+] : []
+
 export const routes = [
   {
     path: '/', component: () => import('@/layouts/PublicLayout.vue'), meta: { public: true }, children: [
@@ -17,6 +21,7 @@ export const routes = [
   },
   { path: '/login', name: 'Login', component: () => import('@/views/Login.vue'), meta: { guest: true } },
   { path: '/register', name: 'Register', component: () => import('@/views/Register.vue'), meta: { guest: true } },
+  ...developmentOnlyRoutes,
   { path: '/chat', component: mainLayout, meta: { requiresAuth: true }, children: [
     { path: '', name: 'Chat', component: () => import('@/views/Chat.vue') },
   ] },

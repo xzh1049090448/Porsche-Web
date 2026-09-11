@@ -1,0 +1,15 @@
+# A05 Task 7 frontend browser acceptance
+
+**Status: PASS for the local A05 nickname-edit slice.** r10 supersedes the r1-r9 blocked/setup runs. It combines the retained r5 backend/service/HTTP PASS with the r8 allowed UI result and a fresh r10 execution of the allowed path plus every remaining browser, conflict, denial, race, adversarial, and privacy scenario. Tested frontend runtime code is `5a41f5679c1c35e5c2850665db54ae83e58db436`; the pre-r10 evidence HEAD was `c32bca8bc5dd6f7d8159ce9ce3106eb590799734`.
+
+The isolated runtime used MySQL 8.0.46, Redis 7.4.11, migrations `0001`-`0010`, a localhost-only backend, and a temporary same-origin Vite proxy. Playwright 1.61.1 drove visible Chrome 152.0.7977.77. Querying the cookie jar with the actual `/api/v1/auth/refresh` path found exactly one `porsche_refresh` cookie and verified HttpOnly, Secure, SameSite=Lax, and Path=`/api/v1/auth`; no token or cookie-security bypass was used.
+
+Allowed-path assertions passed at 1440px and 375px: login, direct-detail reload, initial focus, forward/reverse focus containment, Escape close and trigger restoration, duplicate-submit disabling with exactly one PATCH, exact two-key request bodies, a 64-code-point nickname, null clear, and success aria-live. Root-to-Admin and Admin-to-User entries were visible. Root self, Admin self, equal Admin, Root target, and deleted target returned real 404 detail responses and exposed no edit entry. An ordinary user exposed no entry and sent no `/admin/v2` request.
+
+A real stale-version PATCH produced the exact 409 envelope, exactly one detail GET, and zero PATCH replay. Route, identity, and dialog changes each prevented a delayed successful response from updating the new owner. A live `users.edit` deny caused exactly one 403 PATCH, one successful identity refresh that removed `users.edit` while retaining `users.read`, one target refresh, a closed dialog, a persistently closed entry, and zero replay. The temporary policy was restored.
+
+The 22-case HTTP adversarial matrix passed unknown and forbidden keys, duplicates, case-folded keys, trailing/scalar/oversized bodies, bad GUIDs, query/media-type rejection, stale version, and ordinary denial. Every error had the exact A05 envelope, matching request IDs, no-store, and no Retry-After, with no user or audit side effect.
+
+Privacy checks passed: the refresh value was absent from `document.cookie`; no legacy token/user storage remained; coordination storage held only epoch/pending/suppressed metadata; page errors and unexpected console errors were zero; exact secrets did not appear in console or canonical evidence; and retained network results contain no URL, header, request body, GUID, username, nickname, or credential value. Backend audit rows contain metadata only and no nickname/payload field.
+
+No frontend/backend code, contract, tracker, configuration, deployment file, or production resource changed. Exact r10 listeners, containers, network, scripts, results, credentials, and private files were removed after the evidence commits, with zero task residue.

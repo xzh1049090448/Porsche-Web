@@ -26,7 +26,7 @@ function installBearerInterceptor(transport, auth) {
   })
 }
 export function createAdminActionRequest({ auth, baseURL = '', fetchImpl = fetch, axiosOptions = {}, onUnauthorized = handleUnauthorized }) {
-  // Sensitive action POSTs acquire the current bearer but have no response
+  // Sensitive action mutations acquire the current bearer but have no response
   // interceptor, so a 401 or network ambiguity can never replay the mutation.
   const transport = axios.create({ baseURL, timeout: 120000, withCredentials: true, ...axiosOptions })
   installBearerInterceptor(transport, auth)
@@ -34,6 +34,10 @@ export function createAdminActionRequest({ auth, baseURL = '', fetchImpl = fetch
     transport,
     async post(path, body, config) {
       const response = await transport.post(path, body, config)
+      return { data: response.data, status: response.status, headers: response.headers }
+    },
+    async patch(path, body, config) {
+      const response = await transport.patch(path, body, config)
       return { data: response.data, status: response.status, headers: response.headers }
     },
     async query(path, headers) {
@@ -47,6 +51,7 @@ export function createAdminActionRequest({ auth, baseURL = '', fetchImpl = fetch
 }
 const adminActionRequest = createAdminActionRequest({ auth: authSession, baseURL: options.baseURL, axiosOptions: options })
 export const adminActionPost = adminActionRequest.post
+export const adminActionPatch = adminActionRequest.patch
 export const adminActionQuery = adminActionRequest.query
 const request = axios.create(options)
 installAuthInterceptors(request, authSession, { onUnauthorized: () => handleUnauthorized(), onError: error => { void import('element-plus').then(({ ElMessage }) => ElMessage.error(authErrorMessage(error))) } })

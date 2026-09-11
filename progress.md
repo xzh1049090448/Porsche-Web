@@ -1,5 +1,11 @@
 # 当前验证进度
 
+## 2026-09-11：公共内容与定价分支同步主分支
+
+- `feature/public-content-pricing` 已语义合并最新 `origin/main`，公共页面路由与 Root 定价管理保留，并兼容主分支新增的开发环境金额演示路由。
+- 冻结接口契约已按合并后的 `interface-contract.json` 更新校验摘要；`VITE_USE_MOCK=false` 全量测试 681/681 通过，生产构建完成。
+- P08 仍为 `BLOCKED_PRODUCT`，真实价格、声明、条款、隐私及品牌文案尚未发布；本次未部署生产环境。
+
 ## 2026-09-11：公共内容与定价前端 Task 11 本地集成证据
 
 - 前端候选 `8001346bcfcaf16889a967f53b2042993e11fddf` 绑定后端 `7d7d1dd8d141e2847c431d9c58e07fb53238eb72`；公开内容/定价冻结契约 SHA-256 为 `89e94d93939876a62baeaba0ca0bfcc94dcdc2ee111a4aad4ce8a31db28dfe7e`，A03/A14 契约也通过显式路径注入测试进程。
@@ -13,6 +19,36 @@
 - 线上验收发现软删除完成后仍显示旧的“已创建用户”页面公告。根因是 `onCreateSucceeded` 写入公告并提示成功，而 `onDeleteSucceeded` 只协调列表，未覆盖公告或发送删除成功提示。
 - TDD 回归先因中英文删除成功文案及列表回调缺失而 RED；修复后定向测试 10/10、携带后端 A03/A14 冻结契约的全量测试 287/287、`VITE_USE_MOCK=false npm run build` 与 `git diff --check` 通过。构建保留既有 Rollup 动态导入和大 chunk 警告。
 - 修复仅在隔离分支 `fix/user-delete-success-message`，尚未 push、合并或发布；测试环境仍运行前端 `43122191b0400db9d5e8042c8367b15711da6b6c`。
+
+
+## 2026-09-09：A08 managed-user roles and permissions 本地联合切片限定通过
+
+- A08 从 `BLOCKED_FIXTURE` 提升为 `PASS_LIMITED_SCOPE`。前端代码候选 `25b073164dc3fccecbf3b74309f12dd7589c024b`，配对后端 `f2f976005c2331c0409c1b27da79e3a43d25bcb0`，共享合同 SHA-256 为 `dd202cb5019b10a891e10f03f77629b5f54e993110f148f417e05d089df35698`。
+- 修复了 Vue 代理对象导致 Root 普通用户详情不加载权限目录、提升按钮永久隐藏的问题；新增回归测试。A08 focused 41/41、前端 full 446/446、生产构建和 diff-check 通过。
+- 真实 Chromium 完成提升、`users.read` 显式拒绝、降级；每步只有一次 201 verification 和一次 200 execute。真实 409 冲突执行一次详情刷新且不重放。375/390 弹窗边界、首焦点和 Esc 关闭通过，无相关 console/page error。
+- 后端真实 MySQL 8.0.46 / Redis 7.4.11、ledger 0001–0012、migration 0012 down/up、事务/回滚/并发、Access/Refresh、Gateway Key policy reload、损坏策略闭锁和 HTTP 测试 11/11 通过；独立安全复审 PASS；两个精确命名容器及端口完成清理。
+- 26 项现为 15 `PASS_LIMITED_SCOPE`、9 `BLOCKED_NOT_IMPLEMENTED`、1 `BLOCKED_PRODUCT`、1 `BLOCKED_ENV`，共 11 项阻塞；`web-012` 继续 `in_progress`，phase 更新为 `joint_acceptance_partial_15_limited_11_blocked`。生产 migration/deploy/acceptance、真实业务账号和外部 backend project_manager 书面确认仍未运行。证据见 `docs/agents/validation/a08-managed-user-roles-permissions-20260909/`。
+
+## 2026-09-09：A07 managed-user credentials and entitlements 本地联合切片限定通过
+
+- A07 从 `BLOCKED_NOT_IMPLEMENTED` 提升为 `PASS_LIMITED_SCOPE`。代码候选后端 `a600a0815b5eab5203333755a2466788fe67d61a`、前端 `41648181ab42fb46fe7d45663e746121956b50b8`；canonical evidence commits 后端 `5d5a1e9ee230bcc42fe9fde8d3f9f7badf34b658`、前端 `39b79582110347ae11b95e58217b3afe3236b4f7`；合同 SHA-256 `9e1969b238911b6eee5b6aa85ed364e795a6854f0a026daac5d15e2ab78851be`。
+- 真实 MySQL 8.0.46 / Redis 7.4.11 的密码登录、旧 Access/Refresh、三会话审计、Key 保持、Bearer 套餐额度、并发及 Redis/SQL 回滚，后端全仓/build/vet，前端 395/395、生产构建、375/390 Chrome 与后端/前端/文档独立复审均通过。
+- 26 项当前为 14 `PASS_LIMITED_SCOPE`、10 `BLOCKED_NOT_IMPLEMENTED`、1 `BLOCKED_PRODUCT`、1 `BLOCKED_ENV`，共 12 项阻塞；`web-012` 继续 `in_progress`，phase 为 `joint_acceptance_partial_14_limited_12_blocked`。
+- Gateway Key owner plan/quota 原子重载与消费仍为 `BLOCKED_NOT_IMPLEMENTED`。生产 migration、deploy、production acceptance、真实 business accounts 均 `NOT_RUN`；未获得外部后端 project_manager 书面确认。
+
+## 2026-09-08：A06 managed-user status 本地联合切片限定通过
+
+- A06 从 `BLOCKED_NOT_IMPLEMENTED` 提升为 `PASS_LIMITED_SCOPE`。代码候选后端 `08617d400228c224fa2312583fde14f54f7a7686`、前端 `07c7b9e3caa5fe18bd69be74e71f577577943840`；canonical evidence commits 后端 `1677bc5384aa5968a213d6cae2efe62198b92964`、前端 `b62055245e2dc6d954a545caab2c02ee45fa3d3a`；合同 SHA-256 `c3662b25500879d67c6811fa270d4a6a39a44db812c7c493d6f02e535940b415`。
+- 真实 MySQL/Redis 凭据失效链、focused race、no-fixture full、前端 364/364、真实挂载 13/13、生产构建、375/390 Chrome 布局及双端独立复审均通过。`web-012` 继续 `in_progress`，phase 为 `joint_acceptance_partial_13_limited_13_blocked`。
+- 26 项当前为 13 `PASS_LIMITED_SCOPE`、11 `BLOCKED_NOT_IMPLEMENTED`、1 `BLOCKED_PRODUCT`、1 `BLOCKED_ENV`，共 13 项阻塞。仅 A06 本次更新，其他 25 行不变。
+- 生产 migration、deploy、production acceptance、真实 business accounts 均 `NOT_RUN`；拒绝管理动作审计仍为后续 PRD 残留，未获得外部后端 project_manager 书面确认。
+
+## 2026-09-08：A05 managed-user nickname edit 本地联合切片限定通过
+
+- A05 从 `BLOCKED_NOT_IMPLEMENTED` 提升为 `PASS_LIMITED_SCOPE`。代码候选后端 `6bb54007879adeb16a532d792ab471f16ee9100a`、前端 `5a41f5679c1c35e5c2850665db54ae83e58db436`；canonical evidence commits 后端 `76e0d2f650989ffecd7519b0d042ec2696cd60a8`、前端 `34b23fc8d00771cd03b9072e00ceda40b421c6bd`；紧急合并头后端 `bf53c6a98452f624a6061e9be7317f9f596ea908`、前端 `a93893bc4a8739ba158cf45c6f32779873d9b028`。
+- r5 backend service/DTO/handler/router/HTTP 与 r10 visible browser、409 ownership、拒绝路径、22 项 adversarial HTTP、privacy 和 exact cleanup 均通过。`web-012` 继续 `in_progress`，phase 为 `joint_acceptance_partial_12_limited_14_blocked`。
+- 26 项当前为 12 `PASS_LIMITED_SCOPE`、12 `BLOCKED_NOT_IMPLEMENTED`、1 `BLOCKED_PRODUCT`、1 `BLOCKED_ENV`，共 14 项阻塞。仅 A05 本次更新，其他 25 行不变；本地联合验收证据已确认，未记录后端 project_manager 书面确认。
+- 金额余额仍仅为 Mock；A14 与 `ACTION_SECURITY_HMAC_KEY` 轮换限制保留。生产 migration、deploy、production acceptance 和真实 business accounts 均 `NOT_RUN`。
 
 ## 2026-09-08：生产发布 Mock 门禁 hotfix 本地候选
 
@@ -305,3 +341,13 @@
 - B1-A 内部协调任务已由后端 PM 提出并获前端协调者接受：BE-only 纯 authz evaluator，24cap/immutable snapshot/四入口/默认 deny 等细节以 BE 计划为准；不改公共接口 DRAFT、不交 projection、不开放 FE 管理入口，当前无 passing，等待 BE 测试结果。
 - B1-A 已完成限定 PASS：focused 8 tests/rerun、full 312（98 DB/Redis fixture SKIP、0 fail）、package 15 pass/4 no-tests SKIP、build/vet 0、独立并发 probe 与质量验证 PASS；来源为 BE plan/spec/report。仅限纯库策略，未接 DTO/HTTP/DB/旧路由/安全失效；完整 B1 未完成，web-012 等待后端整合，FE 入口保持关闭。
 - B1-B1 已完成限定 PASS：PM SPEC PASS；permission_snapshot_verify fresh build/vet/diff/json 0，real fixture full 456 pass/0 skip/0 fail，15 package pass/4 no-tests，反向锁 probe PASS 1.362s，SECURITY_REPORT Critical/High/Medium/Low 均 none、VERDICT PASS。仅限内部快照库，未接 HTTP/DTO/FE，`permissions_version` 未冻结，完整 B1 未完成；web-012 保持 `not_started/awaiting_backend_integration`，26 项 PRD 验收仍 `NOT_RUN`。
+
+## 2026-09-10：A09–A12 本地限定验收
+
+- 前后端均先合入最新 `origin/main`。后端保留主分支 `0011`，将未发布的 A07/A08 迁移顺延为 `0012/0013`；当前前端代码候选 `8612242`，后端边界候选 `258abb4`。
+- A09/A10 新增仅 Vite 开发环境注册的 `/demo/admin/balance`，使用合成用户和纯内存 CNY 整数分夹具；成功、失败、超时、冲突、重复提交、刷新重置和 Mock 标记均有自动化证据。
+- A11 生产构建扫描确认 demo 路由、marker 和合成用户名未进入 `dist`；真实用户列表/详情继续显示金额未接入，后端三条代表性金额写路径保持 404。
+- A12 沿用既有 `users.delete` 限定切片并在当前候选复验。前端 focused 65/65、后端 authz/dto/handler/router/service 定向测试通过。
+- 前端 focused 8/8、全量 455/455、生产构建通过；可见 Chromium 七项业务检查及 390px 布局通过。Mock 登录后台 `/api/v1/auth/self` 因未启动本地后端出现两条 500 控制台噪声，金额演示本身没有真实 API/DB 调用。
+- 后端全量测试、构建与路由边界通过。合并后的真实 MySQL `0011–0013` 迁移链及 A08 `0013` down 兼容通过；新的完整 A08 service fixture 复跑因 disposable MySQL host mapping 瞬断未闭环，继续单独引用原 A08 真实服务证据。三轮本次 fixture 均 exact cleanup、label 残留为零。
+- 当前矩阵为 18 项 `PASS_LIMITED_SCOPE`、8 项阻塞；`web-012` 保持 `in_progress`。外部后端 `project_manager` 对本轮当前候选的书面确认尚未获得，生产迁移、部署、生产验收与真实业务账号均未运行。

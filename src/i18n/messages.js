@@ -283,6 +283,14 @@ export const messages = {
         request_failed: '请求无法完成，请检查后重试。',
       },
     },
+    editUser: {
+      open: '编辑显示名', title: '编辑显示名', nickname: '显示名', clearHelp: '清空后保存将移除显示名。', cancel: '取消', submit: '保存', retry: '重试',
+      nicknameInvalid: '显示名须为 1–64 个 Unicode 字符；清空表示移除显示名。', success: '已更新 {username} 的显示名。', conflictRefreshing: '用户信息已变化，正在读取最新版本。',
+      failures: {
+        authentication_failed: '认证会话已失效，请重新登录。', forbidden: '当前身份无权编辑该用户。', not_found: '该用户不存在或当前不可见。',
+        unavailable: '服务暂不可用，未自动重试。请确认后重试。', request_failed: '请求无法完成，未自动重试。请检查后重试。',
+      },
+    },
     deleteUser: {
       title: '软删除用户',
       username: '用户名',
@@ -604,6 +612,14 @@ export const messages = {
         idempotency_conflict: 'This submission conflicts with the current attempt. Review and retry.', authentication_failed: 'Your authenticated session is invalid. Sign in again.',
         created_user_deleted: 'The user from this creation record was deleted. Original user details are not shown.', operation_expired: 'This creation operation expired, so its result can no longer be queried.',
         request_failed: 'The request could not be completed. Review it and retry.',
+      },
+    },
+    editUser: {
+      open: 'Edit display name', title: 'Edit display name', nickname: 'Display name', clearHelp: 'Save an empty field to remove the display name.', cancel: 'Cancel', submit: 'Save', retry: 'Retry',
+      nicknameInvalid: 'Use 1–64 Unicode characters, or leave this blank to remove the display name.', success: 'Updated the display name for {username}.', conflictRefreshing: 'User information changed. Loading the latest version.',
+      failures: {
+        authentication_failed: 'Your authenticated session is invalid. Sign in again.', forbidden: 'Your current identity cannot edit this user.', not_found: 'This user does not exist or is not visible.',
+        unavailable: 'The service is unavailable and the request was not retried. Review and retry.', request_failed: 'The request could not be completed or replayed. Review and retry.',
       },
     },
     deleteUser: {
