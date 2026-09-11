@@ -17,6 +17,10 @@ const text = (value, name) => {
 }
 const safeCode = code => typeof code === 'string' && STABLE_CODES.has(code) ? code : 'upstream_error'
 const safeDiagnostic = code => typeof code === 'string' && (/^GENERATION_[A-Z0-9_]+$/.test(code) || STABLE_CODES.has(code)) ? code : 'GENERATION_ERROR'
+const isCanonicalConversationGuid = value => {
+  if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value)) return false
+  try { return BigInt(value) <= 9223372036854775807n } catch { return false }
+}
 
 export function createChatGeneration(options = {}) {
   const generationId = text(options.generationId, 'generationId')
@@ -47,6 +51,18 @@ export function createChatGeneration(options = {}) {
     if (model) item.model = model
     diagnostics = [...diagnostics, freeze(item)].slice(-20)
     notify()
+  }
+  const acceptsAuthoritativeGuid = value => conversationGuid === null
+    ? isCanonicalConversationGuid(value)
+    : value === conversationGuid
+  const bindAuthoritativeGuid = value => {
+    if (value === null) return true
+    if (!acceptsAuthoritativeGuid(value)) return false
+    if (conversationGuid === null) {
+      conversationGuid = value
+      notify()
+    }
+    return true
   }
   const modelFor = model => models.find(item => item.model === model)
   const playerSnapshot = item => {
@@ -142,8 +158,7 @@ export function createChatGeneration(options = {}) {
   }
   const cancelLocalQueue = () => { if (status === 'waiting' || status === 'receiving') { status = 'cancelling'; models.forEach(item => { item.epoch += 1 }); for (const item of models) { if (status === 'failed') break; if (!safePlayerCall(item, 'cancel')) break } } return snapshot() }
   const applyAuthoritative = result => {
-    if (!result || result.status !== 'completed' || typeof result.conversation_guid !== 'string' || !result.conversation_guid.trim() || (conversationGuid !== null && result.conversation_guid !== conversationGuid)) return fail('GENERATION_DATA_ERROR')
-    conversationGuid ??= result.conversation_guid
+    if (!result || result.status !== 'completed' || !bindAuthoritativeGuid(result.conversation_guid)) return fail('GENERATION_DATA_ERROR')
     const entries = mode === 'single' ? [result.result || (Array.isArray(result.results) ? result.results[0] : null)] : result.results
     if (!Array.isArray(entries) || entries.length !== models.length) return fail('GENERATION_DATA_ERROR')
     const plans = []
@@ -167,7 +182,7 @@ export function createChatGeneration(options = {}) {
   const validateStatusPayload = result => {
     if (!result || typeof result !== 'object' || result.generation_id !== generationId || result.mode !== mode) return false
     if (result.status === 'completed') {
-      if ((conversationGuid !== null && result.conversation_guid !== conversationGuid) || typeof result.conversation_guid !== 'string' || !result.conversation_guid.trim() || !Number.isSafeInteger(result.total_tokens_used) || result.total_tokens_used < 0) return false
+      if (!acceptsAuthoritativeGuid(result.conversation_guid) || !Number.isSafeInteger(result.total_tokens_used) || result.total_tokens_used < 0) return false
       if (mode === 'single') {
         const entry = result.result
         return !!entry && !Object.prototype.hasOwnProperty.call(result, 'results') && entry.model === models[0].model && entry.status === 'completed' && typeof entry.assistant_message_guid === 'string' && !!entry.assistant_message_guid.trim() && typeof entry.content === 'string' && Number.isSafeInteger(entry.tokens) && entry.tokens >= 0 && Object.keys(entry).every(key => ['model', 'status', 'content', 'assistant_message_guid', 'tokens'].includes(key))
@@ -175,12 +190,14 @@ export function createChatGeneration(options = {}) {
       return Array.isArray(result.results) && !Object.prototype.hasOwnProperty.call(result, 'result') && result.results.length === models.length && result.results.every((entry, index) => entry && entry.model === models[index].model && (entry.status === 'completed' || entry.status === 'failed') && Object.keys(entry).every(key => entry.status === 'completed' ? ['model', 'status', 'content', 'assistant_message_guid', 'tokens'].includes(key) : ['model', 'status', 'code'].includes(key)) && (entry.status === 'completed' ? typeof entry.assistant_message_guid === 'string' && !!entry.assistant_message_guid.trim() && typeof entry.content === 'string' && Number.isSafeInteger(entry.tokens) && entry.tokens >= 0 : STABLE_CODES.has(entry.code) && !!entry.code))
     }
     if (!['cancelled', 'failed', 'cancelling', 'committing', 'running'].includes(result.status)) return false
-    const guidOK = result.conversation_guid === null || (typeof result.conversation_guid === 'string' && !!result.conversation_guid.trim() && result.conversation_guid === conversationGuid)
+    const guidOK = result.conversation_guid === null || acceptsAuthoritativeGuid(result.conversation_guid)
     return guidOK && (result.status !== 'failed' || STABLE_CODES.has(result.code)) && !Object.prototype.hasOwnProperty.call(result, 'result') && !Object.prototype.hasOwnProperty.call(result, 'results')
   }
   const resolve = result => {
     if (TERMINAL.has(status)) return snapshot()
+    if (result?.generation_id === generationId && result?.mode === mode && conversationGuid !== null && result.conversation_guid !== null && result.conversation_guid !== conversationGuid) return fail('GENERATION_STATUS_ERROR')
     if (!validateStatusPayload(result)) { diagnostic('GENERATION_STATUS_ERROR'); return snapshot() }
+    if (!bindAuthoritativeGuid(result.conversation_guid)) return fail('GENERATION_STATUS_ERROR')
     if (result.status === 'completed') return applyAuthoritative(result)
     if (result.status === 'cancelled') { const cleaned = cleanupAll('cancel'); if (!cleaned) { status = 'failed'; diagnostic('GENERATION_PLAYER_ERROR') } else if (!TERMINAL.has(status)) setStatus('cancelled'); return snapshot() }
     if (result.status === 'failed') return fail('GENERATION_REMOTE_ERROR')

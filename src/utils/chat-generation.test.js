@@ -114,6 +114,50 @@ test('status payloads allow only null or the current nonblank conversation GUID'
   }
 })
 
+test('first authoritative status binds a new conversation guid once across every status', () => {
+  const statuses = ['running', 'cancelling', 'committing', 'cancelled', 'failed']
+  for (const status of statuses) {
+    const observed = []
+    const g = createChatGeneration(base({ conversationGuid: null, onChange: snapshot => observed.push(snapshot.conversationGuid) }))
+    if (status === 'cancelling') g.cancelLocalQueue()
+    g.resolveStatus({
+      generation_id: 'gen-1',
+      conversation_guid: '9223372036854775701',
+      mode: 'single',
+      status,
+      ...(status === 'failed' ? { code: 'upstream_error' } : {}),
+    })
+    assert.equal(g.snapshot().conversationGuid, '9223372036854775701', status)
+    assert.equal(observed.filter(guid => guid === '9223372036854775701').length >= 1, true, status)
+    assert.equal(g.snapshot().status, status === 'cancelled' ? 'cancelled' : status === 'failed' ? 'failed' : status === 'cancelling' ? 'cancelling' : 'waiting', status)
+    if (status === 'running') {
+      g.resolveStatus({ generation_id: 'gen-1', conversation_guid: '9223372036854775701', mode: 'single', status })
+      assert.equal(observed.filter(guid => guid === '9223372036854775701').length, 1)
+    }
+  }
+
+  const completed = createChatGeneration(base({ conversationGuid: null }))
+  completed.resolveStatus({ generation_id: 'gen-1', conversation_guid: '9223372036854775701', mode: 'single', status: 'completed', total_tokens_used: 1, result: { model: 'model-a', status: 'completed', assistant_message_guid: '9223372036854775702', content: 'done', tokens: 1 } })
+  assert.equal(completed.snapshot().conversationGuid, '9223372036854775701')
+  assert.equal(completed.snapshot().status, 'draining')
+})
+
+test('authoritative status rejects invalid first guids and fails closed on a later mismatch', () => {
+  for (const conversation_guid of [0, '', ' ', '0', '01', '9223372036854775808']) {
+    const g = createChatGeneration(base({ conversationGuid: null }))
+    g.resolveStatus({ generation_id: 'gen-1', conversation_guid, mode: 'single', status: 'running' })
+    assert.equal(g.snapshot().conversationGuid, null, JSON.stringify(conversation_guid))
+    assert.equal(g.snapshot().diagnostics.at(-1).code, 'GENERATION_STATUS_ERROR', JSON.stringify(conversation_guid))
+  }
+
+  const g = createChatGeneration(base({ conversationGuid: null }))
+  g.resolveStatus({ generation_id: 'gen-1', conversation_guid: '123', mode: 'single', status: 'running' })
+  g.resolveStatus({ generation_id: 'gen-1', conversation_guid: '124', mode: 'single', status: 'committing' })
+  assert.equal(g.snapshot().conversationGuid, '123')
+  assert.equal(g.snapshot().status, 'failed')
+  assert.equal(g.snapshot().diagnostics.at(-1).code, 'GENERATION_STATUS_ERROR')
+})
+
 test('completed status requires exact persisted result fields and stable failure codes', () => {
   const incomplete = createChatGeneration(base());
   incomplete.resolveStatus({ generation_id: 'gen-1', conversation_guid: 'conv-1', mode: 'single', status: 'completed', result: { model: 'model-a', status: 'completed', content: 'x' } });
