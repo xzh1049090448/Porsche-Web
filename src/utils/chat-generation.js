@@ -20,15 +20,15 @@ const safeDiagnostic = code => typeof code === 'string' && (/^GENERATION_[A-Z0-9
 
 export function createChatGeneration(options = {}) {
   const generationId = text(options.generationId, 'generationId')
-  const conversationGuid = text(options.conversationGuid, 'conversationGuid')
+  let conversationGuid = options.conversationGuid == null ? null : text(options.conversationGuid, 'conversationGuid')
   const messageKey = text(options.messageKey, 'messageKey')
   const mode = options.mode === 'compare' ? 'compare' : options.mode === 'single' ? 'single' : null
   if (!mode) throw new TypeError('mode must be single or compare')
   if (!Array.isArray(options.models) || options.models.length === 0 || options.models.some(model => typeof model !== 'string' || !model.trim()) || new Set(options.models).size !== options.models.length) throw new TypeError('models must contain unique nonblank strings')
   if (mode === 'single' && options.models.length !== 1) throw new TypeError('single mode requires one model')
-  if (mode === 'compare' && options.models.length < 2) throw new TypeError('compare mode requires multiple models')
+  if (mode === 'compare' && (options.models.length < 2 || options.models.length > 3)) throw new TypeError('compare mode requires multiple models (two or three)')
 
-  const identity = freeze({ generationId, conversationGuid, messageKey, mode, models: [...options.models] })
+  const identity = freeze({ generationId, initialConversationGuid: conversationGuid, messageKey, mode, models: [...options.models] })
   let status = 'waiting'
   let metaSeen = false
   let globalDone = false
@@ -55,6 +55,7 @@ export function createChatGeneration(options = {}) {
   }
   const snapshot = () => freeze({
     identity,
+    conversationGuid,
     status,
     metaSeen,
     globalDone,
@@ -110,7 +111,8 @@ export function createChatGeneration(options = {}) {
     if (disposed || TERMINAL.has(status) || status === 'cancelling') return snapshot()
     if (!event || typeof event !== 'object') return fail('GENERATION_EVENT_REJECTED')
     if (event.type === 'meta') {
-      if (metaSeen || event.generation_id !== generationId || event.conversation_guid !== conversationGuid || !Array.isArray(event.models) || event.models.length !== models.length || event.models.some((m, i) => m !== models[i].model)) return fail('GENERATION_META_ERROR')
+      if (metaSeen || event.generation_id !== generationId || (conversationGuid !== null && event.conversation_guid !== conversationGuid) || typeof event.conversation_guid !== 'string' || !event.conversation_guid.trim() || !Array.isArray(event.models) || event.models.length !== models.length || event.models.some((m, i) => m !== models[i].model)) return fail('GENERATION_META_ERROR')
+      conversationGuid ??= event.conversation_guid
       metaSeen = true; setStatus('receiving'); return snapshot()
     }
     if (!metaSeen || !validIdentity(event)) return fail('GENERATION_EVENT_REJECTED')
@@ -140,7 +142,8 @@ export function createChatGeneration(options = {}) {
   }
   const cancelLocalQueue = () => { if (status === 'waiting' || status === 'receiving') { status = 'cancelling'; models.forEach(item => { item.epoch += 1 }); for (const item of models) { if (status === 'failed') break; if (!safePlayerCall(item, 'cancel')) break } } return snapshot() }
   const applyAuthoritative = result => {
-    if (!result || result.status !== 'completed') return fail('GENERATION_DATA_ERROR')
+    if (!result || result.status !== 'completed' || typeof result.conversation_guid !== 'string' || !result.conversation_guid.trim() || (conversationGuid !== null && result.conversation_guid !== conversationGuid)) return fail('GENERATION_DATA_ERROR')
+    conversationGuid ??= result.conversation_guid
     const entries = mode === 'single' ? [result.result || (Array.isArray(result.results) ? result.results[0] : null)] : result.results
     if (!Array.isArray(entries) || entries.length !== models.length) return fail('GENERATION_DATA_ERROR')
     const plans = []
@@ -148,7 +151,7 @@ export function createChatGeneration(options = {}) {
       const item = models[i]; const entry = entries[i]
       if (!entry || entry.model !== item.model) return fail('GENERATION_DATA_ERROR')
       if (entry.status === 'failed') { plans.push({ item, entry, failed: true }); continue }
-      if (entry.status !== 'completed' || typeof entry.content !== 'string' || !entry.content.startsWith(item.displayedText)) return fail('GENERATION_DATA_ERROR')
+      if (entry.status !== 'completed' || typeof entry.content !== 'string' || !entry.content.startsWith(item.displayedText) || !entry.content.startsWith(item.receivedText)) return fail('GENERATION_DATA_ERROR')
       plans.push({ item, entry, prefix: item.displayedText, suffix: entry.content.slice(item.displayedText.length) })
     }
     if (!cleanupAll('dispose', false)) { status = 'failed'; diagnostic('GENERATION_CLEANUP_ERROR'); return snapshot() }
@@ -164,7 +167,7 @@ export function createChatGeneration(options = {}) {
   const validateStatusPayload = result => {
     if (!result || typeof result !== 'object' || result.generation_id !== generationId || result.mode !== mode) return false
     if (result.status === 'completed') {
-      if (result.conversation_guid !== conversationGuid || !Number.isSafeInteger(result.total_tokens_used) || result.total_tokens_used < 0) return false
+      if ((conversationGuid !== null && result.conversation_guid !== conversationGuid) || typeof result.conversation_guid !== 'string' || !result.conversation_guid.trim() || !Number.isSafeInteger(result.total_tokens_used) || result.total_tokens_used < 0) return false
       if (mode === 'single') {
         const entry = result.result
         return !!entry && !Object.prototype.hasOwnProperty.call(result, 'results') && entry.model === models[0].model && entry.status === 'completed' && typeof entry.assistant_message_guid === 'string' && !!entry.assistant_message_guid.trim() && typeof entry.content === 'string' && Number.isSafeInteger(entry.tokens) && entry.tokens >= 0 && Object.keys(entry).every(key => ['model', 'status', 'content', 'assistant_message_guid', 'tokens'].includes(key))

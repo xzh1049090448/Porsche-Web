@@ -16,11 +16,21 @@ const done = () => ({ type: 'done', generation_id: 'gen-1', status: 'completed',
 test('creates immutable identity snapshot and rejects invalid construction', () => {
   assert.throws(() => createChatGeneration(base({ generationId: ' ' })), /generationId/)
   assert.throws(() => createChatGeneration(base({ models: ['a', 'a'], mode: 'compare' })), /models/)
+  assert.throws(() => createChatGeneration(base({ models: ['a', 'b', 'c', 'd'], mode: 'compare' })), /multiple models/)
   const generation = createChatGeneration(base())
   const state = generation.snapshot()
   assert.equal(state.status, 'waiting'); assert.deepEqual(state.identity.models, ['model-a'])
   assert.ok(Object.isFrozen(state)); assert.ok(Object.isFrozen(state.identity))
   assert.throws(() => { state.identity.generationId = 'bad' }, TypeError)
+})
+
+test('allows an unbound new conversation and binds the first server guid exactly once', () => {
+  const g = createChatGeneration(base({ conversationGuid: null }))
+  g.handleEvent({ ...meta(), conversation_guid: '123' })
+  assert.equal(g.snapshot().conversationGuid, '123')
+  g.handleEvent({ ...meta(), conversation_guid: '124' })
+  assert.equal(g.snapshot().status, 'failed')
+  assert.equal(g.snapshot().conversationGuid, '123')
 })
 
 test('validates event identity and sequences before queueing', () => {

@@ -6,6 +6,19 @@ const DEFAULT_NOW = typeof performance !== 'undefined' && typeof performance.now
   ? () => performance.now()
   : () => Date.now()
 
+function fallbackGraphemes(value) {
+  const result = []
+  const regional = character => /[\u{1F1E6}-\u{1F1FF}]/u.test(character)
+  const extender = character => /[\p{M}\u{FE0E}\u{FE0F}\u{1F3FB}-\u{1F3FF}]/u.test(character)
+  for (const character of Array.from(value)) {
+    const previous = result.at(-1)
+    if (previous && (extender(character) || character === '\u200d' || previous.endsWith('\u200d') || regional(character) && regional(previous) && Array.from(previous).length === 1)) {
+      result[result.length - 1] += character
+    } else result.push(character)
+  }
+  return result
+}
+
 export function createGraphemePlayback({
   onDisplay = () => {},
   onError = () => {},
@@ -14,8 +27,9 @@ export function createGraphemePlayback({
   now = DEFAULT_NOW,
   reducedMotion = false,
   targetLagMs = 500,
+  isPageVisible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden',
 } = {}) {
-  const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+  const segmenter = typeof Intl?.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null
   let receivedText = ''
   let displayedText = ''
   let carry = ''
@@ -35,6 +49,7 @@ export function createGraphemePlayback({
   let hasDisplayed = false
   let failed = false
   let errorCode = null
+  let lastGrapheme = ''
 
   function snapshot() {
     const current = now()
@@ -86,24 +101,30 @@ export function createGraphemePlayback({
       const frameTime = Number.isFinite(timestamp) ? timestamp : now()
       const remaining = pending.length
       const lag = Math.max(remaining * 25, frameTime - lastReceivedAt)
-      const nextMode = reducedMotion || lag > targetLagMs ? 'catch-up' : 'standard'
+      let visible = true
+      try { visible = isPageVisible() !== false } catch { return failClosed() }
+      const backlog = remaining > 120
+      const nextMode = reducedMotion || backlog || lag > targetLagMs ? 'catch-up' : 'standard'
       if (nextMode === 'catch-up' && catchUpStartedAt === null) {
         catchUpStartedAt = frameTime
-        modeReason = reducedMotion ? 'reduced-motion' : 'queue-lag'
+        modeReason = reducedMotion ? 'reduced-motion' : backlog ? 'backlog' : 'queue-lag'
       } else if (nextMode === 'standard' && mode === 'catch-up' && catchUpStartedAt !== null) {
         catchUpDurationMs += Math.max(0, frameTime - catchUpStartedAt)
         catchUpStartedAt = null
         modeReason = 'standard'
       }
       mode = nextMode
-      if (mode === 'standard' && hasDisplayed && frameTime - lastDisplayAt < 25) {
+      const punctuationPause = /[.!?;:。！？；：]\s*$/u.test(lastGrapheme)
+      const interval = reducedMotion ? 0 : punctuationPause ? 90 : backlog || mode === 'catch-up' ? 5 : 30
+      if (visible && hasDisplayed && frameTime - lastDisplayAt < interval) {
         schedule()
         return
       }
-      const amount = mode === 'standard' ? 1 : Math.min(8, Math.max(1, Math.ceil(remaining * 0.1)))
+      const amount = !visible ? remaining : backlog || mode === 'standard' ? 1 : Math.min(8, Math.max(1, Math.ceil(remaining * 0.1)))
       maxBatchSize = Math.max(maxBatchSize, amount)
       const batch = pending.splice(0, Math.min(amount, remaining))
       displayedText += batch.join('')
+      lastGrapheme = batch.at(-1) || lastGrapheme
       lastDisplayAt = frameTime
       hasDisplayed = true
       try {
@@ -126,7 +147,7 @@ export function createGraphemePlayback({
   }
 
   function enqueue(text, force = false) {
-    const parts = [...segmenter.segment(text)].map(item => item.segment)
+    const parts = segmenter ? [...segmenter.segment(text)].map(item => item.segment) : fallbackGraphemes(text)
     if (!force && parts.length) { carry = parts.pop(); carryStartedAt = now() }
     else if (force && parts.length) { carry = ''; carryStartedAt = null }
     pending.push(...parts)
