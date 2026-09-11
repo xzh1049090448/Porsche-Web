@@ -6,7 +6,7 @@ import { setImmediate } from 'node:timers/promises'
 
 // Load the real store/API/mappers via the project's Vite aliases, replacing
 // only Axios's transport so every request stays inside these local fixtures.
-let server, useChatStore, request, authSession, route, calls = [], writes = []
+let server, useChatStore, useSettingsStore, request, authSession, route, calls = [], writes = []
 const browserGlobals = ['localStorage', 'navigator', 'isSecureContext', 'BroadcastChannel', 'document']
 const originalGlobals = new Map(browserGlobals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
 const A = '9223372036854775701'
@@ -54,6 +54,7 @@ before(async () => {
     }],
   })
   ;({ useChatStore } = await server.ssrLoadModule('/src/stores/chat.js'))
+  ;({ useSettingsStore } = await server.ssrLoadModule('/src/stores/settings.js'))
   ;({ default: request, authSession } = await server.ssrLoadModule('/src/api/request.js'))
   globalThis.document = { documentElement: { setAttribute() {} } }
   request.defaults.adapter = async (config) => {
@@ -206,6 +207,7 @@ test('failed list request does not create a conversation and can be retried', as
 
 test('sending during initial detail waits for history and keeps the new streamed messages attached', async () => {
   const store = useChatStore()
+  useSettingsStore().selectedModelId = 'fixture-model'
   const response = deferred(), started = deferred(), stream = deferred()
   const history = { ...detail(A), messages: [
     ...detail(A).messages,
