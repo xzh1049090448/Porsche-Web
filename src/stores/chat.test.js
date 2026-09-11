@@ -693,6 +693,58 @@ test('null-guid resume merges its placeholder into an existing authoritative con
   } finally { globalThis.fetch = originalFetch }
 })
 
+test('duplicate-guid recovery keeps the transient assistant owned through draining and retry', async () => {
+  const store = useChatStore()
+  store.conversations = [
+    { ...summary(D), messages: [{ guid: A, role: 'user', content: 'previous D history', created_at: 1 }] },
+    { ...summary(A), messages: [{ guid: C, role: 'user', content: 'unrelated A history', created_at: 1 }] },
+  ]
+  store.activeId = A
+  const generationId = '123e4567-e89b-42d3-a456-426614174000'
+  const messageKey = 'owned-duplicate-resume'
+  const answer = 'recovering output remains visible'
+  sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId, mode: 'single', models: ['fixture-model'], conversationGuid: null, messageKey, ownerGuid: '1', ownerEpoch: authSession.capture().epoch }))
+  const authoritative = { ...summary(D), messages: [
+    { guid: C, role: 'user', content: 'recovered prompt', model: 'fixture-model', tokens: 0, created_at: 2 },
+    { guid: B, role: 'assistant', content: answer, model: 'fixture-model', tokens: 4, created_at: 3 },
+  ] }
+  let historyAttempts = 0
+  route = ({ url }) => {
+    assert.equal(url, `${listPath}/${D}`)
+    historyAttempts += 1
+    if (historyAttempts === 1) throw new TypeError('temporary history failure')
+    return authoritative
+  }
+  const originalFetch = globalThis.fetch; let statusGets = 0
+  globalThis.fetch = async () => {
+    statusGets += 1
+    return jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: D, total_tokens_used: 4, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: answer, tokens: 4 } })
+  }
+  const user = useUserStore(); const usageCalls = []; user.applyTokensUsed = (...args) => usageCalls.push(args)
+  try {
+    assert.equal(await store.resumePendingGeneration(), true)
+    await waitFor(() => store.generationState?.status === 'draining' && store.getActive()?.messages.some(message => message.localKey === messageKey && message.content.length > 0))
+    const drainingAssistant = store.getActive().messages.find(message => message.localKey === messageKey)
+    assert.equal(drainingAssistant.transientAttempt, generationId)
+    await waitFor(() => store.streaming === false)
+    assert.equal(store.activeId, D)
+    assert.equal(store.getActive().messages.find(message => message.localKey === messageKey), drainingAssistant)
+    assert.equal(drainingAssistant.viewOnly, true)
+    assert.notEqual(sessionStorage.getItem('llm_platform_active_generation_v2'), null)
+    assert.equal(JSON.stringify(projectConversationForPersistence(store.getActive())).includes(answer), false)
+
+    assert.equal(await store.resumePendingGeneration(), true)
+    await waitFor(() => store.generationState?.status === 'completed')
+    assert.equal(store.conversations.filter(conversation => conversation.guid === D).length, 1)
+    assert.deepEqual(store.getActive().messages.map(message => message.content), ['recovered prompt', answer])
+    assert.equal(store.getActive().messages.some(message => message.localKey === messageKey || message.transientAttempt), false)
+    assert.deepEqual(store.conversations.find(conversation => conversation.guid === A).messages.map(message => message.content), ['unrelated A history'])
+    assert.deepEqual(usageCalls, [[4, 4]])
+    assert.equal(await store.resumePendingGeneration(), false)
+    assert.equal(statusGets, 2); assert.equal(historyAttempts, 2)
+  } finally { globalThis.fetch = originalFetch }
+})
+
 test('retryable null-guid resume failure preserves its isolated metadata', async () => {
   const store = useChatStore(); store.conversations = []; store.activeId = null
   const generationId = '123e4567-e89b-42d3-a456-426614174000'

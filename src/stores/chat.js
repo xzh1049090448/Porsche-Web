@@ -313,6 +313,10 @@ export const useChatStore = defineStore('chat', () => {
       const wasActive = activeId.value === run.conversationKey
       const authoritative = conversations.value.find(item => conversationKey(item) !== placeholderKey && canonicalConversationGuid(item.guid) === guid)
       if (authoritative) {
+        authoritative.messages ||= []
+        const ownedAssistant = authoritative.messages.find(message => message.localKey === run.assistant.localKey && message.transientAttempt === run.generationId)
+        if (ownedAssistant) run.assistant = ownedAssistant
+        else authoritative.messages.push(run.assistant)
         conversations.value = conversations.value.filter(item => conversationKey(item) !== placeholderKey)
         run.conv = authoritative
         run.originalTitle = authoritative.title
