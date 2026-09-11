@@ -13,7 +13,8 @@ export function applyTheme(theme) {
 }
 
 export function readStoredTheme() {
-  const stored = getItem(THEME_STORAGE_KEY, null)
+  let stored = null
+  try { stored = getItem(THEME_STORAGE_KEY, null) } catch {}
   if (stored === 'light' || stored === 'dark') return stored
   try {
     return typeof globalThis.matchMedia === 'function' && globalThis.matchMedia('(prefers-color-scheme: dark)').matches
