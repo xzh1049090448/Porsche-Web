@@ -1,5 +1,6 @@
 <template>
   <div class="login-page">
+    <AuthStatus />
     <div class="login-toolbar">
       <LocaleToggle />
       <ThemeToggle />
@@ -46,8 +47,10 @@ import { User, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { authErrorMessage } from '@/api/auth-errors'
 import { useUserStore } from '@/stores/user'
+import { safeAuthRedirect } from '@/utils/auth-redirect'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import LocaleToggle from '@/components/LocaleToggle.vue'
+import AuthStatus from '@/components/AuthStatus.vue'
 import { useI18n } from '@/composables/useI18n'
 
 const router = useRouter()
@@ -74,7 +77,7 @@ async function submitPwd() {
   try {
     await userStore.loginUsername({ username: pwdForm.username, password: pwdForm.password })
     ElMessage.success(t('login.success'))
-    router.replace(route.query.redirect || '/')
+    router.replace(safeAuthRedirect(route.query.redirect, '/chat'))
   } catch (error) { ElMessage.error(authErrorMessage(error)) } finally {
     loading.value = false
   }

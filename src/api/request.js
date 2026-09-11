@@ -1,7 +1,6 @@
 import axios from 'axios'
 import { createSessionRefresh } from './auth-refresh.js'
 import { installAuthInterceptors } from './auth-request-policy.js'
-import { ElMessage } from 'element-plus'
 import { authenticatedFetch as runAuthenticatedFetch, createAuthSessionManager } from './auth-session.js'
 import { createBrowserAuthAdapter } from './auth-browser.js'
 import { authErrorMessage } from './auth-errors.js'
@@ -55,7 +54,7 @@ export const adminActionPost = adminActionRequest.post
 export const adminActionPatch = adminActionRequest.patch
 export const adminActionQuery = adminActionRequest.query
 const request = axios.create(options)
-installAuthInterceptors(request, authSession, { onUnauthorized: () => handleUnauthorized(), onError: error => ElMessage.error(authErrorMessage(error)) })
+installAuthInterceptors(request, authSession, { onUnauthorized: () => handleUnauthorized(), onError: error => { void import('element-plus').then(({ ElMessage }) => ElMessage.error(authErrorMessage(error))) } })
 export function getAuthToken() { return authSession.accessToken() }
 export function authenticatedFetch(input, init = {}) {
   return runAuthenticatedFetch(authSession, input, { credentials: 'include', ...init }, { onUnauthorized: () => handleUnauthorized() })

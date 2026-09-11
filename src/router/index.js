@@ -1,35 +1,189 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import { useUserStore } from '@/stores/user'
+import { createMemoryHistory, createRouter, createWebHistory } from 'vue-router'
+import { safeAuthRedirect } from '../utils/auth-redirect.js'
 
-const developmentOnlyChildren = import.meta.env.DEV ? [
-  { path: 'demo/admin/balance', name: 'AdminBalanceMockDemo', component: () => import('@/views/AdminBalanceMockDemo.vue') },
+const mainLayout = () => import('@/layouts/MainLayout.vue')
+
+const developmentOnlyRoutes = import.meta.env?.DEV ? [
+  { path: 'demo/admin/balance', name: 'AdminBalanceMockDemo', component: () => import('@/views/AdminBalanceMockDemo.vue'), meta: { requiresAuth: true } },
 ] : []
 
-const routes = [
-  { path: '/login', name: 'Login', component: () => import('@/views/Login.vue'), meta: { guest: true } },
-  { path: '/register', name: 'Register', component: () => import('@/views/Register.vue'), meta: { guest: true } },
+export const routes = [
   {
-    path: '/', component: () => import('@/layouts/MainLayout.vue'), meta: { requiresAuth: true }, children: [
-      { path: '', name: 'Chat', component: () => import('@/views/Chat.vue') },
-      { path: 'users', name: 'Users', component: () => import('@/views/Users.vue') },
-      { path: 'users/:guid', name: 'UserDetail', component: () => import('@/views/UserDetail.vue') },
-      { path: 'profile', name: 'Profile', component: () => import('@/views/Profile.vue') },
-      { path: 'billing', name: 'Billing', component: () => import('@/views/Billing.vue') },
-      { path: 'api-keys', name: 'ApiKeys', component: () => import('@/views/ApiKeys.vue') },
-      ...developmentOnlyChildren,
+    path: '/', component: () => import('@/layouts/PublicLayout.vue'), meta: { public: true }, children: [
+      { path: '', name: 'PublicHome', component: () => import('@/views/public/Home.vue') },
+      { path: 'pricing', name: 'PublicPricing', component: () => import('@/views/public/Pricing.vue') },
+      { path: 'pricing/:modelKey', name: 'PublicPricingDetail', component: () => import('@/views/public/ModelPricingDetail.vue') },
+      { path: 'about', name: 'PublicAbout', component: () => import('@/views/public/About.vue') },
+      { path: 'terms', name: 'PublicTerms', component: () => import('@/views/public/LegalPage.vue'), props: { page: 'terms' } },
+      { path: 'privacy', name: 'PublicPrivacy', component: () => import('@/views/public/LegalPage.vue'), props: { page: 'privacy' } },
+      { path: ':pathMatch(.*)*', name: 'PublicNotFound', component: () => import('@/views/PublicNotFound.vue') },
     ],
   },
-  { path: '/:pathMatch(.*)*', redirect: '/' },
+  { path: '/login', name: 'Login', component: () => import('@/views/Login.vue'), meta: { guest: true } },
+  { path: '/register', name: 'Register', component: () => import('@/views/Register.vue'), meta: { guest: true } },
+  ...developmentOnlyRoutes,
+  { path: '/chat', component: mainLayout, meta: { requiresAuth: true }, children: [
+    { path: '', name: 'Chat', component: () => import('@/views/Chat.vue') },
+  ] },
+  { path: '/users', component: mainLayout, meta: { requiresAuth: true }, children: [
+    { path: '', name: 'Users', component: () => import('@/views/Users.vue') },
+    { path: ':guid', name: 'UserDetail', component: () => import('@/views/UserDetail.vue') },
+  ] },
+  { path: '/admin/public-models', component: mainLayout, meta: { requiresAuth: true, rootOnly: true }, children: [
+    { path: '', name: 'PublicModelsAdmin', component: () => import('@/views/PublicModelsAdmin.vue') },
+    { path: ':guid', name: 'PublicModelDetail', component: () => import('@/views/PublicModelDetail.vue') },
+  ] },
+  { path: '/admin/public-pricing', component: mainLayout, meta: { requiresAuth: true, rootOnly: true }, children: [
+    { path: '', name: 'PublicPricingAdmin', component: () => import('@/views/PublicPricingAdmin.vue') },
+  ] },
+  { path: '/admin/public-content', component: mainLayout, meta: { requiresAuth: true, rootOnly: true }, children: [
+    { path: '', name: 'PublicContentAdmin', component: () => import('@/views/PublicContentAdmin.vue') },
+  ] },
+  { path: '/admin/public-content/preview', name: 'PublicContentPreview', component: () => import('@/views/PublicContentPreview.vue'), meta: { requiresAuth: true, rootOnly: true } },
+  { path: '/admin/notifications', component: mainLayout, meta: { requiresAuth: true, rootOnly: true }, children: [
+    { path: '', name: 'RootNotifications', component: () => import('@/views/RootNotifications.vue') },
+  ] },
+  { path: '/profile', component: mainLayout, meta: { requiresAuth: true }, children: [
+    { path: '', name: 'Profile', component: () => import('@/views/Profile.vue') },
+  ] },
+  { path: '/billing', component: mainLayout, meta: { requiresAuth: true }, children: [
+    { path: '', name: 'Billing', component: () => import('@/views/Billing.vue') },
+  ] },
+  { path: '/api-keys', component: mainLayout, meta: { requiresAuth: true }, children: [
+    { path: '', name: 'ApiKeys', component: () => import('@/views/ApiKeys.vue') },
+  ] },
 ]
 
-const router = createRouter({ history: createWebHistory(), routes })
+export function installAuthGuard(router, loadUserStore = async () => {
+  const { useUserStore } = await import('@/stores/user')
+  return useUserStore()
+}) {
+  router.beforeEach(async (to) => {
+    if (!to.meta.requiresAuth && !to.meta.guest) return true
+    const userStore = await loadUserStore()
+    await userStore.ensureSession()
+    if (to.meta.requiresAuth && !userStore.isLoggedIn) return { name: 'Login', query: { redirect: to.fullPath } }
+    if (to.meta.rootOnly && userStore.user?.role !== 'root') return { path: '/chat', replace: true }
+    if (to.meta.guest && userStore.isLoggedIn) return { path: '/chat' }
+    if (to.name === 'Login') {
+      const redirect = safeAuthRedirect(to.query.redirect)
+      if (to.query.redirect !== redirect) {
+        return { name: 'Login', query: { ...to.query, redirect }, replace: true }
+      }
+    }
+    return true
+  })
+  return router
+}
 
-router.beforeEach(async (to) => {
-  const userStore = useUserStore()
-  if (to.meta.requiresAuth || to.meta.guest) await userStore.ensureSession()
-  if (to.meta.requiresAuth && !userStore.isLoggedIn) return { name: 'Login', query: { redirect: to.fullPath } }
-  if (to.meta.guest && userStore.isLoggedIn) return { path: '/' }
-  return true
-})
+const LAZY_RELOAD_MARKER = 'public_route_lazy_reload_v1'
+const LAZY_LOAD_ERROR = /Failed to fetch dynamically imported module|Importing a module script failed|Unable to preload CSS for |Loading (?:CSS )?chunk .+ failed|ChunkLoadError/i
 
-export default router
+export function bootstrapModeForPath(router, path = '/') {
+  try { return router.resolve(path).meta.public ? 'public' : 'auth' }
+  catch { return 'public' }
+}
+
+export function installBootstrapHandoff(router, { mode, handoff } = {}) {
+  if (!mode || typeof handoff !== 'function') return router
+  router.beforeEach(to => {
+    const targetMode = to.meta.public ? 'public' : 'auth'
+    if (targetMode === mode) return true
+    handoff(to.fullPath)
+    return false
+  })
+  return router
+}
+
+export function createLazyLoadFailureHandler({ storage, reload, fallback } = {}) {
+  const lastResort = () => {
+    try {
+      const host = document.querySelector('#app')
+      if (host) host.textContent = '页面暂时无法加载，请刷新后重试。'
+    } catch {}
+  }
+  const showFallback = () => {
+    try { fallback ? fallback() : lastResort() }
+    catch { lastResort() }
+  }
+  return error => {
+    if (!LAZY_LOAD_ERROR.test(String(error?.message || error))) return false
+    let attempted
+    try {
+      if (!storage) throw new Error('durable storage unavailable')
+      attempted = storage.getItem(LAZY_RELOAD_MARKER) === 'attempted'
+    } catch {
+      showFallback()
+      return true
+    }
+    if (attempted) {
+      try { storage?.removeItem(LAZY_RELOAD_MARKER) } catch {}
+      showFallback()
+      return true
+    }
+    try {
+      storage.setItem(LAZY_RELOAD_MARKER, 'attempted')
+      if (storage.getItem(LAZY_RELOAD_MARKER) !== 'attempted') throw new Error('durable marker was not written')
+    } catch {
+      showFallback()
+      return true
+    }
+    try {
+      if (typeof reload !== 'function' || reload() === false) showFallback()
+    } catch {
+      showFallback()
+    }
+    return true
+  }
+}
+
+export function renderSafeLoadError(retry = () => window.location.reload()) {
+  const host = document.querySelector('#app')
+  if (!host) return
+  host.replaceChildren()
+  const main = document.createElement('main')
+  const heading = document.createElement('h1')
+  heading.textContent = '页面暂时无法加载'
+  const detail = document.createElement('p')
+  detail.textContent = '请刷新后重试，或返回首页。'
+  const home = document.createElement('a')
+  home.href = '/'
+  home.textContent = '返回首页'
+  const retryButton = document.createElement('button')
+  retryButton.type = 'button'
+  retryButton.textContent = '重试'
+  retryButton.addEventListener('click', retry)
+  main.append(heading, detail, retryButton, home)
+  host.append(main)
+}
+
+export function installLoadFailureRecovery(router, { storage, reload, fallback } = {}) {
+  const handleLazyFailure = createLazyLoadFailureHandler({ storage, reload, fallback })
+  router.onError(handleLazyFailure)
+  router.afterEach(() => { try { storage?.removeItem(LAZY_RELOAD_MARKER) } catch {} })
+  return router
+}
+
+export function createAppRouter(
+  history = typeof window === 'undefined' ? createMemoryHistory() : createWebHistory(),
+  options = {},
+) {
+  const router = createRouter({ history, routes })
+  const mode = options.bootstrapMode ?? (typeof window === 'undefined' ? 'public' : bootstrapModeForPath(router, window.location.pathname))
+  installBootstrapHandoff(router, {
+    mode,
+    handoff: options.handoff ?? (path => window.location.assign(path)),
+  })
+  installAuthGuard(router, options.loadUserStore)
+  let browserStorage = null
+  try { browserStorage = typeof sessionStorage === 'undefined' ? null : sessionStorage } catch {}
+  const storage = options.storage ?? browserStorage
+  installLoadFailureRecovery(router, {
+    storage,
+    reload: options.reload ?? (() => window.location.reload()),
+    fallback: options.lazyFallback ?? renderSafeLoadError,
+  })
+  return router
+}
+
+export default createAppRouter()

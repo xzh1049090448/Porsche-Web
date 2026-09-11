@@ -1,4 +1,4 @@
-import { messages } from './messages'
+import { messages } from './messages.js'
 
 function lookup(locale, key) {
   const keys = key.split('.')

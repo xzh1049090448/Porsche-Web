@@ -12,7 +12,7 @@ const [router, component, list, detail, packageJson] = await Promise.all([
 ])
 
 test('A09/A10 demo is a development-only lazy route backed only by the in-memory fixture', () => {
-  assert.match(router, /import\.meta\.env\.DEV\s*\?\s*\[/)
+  assert.match(router, /import\.meta\.env\?\.DEV\s*\?\s*\[/)
   assert.match(router, /path:\s*['"]demo\/admin\/balance['"]/)
   assert.match(router, /\(\)\s*=>\s*import\(['"]@\/views\/AdminBalanceMockDemo\.vue['"]\)/)
   assert.match(component, /createAdminBalanceMockFixture/)

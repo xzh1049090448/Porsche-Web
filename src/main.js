@@ -1,29 +1,60 @@
 import { createApp } from 'vue'
-import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
-
 import App from './App.vue'
-import router from './router'
-import './styles/global.scss'
-import './styles/mobile.scss'
-import { initViewportHeight } from './utils/viewport-height'
-import { readStoredTheme, applyTheme } from './stores/theme'
-import { readStoredLocale, applyLocale } from './stores/locale'
+import { bootstrapApplication } from './bootstrap-app.js'
+import router, { bootstrapModeForPath, createLazyLoadFailureHandler, renderSafeLoadError } from './router'
+import './styles/public-bootstrap.css'
 
-applyTheme(readStoredTheme())
-applyLocale(readStoredLocale())
-initViewportHeight()
+const bootstrapMode = bootstrapModeForPath(router, window.location.pathname)
 
-const app = createApp(App)
-
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(key, component)
+async function loadAuthApp() {
+  const [
+    { createPinia },
+    { default: ElementPlus },
+    ElementPlusIconsVue,
+    { default: AuthApp },
+    { initViewportHeight },
+    theme,
+    locale,
+  ] = await Promise.all([
+    import('pinia'),
+    import('element-plus'),
+    import('@element-plus/icons-vue'),
+    import('./bootstrap/AuthApp.vue'),
+    import('./utils/viewport-height'),
+    import('./stores/theme'),
+    import('./stores/locale'),
+    import('element-plus/dist/index.css'),
+    import('./styles/global.scss'),
+    import('./styles/mobile.scss'),
+  ])
+  theme.applyTheme(theme.readStoredTheme())
+  locale.applyLocale(locale.readStoredLocale())
+  initViewportHeight()
+  return () => {
+    const app = createApp(AuthApp)
+    for (const [key, component] of Object.entries(ElementPlusIconsVue)) app.component(key, component)
+    app.use(createPinia())
+    app.use(router)
+    app.use(ElementPlus)
+    app.mount('#app')
+  }
 }
 
-app.use(createPinia())
-app.use(router)
-app.use(ElementPlus)
+let storage = null
+try { storage = window.sessionStorage } catch {}
+const recover = createLazyLoadFailureHandler({
+  storage,
+  reload: () => window.location.reload(),
+  fallback: () => renderSafeLoadError(),
+})
 
-app.mount('#app')
+void bootstrapApplication({
+  mode: bootstrapMode,
+  loadAuthApp,
+  mountPublicApp: async () => {
+    const { createPinia } = await import('pinia')
+    return createApp(App).use(createPinia()).use(router).mount('#app')
+  },
+  recover,
+  fallback: () => renderSafeLoadError(),
+})

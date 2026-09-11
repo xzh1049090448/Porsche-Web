@@ -1,5 +1,6 @@
 <template>
   <el-container class="main-layout">
+    <AuthStatus />
     <el-header class="app-header" height="var(--header-h)">
       <div class="header-left">
         <el-button
@@ -11,7 +12,7 @@
           @click="showMobileMenu = true"
         />
         <el-button
-          v-if="isTablet && route.path !== '/'"
+          v-if="isTablet && route.path !== '/chat'"
           text
           class="header-back-btn touch-target"
           :icon="ArrowLeft"
@@ -33,11 +34,15 @@
         :ellipsis="false"
         router
       >
-        <el-menu-item index="/">{{ t('nav.chat') }}</el-menu-item>
+        <el-menu-item index="/chat">{{ t('nav.chat') }}</el-menu-item>
         <el-menu-item index="/billing">{{ t('nav.billing') }}</el-menu-item>
         <el-menu-item index="/api-keys">{{ t('nav.apiKeys') }}</el-menu-item>
         <el-menu-item index="/profile">{{ t('nav.profile') }}</el-menu-item>
         <el-menu-item v-if="canManageUsers" index="/users">用户管理</el-menu-item>
+        <el-menu-item v-if="isRoot" index="/admin/public-models">{{ t('publicModelsAdmin.nav') }}</el-menu-item>
+        <el-menu-item v-if="isRoot" index="/admin/public-pricing">{{ t('publicPricingAdmin.nav') }}</el-menu-item>
+        <el-menu-item v-if="isRoot" index="/admin/public-content">{{ t('publicContentAdmin.nav') }}</el-menu-item>
+        <el-menu-item v-if="isRoot" index="/admin/notifications"><RootNotificationBadge :unread-count="rootNotificationsStore.unreadCount">{{ t('rootNotifications.nav') }}</RootNotificationBadge></el-menu-item>
       </el-menu>
       <div class="header-right">
         <LocaleToggle />
@@ -82,7 +87,7 @@
         router
         @select="showMobileMenu = false"
       >
-        <el-menu-item index="/">
+        <el-menu-item index="/chat">
           <el-icon><ChatDotRound /></el-icon>
           <span>{{ t('nav.chat') }}</span>
         </el-menu-item>
@@ -99,11 +104,15 @@
           <span>{{ t('nav.profile') }}</span>
         </el-menu-item>
         <el-menu-item v-if="canManageUsers" index="/users"><el-icon><User /></el-icon><span>用户管理</span></el-menu-item>
+        <el-menu-item v-if="isRoot" index="/admin/public-models"><el-icon><Setting /></el-icon><span>{{ t('publicModelsAdmin.nav') }}</span></el-menu-item>
+        <el-menu-item v-if="isRoot" index="/admin/public-pricing"><el-icon><Setting /></el-icon><span>{{ t('publicPricingAdmin.nav') }}</span></el-menu-item>
+        <el-menu-item v-if="isRoot" index="/admin/public-content"><el-icon><Setting /></el-icon><span>{{ t('publicContentAdmin.nav') }}</span></el-menu-item>
+        <el-menu-item v-if="isRoot" index="/admin/notifications"><el-icon><Bell /></el-icon><RootNotificationBadge :unread-count="rootNotificationsStore.unreadCount"><span>{{ t('rootNotifications.nav') }}</span></RootNotificationBadge></el-menu-item>
       </el-menu>
     </MobileDrawer>
 
     <el-main class="app-main">
-      <router-view />
+      <router-view :key="userStore.identityEpoch" />
     </el-main>
   </el-container>
 </template>
@@ -119,6 +128,8 @@ import {
   Wallet,
   Key,
   User,
+  Setting,
+  Bell,
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useSettingsStore } from '@/stores/settings'
@@ -126,23 +137,32 @@ import { ElMessageBox } from 'element-plus'
 import MobileDrawer from '@/components/mobile/MobileDrawer.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import LocaleToggle from '@/components/LocaleToggle.vue'
+import AuthStatus from '@/components/AuthStatus.vue'
+import RootNotificationBadge from '@/components/RootNotificationBadge.vue'
 import { useBreakpoint } from '@/composables/useBreakpoint'
 import { useI18n } from '@/composables/useI18n'
+import { usePublicModelAdminStore } from '@/stores/publicModelAdmin'
+import { useRootNotificationsStore } from '@/stores/rootNotifications'
+import { installRuntimeRootGuard } from '@/router/runtime-root-guard.js'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const publicModelAdminStore = usePublicModelAdminStore()
+const rootNotificationsStore = useRootNotificationsStore()
 const settingsStore = useSettingsStore()
 const showMobileMenu = ref(false)
 const { isTablet } = useBreakpoint()
 const { t } = useI18n()
 
 watch(() => userStore.isLoggedIn, value => { if (!value) void router.replace('/login') })
+installRuntimeRootGuard({ route, userStore, router, cancelAdmin: () => { publicModelAdminStore.setMutationContext('unauthorized'); publicModelAdminStore.cancel() } })
 
 const user = computed(() => userStore.user)
 const activeMenu = computed(() => route.path)
 const avatarText = computed(() => (user.value?.nickname || 'U').slice(0, 1))
 const canManageUsers = computed(() => user.value?.admin_permissions?.includes('users.read') === true)
+const isRoot = computed(() => user.value?.role === 'root')
 
 const planLabel = computed(() => {
   const p = user.value?.plan
@@ -172,7 +192,7 @@ function goBack() {
   if (window.history.length > 1) {
     router.back()
   } else {
-    router.push('/')
+    router.push('/chat')
   }
 }
 

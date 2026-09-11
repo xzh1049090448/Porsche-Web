@@ -1,9 +1,13 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
+import { publicModuleGraphPlugin } from './scripts/public-module-graph.mjs'
+
+import { publicContentPreviewProtection } from './scripts/public-content-preview-headers.mjs'
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), publicContentPreviewProtection(), publicModuleGraphPlugin()],
+  build: { manifest: true },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -23,6 +27,10 @@ export default defineConfig({
             }
           })
         },
+      },
+      '^/admin/v2(?:/|\\?|$)': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
       },
     },
   },

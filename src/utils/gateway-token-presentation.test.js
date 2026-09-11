@@ -82,8 +82,8 @@ test('API key route and all navigation variants expose the protected page', asyn
     readFile(sourcePath('../layouts/MainLayout.vue'), 'utf8'),
   ])
 
-  assert.match(router, /path: 'api-keys', name: 'ApiKeys'/)
-  assert.match(router, /meta: \{ requiresAuth: true \}[\s\S]*path: 'api-keys'/)
+  assert.match(router, /path: '\/api-keys',[\s\S]*name: 'ApiKeys'/)
+  assert.match(router, /path: '\/api-keys',[\s\S]*meta: \{ requiresAuth: true \}/)
   assert.equal((layout.match(/index="\/api-keys"/g) || []).length, 2)
   assert.match(layout, /command="api-keys"/)
 })
