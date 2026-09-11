@@ -6,6 +6,22 @@ import { JSDOM } from 'jsdom'
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 const dataModule = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
+const DOM_GLOBAL_KEYS = ['window', 'document', 'navigator', 'Node', 'Element', 'HTMLElement', 'SVGElement', 'Event', 'MouseEvent', 'getComputedStyle']
+const originalDomDescriptors = new Map(DOM_GLOBAL_KEYS.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
+
+function installDomGlobals(dom) {
+  for (const key of DOM_GLOBAL_KEYS) {
+    const value = key === 'getComputedStyle' ? dom.window.getComputedStyle.bind(dom.window) : dom.window[key]
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
+  }
+}
+
+function restoreDomGlobals() {
+  for (const [key, descriptor] of originalDomDescriptors) {
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+    else delete globalThis[key]
+  }
+}
 
 async function mountedMainLayout() {
   const source = await read('./MainLayout.vue')
@@ -86,41 +102,54 @@ test('authenticated navigation keeps users.read and Root visibility semantics', 
 
 test('users.read and Root permissions gate both desktop and mobile navigation', async () => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://local.test/chat' })
-  for (const key of ['window', 'document', 'navigator', 'Node', 'Element', 'HTMLElement', 'SVGElement', 'Event', 'MouseEvent']) {
-    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: dom.window[key] })
-  }
-  const [{ mount }, { reactive, h }] = await Promise.all([import('@vue/test-utils'), import('vue')])
-  const MainLayout = await mountedMainLayout()
-  const Pass = { setup: (_, { attrs, slots }) => () => h('div', attrs, slots.default?.()) }
-  const Menu = { setup: (_, { attrs, slots }) => () => h('nav', attrs, slots.default?.()) }
-  const MenuItem = { props: ['index'], setup: (props, { slots }) => () => h('a', { 'data-route': props.index }, slots.default?.()) }
-  const scenarios = [
-    { role: 'user', permissions: [], users: false, root: false },
-    { role: 'user', permissions: ['users.read'], users: true, root: false },
-    { role: 'root', permissions: [], users: false, root: true },
-    { role: 'root', permissions: ['users.read'], users: true, root: true },
-  ]
-  const rootRoutes = ['/admin/public-models', '/admin/public-pricing', '/admin/public-content', '/admin/notifications']
+  try {
+    installDomGlobals(dom)
+    const [{ mount }, { reactive, h }] = await Promise.all([import('@vue/test-utils'), import('vue')])
+    const MainLayout = await mountedMainLayout()
+    const Pass = { setup: (_, { attrs, slots }) => () => h('div', attrs, slots.default?.()) }
+    const Menu = { setup: (_, { attrs, slots }) => () => h('nav', attrs, slots.default?.()) }
+    const MenuItem = { props: ['index'], setup: (props, { slots }) => () => h('a', { 'data-route': props.index }, slots.default?.()) }
+    const scenarios = [
+      { role: 'user', permissions: [], users: false, root: false },
+      { role: 'user', permissions: ['users.read'], users: true, root: false },
+      { role: 'root', permissions: [], users: false, root: true },
+      { role: 'root', permissions: ['users.read'], users: true, root: true },
+    ]
+    const rootRoutes = ['/admin/public-models', '/admin/public-pricing', '/admin/public-content', '/admin/notifications']
 
-  for (const scenario of scenarios) {
-    globalThis.__visualShell = {
-      route: reactive({ path: '/chat' }), router: { push() {}, replace() {}, back() {} },
-      userStore: reactive({ user: { role: scenario.role, admin_permissions: scenario.permissions }, isLoggedIn: true, identityEpoch: 'epoch-1', totalTokensUsed: 0, refreshUsage: async () => {}, logout: async () => {} }),
-      settingsStore: { loadModels: async () => {} }, publicModelStore: { setMutationContext() {}, cancel() {} }, notificationsStore: { unreadCount: 0 },
+    for (const scenario of scenarios) {
+      globalThis.__visualShell = {
+        route: reactive({ path: '/chat' }), router: { push() {}, replace() {}, back() {} },
+        userStore: reactive({ user: { role: scenario.role, admin_permissions: scenario.permissions }, isLoggedIn: true, identityEpoch: 'epoch-1', totalTokensUsed: 0, refreshUsage: async () => {}, logout: async () => {} }),
+        settingsStore: { loadModels: async () => {} }, publicModelStore: { setMutationContext() {}, cancel() {} }, notificationsStore: { unreadCount: 0 },
+      }
+      let wrapper
+      try {
+        wrapper = mount(MainLayout, { global: { stubs: {
+          ElContainer: Pass, ElHeader: Pass, ElMain: Pass, ElButton: Pass, ElDropdown: Pass,
+          ElDropdownMenu: Pass, ElDropdownItem: Pass, ElAvatar: Pass, ElIcon: Pass, ElTag: Pass,
+          ElMenu: Menu, ElMenuItem: MenuItem, RouterView: Pass,
+        } } })
+        for (const selector of ['nav.header-menu', 'nav.drawer-nav-menu']) {
+          const routes = wrapper.get(selector).findAll('[data-route]').map(item => item.attributes('data-route'))
+          assert.equal(routes.includes('/users'), scenario.users, `${selector} users.read ${scenario.permissions.length > 0}`)
+          for (const route of rootRoutes) assert.equal(routes.includes(route), scenario.root, `${selector} ${route} role ${scenario.role}`)
+        }
+      } finally {
+        wrapper?.unmount()
+      }
     }
-    const wrapper = mount(MainLayout, { global: { stubs: {
-      ElContainer: Pass, ElHeader: Pass, ElMain: Pass, ElButton: Pass, ElDropdown: Pass,
-      ElDropdownMenu: Pass, ElDropdownItem: Pass, ElAvatar: Pass, ElIcon: Pass, ElTag: Pass,
-      ElMenu: Menu, ElMenuItem: MenuItem, RouterView: Pass,
-    } } })
-    for (const selector of ['nav.header-menu', 'nav.drawer-nav-menu']) {
-      const routes = wrapper.get(selector).findAll('[data-route]').map(item => item.attributes('data-route'))
-      assert.equal(routes.includes('/users'), scenario.users, `${selector} users.read ${scenario.permissions.length > 0}`)
-      for (const route of rootRoutes) assert.equal(routes.includes(route), scenario.root, `${selector} ${route} role ${scenario.role}`)
-    }
-    wrapper.unmount()
+  } finally {
+    delete globalThis.__visualShell
+    try { restoreDomGlobals() }
+    finally { dom.window.close() }
   }
-  delete globalThis.__visualShell
+})
+
+test('navigation mount restores every JSDOM global descriptor', () => {
+  for (const [key, descriptor] of originalDomDescriptors) {
+    assert.deepEqual(Object.getOwnPropertyDescriptor(globalThis, key), descriptor, key)
+  }
 })
 
 test('application startup preserves public/auth bootstrap and recovery boundaries', async () => {

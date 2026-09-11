@@ -22,7 +22,7 @@ function routerFixture({ loggedIn = false, role = 'user' } = {}) {
   return { router, storeLoads: () => storeLoads }
 }
 
-test('route inventory freezes public, guest, authenticated, Root, and DEV metadata', () => {
+test('route inventory freezes public, guest, authenticated, Root, and DEV metadata', async () => {
   const { router } = routerFixture()
   const families = {
     public: [
@@ -59,8 +59,20 @@ test('route inventory freezes public, guest, authenticated, Root, and DEV metada
   assert.deepEqual(runtimeNames.toSorted(), expectedNames.toSorted())
 
   const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8')
-  assert.match(source, /import\.meta\.env\?\.DEV\s*\?\s*\[/)
-  assert.match(source, /path:\s*['"]demo\/admin\/balance['"][\s\S]{0,180}name:\s*['"]AdminBalanceMockDemo['"][\s\S]{0,220}meta:\s*\{\s*requiresAuth:\s*true\s*\}/)
+  assert.ok(source.includes('const developmentOnlyRoutes = import.meta.env?.DEV ? ['))
+  const routerURL = new URL('../../node_modules/vue-router/vue-router.node.mjs', import.meta.url).href
+  const redirectURL = new URL('../utils/auth-redirect.js', import.meta.url).href
+  const devSource = source
+    .replace("from 'vue-router'", `from '${routerURL}'`)
+    .replace("from '../utils/auth-redirect.js'", `from '${redirectURL}'`)
+    .replace('import.meta.env?.DEV', 'true')
+    .replace('export default createAppRouter()', 'export default null')
+  const devModule = await import(`data:text/javascript;base64,${Buffer.from(devSource).toString('base64')}#dev-routes`)
+  const devRoute = devModule.routes.find(route => route.name === 'AdminBalanceMockDemo')
+  assert.deepEqual(
+    { path: devRoute?.path, name: devRoute?.name, meta: devRoute?.meta },
+    { path: 'demo/admin/balance', name: 'AdminBalanceMockDemo', meta: { requiresAuth: true } },
+  )
 })
 
 test('actual matcher resolves public routes and 404 through PublicLayout', () => {
