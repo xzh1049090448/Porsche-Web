@@ -198,6 +198,9 @@ test('dark Element Plus mappings win when its production CSS loads after compile
   try {
     const computed = computeRootCustomProperties([tokensCss, elementPlusCss], dom.window.document.documentElement)
     const expected = {
+      '--el-color-primary-rgb': 'var(--color-brand-rgb)',
+      '--el-color-danger-rgb': 'var(--state-danger-rgb)',
+      '--el-color-error-rgb': 'var(--state-danger-rgb)',
       '--el-color-primary': 'var(--color-brand)',
       '--el-color-success': 'var(--state-success)',
       '--el-color-warning': 'var(--state-warning)',
@@ -240,24 +243,67 @@ test('dark Element Plus mappings win when its production CSS loads after compile
   }
 })
 
-test('a browser computes dark Element Plus values when its CSS loads last', async t => {
+test('light Element Plus mappings win with complete semantic variants when its CSS loads last', () => {
+  const tokensCss = compile(fileURLToPath(new URL('../styles/tokens.scss', import.meta.url))).css
+  const elementPlusCss = readFileSync(new URL('../../node_modules/element-plus/dist/index.css', import.meta.url), 'utf8')
+  const dom = new JSDOM('<!doctype html><html data-theme="light"><head></head><body></body></html>')
+  try {
+    const computed = computeRootCustomProperties([tokensCss, elementPlusCss], dom.window.document.documentElement)
+    const expected = {
+      '--el-color-primary-rgb': 'var(--color-brand-rgb)',
+      '--el-color-danger-rgb': 'var(--state-danger-rgb)',
+      '--el-color-error-rgb': 'var(--state-danger-rgb)',
+      '--el-color-primary': 'var(--color-brand)',
+      '--el-color-success': 'var(--state-success)',
+      '--el-color-warning': 'var(--state-warning)',
+      '--el-color-danger': 'var(--state-danger)',
+      '--el-color-error': 'var(--state-danger)',
+      '--el-color-info': 'var(--state-info)',
+      '--el-color-success-light-3': '#56cca6',
+      '--el-color-warning-light-5': '#f6cc84',
+      '--el-color-danger-light-9': '#f7e1e2',
+      '--el-color-error-light-9': 'var(--el-color-danger-light-9)',
+      '--el-color-info-dark-2': '#2563eb',
+      '--el-border-color-dark': 'var(--border-strong)',
+      '--el-border-color-darker': 'var(--text-disabled)',
+      '--el-fill-color-blank': 'var(--surface-card)',
+      '--el-fill-color-lighter': 'var(--surface-elevated)',
+      '--el-fill-color-extra-light': 'var(--surface-page)',
+      '--el-mask-color-extra-light': 'rgb(15 23 42 / 25%)',
+      '--el-box-shadow-lighter': 'var(--shadow-sm)',
+      '--el-box-shadow-dark': 'var(--shadow-lg)',
+    }
+    for (const [name, value] of Object.entries(expected)) {
+      assert.equal(computed.get(name), value, name)
+    }
+  } finally {
+    dom.window.close()
+  }
+})
+
+test('a browser computes light and dark Element Plus values when its CSS loads last', async t => {
   const chrome = findChrome()
   if (!chrome) return t.skip('Chrome or Chromium is required for the browser cascade check')
 
   const tokensCss = compile(fileURLToPath(new URL('../styles/tokens.scss', import.meta.url))).css
   const elementPlusCss = readFileSync(new URL('../../node_modules/element-plus/dist/index.css', import.meta.url), 'utf8')
   const propertyNames = [
-    '--el-color-primary', '--el-color-success', '--el-color-warning', '--el-color-danger', '--el-color-info',
+    '--el-color-primary-rgb', '--el-color-danger-rgb', '--el-color-error-rgb',
+    '--el-color-primary', '--el-color-success', '--el-color-warning', '--el-color-danger', '--el-color-error', '--el-color-info',
     '--el-bg-color', '--el-bg-color-page', '--el-bg-color-overlay', '--el-text-color-primary',
-    '--el-border-color', '--el-fill-color', '--el-mask-color', '--el-box-shadow',
+    '--el-border-color', '--el-border-color-darker', '--el-fill-color', '--el-fill-color-darker',
+    '--el-mask-color', '--el-mask-color-extra-light', '--el-box-shadow', '--el-box-shadow-dark',
   ]
   const directory = mkdtempSync(join(tmpdir(), 'porsche-theme-cascade-'))
   const htmlPath = join(directory, 'cascade.html')
   const html = `<!doctype html><html data-theme="dark"><head>
     <link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="element-plus.css">
     </head><body><script>
-      const styles = getComputedStyle(document.documentElement)
-      const values = Object.fromEntries(${JSON.stringify(propertyNames)}.map(name => [name, styles.getPropertyValue(name).trim()]))
+      const values = Object.fromEntries(['light', 'dark'].map(theme => {
+        document.documentElement.dataset.theme = theme
+        const styles = getComputedStyle(document.documentElement)
+        return [theme, Object.fromEntries(${JSON.stringify(propertyNames)}.map(name => [name, styles.getPropertyValue(name).trim()]))]
+      }))
       document.body.dataset.computed = btoa(JSON.stringify(values))
     </script></body></html>`
 
@@ -273,19 +319,52 @@ test('a browser computes dark Element Plus values when its CSS loads last', asyn
       throw error
     }
     assert.deepEqual(computed, {
-      '--el-color-primary': '#3b82f6',
-      '--el-color-success': '#10b981',
-      '--el-color-warning': '#fbbf24',
-      '--el-color-danger': '#ef4444',
-      '--el-color-info': '#3b82f6',
-      '--el-bg-color': '#111827',
-      '--el-bg-color-page': '#0f172a',
-      '--el-bg-color-overlay': '#1e293b',
-      '--el-text-color-primary': '#f8fafc',
-      '--el-border-color': '#475569',
-      '--el-fill-color': '#1e293b',
-      '--el-mask-color': 'rgb(0 0 0 / 60%)',
-      '--el-box-shadow': '0 8px 24px rgb(0 0 0 / 35%)',
+      light: {
+        '--el-color-primary-rgb': '37, 99, 235',
+        '--el-color-danger-rgb': '239, 68, 68',
+        '--el-color-error-rgb': '239, 68, 68',
+        '--el-color-primary': '#2563eb',
+        '--el-color-success': '#10b981',
+        '--el-color-warning': '#f59e0b',
+        '--el-color-danger': '#ef4444',
+        '--el-color-error': '#ef4444',
+        '--el-color-info': '#3b82f6',
+        '--el-bg-color': '#ffffff',
+        '--el-bg-color-page': '#f8fafc',
+        '--el-bg-color-overlay': '#ffffff',
+        '--el-text-color-primary': '#111827',
+        '--el-border-color': '#cbd5e1',
+        '--el-border-color-darker': '#c0c4cc',
+        '--el-fill-color': '#f1f5f9',
+        '--el-fill-color-darker': '#cbd5e1',
+        '--el-mask-color': 'rgb(15 23 42 / 50%)',
+        '--el-mask-color-extra-light': 'rgb(15 23 42 / 25%)',
+        '--el-box-shadow': '0 8px 24px rgb(15 23 42 / 10%)',
+        '--el-box-shadow-dark': '0 18px 50px rgb(15 23 42 / 12%)',
+      },
+      dark: {
+        '--el-color-primary-rgb': '59, 130, 246',
+        '--el-color-danger-rgb': '239, 68, 68',
+        '--el-color-error-rgb': '239, 68, 68',
+        '--el-color-primary': '#3b82f6',
+        '--el-color-success': '#10b981',
+        '--el-color-warning': '#fbbf24',
+        '--el-color-danger': '#ef4444',
+        '--el-color-error': '#ef4444',
+        '--el-color-info': '#3b82f6',
+        '--el-bg-color': '#111827',
+        '--el-bg-color-page': '#0f172a',
+        '--el-bg-color-overlay': '#1e293b',
+        '--el-text-color-primary': '#f8fafc',
+        '--el-border-color': '#475569',
+        '--el-border-color-darker': '#64748b',
+        '--el-fill-color': '#1e293b',
+        '--el-fill-color-darker': '#0f172a',
+        '--el-mask-color': 'rgb(0 0 0 / 60%)',
+        '--el-mask-color-extra-light': 'rgb(0 0 0 / 30%)',
+        '--el-box-shadow': '0 8px 24px rgb(0 0 0 / 35%)',
+        '--el-box-shadow-dark': '0 18px 50px rgb(0 0 0 / 42%)',
+      },
     })
   } finally {
     rmSync(directory, { recursive: true, force: true })

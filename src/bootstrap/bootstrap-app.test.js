@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 import { bootstrapApplication } from '../bootstrap-app.js'
 import { createLazyLoadFailureHandler, renderSafeLoadError } from '../router/index.js'
+import { getItem } from '../utils/storage.js'
 
 test('rejected auth bootstrap import reloads once then renders fallback without an unhandled rejection', async () => {
   const values = new Map()
@@ -69,5 +70,35 @@ test('unknown bootstrap failures and throwing recovery always render a safe fall
     assert.equal(result, false)
     assert.equal(reloads, 0)
     assert.equal(fallbacks, 1)
+  }
+})
+
+test('public and authenticated bootstrap stay mountable when the localStorage getter is blocked', async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    get() { throw new DOMException('storage blocked', 'SecurityError') },
+  })
+  let fallbacks = 0
+  try {
+    const publicResult = await bootstrapApplication({
+      mode: 'public',
+      mountPublicApp: async () => {
+        const runtime = await import('../i18n/public-runtime.js?blocked-bootstrap-storage')
+        assert.equal(runtime.readPublicLocale(), 'zh')
+      },
+      fallback: () => { fallbacks += 1 },
+    })
+    const authResult = await bootstrapApplication({
+      mode: 'auth',
+      loadAuthApp: async () => async () => assert.equal(getItem('uiTheme', null), null),
+      fallback: () => { fallbacks += 1 },
+    })
+    assert.equal(publicResult, true)
+    assert.equal(authResult, true)
+    assert.equal(fallbacks, 0)
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original)
+    else delete globalThis.localStorage
   }
 })

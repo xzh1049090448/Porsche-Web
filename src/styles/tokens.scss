@@ -39,84 +39,46 @@
   --conv-delete-hover-color: #fca5a5;
   --conv-delete-hover-bg: rgb(239 68 68 / 22%);
 
-  --el-color-primary-rgb: 59, 130, 246;
-  --el-color-success-rgb: 16, 185, 129;
-  --el-color-warning-rgb: 251, 191, 36;
-  --el-color-danger-rgb: 239, 68, 68;
-  --el-color-error-rgb: 239, 68, 68;
-  --el-color-info-rgb: 59, 130, 246;
-  --el-color-primary: var(--color-brand);
+  --color-brand-rgb: 59, 130, 246;
+  --state-warning-rgb: 251, 191, 36;
   --el-color-primary-light-3: #60a5fa;
   --el-color-primary-light-5: #93c5fd;
   --el-color-primary-light-7: #bfdbfe;
   --el-color-primary-light-8: #dbeafe;
   --el-color-primary-light-9: var(--color-brand-soft);
   --el-color-primary-dark-2: #2563eb;
-  --el-color-success: var(--state-success);
   --el-color-success-light-3: #108867;
   --el-color-success-light-5: #106856;
   --el-color-success-light-7: #0f4844;
   --el-color-success-light-8: #0f3b3d;
   --el-color-success-light-9: #0f2e36;
   --el-color-success-dark-2: #34d399;
-  --el-color-warning: var(--state-warning);
   --el-color-warning-light-3: #b48d26;
   --el-color-warning-light-5: #856b27;
   --el-color-warning-light-7: #564928;
   --el-color-warning-light-8: #433c29;
   --el-color-warning-light-9: #302f29;
   --el-color-warning-dark-2: #fcd34d;
-  --el-color-danger: var(--state-danger);
   --el-color-danger-light-3: #ac363c;
   --el-color-danger-light-5: #7f2e37;
   --el-color-danger-light-7: #522432;
   --el-color-danger-light-8: #402130;
   --el-color-danger-light-9: #2e1d2e;
   --el-color-danger-dark-2: #f87171;
-  --el-color-error: var(--state-danger);
-  --el-color-error-light-3: var(--el-color-danger-light-3);
-  --el-color-error-light-5: var(--el-color-danger-light-5);
-  --el-color-error-light-7: var(--el-color-danger-light-7);
-  --el-color-error-light-8: var(--el-color-danger-light-8);
-  --el-color-error-light-9: var(--el-color-danger-light-9);
-  --el-color-error-dark-2: var(--el-color-danger-dark-2);
-  --el-color-info: var(--state-info);
   --el-color-info-light-3: #2e62b9;
   --el-color-info-light-5: #254c90;
   --el-color-info-light-7: #1c3767;
   --el-color-info-light-8: #192f57;
   --el-color-info-light-9: #152647;
   --el-color-info-dark-2: #60a5fa;
-  --el-bg-color: var(--surface-card);
-  --el-bg-color-page: var(--surface-page);
-  --el-bg-color-overlay: var(--surface-elevated);
-  --el-text-color-primary: var(--text-primary);
-  --el-text-color-regular: var(--text-secondary);
-  --el-text-color-secondary: var(--text-muted);
-  --el-text-color-placeholder: var(--text-muted);
-  --el-text-color-disabled: var(--text-disabled);
-  --el-border-color: var(--border-strong);
-  --el-border-color-light: var(--border-default);
-  --el-border-color-lighter: var(--border-subtle);
-  --el-border-color-extra-light: var(--surface-hover);
-  --el-border-color-dark: var(--border-strong);
-  --el-border-color-darker: var(--text-disabled);
-  --el-fill-color-blank: var(--surface-card);
-  --el-fill-color-light: var(--surface-hover);
-  --el-fill-color-lighter: var(--surface-elevated);
-  --el-fill-color-extra-light: var(--surface-page);
   --el-fill-color: var(--surface-elevated);
   --el-fill-color-dark: var(--surface-page);
   --el-fill-color-darker: var(--surface-page);
   --el-mask-color: rgb(0 0 0 / 60%);
   --el-mask-color-extra-light: rgb(0 0 0 / 30%);
-  --el-box-shadow-light: var(--shadow-sm);
-  --el-box-shadow: var(--shadow-md);
-  --el-box-shadow-lighter: var(--shadow-sm);
-  --el-box-shadow-dark: var(--shadow-lg);
 }
 
-:root,
+html:root,
 html[data-theme='light'] {
   color-scheme: light;
 
@@ -145,6 +107,11 @@ html[data-theme='light'] {
   --state-warning: #f59e0b;
   --state-danger: #ef4444;
   --state-info: #3b82f6;
+  --color-brand-rgb: 37, 99, 235;
+  --state-success-rgb: 16, 185, 129;
+  --state-warning-rgb: 245, 158, 11;
+  --state-danger-rgb: 239, 68, 68;
+  --state-info-rgb: 59, 130, 246;
 
   --radius-sm: 8px;
   --radius-md: 10px;
@@ -231,17 +198,62 @@ html[data-theme='light'] {
   --conv-delete-hover-bg: rgb(239 68 68 / 12%);
 
   /* Element Plus consumes the same semantic source of truth. */
-  --el-color-primary: var(--color-brand);
   --el-color-primary-light-3: #5b83ed;
   --el-color-primary-light-5: #92adf4;
   --el-color-primary-light-7: #c8d6fa;
   --el-color-primary-light-8: #dbe5fc;
   --el-color-primary-light-9: var(--color-brand-soft);
   --el-color-primary-dark-2: var(--color-brand-hover);
+  --el-color-success-light-3: #56cca6;
+  --el-color-success-light-5: #84dabe;
+  --el-color-success-light-7: #b2e6d7;
+  --el-color-success-light-8: #c5ece1;
+  --el-color-success-light-9: #d8f1eb;
+  --el-color-success-dark-2: #0d9467;
+  --el-color-warning-light-3: #f6ba53;
+  --el-color-warning-light-5: #f6cc84;
+  --el-color-warning-light-7: #f7deb4;
+  --el-color-warning-light-8: #f7e6c7;
+  --el-color-warning-light-9: #f8edda;
+  --el-color-warning-dark-2: #c47e09;
+  --el-color-danger-light-3: #f27b7b;
+  --el-color-danger-light-5: #f49fa0;
+  --el-color-danger-light-7: #f5c3c5;
+  --el-color-danger-light-8: #f6d2d4;
+  --el-color-danger-light-9: #f7e1e2;
+  --el-color-danger-dark-2: #bf3636;
+  --el-color-info-light-3: #74a6f8;
+  --el-color-info-light-5: #9abef9;
+  --el-color-info-light-7: #bfd6fa;
+  --el-color-info-light-8: #cee0fb;
+  --el-color-info-light-9: #dee9fb;
+  --el-color-info-dark-2: #2563eb;
+  --el-fill-color: #f1f5f9;
+  --el-fill-color-dark: #e2e8f0;
+  --el-fill-color-darker: #cbd5e1;
+  --el-mask-color: rgb(15 23 42 / 50%);
+  --el-mask-color-extra-light: rgb(15 23 42 / 25%);
+}
+
+html:root {
+  --el-color-primary-rgb: var(--color-brand-rgb);
+  --el-color-success-rgb: var(--state-success-rgb);
+  --el-color-warning-rgb: var(--state-warning-rgb);
+  --el-color-danger-rgb: var(--state-danger-rgb);
+  --el-color-error-rgb: var(--state-danger-rgb);
+  --el-color-info-rgb: var(--state-info-rgb);
+  --el-color-primary: var(--color-brand);
   --el-color-success: var(--state-success);
   --el-color-warning: var(--state-warning);
   --el-color-danger: var(--state-danger);
+  --el-color-error: var(--state-danger);
   --el-color-info: var(--state-info);
+  --el-color-error-light-3: var(--el-color-danger-light-3);
+  --el-color-error-light-5: var(--el-color-danger-light-5);
+  --el-color-error-light-7: var(--el-color-danger-light-7);
+  --el-color-error-light-8: var(--el-color-danger-light-8);
+  --el-color-error-light-9: var(--el-color-danger-light-9);
+  --el-color-error-dark-2: var(--el-color-danger-dark-2);
   --el-bg-color: var(--surface-card);
   --el-bg-color-page: var(--surface-page);
   --el-bg-color-overlay: var(--surface-elevated);
@@ -254,14 +266,16 @@ html[data-theme='light'] {
   --el-border-color-light: var(--border-default);
   --el-border-color-lighter: var(--border-subtle);
   --el-border-color-extra-light: var(--surface-hover);
+  --el-border-color-dark: var(--border-strong);
+  --el-border-color-darker: var(--text-disabled);
   --el-fill-color-blank: var(--surface-card);
   --el-fill-color-light: var(--surface-hover);
-  --el-fill-color: #f1f5f9;
-  --el-fill-color-dark: #e2e8f0;
-  --el-fill-color-darker: #cbd5e1;
-  --el-mask-color: rgb(15 23 42 / 50%);
+  --el-fill-color-lighter: var(--surface-elevated);
+  --el-fill-color-extra-light: var(--surface-page);
   --el-box-shadow-light: var(--shadow-sm);
   --el-box-shadow: var(--shadow-md);
+  --el-box-shadow-lighter: var(--shadow-sm);
+  --el-box-shadow-dark: var(--shadow-lg);
 }
 
 html[data-theme='dark'] {

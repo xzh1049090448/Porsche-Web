@@ -19,3 +19,23 @@ test('public locale uses the shared JSON storage contract across public and auth
   assert.equal(target.documentElement.lang, 'zh-CN')
   assert.equal(target.title, '中国大模型聚合平台')
 })
+
+test('public runtime loads and falls back without escaping a blocked localStorage getter', async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    get() { throw new DOMException('storage blocked', 'SecurityError') },
+  })
+  try {
+    const runtime = await import('./public-runtime.js?blocked-storage')
+    assert.doesNotThrow(() => runtime.readPublicLocale())
+    assert.equal(runtime.readPublicLocale(), 'zh')
+    const target = { documentElement: { lang: '' }, title: '' }
+    assert.doesNotThrow(() => runtime.persistPublicLocale('en', undefined, target))
+    assert.equal(target.documentElement.lang, 'en')
+    assert.equal(target.title, 'China LLM Hub')
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original)
+    else delete globalThis.localStorage
+  }
+})
