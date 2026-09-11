@@ -256,6 +256,10 @@ test('sending during initial detail waits for history and keeps the new streamed
     await waitFor(() => store.generationState?.status === 'completed')
     assert.equal(earlyRequests, 0, 'must not send before the in-flight history is available')
     assert.equal(sent[0].messages[0].content, `Message ${A}`)
+    assert.deepEqual(sent[0].messages.map(message => message.role), ['user', 'assistant', 'user', 'user'])
+    assert.equal(sent[0].messages.at(-1).content, 'New question')
+    assert.equal(sent[0].messages.some(message => message.role === 'assistant' && message.content === ''), false)
+    assert.equal(sent[0].messages.filter(message => message.role === 'user' && message.content === 'New question').length, 1)
     assert.equal(store.getActive().messages.at(-2).content, 'New question')
     assert.equal(store.getActive().messages.at(-1).content, 'New answer')
   } finally { globalThis.fetch = originalFetch }
@@ -325,6 +329,13 @@ test('authoritative prefix mismatch fails closed and never persists assistant pa
     assert.equal(assistant.content.includes('请求未完成'), false)
     assert.equal(assistant.content.includes('错误'), false)
     assert.equal(writes.some(([, value]) => value.includes('safe partial') || value.includes('different')), false)
+    globalThis.fetch = async (_url, options) => {
+      const body = JSON.parse(options.body); const id = body.generation_id
+      return sseResponse(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\nevent: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', seq: 1, delta: 'retry answer' })}\n\nevent: model_done\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', last_seq: 1 })}\n\nevent: done\ndata: ${JSON.stringify({ generation_id: id, status: 'completed', conversation_guid: A, tokens: 1, total_tokens_used: 1 })}\n\n`)
+    }
+    await store.sendMessage('retry question'); await waitFor(() => store.generationState?.status === 'completed')
+    assert.equal(store.getActive().messages.some(message => message.role === 'user' && message.content === 'hello'), true)
+    assert.deepEqual(store.getActive().messages.slice(-2).map(message => message.content), ['retry question', 'retry answer'])
   } finally { globalThis.fetch = originalFetch }
 })
 
@@ -379,6 +390,50 @@ test('cancel aborts local playback, keeps the user message, and converges from a
   } finally { globalThis.fetch = originalFetch }
 })
 
+test('indeterminate cancel performs one cancel POST then recovers only through GET', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; const started = deferred(); let generationId; let cancelPosts = 0; let gets = 0
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).endsWith('/cancel')) { cancelPosts += 1; throw new TypeError('ambiguous network') }
+    if ((options.method || 'GET') === 'GET') {
+      gets += 1
+      return jsonResponse({ generation_id: generationId, status: 'cancelled', mode: 'single', conversation_guid: null })
+    }
+    generationId = JSON.parse(options.body).generation_id; started.resolve()
+    return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true }))
+  }
+  try {
+    const sending = store.sendMessage('cancel me'); await started.promise
+    await store.cancelStream(); await sending
+    assert.equal(cancelPosts, 1); assert.equal(gets, 1)
+    assert.equal(store.generationState.status, 'cancelled')
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('generation projection preserves receiving and draining while transport phase stays separate', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; const metaSent = deferred(); const sendDone = deferred()
+  globalThis.document.visibilityState = 'visible'
+  globalThis.fetch = async (_url, options) => {
+    const id = JSON.parse(options.body).generation_id
+    const encoder = new TextEncoder()
+    return new Response(new ReadableStream({ async start(controller) {
+      controller.enqueue(encoder.encode(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\nevent: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', seq: 1, delta: 'abcdef' })}\n\n`)); metaSent.resolve()
+      await sendDone.promise
+      controller.enqueue(encoder.encode(`event: model_done\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', last_seq: 1 })}\n\nevent: done\ndata: ${JSON.stringify({ generation_id: id, status: 'completed', conversation_guid: A, tokens: 1, total_tokens_used: 1 })}\n\n`)); controller.close()
+    } }), { status: 200, headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } })
+  }
+  try {
+    const sending = store.sendMessage('state'); await metaSent.promise; await waitFor(() => store.generationState?.status === 'receiving')
+    assert.equal(store.generationState.phase, 'streaming')
+    sendDone.resolve(); await sending
+    assert.equal(store.generationState.status, 'draining'); assert.equal(store.generationState.phase, 'streaming')
+    await waitFor(() => store.generationState?.status === 'completed')
+  } finally { sendDone.resolve(); globalThis.document.visibilityState = undefined; globalThis.fetch = originalFetch }
+})
+
 test('identity invalidation makes late stream callbacks unable to write into the next user store', async () => {
   const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
   store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
@@ -402,14 +457,82 @@ test('identity invalidation makes late stream callbacks unable to write into the
 test('session-local generation metadata resumes through authoritative GET without storing partial content', async () => {
   const store = useChatStore(); store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
   const generationId = '123e4567-e89b-42d3-a456-426614174000'
-  sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId, mode: 'single', models: ['fixture-model'], conversationGuid: A, messageKey: 'resume-message' }))
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = async () => jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 2, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: 'restored', tokens: 2 } })
+  sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId, mode: 'single', models: ['fixture-model'], conversationGuid: A, messageKey: 'resume-message', ownerGuid: '1', ownerEpoch: authSession.capture().epoch }))
+  const originalFetch = globalThis.fetch; const response = deferred(); const started = deferred()
+  globalThis.fetch = async () => { started.resolve(); return response.promise }
   try {
-    assert.equal(await store.resumePendingGeneration(), true)
+    const resuming = store.resumePendingGeneration(); await started.promise
+    assert.equal(store.getActive().messages.at(-1).transientAttempt, generationId)
+    response.resolve(jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 2, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: 'restored', tokens: 2 } }))
+    assert.equal(await resuming, true)
     await waitFor(() => store.generationState?.status === 'completed')
     assert.equal(store.getActive().messages.at(-1).content, 'restored')
     assert.equal(sessionStorage.getItem('llm_platform_active_generation_v2'), null)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('resume rejects mismatched owner metadata before UI mutation or GET', async () => {
+  const store = useChatStore(); store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId: '123e4567-e89b-42d3-a456-426614174000', mode: 'single', models: ['fixture-model'], conversationGuid: A, messageKey: 'foreign', ownerGuid: '2', ownerEpoch: authSession.capture().epoch }))
+  const originalFetch = globalThis.fetch; let requests = 0
+  globalThis.fetch = async () => { requests += 1; throw new Error('must not GET') }
+  try {
+    assert.equal(await store.resumePendingGeneration(), false); assert.equal(requests, 0)
+    assert.equal(store.getActive().messages.length, 0); assert.equal(sessionStorage.getItem('llm_platform_active_generation_v2'), null)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('server refresh discards transient attempts instead of replacing authoritative history', async () => {
+  const store = useChatStore()
+  store.conversations = [{ ...summary(A), messages: [
+    { localKey: 'temporary-user', role: 'user', content: 'temporary', transientAttempt: 'gen' },
+    { localKey: 'temporary-assistant', role: 'assistant', content: 'partial', generationStatus: 'failed', transientAttempt: 'gen' },
+  ] }]
+  store.activeId = A
+  route = () => detail(A)
+  await store.refreshActiveConversation()
+  assert.deepEqual(store.getActive().messages.map(message => message.content), [`Message ${A}`])
+})
+
+test('next POST excludes a failed transient attempt while retaining valid history and current user once', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [
+    { localKey: 'old-user', role: 'user', content: 'valid question' },
+    { localKey: 'old-assistant', role: 'assistant', content: 'valid answer' },
+    { localKey: 'failed-user', role: 'user', content: 'failed question', transientAttempt: 'old-gen' },
+    { localKey: 'failed-assistant', role: 'assistant', content: 'failed partial', generationStatus: 'failed', transientAttempt: 'old-gen' },
+  ] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; let sent
+  globalThis.fetch = async (_url, options) => {
+    sent = JSON.parse(options.body); const id = sent.generation_id
+    return sseResponse(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\nevent: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', seq: 1, delta: 'new answer' })}\n\nevent: model_done\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', last_seq: 1 })}\n\nevent: done\ndata: ${JSON.stringify({ generation_id: id, status: 'completed', conversation_guid: A, tokens: 1, total_tokens_used: 1 })}\n\n`)
+  }
+  try {
+    await store.sendMessage('current question'); await waitFor(() => store.generationState?.status === 'completed')
+    assert.deepEqual(sent.messages.map(message => message.content), ['valid question', 'valid answer', 'current question'])
+    assert.deepEqual(store.getActive().messages.slice(-2).map(message => message.content), ['current question', 'new answer'])
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('switching conversations detaches local generation without cancel POST and drops transient attempt UI', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }, { ...summary(B), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; const started = deferred(); let cancelCalls = 0; let aborted = 0
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).endsWith('/cancel')) { cancelCalls += 1; throw new Error('must not cancel') }
+    const id = JSON.parse(options.body).generation_id
+    const encoder = new TextEncoder()
+    return new Response(new ReadableStream({ start(controller) { controller.enqueue(encoder.encode(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\nevent: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', seq: 1, delta: 'secret partial' })}\n\n`)); started.resolve() }, cancel() { aborted += 1 } }), { status: 200, headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } })
+  }
+  try {
+    const sending = store.sendMessage('old question'); await started.promise
+    await store.selectConversation(B); await sending
+    assert.equal(cancelCalls, 0); assert.equal(aborted, 1)
+    assert.equal(store.activeId, B); assert.equal(store.conversations.find(item => item.guid === A).messages.length, 0)
+    assert.notEqual(sessionStorage.getItem('llm_platform_active_generation_v2'), null)
+    const recovery = JSON.parse(sessionStorage.getItem('llm_platform_active_generation_v2'))
+    assert.deepEqual(Object.keys(recovery).sort(), ['conversationGuid', 'generationId', 'messageKey', 'mode', 'models', 'ownerEpoch', 'ownerGuid'])
+    assert.equal(JSON.stringify(recovery).includes('secret partial'), false)
   } finally { globalThis.fetch = originalFetch }
 })
 
