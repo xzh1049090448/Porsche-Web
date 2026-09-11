@@ -529,6 +529,28 @@
             "stream_options",
             "seed"
           ],
+          "explicit_null_equivalent_to_absent": [
+            "conversation_guid",
+            "temperature",
+            "context_window",
+            "n",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "tools",
+            "response_format",
+            "stream_options",
+            "seed"
+          ],
+          "required_non_null": [
+            "model",
+            "models",
+            "messages",
+            "max_tokens",
+            "stream",
+            "stream_version",
+            "generation_id"
+          ],
           "fields": {
             "model": "non-empty routing model ID string used only for shared request validation",
             "models": "ordered unique array of 2..3 trimmed non-empty valid UTF-8 authorized model ID strings, each at most 128 UTF-8 bytes; request order is preserved",
@@ -537,18 +559,18 @@
             "stream": "literal true",
             "stream_version": "literal platform-chat-sse.v2",
             "generation_id": "canonical lowercase UUID",
-            "conversation_guid": "optional canonical positive decimal-string in signed int64 range 1..9223372036854775807",
-            "temperature": "optional finite number strictly greater than 0 and strictly less than 2",
-            "context_window": "optional Go int; null or integer <=0 disables trimming, positive N retains at most the final N message pairs",
-            "n": "optional literal integer 1",
-            "top_p": "optional finite number greater than 0 through 1",
-            "frequency_penalty": "optional finite number strictly greater than -2 and strictly less than 2",
-            "presence_penalty": "optional finite number strictly greater than -2 and strictly less than 2",
-            "stop": "optional null, any string including empty, or array of 0..4 strings including empty strings",
-            "tools": "optional array of at most 32 closed function tools",
-            "response_format": "optional closed OpenAI-compatible response format",
-            "stream_options": "optional closed object with required include_usage literal true",
-            "seed": "optional integer from -9223372036854775808 through 9223372036854775807"
+            "conversation_guid": "optional null or canonical positive decimal-string in signed int64 range 1..9223372036854775807; null is equivalent to absent",
+            "temperature": "optional null or finite number strictly greater than 0 and strictly less than 2; null is equivalent to absent",
+            "context_window": "optional null or Go int; null or integer <=0 disables trimming, positive N retains at most the final N message pairs",
+            "n": "optional null or literal integer 1; null is equivalent to absent",
+            "top_p": "optional null or finite number greater than 0 through 1; null is equivalent to absent",
+            "frequency_penalty": "optional null or finite number strictly greater than -2 and strictly less than 2; null is equivalent to absent",
+            "presence_penalty": "optional null or finite number strictly greater than -2 and strictly less than 2; null is equivalent to absent",
+            "stop": "optional null, any string including empty, or array of 0..4 string-or-null entries; null and null array entries decode as empty strings and are accepted as empty/absent-equivalent",
+            "tools": "optional null or array of at most 32 closed function tools; null is equivalent to absent",
+            "response_format": "optional null or closed OpenAI-compatible response format; null is equivalent to absent",
+            "stream_options": "optional null or closed object with required include_usage literal true; null is equivalent to absent",
+            "seed": "optional null or integer from -9223372036854775808 through 9223372036854775807; null is equivalent to absent"
           },
           "additional_fields": "forbidden"
         }
