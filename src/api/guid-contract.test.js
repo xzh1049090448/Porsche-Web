@@ -18,12 +18,12 @@ test('GUID boundary only accepts nonblank strings and preserves Snowflake precis
 })
 
 test('platform adapters only send conversation_guid and never retired RAG fields', async () => {
-  const source = await api('platform.js')
+  const [source, transport] = await Promise.all([api('platform.js'), api('platform-generation.js')])
 
-  assert.match(source, /conversation_guid:\s*optionalGuid\(body\.conversationGuid\)/g)
-  assert.doesNotMatch(source, /conversation_id|dataset_enabled|dataset_ids/)
+  assert.match(transport, /payload\.conversation_guid = guid/)
+  assert.doesNotMatch(source + transport, /conversation_id|dataset_enabled|dataset_ids/)
   assert.match(source, /conversationGuid:\s*null/g)
-  assert.doesNotMatch(source, /conversationId/)
+  assert.doesNotMatch(source + transport, /conversationId/)
 })
 
 test('GUID resources are URL encoded and analytics use user_guid', async () => {

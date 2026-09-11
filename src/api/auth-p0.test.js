@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createAuthSessionManager, authenticatedFetch } from './auth-session.js'
+import { createAuthSessionManager, authenticatedFetch, isSafeAuthRead } from './auth-session.js'
 
 import { browserFixture } from './auth-test-browser.js'
 const user = { guid: '100', username: 'alice', nickname: null, role: 'user', status: 'active' }
@@ -14,6 +14,15 @@ test('POST generation 401 is returned once without refresh or clearing identity'
   auth.setSession(session)
   const res = await authenticatedFetch(auth, '/api/v1/platform/chat/completions', { method: 'POST' }, { fetchImpl: async () => { requests++; return new Response(null, { status: 401 }) } })
   assert.equal(res.status, 401); assert.equal(requests, 1); assert.equal(refreshes, 0); assert.equal(auth.accessToken(), 'old')
+})
+test('only exact owner-bound generation GET is eligible for auth refresh', () => {
+  const generation = '550e8400-e29b-41d4-a716-446655440000'
+  const path = `/api/v1/platform/chat/generations/${generation}`
+  assert.equal(isSafeAuthRead(path, 'GET'), true)
+  assert.equal(isSafeAuthRead(`${path}/cancel`, 'GET'), false)
+  assert.equal(isSafeAuthRead(path, 'POST'), false)
+  assert.equal(isSafeAuthRead(`${path}/extra`, 'GET'), false)
+  assert.equal(isSafeAuthRead('/api/v1/platform/chat/generations/', 'GET'), false)
 })
 test('five safe GETs share refresh; delayed old-token 401 uses new generation', async () => {
   let refreshes = 0

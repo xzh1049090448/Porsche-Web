@@ -1,11 +1,14 @@
 import { createStreamScope } from './stream-scope'
-import { authenticatedFetch, USE_MOCK, authSession } from './request'
+import { USE_MOCK, authSession } from './request'
 import { mockApi } from './mock'
-import { readPlatformChatStream, readPlatformCompareStream } from '@/utils/sse'
 import request from './request'
 import { catalogModels } from '@/utils/model-catalog'
-import { optionalGuid } from './guid'
 import { getPlatformModelDetail } from './platform-model-detail'
+import {
+  PlatformGenerationIndeterminateError,
+  streamPlatformCompareGeneration,
+  streamPlatformGeneration,
+} from './platform-generation'
 
 const PREFIX = '/api/v1/platform'
 
@@ -35,15 +38,18 @@ export async function streamPlatformChat(body, callbacks = {}) {
       ...scope.callbacks,
       signal: scope.signal,
     })
-    const payload = {
-      model: body.model, messages: body.messages,
-      conversation_guid: optionalGuid(body.conversationGuid),
-      temperature: body.temperature, max_tokens: body.max_tokens, context_window: body.context_window, stream: true,
-    }
-    const response = await authenticatedFetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/chat/completions`, {
-      method: 'POST', signal: scope.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    return await streamPlatformGeneration(body, {
+      signal: scope.signal,
+      onEvent(event) {
+        if (event.type === 'meta') scope.callbacks.onMeta?.({ conversationGuid: event.conversation_guid, generationId: event.generation_id, models: event.models })
+        else if (event.type === 'delta') scope.callbacks.onChunk?.(event.delta)
+        else if (event.type === 'done') scope.callbacks.onDone?.({ conversationGuid: event.conversation_guid, generationId: event.generation_id, tokens: event.tokens, totalTokensUsed: event.total_tokens_used })
+      },
     })
-    return await readPlatformChatStream(response, { ...callbacks, signal: scope.signal, isCurrent: scope.isCurrent })
+  } catch (error) {
+    if (error instanceof PlatformGenerationIndeterminateError && error.reason === 'aborted') scope.callbacks.onCancel?.({ generationId: error.generation_id })
+    else scope.callbacks.onError?.(error.code || 'generation_indeterminate', { generationId: error.generation_id })
+    throw error
   } finally { scope.cleanup() }
 }
 
@@ -60,18 +66,23 @@ export async function comparePlatformChat(body, callbacks = {}) {
       scope.callbacks.onDone?.({ tokens })
       return { results: [], conversationGuid: null }
     }
-    const payload = {
-      models: body.models, messages: body.messages,
-      conversation_guid: optionalGuid(body.conversationGuid),
-      temperature: body.temperature, max_tokens: body.max_tokens, context_window: body.context_window, stream: true,
-    }
-    const response = await authenticatedFetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/chat/compare`, {
-      method: 'POST', signal: scope.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    return await streamPlatformCompareGeneration({ ...body, model: body.model ?? body.models?.[0] }, {
+      signal: scope.signal,
+      onEvent(event) {
+        if (event.type === 'meta') scope.callbacks.onMeta?.({ conversationGuid: event.conversation_guid, generationId: event.generation_id, models: event.models })
+        else if (event.type === 'delta') scope.callbacks.onModelChunk?.({ model: event.model, delta: event.delta })
+        else if (event.type === 'model_done') {
+          const result = { model: event.model }
+          scope.callbacks.onModelResult?.(result)
+        } else if (event.type === 'model_error') {
+          const result = { model: event.model, code: event.code, error: event.code }
+          scope.callbacks.onModelResult?.(result)
+        } else if (event.type === 'done') scope.callbacks.onDone?.({ conversationGuid: event.conversation_guid, generationId: event.generation_id, tokens: event.total_tokens_used, totalTokensUsed: event.total_tokens_used, models: event.models })
+      },
     })
-    const results = []
-    await readPlatformCompareStream(response, { ...callbacks, signal: scope.signal, isCurrent: scope.isCurrent,
-      onModelResult(result) { results.push(result); callbacks.onModelResult?.(result) },
-    })
-    return { results, conversationGuid: null }
+  } catch (error) {
+    if (error instanceof PlatformGenerationIndeterminateError && error.reason === 'aborted') scope.callbacks.onCancel?.({ generationId: error.generation_id })
+    else scope.callbacks.onError?.(error.code || 'generation_indeterminate', { generationId: error.generation_id })
+    throw error
   } finally { scope.cleanup() }
 }

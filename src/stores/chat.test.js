@@ -224,7 +224,15 @@ test('sending during initial detail waits for history and keeps the new streamed
     const earlyRequests = sent.length
     response.resolve(history)
     await initial
-    stream.resolve(new Response('data: {"choices":[{"delta":{"content":"New answer"}}]}\n\ndata: [DONE]\n\ndata: {"type":"done","tokens":2}\n\n', { status: 200 }))
+    const generationId = sent[0].generation_id
+    const model = sent[0].model
+    const streamBody = [
+      `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: generationId, conversation_guid: A, models: [model] })}\n\n`,
+      `event: delta\ndata: ${JSON.stringify({ generation_id: generationId, model, seq: 1, delta: 'New answer' })}\n\n`,
+      `event: model_done\ndata: ${JSON.stringify({ generation_id: generationId, model, last_seq: 1 })}\n\n`,
+      `event: done\ndata: ${JSON.stringify({ generation_id: generationId, status: 'completed', conversation_guid: A, tokens: 2, total_tokens_used: 2 })}\n\n`,
+    ].join('')
+    stream.resolve(new Response(streamBody, { status: 200, headers: { 'Content-Type': 'text/event-stream' } }))
     await sending
     assert.equal(earlyRequests, 0, 'must not send before the in-flight history is available')
     assert.equal(sent[0].messages[0].content, `Message ${A}`)
