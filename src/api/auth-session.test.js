@@ -1,7 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { authenticatedFetch, createAuthSessionManager, sessionRows, sessionUser } from './auth-session.js'
+import { authenticatedFetch, createAuthSessionManager, isSafeAuthRead, sessionRows, sessionUser } from './auth-session.js'
 import { readFile } from 'node:fs/promises'
+
+test('notification reads may refresh while notification receipts remain non-replayable writes', () => {
+  assert.equal(isSafeAuthRead('/admin/v2/notifications?state=active&page=1&page_size=20', 'GET'), true)
+  assert.equal(isSafeAuthRead('/admin/v2/notifications/unread-count', 'GET'), true)
+  assert.equal(isSafeAuthRead('/admin/v2/notifications/101/read', 'POST'), false)
+  assert.equal(isSafeAuthRead('/admin/v2/notifications/101/acknowledge', 'POST'), false)
+})
 
 test('session user whitelist excludes server-only and unexpected fields', () => {
   assert.deepEqual(sessionUser({

@@ -35,6 +35,9 @@ export const routes = [
     { path: '', name: 'PublicContentAdmin', component: () => import('@/views/PublicContentAdmin.vue') },
   ] },
   { path: '/admin/public-content/preview', name: 'PublicContentPreview', component: () => import('@/views/PublicContentPreview.vue'), meta: { requiresAuth: true, rootOnly: true } },
+  { path: '/admin/notifications', component: mainLayout, meta: { requiresAuth: true, rootOnly: true }, children: [
+    { path: '', name: 'RootNotifications', component: () => import('@/views/RootNotifications.vue') },
+  ] },
   { path: '/profile', component: mainLayout, meta: { requiresAuth: true }, children: [
     { path: '', name: 'Profile', component: () => import('@/views/Profile.vue') },
   ] },

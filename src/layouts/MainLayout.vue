@@ -42,6 +42,7 @@
         <el-menu-item v-if="isRoot" index="/admin/public-models">{{ t('publicModelsAdmin.nav') }}</el-menu-item>
         <el-menu-item v-if="isRoot" index="/admin/public-pricing">{{ t('publicPricingAdmin.nav') }}</el-menu-item>
         <el-menu-item v-if="isRoot" index="/admin/public-content">{{ t('publicContentAdmin.nav') }}</el-menu-item>
+        <el-menu-item v-if="isRoot" index="/admin/notifications"><RootNotificationBadge :unread-count="rootNotificationsStore.unreadCount">{{ t('rootNotifications.nav') }}</RootNotificationBadge></el-menu-item>
       </el-menu>
       <div class="header-right">
         <LocaleToggle />
@@ -106,6 +107,7 @@
         <el-menu-item v-if="isRoot" index="/admin/public-models"><el-icon><Setting /></el-icon><span>{{ t('publicModelsAdmin.nav') }}</span></el-menu-item>
         <el-menu-item v-if="isRoot" index="/admin/public-pricing"><el-icon><Setting /></el-icon><span>{{ t('publicPricingAdmin.nav') }}</span></el-menu-item>
         <el-menu-item v-if="isRoot" index="/admin/public-content"><el-icon><Setting /></el-icon><span>{{ t('publicContentAdmin.nav') }}</span></el-menu-item>
+        <el-menu-item v-if="isRoot" index="/admin/notifications"><el-icon><Bell /></el-icon><RootNotificationBadge :unread-count="rootNotificationsStore.unreadCount"><span>{{ t('rootNotifications.nav') }}</span></RootNotificationBadge></el-menu-item>
       </el-menu>
     </MobileDrawer>
 
@@ -127,6 +129,7 @@ import {
   Key,
   User,
   Setting,
+  Bell,
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useSettingsStore } from '@/stores/settings'
@@ -135,15 +138,18 @@ import MobileDrawer from '@/components/mobile/MobileDrawer.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import LocaleToggle from '@/components/LocaleToggle.vue'
 import AuthStatus from '@/components/AuthStatus.vue'
+import RootNotificationBadge from '@/components/RootNotificationBadge.vue'
 import { useBreakpoint } from '@/composables/useBreakpoint'
 import { useI18n } from '@/composables/useI18n'
 import { usePublicModelAdminStore } from '@/stores/publicModelAdmin'
+import { useRootNotificationsStore } from '@/stores/rootNotifications'
 import { installRuntimeRootGuard } from '@/router/runtime-root-guard.js'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const publicModelAdminStore = usePublicModelAdminStore()
+const rootNotificationsStore = useRootNotificationsStore()
 const settingsStore = useSettingsStore()
 const showMobileMenu = ref(false)
 const { isTablet } = useBreakpoint()
