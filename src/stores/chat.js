@@ -86,6 +86,7 @@ export const useChatStore = defineStore('chat', () => {
     if (conversation?.messages) conversation.messages = conversation.messages.filter(message => !message.transientAttempt)
   }
   function rememberRun(run) {
+    if (USE_MOCK) return
     try {
       globalThis.sessionStorage?.setItem(ACTIVE_GENERATION_KEY, JSON.stringify({ generationId: run.generationId, mode: run.mode, models: run.models, conversationGuid: canonicalConversationGuid(run.conv.guid), messageKey: run.assistant.localKey, ownerGuid: run.userGuid, ownerEpoch: run.context.epoch }))
     } catch { /* Metadata is best-effort and deliberately excludes generated content. */ }
@@ -692,12 +693,14 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function retryPendingGeneration() {
+    if (USE_MOCK) { forgetRun(); return false }
     const run = activeRun
     if (!run || !runIsCurrent(run) || !run.recoverable) return false
     return recoverGeneration(run, { fromCancel: run.cancelRequested })
   }
 
   async function resumePendingGeneration() {
+    if (USE_MOCK) { forgetRun(); return false }
     if (streaming.value || activeRun) return false
     let saved
     try { saved = JSON.parse(globalThis.sessionStorage?.getItem(ACTIVE_GENERATION_KEY) || 'null') } catch { saved = null }

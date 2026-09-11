@@ -89,3 +89,27 @@ test('mock compare uses the shared mixed and all-failed completion rules', async
     }
   } finally { mockApi.compareModels = originalCompare }
 })
+
+test('mock reload rejects production recovery metadata without network and new mock sends stay local', async () => {
+  setActivePinia(createPinia())
+  authSession.setSession({ accessToken: 'mock', user: { guid: '1', username: 'mock', nickname: null, role: 'user', status: 'active' } })
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'demo-chat'
+  const recoveryKey = 'llm_platform_active_generation_v2'
+  sessionStorage.setItem(recoveryKey, JSON.stringify({ generationId: '123e4567-e89b-42d3-a456-426614174000', mode: 'single', models: ['demo-chat'], conversationGuid: null, messageKey: 'crafted', ownerGuid: '1', ownerEpoch: authSession.capture().epoch }))
+  const originalFetch = globalThis.fetch; let networkCalls = 0
+  globalThis.fetch = async () => { networkCalls += 1; throw new Error('mock recovery must not reach authenticated fetch') }
+  try {
+    assert.equal(await store.resumePendingGeneration(), false)
+    assert.equal(await store.retryPendingGeneration(), false)
+    assert.equal(networkCalls, 0)
+    assert.equal(sessionStorage.getItem(recoveryKey), null)
+
+    const sending = store.sendMessage('fresh local mock')
+    for (let attempt = 0; attempt < 40 && !store.streaming; attempt += 1) await new Promise(resolve => setTimeout(resolve, 5))
+    assert.equal(sessionStorage.getItem(recoveryKey), null)
+    await sending
+    for (let attempt = 0; attempt < 40 && store.generationState?.status === 'draining'; attempt += 1) await new Promise(resolve => setTimeout(resolve, 5))
+    assert.equal(store.generationState?.status, 'completed')
+    assert.equal(networkCalls, 0)
+  } finally { globalThis.fetch = originalFetch }
+})
