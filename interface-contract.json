@@ -222,16 +222,105 @@
       "method": "POST",
       "path": "/api/v1/platform/chat/completions",
       "authentication": "Bearer",
-      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
-      "request": "PlatformChatRequest",
+      "scope": "BE06 platform-chat-sse.v2 single generation; legacy protocol remains separately compatible",
+      "request": {
+        "body": "PlatformChatRequest",
+        "required_control_fields": {
+          "stream": true,
+          "stream_version": "platform-chat-sse.v2",
+          "generation_id": "canonical lowercase UUID"
+        }
+      },
       "response": {
         "status": 200,
         "content_type": "text/event-stream",
-        "body": "sse_events; first-frame failure instead returns HTTP error JSON"
+        "headers": {
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no"
+        },
+        "body": "platform_chat_sse_v2.events; first-frame failure instead returns HTTP error JSON",
+        "duplicate_generation_status": 409
       },
-      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
-      "source": "backend internal/handler/platform.go + internal/service/platform_chat.go + internal/whitelabel/{validation,sse}.go",
-      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+      "error_contract": "platform_chat_sse_v2 stable safe pre-stream errors; no JSON is appended after the stream starts; POST is never replayed",
+      "source": "backend@4680c549 internal/handler/platform.go + internal/service/platform_single_generation.go + internal/service/platform_sse_v2.go",
+      "confirmation": "BE06 code-contract freeze; local contract evidence only, not live acceptance"
+    },
+    {
+      "name": "platform_chat_compare_stream",
+      "method": "POST",
+      "path": "/api/v1/platform/chat/compare",
+      "authentication": "Bearer",
+      "scope": "BE06 platform-chat-sse.v2 ordered multi-model generation",
+      "request": {
+        "body": "PlatformCompareRequest",
+        "models": "required ordered unique model ID array with 2..3 entries",
+        "required_control_fields": {
+          "stream": true,
+          "stream_version": "platform-chat-sse.v2",
+          "generation_id": "canonical lowercase UUID"
+        }
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "headers": {
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no"
+        },
+        "body": "platform_chat_sse_v2.events with model order preserved",
+        "duplicate_generation_status": 409
+      },
+      "error_contract": "platform_chat_sse_v2 stable safe pre-stream errors; no JSON is appended after the stream starts; POST is never replayed",
+      "source": "backend@4680c549 internal/handler/platform.go + internal/service/platform_compare_generation.go + internal/service/platform_sse_v2.go",
+      "confirmation": "BE06 code-contract freeze; local contract evidence only, not live acceptance"
+    },
+    {
+      "name": "platform_generation_cancel",
+      "method": "POST",
+      "path": "/api/v1/platform/chat/generations/{generation_id}/cancel",
+      "authentication": "Bearer",
+      "scope": "BE06 owner-bound explicit cancellation",
+      "request": {
+        "path": {
+          "generation_id": "canonical lowercase UUID"
+        },
+        "body": null
+      },
+      "response": {
+        "headers": {
+          "Cache-Control": "no-store"
+        },
+        "one_of": [
+          "200 terminal cancelled|completed|failed GenerationStatus",
+          "202 pending cancelling|committing GenerationStatus with Retry-After: 1"
+        ]
+      },
+      "error_contract": "400 invalid UUID; owner-scoped missing generation creates a cancelled tombstone without exposing another owner's generation; 503 unavailable",
+      "source": "backend@4680c549 internal/handler/platform_generation.go",
+      "confirmation": "BE06 code-contract freeze; local contract evidence only, not live acceptance"
+    },
+    {
+      "name": "platform_generation_get",
+      "method": "GET",
+      "path": "/api/v1/platform/chat/generations/{generation_id}",
+      "authentication": "Bearer",
+      "scope": "BE06 owner-bound recovery without POST replay",
+      "request": {
+        "path": {
+          "generation_id": "canonical lowercase UUID"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Cache-Control": "no-store"
+        },
+        "body": "platform_chat_sse_v2.generation_get"
+      },
+      "error_contract": "400 invalid UUID; 404 unknown or foreign-owned generation; 503 unavailable",
+      "source": "backend@4680c549 internal/handler/platform_generation.go",
+      "confirmation": "BE06 code-contract freeze; local contract evidence only, not live acceptance"
     },
     {
       "name": "usage",
@@ -392,6 +481,317 @@
       "capability": "users.edit", "retry": {"mutation": "never"}, "legacy_put": {"excluded": true, "path": "/admin/users/{guid}", "rule": "not a new-interface write entry point and not expanded by A05"}, "status": "AGREED_FOR_IMPLEMENTATION"
     }
   ],
+  "platform_chat_sse_v2": {
+    "status": "closed",
+    "protocol": "platform-chat-sse.v2",
+    "authentication": "Bearer",
+    "generation_identity": {
+      "source": "client",
+      "format": "canonical lowercase UUID",
+      "ownership": "authenticated owner bound on first claim"
+    },
+    "request": {
+      "required_control_fields": {
+        "stream": true,
+        "stream_version": "platform-chat-sse.v2",
+        "generation_id": "canonical lowercase UUID"
+      },
+      "single": {
+        "endpoint": "POST /api/v1/platform/chat/completions",
+        "model_cardinality": 1
+      },
+      "compare": {
+        "endpoint": "POST /api/v1/platform/chat/compare",
+        "models": "ordered unique model ID array with 2..3 entries"
+      },
+      "post_replay_policy": "never_replay_generation_post"
+    },
+    "disconnect_policy": "reader_disconnect_does_not_cancel_generation",
+    "recovery_policy": "poll_owner_bound_generation_get_without_replaying_post",
+    "owner_isolation": {
+      "storage_key": "authenticated owner plus generation_id",
+      "foreign_get": "404 generation_not_found without data disclosure",
+      "foreign_cancel": "200 owner-scoped cancelled tombstone without altering another owner generation"
+    },
+    "generation_status_response_headers": {
+      "Cache-Control": "no-store"
+    },
+    "duplicate_generation": {
+      "status": 409,
+      "body": "owner_bound_generation_status_view",
+      "behavior": "conflict_never_starts_or_replays_generation"
+    },
+    "cancel": {
+      "terminal": {
+        "status": 200,
+        "generation_statuses": [
+          "cancelled",
+          "completed",
+          "failed"
+        ],
+        "retry_after": "absent"
+      },
+      "pending": {
+        "status": 202,
+        "generation_statuses": [
+          "cancelling",
+          "committing"
+        ],
+        "retry_after": "1"
+      }
+    },
+    "stable_safe_codes": [
+      "gateway_upstream_error",
+      "invalid_request",
+      "rate_limited",
+      "cancelled",
+      "timeout",
+      "internal_error",
+      "upstream_error"
+    ],
+    "events": {
+      "order": [
+        "meta",
+        "delta|model_done|model_error",
+        "done|error"
+      ],
+      "schemas": {
+        "meta": {
+          "required": [
+            "schema",
+            "generation_id",
+            "conversation_guid",
+            "models"
+          ],
+          "optional": [],
+          "fields": {
+            "schema": "literal platform-chat-sse.v2",
+            "generation_id": "canonical lowercase UUID",
+            "conversation_guid": "positive decimal-string",
+            "models": "ordered unique model ID array, single has 1 and compare has 2..3"
+          },
+          "additional_fields": "forbidden"
+        },
+        "delta": {
+          "required": [
+            "generation_id",
+            "model",
+            "seq",
+            "delta"
+          ],
+          "optional": [],
+          "fields": {
+            "generation_id": "canonical lowercase UUID",
+            "model": "requested model ID",
+            "seq": "positive JavaScript-safe integer, contiguous per model from 1",
+            "delta": "non-empty UTF-8 string"
+          },
+          "additional_fields": "forbidden"
+        },
+        "model_done": {
+          "required": [
+            "generation_id",
+            "model",
+            "last_seq"
+          ],
+          "optional": [],
+          "fields": {
+            "generation_id": "canonical lowercase UUID",
+            "model": "requested model ID",
+            "last_seq": "non-negative JavaScript-safe integer equal to the last contiguous seq"
+          },
+          "additional_fields": "forbidden"
+        },
+        "model_error": {
+          "required": [
+            "generation_id",
+            "model",
+            "code"
+          ],
+          "optional": [
+            "request_id"
+          ],
+          "fields": {
+            "generation_id": "canonical lowercase UUID",
+            "model": "requested model ID",
+            "code": "stable safe code",
+            "request_id": "optional sanitized non-empty string"
+          },
+          "additional_fields": "forbidden"
+        },
+        "done": {
+          "one_of": [
+            "PlatformChatSSEV2SingleDone",
+            "PlatformChatSSEV2CompareDone"
+          ]
+        },
+        "error": {
+          "required": [
+            "generation_id",
+            "code"
+          ],
+          "optional": [
+            "request_id"
+          ],
+          "fields": {
+            "generation_id": "canonical lowercase UUID",
+            "code": "stable safe code",
+            "request_id": "optional sanitized non-empty string"
+          },
+          "additional_fields": "forbidden"
+        }
+      },
+      "named_schemas": {
+        "PlatformChatSSEV2SingleDone": {
+          "required": [
+            "generation_id",
+            "status",
+            "conversation_guid",
+            "tokens",
+            "total_tokens_used"
+          ],
+          "literals": {
+            "status": "completed"
+          },
+          "additional_fields": "forbidden"
+        },
+        "PlatformChatSSEV2CompareDone": {
+          "required": [
+            "generation_id",
+            "status",
+            "conversation_guid",
+            "total_tokens_used",
+            "models"
+          ],
+          "literals": {
+            "status": "completed"
+          },
+          "models": "exact requested model keys; each value is completed+tokens or failed+stable safe code",
+          "additional_fields": "forbidden"
+        }
+      },
+      "terminal_rules": [
+        "exactly one meta is first",
+        "per-model seq is contiguous from 1",
+        "each requested model reaches exactly one model_done or model_error before done",
+        "done or error is the single terminal event",
+        "transport EOF without done or error is incomplete",
+        "v2 never emits legacy [DONE]"
+      ]
+    },
+    "generation_get": {
+      "nonterminal": {
+        "required": [
+          "generation_id",
+          "status",
+          "mode",
+          "conversation_guid"
+        ],
+        "optional": [],
+        "status": [
+          "running",
+          "cancelling",
+          "committing"
+        ],
+        "mode": [
+          "single",
+          "compare"
+        ],
+        "conversation_guid": null,
+        "additional_fields": "forbidden"
+      },
+      "terminal_noncompleted": {
+        "required": [
+          "generation_id",
+          "status",
+          "mode",
+          "conversation_guid"
+        ],
+        "optional": [
+          "code"
+        ],
+        "status": [
+          "cancelled",
+          "failed"
+        ],
+        "mode": [
+          "single",
+          "compare",
+          null
+        ],
+        "conversation_guid": null,
+        "code": "required stable safe code only for failed; forbidden for cancelled",
+        "additional_fields": "forbidden"
+      },
+      "completed_single": {
+        "required": [
+          "generation_id",
+          "status",
+          "mode",
+          "conversation_guid",
+          "result",
+          "total_tokens_used"
+        ],
+        "literals": {
+          "status": "completed",
+          "mode": "single"
+        },
+        "result_schema": "PlatformGenerationCompletedResult",
+        "additional_fields": "forbidden"
+      },
+      "completed_compare": {
+        "required": [
+          "generation_id",
+          "status",
+          "mode",
+          "conversation_guid",
+          "results",
+          "total_tokens_used"
+        ],
+        "literals": {
+          "status": "completed",
+          "mode": "compare"
+        },
+        "results_schema": "ordered PlatformGenerationResult array in original requested model order",
+        "additional_fields": "forbidden"
+      },
+      "result_schemas": {
+        "PlatformGenerationCompletedResult": {
+          "required": [
+            "model",
+            "status",
+            "assistant_message_guid",
+            "content",
+            "tokens"
+          ],
+          "literals": {
+            "status": "completed"
+          },
+          "additional_fields": "forbidden"
+        },
+        "PlatformGenerationFailedResult": {
+          "required": [
+            "model",
+            "status",
+            "code"
+          ],
+          "literals": {
+            "status": "failed"
+          },
+          "additional_fields": "forbidden"
+        }
+      }
+    },
+    "legacy_compatibility": {
+      "protocol": "legacy_platform_chat_stream",
+      "compatibility": "preserved_separately",
+      "contract_sources": [
+        "sse_events",
+        "sse_rules"
+      ],
+      "v2_controls_absent": true
+    }
+  },
   "sse_events": [
     {
       "event": "message",
