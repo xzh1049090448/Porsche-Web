@@ -504,6 +504,55 @@
         "endpoint": "POST /api/v1/platform/chat/compare",
         "models": "ordered unique model ID array with 2..3 entries"
       },
+      "schemas": {
+        "PlatformCompareRequest": {
+          "required": [
+            "model",
+            "models",
+            "messages",
+            "max_tokens",
+            "stream",
+            "stream_version",
+            "generation_id"
+          ],
+          "optional": [
+            "conversation_guid",
+            "temperature",
+            "context_window",
+            "n",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "stop",
+            "tools",
+            "response_format",
+            "stream_options",
+            "seed"
+          ],
+          "fields": {
+            "model": "non-empty routing model ID string used only for shared request validation",
+            "models": "ordered unique array of 2..3 non-empty authorized model ID strings",
+            "messages": "array of 1..128 closed OpenAI-compatible role/content messages; text content at most 1048576 UTF-8 bytes",
+            "max_tokens": "integer from 1 through 9223372036854775807",
+            "stream": "literal true",
+            "stream_version": "literal platform-chat-sse.v2",
+            "generation_id": "canonical lowercase UUID",
+            "conversation_guid": "optional positive decimal-string",
+            "temperature": "optional finite number from 0 through 2",
+            "context_window": "optional positive integer",
+            "n": "optional literal integer 1",
+            "top_p": "optional finite number greater than 0 through 1",
+            "frequency_penalty": "optional finite number from -2 through 2",
+            "presence_penalty": "optional finite number from -2 through 2",
+            "stop": "optional string or array of 1..4 non-empty strings",
+            "tools": "optional array of at most 32 closed function tools",
+            "response_format": "optional closed OpenAI-compatible response format",
+            "stream_options": "optional closed object whose include_usage, when present, is literal true",
+            "seed": "optional integer from -9223372036854775808 through 9223372036854775807"
+          },
+          "additional_fields": "forbidden"
+        }
+      },
       "post_replay_policy": "never_replay_generation_post"
     },
     "disconnect_policy": "reader_disconnect_does_not_cancel_generation",
@@ -752,10 +801,27 @@
           "status": "completed",
           "mode": "compare"
         },
-        "results_schema": "ordered PlatformGenerationResult array in original requested model order",
+        "results_schema": {
+          "type": "array",
+          "items": {
+            "ref": "PlatformGenerationResult"
+          },
+          "cardinality": "exactly one result per requested model",
+          "order": "original requested model order"
+        },
         "additional_fields": "forbidden"
       },
       "result_schemas": {
+        "PlatformGenerationResult": {
+          "one_of": [
+            {
+              "ref": "PlatformGenerationCompletedResult"
+            },
+            {
+              "ref": "PlatformGenerationFailedResult"
+            }
+          ]
+        },
         "PlatformGenerationCompletedResult": {
           "required": [
             "model",
@@ -764,8 +830,13 @@
             "content",
             "tokens"
           ],
-          "literals": {
-            "status": "completed"
+          "optional": [],
+          "fields": {
+            "model": "trimmed non-empty UTF-8 requested model ID string of at most 128 bytes",
+            "status": "literal completed",
+            "assistant_message_guid": "positive decimal-string",
+            "content": "non-empty UTF-8 string of at most 65535 bytes",
+            "tokens": "integer from 0 through 2147483647"
           },
           "additional_fields": "forbidden"
         },
@@ -775,8 +846,11 @@
             "status",
             "code"
           ],
-          "literals": {
-            "status": "failed"
+          "optional": [],
+          "fields": {
+            "model": "trimmed non-empty UTF-8 requested model ID string of at most 128 bytes",
+            "status": "literal failed",
+            "code": "one of platform_chat_sse_v2.stable_safe_codes"
           },
           "additional_fields": "forbidden"
         }

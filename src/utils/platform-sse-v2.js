@@ -13,7 +13,13 @@ const codes = {
   callback: 'SSE_V2_CALLBACK_FAILURE',
   limit: 'SSE_V2_LIMIT_EXCEEDED',
 }
-const stableModelCodes = new Set(['gateway_upstream_error', 'invalid_request', 'rate_limited', 'cancelled', 'timeout', 'internal_error', 'upstream_error'])
+const stableRemoteCodes = new Set(['gateway_upstream_error', 'invalid_request', 'rate_limited', 'cancelled', 'timeout', 'internal_error', 'upstream_error'])
+const hasExactKeys = (value, required, optional = []) => {
+  const keys = Object.keys(value)
+  const allowed = new Set([...required, ...optional])
+  return required.every(key => Object.prototype.hasOwnProperty.call(value, key)) && keys.every(key => allowed.has(key))
+}
+const hasValidOptionalRequestID = value => value.request_id === undefined || (typeof value.request_id === 'string' && value.request_id.trim() !== '')
 
 const safeError = (code) => Object.freeze({ code })
 const canonical = value => {
@@ -95,6 +101,7 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
     }
     if (payload.generation_id !== generationId) return protocolError(codes.protocol)
     if (eventName === 'delta') {
+      if (!hasExactKeys(payload, ['generation_id', 'model', 'seq', 'delta'])) return protocolError(codes.protocol)
       const state = modelState.get(payload.model)
       if (!state || state.terminal || typeof payload.delta !== 'string' || payload.delta.length === 0 || !Number.isSafeInteger(payload.seq) || payload.seq > maxSeq || payload.seq !== state.next) return protocolError(codes.sequence)
       state.next += 1
@@ -102,13 +109,17 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
       return callback({ type: 'delta', model: payload.model, seq: payload.seq, delta: payload.delta })
     }
     if (eventName === 'model_done' || eventName === 'model_error') {
+      const exact = eventName === 'model_done'
+        ? hasExactKeys(payload, ['generation_id', 'model', 'last_seq'])
+        : hasExactKeys(payload, ['generation_id', 'model', 'code'], ['request_id']) && hasValidOptionalRequestID(payload)
+      if (!exact) return protocolError(codes.protocol)
       const state = modelState.get(payload.model)
       if (!state || state.terminal) return protocolError(codes.protocol)
-      if (eventName === 'model_error' && (typeof payload.code !== 'string' || !payload.code.trim())) return protocolError(codes.protocol)
+      if (eventName === 'model_error' && !stableRemoteCodes.has(payload.code)) return protocolError(codes.protocol)
       if (eventName === 'model_done' && (!Number.isSafeInteger(payload.last_seq) || payload.last_seq > maxSeq || payload.last_seq !== state.next - 1)) return protocolError(codes.sequence)
       state.terminal = true
       state.status = eventName === 'model_done' ? 'completed' : 'failed'
-      state.code = eventName === 'model_error' && stableModelCodes.has(payload.code) ? payload.code : 'upstream_error'
+      state.code = eventName === 'model_error' ? payload.code : undefined
       if (!accept(duplicateKey, key)) return
       return callback({ type: eventName, model: payload.model, ...(eventName === 'model_done' ? { last_seq: payload.last_seq } : { code: state.code }) })
     }
@@ -132,7 +143,7 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
       return callback(sanitized)
     }
     if (eventName === 'error') {
-      if (typeof payload.code !== 'string') return protocolError(codes.protocol)
+      if (!hasExactKeys(payload, ['generation_id', 'code'], ['request_id']) || !hasValidOptionalRequestID(payload) || !stableRemoteCodes.has(payload.code)) return protocolError(codes.protocol)
       if (!accept(duplicateKey, key)) return
       return notifyError('SSE_V2_REMOTE_ERROR')
     }

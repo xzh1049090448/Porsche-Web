@@ -92,11 +92,24 @@ test('requires exact compare result keys and strict global done fields', () => {
   }
 })
 
-test('global error never exposes unknown code or sensitive payload', () => {
-  const { p, errors, events } = parser()
-  p.push(meta() + 'event: error\ndata: ' + JSON.stringify({ generation_id: 'g-1', code: 'raw https://internal.example Authorization: secret', prompt: 'secret' }) + '\n\n')
-  assert.equal(errors[0].code, 'SSE_V2_REMOTE_ERROR')
-  assert.equal(JSON.stringify(events).includes('internal.example'), false)
+test('rejects extra sensitive fields on delta, model_done, model_error, and global error without callback leakage', () => {
+  const cases = [
+    ['delta', { generation_id: 'g-1', model: 'a', seq: 1, delta: 'x' }],
+    ['model_done', { generation_id: 'g-1', model: 'a', last_seq: 0 }],
+    ['model_error', { generation_id: 'g-1', model: 'a', code: 'upstream_error' }],
+    ['error', { generation_id: 'g-1', code: 'upstream_error' }],
+  ]
+  const sensitiveFields = ['authorization', 'prompt', 'password', 'content', 'body', 'detail', 'url']
+  for (const [event, base] of cases) {
+    for (const field of sensitiveFields) {
+      const secret = `secret-${event}-${field}-https://internal.example`
+      const { p, events, errors } = parser()
+      p.push(meta() + `event: ${event}\ndata: ${JSON.stringify({ ...base, [field]: secret })}\n\n`)
+      assert.deepEqual(errors, [{ code: 'SSE_V2_PROTOCOL_ERROR' }], `${event}:${field}`)
+      assert.equal(events.some(item => item.type === event), false, `${event}:${field}:event leaked`)
+      assert.equal(JSON.stringify({ events, errors }).includes(secret), false, `${event}:${field}:payload leaked`)
+    }
+  }
 })
 
 test('global done requires total_tokens_used and exact schema keys without sensitive top-level fields', () => {
@@ -132,7 +145,7 @@ test('rejects missing, null, numeric, and blank meta conversation GUIDs', () => 
   }
 })
 
-test('requires model_error code to be a nonblank string before normalization', () => {
+test('requires model_error code to be a nonblank stable code', () => {
   for (const code of [undefined, null, 42, '   ']) {
     const payload = { generation_id: 'g-1', model: 'a' }; if (code !== undefined) payload.code = code
     const { p, errors } = parser(); p.push(meta() + `event: model_error\ndata: ${JSON.stringify(payload)}\n\n`); assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR')
@@ -157,11 +170,26 @@ test('deeply nested JSON cannot escape parser as a thrown exception', () => {
   const { p, errors } = parser(); p.push(`event: meta\ndata: ${value}\n\n`); assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR')
 })
 
-test('maps unknown model error codes to stable code and never exposes sensitive fields', () => {
-  const { p, events } = parser()
-  p.push(meta() + 'event: model_error\ndata: ' + JSON.stringify({ generation_id: 'g-1', model: 'a', code: 'raw upstream https://internal.example', message: 'Authorization: Bearer secret prompt' }) + '\n\n' + done())
-  assert.equal(events.find(e => e.type === 'model_error').code, 'upstream_error')
-  assert.equal(JSON.stringify(events).includes('Authorization'), false)
+test('rejects unknown model and global error codes without normalization or payload leakage', () => {
+  for (const event of ['model_error', 'error']) {
+    const secretCode = `raw-${event}-https://internal.example`
+    const payload = event === 'model_error'
+      ? { generation_id: 'g-1', model: 'a', code: secretCode }
+      : { generation_id: 'g-1', code: secretCode }
+    const { p, events, errors } = parser()
+    p.push(meta() + `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
+    assert.deepEqual(errors, [{ code: 'SSE_V2_PROTOCOL_ERROR' }], event)
+    assert.equal(events.some(item => item.type === event), false, `${event}:event leaked`)
+    assert.equal(JSON.stringify({ events, errors }).includes(secretCode), false, `${event}:code leaked`)
+  }
+})
+
+test('accepts a closed stable global error and emits only the local error code', () => {
+  const { p, events, errors } = parser()
+  p.push(meta() + 'event: error\ndata: ' + JSON.stringify({ generation_id: 'g-1', code: 'timeout', request_id: 'req-1' }) + '\n\n')
+  assert.deepEqual(errors, [{ code: 'SSE_V2_REMOTE_ERROR' }])
+  assert.deepEqual(events.map(event => event.type), ['meta'])
+  assert.equal(JSON.stringify({ events, errors }).includes('req-1'), false)
 })
 
 test('accepts model_error as one model terminal and emits no error text', () => {

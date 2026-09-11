@@ -18,7 +18,7 @@
 
 - 推荐基线：Porsche `origin/main@0bab2b7fd7515789c7a853edab7db120771b6028`
 - 推荐隔离分支：`feature/platform-chat-sse-v2-backend`
-- 推荐隔离工作树：`/Users/xuzhihao/code/Porsche/.worktrees/platform-chat-sse-v2-backend`
+- 推荐隔离工作树：`<Porsche-repository>/.worktrees/platform-chat-sse-v2-backend`
 - Porsche 根目录 `main@e0efac2` 落后且有用户修改，不得作为本需求开发工作树。
 
 ## 候选冻结契约

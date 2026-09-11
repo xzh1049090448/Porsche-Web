@@ -81,6 +81,131 @@ const stableCodes = [
   'upstream_error',
 ]
 
+const exactRouteContracts = {
+  'POST /api/v1/platform/chat/completions': {
+    request: {
+      body: 'PlatformChatRequest',
+      required_control_fields: { stream: true, stream_version: 'platform-chat-sse.v2', generation_id: 'canonical lowercase UUID' },
+    },
+    response: {
+      status: 200,
+      content_type: 'text/event-stream',
+      headers: { 'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no' },
+      body: 'platform_chat_sse_v2.events; first-frame failure instead returns HTTP error JSON',
+      duplicate_generation_status: 409,
+    },
+    error_contract: 'platform_chat_sse_v2 stable safe pre-stream errors; no JSON is appended after the stream starts; POST is never replayed',
+  },
+  'POST /api/v1/platform/chat/compare': {
+    request: {
+      body: 'PlatformCompareRequest',
+      models: 'required ordered unique model ID array with 2..3 entries',
+      required_control_fields: { stream: true, stream_version: 'platform-chat-sse.v2', generation_id: 'canonical lowercase UUID' },
+    },
+    response: {
+      status: 200,
+      content_type: 'text/event-stream',
+      headers: { 'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no' },
+      body: 'platform_chat_sse_v2.events with model order preserved',
+      duplicate_generation_status: 409,
+    },
+    error_contract: 'platform_chat_sse_v2 stable safe pre-stream errors; no JSON is appended after the stream starts; POST is never replayed',
+  },
+  'POST /api/v1/platform/chat/generations/{generation_id}/cancel': {
+    request: { path: { generation_id: 'canonical lowercase UUID' }, body: null },
+    response: {
+      headers: { 'Cache-Control': 'no-store' },
+      one_of: [
+        '200 terminal cancelled|completed|failed GenerationStatus',
+        '202 pending cancelling|committing GenerationStatus with Retry-After: 1',
+      ],
+    },
+    error_contract: '400 invalid UUID; owner-scoped missing generation creates a cancelled tombstone without exposing another owner\'s generation; 503 unavailable',
+  },
+  'GET /api/v1/platform/chat/generations/{generation_id}': {
+    request: { path: { generation_id: 'canonical lowercase UUID' }, body: null },
+    response: { status: 200, headers: { 'Cache-Control': 'no-store' }, body: 'platform_chat_sse_v2.generation_get' },
+    error_contract: '400 invalid UUID; 404 unknown or foreign-owned generation; 503 unavailable',
+  },
+}
+
+const resultSchemas = {
+  PlatformGenerationResult: {
+    one_of: [
+      { ref: 'PlatformGenerationCompletedResult' },
+      { ref: 'PlatformGenerationFailedResult' },
+    ],
+  },
+  PlatformGenerationCompletedResult: {
+    required: ['model', 'status', 'assistant_message_guid', 'content', 'tokens'],
+    optional: [],
+    fields: {
+      model: 'trimmed non-empty UTF-8 requested model ID string of at most 128 bytes',
+      status: 'literal completed',
+      assistant_message_guid: 'positive decimal-string',
+      content: 'non-empty UTF-8 string of at most 65535 bytes',
+      tokens: 'integer from 0 through 2147483647',
+    },
+    additional_fields: 'forbidden',
+  },
+  PlatformGenerationFailedResult: {
+    required: ['model', 'status', 'code'],
+    optional: [],
+    fields: {
+      model: 'trimmed non-empty UTF-8 requested model ID string of at most 128 bytes',
+      status: 'literal failed',
+      code: 'one of platform_chat_sse_v2.stable_safe_codes',
+    },
+    additional_fields: 'forbidden',
+  },
+}
+
+const platformCompareRequest = {
+  required: ['model', 'models', 'messages', 'max_tokens', 'stream', 'stream_version', 'generation_id'],
+  optional: ['conversation_guid', 'temperature', 'context_window', 'n', 'top_p', 'frequency_penalty', 'presence_penalty', 'stop', 'tools', 'response_format', 'stream_options', 'seed'],
+  fields: {
+    model: 'non-empty routing model ID string used only for shared request validation',
+    models: 'ordered unique array of 2..3 non-empty authorized model ID strings',
+    messages: 'array of 1..128 closed OpenAI-compatible role/content messages; text content at most 1048576 UTF-8 bytes',
+    max_tokens: 'integer from 1 through 9223372036854775807',
+    stream: 'literal true',
+    stream_version: 'literal platform-chat-sse.v2',
+    generation_id: 'canonical lowercase UUID',
+    conversation_guid: 'optional positive decimal-string',
+    temperature: 'optional finite number from 0 through 2',
+    context_window: 'optional positive integer',
+    n: 'optional literal integer 1',
+    top_p: 'optional finite number greater than 0 through 1',
+    frequency_penalty: 'optional finite number from -2 through 2',
+    presence_penalty: 'optional finite number from -2 through 2',
+    stop: 'optional string or array of 1..4 non-empty strings',
+    tools: 'optional array of at most 32 closed function tools',
+    response_format: 'optional closed OpenAI-compatible response format',
+    stream_options: 'optional closed object whose include_usage, when present, is literal true',
+    seed: 'optional integer from -9223372036854775808 through 9223372036854775807',
+  },
+  additional_fields: 'forbidden',
+}
+
+function assertDeepBE06Contract(contract) {
+  for (const [method, path] of endpointKeys) {
+    const route = findEndpoint(contract, method, path)[0]
+    assert.ok(route, `missing:${method} ${path}`)
+    const expected = exactRouteContracts[`${method} ${path}`]
+    assert.deepEqual({ request: route.request, response: route.response, error_contract: route.error_contract }, expected)
+  }
+  assert.deepEqual(contract.platform_chat_sse_v2.generation_get.result_schemas, resultSchemas)
+  assert.deepEqual(contract.platform_chat_sse_v2.request.schemas.PlatformCompareRequest, platformCompareRequest)
+  assert.deepEqual(contract.platform_chat_sse_v2.events.terminal_rules, [
+    'exactly one meta is first',
+    'per-model seq is contiguous from 1',
+    'each requested model reaches exactly one model_done or model_error before done',
+    'done or error is the single terminal event',
+    'transport EOF without done or error is incomplete',
+    'v2 never emits legacy [DONE]',
+  ])
+}
+
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 
 async function readContract() {
@@ -103,6 +228,33 @@ test('BE06 inventory exposes exactly four authenticated generation endpoints', a
     .filter(entry => entry.path.startsWith('/api/v1/platform/chat/generations/') || endpointKeys.some(([method, path]) => entry.method === method && entry.path === path))
     .map(entry => [entry.method, entry.path])
   assert.deepEqual(inventory, endpointKeys)
+})
+
+test('mutation probes reject drift in every route contract and reachable recovery/terminal schemas', async () => {
+  const contract = await readContract()
+  assertDeepBE06Contract(contract)
+  const probes = []
+  for (const [method, path] of endpointKeys) {
+    const index = contract.interfaces.findIndex(entry => entry.method === method && entry.path === path)
+    probes.push(copy => { copy.interfaces[index].request = { mutated: `${method}:${path}:request` } })
+    probes.push(copy => { copy.interfaces[index].response.headers['Cache-Control'] = 'public' })
+    probes.push(copy => { copy.interfaces[index].response.body = 'mutated response schema' })
+    probes.push(copy => {
+      const response = copy.interfaces[index].response
+      if ('status' in response) response.status = 299
+      else response.one_of[0] = '299 mutated terminal status'
+    })
+    probes.push(copy => { copy.interfaces[index].error_contract = `${method}:${path}:mutated error` })
+  }
+  probes.push(copy => { copy.platform_chat_sse_v2.generation_get.result_schemas.PlatformGenerationCompletedResult.required.pop() })
+  probes.push(copy => { copy.platform_chat_sse_v2.generation_get.result_schemas.PlatformGenerationFailedResult.fields.code = 'any string' })
+  probes.push(copy => { copy.platform_chat_sse_v2.events.terminal_rules.pop() })
+  probes.push(copy => { copy.platform_chat_sse_v2.request.schemas.PlatformCompareRequest.additional_fields = 'allowed' })
+  for (const mutate of probes) {
+    const copy = structuredClone(contract)
+    mutate(copy)
+    assert.throws(() => assertDeepBE06Contract(copy), assert.AssertionError)
+  }
 })
 
 test('v2 identity, request, replay, disconnect, recovery, ownership, cache, and duplicate rules are closed', async () => {
@@ -175,9 +327,15 @@ test('cancel and GET recovery freeze terminal, pending, ordered compare, and saf
   assert.deepEqual(v2.generation_get.completed_compare, {
     required: ['generation_id', 'status', 'mode', 'conversation_guid', 'results', 'total_tokens_used'],
     literals: { status: 'completed', mode: 'compare' },
-    results_schema: 'ordered PlatformGenerationResult array in original requested model order',
+    results_schema: {
+      type: 'array',
+      items: { ref: 'PlatformGenerationResult' },
+      cardinality: 'exactly one result per requested model',
+      order: 'original requested model order',
+    },
     additional_fields: 'forbidden',
   })
+  assert.deepEqual(v2.generation_get.result_schemas, resultSchemas)
 })
 
 test('every named v2 SSE event has an exact closed schema', async () => {
