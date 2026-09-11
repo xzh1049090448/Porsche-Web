@@ -60,6 +60,49 @@ test('about and legal pages expose safe published states and metadata', () => {
   assert.match(`${about}${legal}${state}`, /\bt\('/)
 })
 
+test('public and administrative surfaces retain distinct state identifiers', () => {
+  const home = source('./Home.vue')
+  const state = source('../../components/public/PublicContentState.vue')
+  const notFound = source('../PublicNotFound.vue')
+  const detail = source('./ModelPricingDetail.vue')
+  const publicApi = source('../../api/publicContent.js')
+  const publicModelDetail = source('../PublicModelDetail.vue')
+
+  for (const status of ['loading', 'preparing', 'idle', 'empty', 'ready-empty', 'error', 'not_found', 'gone']) {
+    assert.match(state, new RegExp(`['"]${status}['"]`), status)
+  }
+  assert.match(home, /homeStatus !== ['"]ready['"]/)
+  assert.match(home, /status=["']preparing["']/)
+  assert.match(notFound, /(?:>|aria-label=["'][^"']*)404(?:<|["'])/)
+  assert.match(publicApi, /401:\s*['"]authentication_required['"]/)
+  assert.match(publicApi, /404:\s*['"]not_found['"]/)
+  assert.match(publicApi, /410:\s*['"]gone['"]/)
+  assert.match(publicApi, /503:\s*['"]unavailable['"]/)
+  for (const status of ['not_found', 'gone', 'login_required', 'error']) {
+    assert.match(detail, new RegExp(`slot\\.status === ['"]${status}['"]`), status)
+  }
+  assert.match(publicModelDetail, /revision_conflict/)
+  assert.match(publicModelDetail, /root_required/)
+  assert.match(publicModelDetail, /unavailable/)
+})
+
+test('public publication ownership remains in the layout and every consumer cancels its work', () => {
+  const layout = source('../../layouts/PublicLayout.vue')
+  const home = source('./Home.vue')
+  const about = source('./About.vue')
+  const legal = source('./LegalPage.vue')
+  const pricing = source('./Pricing.vue')
+  const detail = source('./ModelPricingDetail.vue')
+
+  assert.match(layout, /provide\(['"]public-home-publication['"],\s*\{\s*store,\s*publication,\s*ready,\s*loadHome:\s*lifecycle\.loadHome,\s*loadPage:\s*lifecycle\.loadPage\s*\}\)/)
+  assert.match(layout, /onUnmounted\(\(\) => lifecycle\.dispose\(\)\)/)
+  for (const consumer of [home, about, legal, pricing, detail]) assert.match(consumer, /inject\(['"]public-home-publication['"]\)/)
+  assert.match(pricing, /onBeforeUnmount\([\s\S]*store\.cancel\(['"]models['"]\)/)
+  assert.match(detail, /onCleanup\(\(\) => store\.cancel\(`detail:\$\{key\}`\)\)/)
+  assert.match(detail, /onBeforeUnmount\([\s\S]*store\.cancel\(`detail:\$\{modelKey\.value\}`\)/)
+  assert.match(legal, /onCleanup\([\s\S]*invalidatePage\(page\)/)
+})
+
 test('public pages are lazy routes and styles cover themes, breakpoints and reduced motion', () => {
   const router = source('../../router/index.js')
   const global = source('../../styles/global.scss')

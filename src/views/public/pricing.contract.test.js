@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { publicText } from '../../i18n/public-runtime.js'
+import { formatPublicPrice, mapPublicModel, PUBLIC_PRICING } from '../../utils/public-catalog.js'
+import { publicPriceState } from '../../utils/public-pricing-query.js'
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 
@@ -32,6 +34,42 @@ test('pages use the shared publication store and distinguish required failure st
   assert.match(detail, /status === ['"]not_found['"]/); assert.match(detail, /status === ['"]gone['"]/); assert.match(detail, /status === ['"]error['"]/)
   assert.match(detail, /encodeURIComponent/)
   assert.doesNotMatch(`${list}\n${detail}`, /fetch\(|axios|VITE_USE_MOCK|单次调用价|每请求/)
+})
+
+test('token prices preserve input/output units plus anonymous redaction and missing-price states', () => {
+  const base = {
+    model_key: 'stable.model-key_v1', display_name: 'Stable model', provider: 'Provider',
+    capabilities: ['chat'], context_window: 128000, price_visibility: 'visible', release_version: 7,
+    pricing_type: 'token', endpoint_types: ['chat.completions'], updated_at: '2026-09-12T00:00:00Z',
+  }
+  const visible = mapPublicModel({
+    ...base,
+    input_price_usd_per_million_tokens: '0',
+    output_price_usd_per_million_tokens: '2.50000000',
+    price_source: 'published-source', price_reviewer: 'root', effective_at: '2026-09-12T00:00:00Z',
+  })
+  assert.equal(visible.modelKey, 'stable.model-key_v1')
+  assert.deepEqual(PUBLIC_PRICING, { currency: 'USD', unit: 'million_tokens', billingSemantics: 'references_only_no_automatic_charge' })
+  assert.deepEqual(publicPriceState(visible, 'input'), { state: 'published', value: '0' })
+  assert.deepEqual(publicPriceState(visible, 'output'), { state: 'published', value: '2.50000000' })
+  assert.deepEqual(formatPublicPrice(visible.inputPrice), { state: 'published', label: '0', currency: 'USD', unit: 'million_tokens' })
+
+  const missingOutput = mapPublicModel({
+    ...base,
+    input_price_usd_per_million_tokens: '1.25',
+    price_source: 'published-source', price_reviewer: 'root', effective_at: '2026-09-12T00:00:00Z',
+  })
+  assert.deepEqual(publicPriceState(missingOutput, 'output'), { state: 'unpublished' })
+
+  const anonymous = mapPublicModel({ ...base, price_visibility: 'authenticated_only' })
+  assert.equal('inputPrice' in anonymous, false)
+  assert.equal('outputPrice' in anonymous, false)
+  assert.deepEqual(publicPriceState(anonymous, 'input'), { state: 'login_required' })
+  assert.deepEqual(publicPriceState(anonymous, 'output'), { state: 'login_required' })
+  assert.throws(
+    () => mapPublicModel({ ...base, price_visibility: 'authenticated_only', input_price_usd_per_million_tokens: '9' }),
+    /invalid_public_model/,
+  )
 })
 
 test('USD per million token labels, page sizes, theme and responsive gates are explicit', async () => {

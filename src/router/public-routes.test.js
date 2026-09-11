@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { bootstrapModeForPath, createLazyLoadFailureHandler, installAuthGuard, installBootstrapHandoff, installLoadFailureRecovery, routes } from './index.js'
+import { safeAuthRedirect } from '../utils/auth-redirect.js'
 
 const Stub = { template: '<div />' }
 const testRoutes = routes.map(route => ({
@@ -10,15 +12,56 @@ const testRoutes = routes.map(route => ({
   children: route.children?.map(child => ({ ...child, component: Stub })),
 }))
 
-function routerFixture({ loggedIn = false } = {}) {
+function routerFixture({ loggedIn = false, role = 'user' } = {}) {
   let storeLoads = 0
   const router = createRouter({ history: createMemoryHistory(), routes: testRoutes })
   installAuthGuard(router, async () => {
     storeLoads += 1
-    return { isLoggedIn: loggedIn, ensureSession: async () => loggedIn }
+    return { isLoggedIn: loggedIn, user: loggedIn ? { role } : null, ensureSession: async () => loggedIn }
   })
   return { router, storeLoads: () => storeLoads }
 }
+
+test('route inventory freezes public, guest, authenticated, Root, and DEV metadata', () => {
+  const { router } = routerFixture()
+  const families = {
+    public: [
+      ['/', 'PublicHome'], ['/pricing', 'PublicPricing'], ['/pricing/model-key', 'PublicPricingDetail'],
+      ['/about', 'PublicAbout'], ['/terms', 'PublicTerms'], ['/privacy', 'PublicPrivacy'],
+      ['/not-a-real-page', 'PublicNotFound'],
+    ],
+    guest: [['/login', 'Login'], ['/register', 'Register']],
+    authenticated: [
+      ['/chat', 'Chat'], ['/users', 'Users'], ['/users/123', 'UserDetail'],
+      ['/profile', 'Profile'], ['/billing', 'Billing'], ['/api-keys', 'ApiKeys'],
+    ],
+    root: [
+      ['/admin/public-models', 'PublicModelsAdmin'], ['/admin/public-models/123', 'PublicModelDetail'],
+      ['/admin/public-pricing', 'PublicPricingAdmin'], ['/admin/public-content', 'PublicContentAdmin'],
+      ['/admin/public-content/preview', 'PublicContentPreview'], ['/admin/notifications', 'RootNotifications'],
+    ],
+  }
+
+  const expectedNames = []
+  for (const [family, entries] of Object.entries(families)) {
+    for (const [path, name] of entries) {
+      const resolved = router.resolve(path)
+      expectedNames.push(name)
+      assert.equal(resolved.name, name, path)
+      assert.equal(resolved.meta.public === true, family === 'public', `${path} public`)
+      assert.equal(resolved.meta.guest === true, family === 'guest', `${path} guest`)
+      assert.equal(resolved.meta.requiresAuth === true, family === 'authenticated' || family === 'root', `${path} requiresAuth`)
+      assert.equal(resolved.meta.rootOnly === true, family === 'root', `${path} rootOnly`)
+    }
+  }
+
+  const runtimeNames = routes.flatMap(route => route.name ? [route.name] : (route.children || []).map(child => child.name)).filter(Boolean)
+  assert.deepEqual(runtimeNames.toSorted(), expectedNames.toSorted())
+
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8')
+  assert.match(source, /import\.meta\.env\?\.DEV\s*\?\s*\[/)
+  assert.match(source, /path:\s*['"]demo\/admin\/balance['"][\s\S]{0,180}name:\s*['"]AdminBalanceMockDemo['"][\s\S]{0,220}meta:\s*\{\s*requiresAuth:\s*true\s*\}/)
+})
 
 test('actual matcher resolves public routes and 404 through PublicLayout', () => {
   const { router } = routerFixture()
@@ -75,6 +118,32 @@ test('logged-in guest navigation and missing login redirects use /chat', async (
 
   const anonymous = routerFixture()
   await anonymous.router.push('/login')
+  await anonymous.router.isReady()
+  assert.equal(anonymous.router.currentRoute.value.query.redirect, '/chat')
+})
+
+test('Root routes reject non-Root sessions while Root sessions retain access', async () => {
+  for (const path of ['/admin/public-models', '/admin/public-pricing', '/admin/public-content', '/admin/public-content/preview', '/admin/notifications']) {
+    const regular = routerFixture({ loggedIn: true, role: 'admin' })
+    await regular.router.push(path)
+    await regular.router.isReady()
+    assert.equal(regular.router.currentRoute.value.path, '/chat', path)
+
+    const root = routerFixture({ loggedIn: true, role: 'root' })
+    await root.router.push(path)
+    await root.router.isReady()
+    assert.equal(root.router.currentRoute.value.path, path, path)
+  }
+})
+
+test('login redirects retain safe internal paths and reject external, loop, and encoded bypasses', async () => {
+  assert.equal(safeAuthRedirect('/profile?tab=security#sessions'), '/profile?tab=security#sessions')
+  for (const unsafe of ['https://evil.example/path', '//evil.example/path', '/login', '/register?next=/chat', '/%252F%252Fevil.example']) {
+    assert.equal(safeAuthRedirect(unsafe), '/chat', unsafe)
+  }
+
+  const anonymous = routerFixture()
+  await anonymous.router.push({ name: 'Login', query: { redirect: 'https://evil.example/path' } })
   await anonymous.router.isReady()
   assert.equal(anonymous.router.currentRoute.value.query.redirect, '/chat')
 })
