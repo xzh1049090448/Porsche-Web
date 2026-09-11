@@ -297,12 +297,13 @@ test('disconnect recovers by GET and appends only the authoritative suffix once'
       ].join(''))
     }
     gets += 1
-    return jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 2, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: 'Hello', tokens: 2 } })
+    return jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 9, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: 'Hello', tokens: 2 } })
   }
   try {
     await store.sendMessage('hello'); await waitFor(() => store.generationState?.status === 'completed')
     assert.equal(gets, 1)
     assert.equal(store.getActive().messages.at(-1).content, 'Hello')
+    assert.equal(store.getActive().messages.at(-1).tokens, 2)
     assert.equal(store.getActive().messages.at(-1).content.includes('HelHel'), false)
   } finally { globalThis.fetch = originalFetch }
 })

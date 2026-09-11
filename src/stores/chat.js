@@ -287,7 +287,11 @@ export const useChatStore = defineStore('chat', () => {
     forgetRun()
     run.assistant.generationStatus = 'completed'
     run.assistant.viewOnly = false
-    const tokens = run.terminalMeta?.tokens ?? run.terminalMeta?.total_tokens_used ?? 0
+    const resultTokens = run.mode === 'single'
+      ? run.terminalMeta?.result?.tokens
+      : run.terminalMeta?.results?.reduce((sum, result) => sum + (result.status === 'completed' ? result.tokens : 0), 0)
+        ?? (run.terminalMeta?.models ? Object.values(run.terminalMeta.models).reduce((sum, result) => sum + (result.status === 'completed' ? result.tokens : 0), 0) : undefined)
+    const tokens = run.terminalMeta?.tokens ?? resultTokens ?? 0
     run.assistant.tokens = tokens
     useUserStore().applyTokensUsed(tokens, run.terminalMeta?.total_tokens_used)
     run.conv.updatedAt = Date.now()
