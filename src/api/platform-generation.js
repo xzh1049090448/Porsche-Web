@@ -286,6 +286,10 @@ export function createPlatformGenerationClient({
       throw new PlatformGenerationIndeterminateError(generationId, 'invalid_cache_control')
     }
     if (!response.ok) throw await safeHTTPError(response, generationId, route)
+    if (!isContentType(response.headers?.get?.('Content-Type'), 'application/json')) {
+      await cancelUnreadBody(response)
+      throw new PlatformGenerationIndeterminateError(generationId, 'invalid_status_response')
+    }
     let data
     try { data = await response.json() } catch { throw new PlatformGenerationIndeterminateError(generationId, 'invalid_status_response') }
     const status = validateStatus(data, generationId, expectedModels)

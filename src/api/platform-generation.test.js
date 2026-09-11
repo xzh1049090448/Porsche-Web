@@ -391,6 +391,32 @@ test('GET accepts the sole no-store directive case-insensitively', async () => {
   assert.deepEqual(await client.get(generationId), completed)
 })
 
+test('successful GET accepts application/json MIME casing, OWS, and legal parameters', async () => {
+  const { client } = harness([
+    controlledJSONResponse(running, { contentType: 'APPLICATION/JSON' }).response,
+    controlledJSONResponse(completed, { contentType: ' application/json ; charset="utf-8" ' }).response,
+  ])
+  assert.deepEqual(await client.get(generationId), running)
+  assert.deepEqual(await client.get(generationId), completed)
+})
+
+for (const contentType of [null, 'text/plain', 'application/json-evil', 'application/json; broken']) {
+  test(`successful GET rejects untrusted Content-Type ${JSON.stringify(contentType)} before JSON read`, async () => {
+    for (const status of [running, completed]) {
+      const controlled = controlledJSONResponse(status, { contentType })
+      const { client, calls } = harness([controlled.response])
+      await assert.rejects(
+        client.get(generationId),
+        error => error instanceof PlatformGenerationIndeterminateError
+          && error.generation_id === generationId
+          && error.reason === 'invalid_status_response',
+      )
+      assert.deepEqual(controlled.counts(), { jsonReads: 0, bodyCancels: 1 })
+      assert.deepEqual(calls.map(call => call.init.method), ['GET'])
+    }
+  })
+}
+
 test('GET preserves HTTP failures and rejects noncanonical IDs before network', async () => {
   const { client, calls } = harness([jsonResponse(publicError('generation_not_found', 'Generation not found.', 'invalid_request_error'), 404)])
   await assert.rejects(client.get(generationId), error => error instanceof PlatformGenerationHTTPError && error.status === 404 && error.code === 'generation_not_found' && error.generation_id === generationId)
@@ -553,6 +579,25 @@ test('cancel 202 honors a valid Retry-After then continues with GET only', async
 })
 
 for (const [status, data, retryAfter] of [[200, cancelled, undefined], [202, cancelling, '1']]) {
+  for (const contentType of [null, 'text/plain', 'application/json-evil', 'application/json; broken']) {
+    test(`cancel ${status} rejects untrusted Content-Type ${JSON.stringify(contentType)} without polling`, async () => {
+      const sleeps = []
+      const controlled = controlledJSONResponse(data, { status, retryAfter, contentType })
+      const { client, calls } = harness([controlled.response], { sleep: async ms => { sleeps.push(ms) } })
+      await assert.rejects(
+        client.cancel(generationId),
+        error => error instanceof PlatformGenerationIndeterminateError
+          && error.generation_id === generationId
+          && error.reason === 'invalid_status_response',
+      )
+      assert.deepEqual(controlled.counts(), { jsonReads: 0, bodyCancels: 1 })
+      assert.deepEqual(calls.map(call => call.init.method), ['POST'])
+      assert.deepEqual(sleeps, [])
+    })
+  }
+}
+
+for (const [status, data, retryAfter] of [[200, cancelled, undefined], [202, cancelling, '1']]) {
   for (const cacheControl of [null, 'private', 'no-store, private']) {
     test(`cancel ${status} rejects untrusted Cache-Control ${JSON.stringify(cacheControl)}`, async () => {
       const controlled = controlledJSONResponse(data, { status, cacheControl, retryAfter })
@@ -572,7 +617,7 @@ for (const [status, data, retryAfter] of [[200, cancelled, undefined], [202, can
 for (const retryAfter of [undefined, '', 'private', '0', '2', '3', '01', '1 ']) {
   test(`cancel 202 rejects non-contract Retry-After ${JSON.stringify(retryAfter)}`, async () => {
     const sleeps = []
-    const response = { ok: true, status: 202, headers: { get: name => name.toLowerCase() === 'retry-after' ? retryAfter ?? null : name.toLowerCase() === 'cache-control' ? 'no-store' : null }, json: async () => cancelling }
+    const response = { ok: true, status: 202, headers: { get: name => name.toLowerCase() === 'retry-after' ? retryAfter ?? null : name.toLowerCase() === 'cache-control' ? 'no-store' : name.toLowerCase() === 'content-type' ? 'application/json' : null }, json: async () => cancelling }
     const { client, calls } = harness([response], { sleep: async ms => { sleeps.push(ms) } })
     await assert.rejects(
       client.cancel(generationId),
