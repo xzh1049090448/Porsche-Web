@@ -7,7 +7,7 @@ import { setImmediate } from 'node:timers/promises'
 // Load the real store/API/mappers via the project's Vite aliases, replacing
 // only Axios's transport so every request stays inside these local fixtures.
 let server, useChatStore, useSettingsStore, request, authSession, route, calls = [], writes = []
-const browserGlobals = ['localStorage', 'navigator', 'isSecureContext', 'BroadcastChannel', 'document']
+const browserGlobals = ['localStorage', 'sessionStorage', 'navigator', 'isSecureContext', 'BroadcastChannel', 'document']
 const originalGlobals = new Map(browserGlobals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
 const A = '9223372036854775701'
 const B = '9223372036854775702'
@@ -21,6 +21,15 @@ function deferred() {
   return { promise, resolve, reject }
 }
 function httpError(status) { return Object.assign(new Error(`Fixture ${status}`), { response: { status } }) }
+const sseResponse = body => new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store' } })
+const jsonResponse = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers } })
+const waitFor = async predicate => {
+  for (let attempt = 0; attempt < 240; attempt += 1) {
+    if (predicate()) return
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+  assert.fail('condition was not reached')
+}
 
 before(async () => {
   const storage = new Map()
@@ -28,6 +37,13 @@ before(async () => {
     getItem: key => storage.get(key) ?? null,
     setItem: (key, value) => { writes.push([key, value]); storage.set(key, value) },
     removeItem: key => storage.delete(key),
+  }
+  const session = new Map()
+  globalThis.sessionStorage = {
+    getItem: key => session.get(key) ?? null,
+    setItem: (key, value) => session.set(key, value),
+    removeItem: key => session.delete(key),
+    clear: () => session.clear(),
   }
   // Supply browser capabilities at the boundary, retaining the actual core,
   // browser adapter, HTTP interceptors and epoch checks in this SSR fixture.
@@ -75,6 +91,7 @@ beforeEach(() => {
   authSession.clearSession()
   authSession.setSession({ accessToken: 'fixture-access', user: { guid: '1', username: 'fixture', nickname: null, role: 'user', status: 'active' } })
   calls = []; writes = []
+  globalThis.sessionStorage.clear()
   route = ({ url, method }) => {
     if (url === listPath && method === 'get') return { items: [summary(A), summary(B)], total: 2 }
     if (url === listPath && method === 'post') return { ...summary(C), messages: [] }
@@ -234,12 +251,164 @@ test('sending during initial detail waits for history and keeps the new streamed
       `event: model_done\ndata: ${JSON.stringify({ generation_id: generationId, model, last_seq: 1 })}\n\n`,
       `event: done\ndata: ${JSON.stringify({ generation_id: generationId, status: 'completed', conversation_guid: A, tokens: 2, total_tokens_used: 2 })}\n\n`,
     ].join('')
-    stream.resolve(new Response(streamBody, { status: 200, headers: { 'Content-Type': 'text/event-stream' } }))
+    stream.resolve(sseResponse(streamBody))
     await sending
+    await waitFor(() => store.generationState?.status === 'completed')
     assert.equal(earlyRequests, 0, 'must not send before the in-flight history is available')
     assert.equal(sent[0].messages[0].content, `Message ${A}`)
     assert.equal(store.getActive().messages.at(-2).content, 'New question')
     assert.equal(store.getActive().messages.at(-1).content, 'New answer')
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('new local conversation posts without a server guid and binds the first v2 meta once', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ localKey: 'draft-1', title: 'Draft', messages: [] }]; store.activeId = 'draft-1'
+  const sent = []; const originalFetch = globalThis.fetch
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body); sent.push(body)
+    const id = body.generation_id
+    return sseResponse([
+      `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\n`,
+      `event: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', seq: 1, delta: 'A👍🏽' })}\n\n`,
+      `event: model_done\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', last_seq: 1 })}\n\n`,
+      `event: done\ndata: ${JSON.stringify({ generation_id: id, status: 'completed', conversation_guid: A, tokens: 1, total_tokens_used: 1 })}\n\n`,
+    ].join(''))
+  }
+  try {
+    await store.sendMessage('hello'); await waitFor(() => store.generationState?.status === 'completed')
+    assert.equal(Object.hasOwn(sent[0], 'conversation_guid'), false)
+    assert.equal(store.activeId, A); assert.equal(store.getActive().guid, A)
+    assert.equal(store.getActive().messages.at(-1).content, 'A👍🏽')
+    assert.equal(store.getActive().messages.at(-1).generationStatus, 'completed')
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('disconnect recovers by GET and appends only the authoritative suffix once', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; let generationId; let gets = 0
+  globalThis.fetch = async (url, options = {}) => {
+    if ((options.method || 'GET') === 'POST') {
+      generationId = JSON.parse(options.body).generation_id
+      return sseResponse([
+        `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: generationId, conversation_guid: A, models: ['fixture-model'] })}\n\n`,
+        `event: delta\ndata: ${JSON.stringify({ generation_id: generationId, model: 'fixture-model', seq: 1, delta: 'Hel' })}\n\n`,
+      ].join(''))
+    }
+    gets += 1
+    return jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 2, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: 'Hello', tokens: 2 } })
+  }
+  try {
+    await store.sendMessage('hello'); await waitFor(() => store.generationState?.status === 'completed')
+    assert.equal(gets, 1)
+    assert.equal(store.getActive().messages.at(-1).content, 'Hello')
+    assert.equal(store.getActive().messages.at(-1).content.includes('HelHel'), false)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('authoritative prefix mismatch fails closed and never persists assistant partial or error text', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; let generationId
+  globalThis.fetch = async (_url, options = {}) => {
+    if ((options.method || 'GET') === 'POST') {
+      generationId = JSON.parse(options.body).generation_id
+      return sseResponse(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: generationId, conversation_guid: A, models: ['fixture-model'] })}\n\nevent: delta\ndata: ${JSON.stringify({ generation_id: generationId, model: 'fixture-model', seq: 1, delta: 'safe partial' })}\n\n`)
+    }
+    return jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 1, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: 'different', tokens: 1 } })
+  }
+  try {
+    await store.sendMessage('hello'); await waitFor(() => store.generationState?.status === 'failed')
+    const assistant = store.getActive().messages.at(-1)
+    assert.equal(assistant.content.includes('请求未完成'), false)
+    assert.equal(assistant.content.includes('错误'), false)
+    assert.equal(writes.some(([, value]) => value.includes('safe partial') || value.includes('different')), false)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('compare keeps a failed model separate while its sibling completes in requested order', async () => {
+  const store = useChatStore(); const settings = useSettingsStore()
+  settings.compareMode = true; settings.compareModelIds = ['model-a', 'model-b']
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (_url, options) => {
+    const id = JSON.parse(options.body).generation_id
+    return sseResponse([
+      `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['model-a', 'model-b'] })}\n\n`,
+      `event: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'model-a', seq: 1, delta: 'works' })}\n\n`,
+      `event: model_error\ndata: ${JSON.stringify({ generation_id: id, model: 'model-b', code: 'timeout' })}\n\n`,
+      `event: model_done\ndata: ${JSON.stringify({ generation_id: id, model: 'model-a', last_seq: 1 })}\n\n`,
+      `event: done\ndata: ${JSON.stringify({ generation_id: id, status: 'completed', conversation_guid: A, total_tokens_used: 1, models: { 'model-a': { status: 'completed', tokens: 1 }, 'model-b': { status: 'failed', code: 'timeout' } } })}\n\n`,
+    ].join(''))
+  }
+  try {
+    await store.sendMessage('compare'); await waitFor(() => store.generationState?.status === 'completed')
+    const assistant = store.getActive().messages.at(-1)
+    assert.deepEqual(assistant.models, ['model-a', 'model-b'])
+    assert.equal(assistant.replies['model-a'], 'works'); assert.equal(assistant.replies['model-b'], '')
+    assert.deepEqual(assistant.modelStates['model-b'], { status: 'failed', code: 'timeout' })
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('cancel aborts local playback, keeps the user message, and converges from authoritative 200', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; const started = deferred(); let generationId; let cancelCalls = 0
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).endsWith('/cancel')) {
+      cancelCalls += 1
+      return jsonResponse({ generation_id: generationId, status: 'cancelled', mode: 'single', conversation_guid: null })
+    }
+    generationId = JSON.parse(options.body).generation_id
+    const encoder = new TextEncoder()
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: generationId, conversation_guid: A, models: ['fixture-model'] })}\n\nevent: delta\ndata: ${JSON.stringify({ generation_id: generationId, model: 'fixture-model', seq: 1, delta: 'partial' })}\n\n`))
+        started.resolve()
+      },
+    }), { status: 200, headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } })
+  }
+  try {
+    const sending = store.sendMessage('keep me'); await started.promise
+    await store.cancelStream(); await sending
+    assert.equal(cancelCalls, 1); assert.equal(store.generationState.status, 'cancelled')
+    assert.equal(store.getActive().messages.at(-2).content, 'keep me')
+    assert.equal(store.getActive().messages.at(-1).viewOnly, true)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('identity invalidation makes late stream callbacks unable to write into the next user store', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; const started = deferred(); let release
+  globalThis.fetch = async (_url, options) => {
+    const id = JSON.parse(options.body).generation_id
+    await new Promise(resolve => { release = resolve; started.resolve() })
+    return sseResponse(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\nevent: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', seq: 1, delta: 'late secret' })}\n\n`)
+  }
+  try {
+    const sending = store.sendMessage('old'); await started.promise
+    authSession.clearSession()
+    authSession.setSession({ accessToken: 'next-account', user: { guid: '2', username: 'next', nickname: null, role: 'user', status: 'active' } })
+    store.conversations = [{ ...summary(B), messages: [] }]; store.activeId = B
+    release(); await sending; await new Promise(resolve => setTimeout(resolve, 25))
+    assert.equal(store.activeId, B); assert.equal(store.getActive().messages.length, 0)
+    assert.equal(writes.some(([, value]) => value.includes('late secret')), false)
+  } finally { release?.(); globalThis.fetch = originalFetch }
+})
+
+test('session-local generation metadata resumes through authoritative GET without storing partial content', async () => {
+  const store = useChatStore(); store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const generationId = '123e4567-e89b-42d3-a456-426614174000'
+  sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId, mode: 'single', models: ['fixture-model'], conversationGuid: A, messageKey: 'resume-message' }))
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 2, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: 'restored', tokens: 2 } })
+  try {
+    assert.equal(await store.resumePendingGeneration(), true)
+    await waitFor(() => store.generationState?.status === 'completed')
+    assert.equal(store.getActive().messages.at(-1).content, 'restored')
+    assert.equal(sessionStorage.getItem('llm_platform_active_generation_v2'), null)
   } finally { globalThis.fetch = originalFetch }
 })
 
