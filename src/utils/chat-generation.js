@@ -190,14 +190,13 @@ export function createChatGeneration(options = {}) {
       return Array.isArray(result.results) && !Object.prototype.hasOwnProperty.call(result, 'result') && result.results.length === models.length && result.results.every((entry, index) => entry && entry.model === models[index].model && (entry.status === 'completed' || entry.status === 'failed') && Object.keys(entry).every(key => entry.status === 'completed' ? ['model', 'status', 'content', 'assistant_message_guid', 'tokens'].includes(key) : ['model', 'status', 'code'].includes(key)) && (entry.status === 'completed' ? typeof entry.assistant_message_guid === 'string' && !!entry.assistant_message_guid.trim() && typeof entry.content === 'string' && Number.isSafeInteger(entry.tokens) && entry.tokens >= 0 : STABLE_CODES.has(entry.code) && !!entry.code))
     }
     if (!['cancelled', 'failed', 'cancelling', 'committing', 'running'].includes(result.status)) return false
-    const guidOK = result.conversation_guid === null || acceptsAuthoritativeGuid(result.conversation_guid)
+    const guidOK = result.conversation_guid === null
     return guidOK && (result.status !== 'failed' || STABLE_CODES.has(result.code)) && !Object.prototype.hasOwnProperty.call(result, 'result') && !Object.prototype.hasOwnProperty.call(result, 'results')
   }
   const resolve = result => {
     if (TERMINAL.has(status)) return snapshot()
-    if (result?.generation_id === generationId && result?.mode === mode && conversationGuid !== null && result.conversation_guid !== null && result.conversation_guid !== conversationGuid) return fail('GENERATION_STATUS_ERROR')
+    if (result?.generation_id === generationId && result?.mode === mode && result?.status === 'completed' && conversationGuid !== null && result.conversation_guid !== conversationGuid) return fail('GENERATION_STATUS_ERROR')
     if (!validateStatusPayload(result)) { diagnostic('GENERATION_STATUS_ERROR'); return snapshot() }
-    if (!bindAuthoritativeGuid(result.conversation_guid)) return fail('GENERATION_STATUS_ERROR')
     if (result.status === 'completed') return applyAuthoritative(result)
     if (result.status === 'cancelled') { const cleaned = cleanupAll('cancel'); if (!cleaned) { status = 'failed'; diagnostic('GENERATION_PLAYER_ERROR') } else if (!TERMINAL.has(status)) setStatus('cancelled'); return snapshot() }
     if (result.status === 'failed') return fail('GENERATION_REMOTE_ERROR')

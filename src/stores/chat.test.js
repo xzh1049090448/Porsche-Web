@@ -290,6 +290,26 @@ test('new local conversation posts without a server guid and binds the first v2 
   } finally { globalThis.fetch = originalFetch }
 })
 
+test('new local conversation binds an authoritative completed GET when the stream ends before meta', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ localKey: 'draft-status', title: 'Draft', messages: [] }]; store.activeId = 'draft-status'
+  const originalFetch = globalThis.fetch; let generationId; let gets = 0
+  globalThis.fetch = async (_url, options = {}) => {
+    if ((options.method || 'GET') === 'POST') {
+      generationId = JSON.parse(options.body).generation_id
+      return sseResponse('')
+    }
+    gets += 1
+    return jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 2, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: 'recovered without meta', tokens: 2 } })
+  }
+  try {
+    await store.sendMessage('recover me'); await waitFor(() => store.generationState?.status === 'completed')
+    assert.equal(gets, 1)
+    assert.equal(store.activeId, A); assert.equal(store.getActive().guid, A)
+    assert.equal(store.getActive().messages.at(-1).content, 'recovered without meta')
+  } finally { globalThis.fetch = originalFetch }
+})
+
 test('disconnect recovers by GET and appends only the authoritative suffix once', async () => {
   const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
   store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
