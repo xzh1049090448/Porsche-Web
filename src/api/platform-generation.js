@@ -170,9 +170,24 @@ export function createPlatformGenerationClient({
   async function consumeStream(response, generationId, models, onEvent, signal) {
     if (!response.ok) throw await safeHTTPError(response)
     if (!response.headers.get('Content-Type')?.toLowerCase().startsWith('text/event-stream') || !response.body) {
+      try { await response.body?.cancel?.() } catch { /* Best-effort release of an unread invalid response. */ }
       throw new PlatformGenerationIndeterminateError(generationId, 'invalid_stream_response')
     }
-    const reader = response.body.getReader()
+    if (signal?.aborted) {
+      try { await response.body.cancel() } catch { /* Best-effort release before a reader is established. */ }
+      throw new PlatformGenerationIndeterminateError(generationId, 'aborted')
+    }
+    let reader
+    try { reader = response.body.getReader() }
+    catch {
+      try { await response.body.cancel() } catch { /* A locked or invalid body still fails closed. */ }
+      throw new PlatformGenerationIndeterminateError(generationId, 'invalid_stream_response')
+    }
+    let cancellation = null
+    const cancelOnce = () => {
+      if (!cancellation) cancellation = Promise.resolve().then(() => reader.cancel()).catch(() => {})
+      return cancellation
+    }
     let parserError = null
     let done = null
     const parser = createPlatformSSEv2Parser({
@@ -185,21 +200,21 @@ export function createPlatformGenerationClient({
       },
       onError(error) { parserError = error.code },
     })
-    const cancelReader = () => { void reader.cancel().catch(() => {}) }
+    const cancelReader = () => { void cancelOnce() }
     signal?.addEventListener('abort', cancelReader, { once: true })
     try {
       assertNotAborted(signal)
-      while (!parserError) {
+      while (!parserError && !done) {
         const item = await reader.read()
         if (item.done) break
         parser.push(item.value)
       }
-      if (signal?.aborted) throw new PlatformGenerationIndeterminateError(generationId, 'aborted')
       if (parserError) {
-        await reader.cancel().catch(() => {})
         if (parserError === PLATFORM_SSE_V2_ERROR_CODES.remote) throw new PlatformGenerationRemoteError(generationId)
         throw new PlatformGenerationIndeterminateError(generationId, parserError)
       }
+      if (done) return { generation_id: generationId, status: 'completed', done }
+      if (signal?.aborted) throw new PlatformGenerationIndeterminateError(generationId, 'aborted')
       parser.finish()
       if (parserError === PLATFORM_SSE_V2_ERROR_CODES.remote) throw new PlatformGenerationRemoteError(generationId)
       if (parserError) throw new PlatformGenerationIndeterminateError(generationId, parserError)
@@ -210,6 +225,7 @@ export function createPlatformGenerationClient({
       throw new PlatformGenerationIndeterminateError(generationId, signal?.aborted || error?.name === 'AbortError' ? 'aborted' : 'network_error')
     } finally {
       signal?.removeEventListener('abort', cancelReader)
+      await cancelOnce()
       try { reader.releaseLock() } catch { /* Reader may already be detached after cancellation. */ }
     }
   }
@@ -258,12 +274,9 @@ export function createPlatformGenerationClient({
     if (response.status !== 202 || !['cancelling', 'committing'].includes(data.status)) {
       throw new PlatformGenerationIndeterminateError(generationId, 'invalid_cancel_response')
     }
-    const retryAfter = response.headers.get('Retry-After')
-    const retrySeconds = /^[1-9][0-9]*$/.test(retryAfter || '') ? Number(retryAfter) : NaN
-    if (Number.isSafeInteger(retrySeconds)) {
-      await sleep(retrySeconds * 1000, options.signal)
-      assertNotAborted(options.signal)
-    }
+    if (response.headers.get('Retry-After') !== '1') throw new PlatformGenerationIndeterminateError(generationId, 'invalid_cancel_response')
+    await sleep(1000, options.signal)
+    assertNotAborted(options.signal)
     return poll(generationId, options)
   }
 

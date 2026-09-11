@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { setImmediate } from 'node:timers/promises'
 
 import {
   PlatformGenerationHTTPError,
@@ -44,6 +45,33 @@ function harness(responses, overrides = {}) {
     ...overrides,
   })
   return { client, calls, queue }
+}
+
+function controlledStreamResponse({ chunks = [], contentType = 'text/event-stream', keepOpen = false, readError = null } = {}) {
+  let reads = 0
+  let readerCancels = 0
+  let bodyCancels = 0
+  let releases = 0
+  const encoded = chunks.map(chunk => encoder.encode(chunk))
+  const reader = {
+    async read() {
+      reads++
+      if (encoded.length) return { done: false, value: encoded.shift() }
+      if (readError) throw readError
+      if (keepOpen) return new Promise(() => {})
+      return { done: true, value: undefined }
+    },
+    async cancel() { readerCancels++ },
+    releaseLock() { releases++ },
+  }
+  const body = {
+    getReader() { return reader },
+    async cancel() { bodyCancels++ },
+  }
+  return {
+    response: { ok: true, status: 200, headers: new Headers({ 'Content-Type': contentType }), body },
+    counts: () => ({ reads, readerCancels, bodyCancels, releases }),
+  }
 }
 
 test('creates one canonical lowercase v4 UUID and reuses it in a single POST body', async () => {
@@ -94,6 +122,24 @@ test('strict parser completes only on a valid done event and sanitizes model err
   assert.deepEqual(events.find(event => event.type === 'model_error'), { type: 'model_error', generation_id: generationId, model: 'a', code: 'timeout' })
 })
 
+test('valid done terminates immediately, cancels the still-open body once, and ignores a later abort', async () => {
+  const controlled = controlledStreamResponse({
+    chunks: [meta(['model-a']) + modelDone('model-a', 0) + singleDone()],
+    keepOpen: true,
+  })
+  const controller = new AbortController()
+  const { client } = harness([controlled.response])
+  const outcome = await Promise.race([
+    client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }, { signal: controller.signal }),
+    setImmediate('timed_out'),
+  ])
+  assert.notEqual(outcome, 'timed_out')
+  assert.equal(outcome.status, 'completed')
+  controller.abort()
+  await Promise.resolve()
+  assert.deepEqual(controlled.counts(), { reads: 1, readerCancels: 1, bodyCancels: 0, releases: 1 })
+})
+
 for (const [name, response, reason] of [
   ['EOF before done', streamResponse([meta(['model-a']), modelDone('model-a', 0)]), 'SSE_V2_EOF_WITHOUT_TERMINAL'],
   ['malformed event', streamResponse([meta(['model-a']), 'event: delta\ndata: {bad}\n\n']), 'SSE_V2_INVALID_JSON'],
@@ -138,6 +184,38 @@ test('strict parser failure cancels the unread response body', async () => {
   const { client } = harness([response])
   await assert.rejects(client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }), PlatformGenerationIndeterminateError)
   assert.equal(cancellations, 1)
+})
+
+test('invalid Content-Type cancels the unlocked body exactly once', async () => {
+  const controlled = controlledStreamResponse({ contentType: 'application/json', keepOpen: true })
+  const { client } = harness([controlled.response])
+  await assert.rejects(
+    client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }),
+    error => error instanceof PlatformGenerationIndeterminateError && error.reason === 'invalid_stream_response',
+  )
+  assert.deepEqual(controlled.counts(), { reads: 0, readerCancels: 0, bodyCancels: 1, releases: 0 })
+})
+
+test('an already-aborted stream cancels the body before establishing a reader', async () => {
+  const controlled = controlledStreamResponse({ keepOpen: true })
+  const controller = new AbortController()
+  controller.abort()
+  const { client } = harness([controlled.response])
+  await assert.rejects(
+    client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }, { signal: controller.signal }),
+    error => error instanceof PlatformGenerationIndeterminateError && error.reason === 'aborted',
+  )
+  assert.deepEqual(controlled.counts(), { reads: 0, readerCancels: 0, bodyCancels: 1, releases: 0 })
+})
+
+test('reader network failure cancels and releases its reader exactly once', async () => {
+  const controlled = controlledStreamResponse({ chunks: [meta(['model-a'])], readError: new TypeError('private network detail') })
+  const { client } = harness([controlled.response])
+  await assert.rejects(
+    client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }),
+    error => error instanceof PlatformGenerationIndeterminateError && error.reason === 'network_error',
+  )
+  assert.deepEqual(controlled.counts(), { reads: 2, readerCancels: 1, bodyCancels: 0, releases: 1 })
 })
 
 const running = { generation_id: generationId, status: 'running', mode: 'single', conversation_guid: null }
@@ -191,15 +269,19 @@ test('cancel 202 honors a valid Retry-After then continues with GET only', async
   assert.deepEqual(calls.map(call => call.init.method), ['POST', 'GET'])
 })
 
-test('cancel ignores invalid Retry-After and uses the polling schedule', async () => {
-  const sleeps = []
-  let time = 0
-  const { client } = harness([
-    jsonResponse(cancelling, 202, { 'Retry-After': 'private' }), jsonResponse(running), jsonResponse(completed),
-  ], { sleep: async ms => { sleeps.push(ms); time += ms }, now: () => time })
-  assert.deepEqual(await client.cancel(generationId), completed)
-  assert.deepEqual(sleeps, [250])
-})
+for (const retryAfter of [undefined, '', 'private', '0', '2', '3', '01', '1 ']) {
+  test(`cancel 202 rejects non-contract Retry-After ${JSON.stringify(retryAfter)}`, async () => {
+    const sleeps = []
+    const response = { ok: true, status: 202, headers: { get: name => name.toLowerCase() === 'retry-after' ? retryAfter ?? null : null }, json: async () => cancelling }
+    const { client, calls } = harness([response], { sleep: async ms => { sleeps.push(ms) } })
+    await assert.rejects(
+      client.cancel(generationId),
+      error => error instanceof PlatformGenerationIndeterminateError && error.reason === 'invalid_cancel_response' && error.generation_id === generationId,
+    )
+    assert.deepEqual(sleeps, [])
+    assert.deepEqual(calls.map(call => call.init.method), ['POST'])
+  })
+}
 
 test('an ambiguous cancel network failure is indeterminate with the generation id and no replay', async () => {
   const { client, calls } = harness([new TypeError('private network detail')])
