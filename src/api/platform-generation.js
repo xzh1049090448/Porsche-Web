@@ -89,8 +89,8 @@ function requestedModels(body, compare, generationId) {
     && model.length > 0
     && model.trim() === model
     && utf8Length(model) <= 128
+  if (!valid(body?.model)) throw new PlatformGenerationIndeterminateError(generationId, 'invalid_generation_request')
   if (!compare) {
-    if (!valid(body?.model)) throw new PlatformGenerationIndeterminateError(generationId, 'invalid_generation_request')
     return [body.model]
   }
   if (!Array.isArray(body?.models)

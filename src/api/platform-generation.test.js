@@ -168,6 +168,26 @@ test('single and compare model identifiers fail closed before POST without coerc
   assert.equal(calls.length, 0)
 })
 
+test('compare routing model is validated before serialization or POST without coercion', async () => {
+  let coercions = 0
+  const attacker = {
+    toJSON() { coercions++; throw new Error('private toJSON detail') },
+    toString() { coercions++; throw new Error('private toString detail') },
+  }
+  const { client, calls } = harness([])
+  for (const model of [attacker, '', '   ', ' routed ', 'a'.repeat(129), '界'.repeat(43)]) {
+    await assert.rejects(
+      client.streamCompare({ model, models: ['a', 'b'], messages: [], max_tokens: 1 }),
+      error => error instanceof PlatformGenerationIndeterminateError
+        && error.generation_id === generationId
+        && error.reason === 'invalid_generation_request'
+        && !error.message.includes('private'),
+    )
+  }
+  assert.equal(coercions, 0)
+  assert.equal(calls.length, 0)
+})
+
 test('model validation accepts the frozen 128-byte boundary and preserves compare order', async () => {
   const multibyte = '界'.repeat(42)
   const { client, calls } = harness([
