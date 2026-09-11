@@ -19,7 +19,12 @@ const hasExactKeys = (value, required, optional = []) => {
   const allowed = new Set([...required, ...optional])
   return required.every(key => Object.prototype.hasOwnProperty.call(value, key)) && keys.every(key => allowed.has(key))
 }
-const hasValidOptionalRequestID = value => value.request_id === undefined || (typeof value.request_id === 'string' && value.request_id.trim() !== '')
+const isConversationGUID = value => {
+  if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value)) return false
+  try { return BigInt(value) <= 9223372036854775807n } catch { return false }
+}
+const isRequestID = value => typeof value === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(value)
+const hasValidOptionalRequestID = value => value.request_id === undefined || isRequestID(value.request_id)
 
 const safeError = (code) => Object.freeze({ code })
 const canonical = value => {
@@ -93,7 +98,7 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
     if (terminal) return protocolError(codes.afterTerminal)
     if (!metaSeen && eventName !== 'meta') return protocolError(codes.protocol)
     if (eventName === 'meta') {
-      if (metaSeen || payload.schema !== 'platform-chat-sse.v2' || payload.generation_id !== generationId || typeof payload.conversation_guid !== 'string' || !payload.conversation_guid.trim() || !Array.isArray(payload.models) || payload.models.length !== expectedModels.length || payload.models.some((m, i) => m !== expectedModels[i]) || Object.keys(payload).some(key => !['schema', 'generation_id', 'conversation_guid', 'models'].includes(key))) return protocolError(codes.protocol)
+      if (metaSeen || payload.schema !== 'platform-chat-sse.v2' || payload.generation_id !== generationId || !isConversationGUID(payload.conversation_guid) || !Array.isArray(payload.models) || payload.models.length !== expectedModels.length || payload.models.some((m, i) => m !== expectedModels[i]) || Object.keys(payload).some(key => !['schema', 'generation_id', 'conversation_guid', 'models'].includes(key))) return protocolError(codes.protocol)
       metaSeen = true
       expectedModels.forEach(model => modelState.set(model, { next: 1, terminal: false }))
       if (!accept(duplicateKey, key)) return
@@ -125,7 +130,7 @@ export function createPlatformSSEv2Parser({ generationId, models, onEvent = () =
     }
     if (eventName === 'done') {
       const allowed = expectedModels.length === 1 ? ['generation_id', 'status', 'conversation_guid', 'tokens', 'total_tokens_used'] : ['generation_id', 'status', 'conversation_guid', 'total_tokens_used', 'models']
-      if (Object.keys(payload).some(key => !allowed.includes(key)) || payload.generation_id !== generationId || payload.status !== 'completed' || typeof payload.conversation_guid !== 'string' || !payload.conversation_guid.trim() || !Number.isSafeInteger(payload.total_tokens_used) || payload.total_tokens_used < 0 || (expectedModels.length === 1 && (!Number.isSafeInteger(payload.tokens) || payload.tokens < 0)) || expectedModels.some(model => !modelState.get(model)?.terminal) || (expectedModels.length === 1 && modelState.get(expectedModels[0]).status !== 'completed')) return protocolError(codes.protocol)
+      if (Object.keys(payload).some(key => !allowed.includes(key)) || payload.generation_id !== generationId || payload.status !== 'completed' || !isConversationGUID(payload.conversation_guid) || !Number.isSafeInteger(payload.total_tokens_used) || payload.total_tokens_used < 0 || (expectedModels.length === 1 && (!Number.isSafeInteger(payload.tokens) || payload.tokens < 0)) || expectedModels.some(model => !modelState.get(model)?.terminal) || (expectedModels.length === 1 && modelState.get(expectedModels[0]).status !== 'completed')) return protocolError(codes.protocol)
       if (expectedModels.length > 1) {
         if (!payload.models || typeof payload.models !== 'object' || Array.isArray(payload.models) || Object.keys(payload.models).length !== expectedModels.length || expectedModels.some(model => !Object.prototype.hasOwnProperty.call(payload.models, model))) return protocolError(codes.protocol)
         for (const model of expectedModels) {

@@ -4,13 +4,13 @@ import { createPlatformSSEv2Parser } from './platform-sse-v2.js'
 
 const enc = new TextEncoder()
 const meta = (models = ['a'], generationId = 'g-1') =>
-  `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: generationId, conversation_guid: 'c-1', models })}\n\n`
+  `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: generationId, conversation_guid: '1', models })}\n\n`
 const delta = (model, seq, text, generationId = 'g-1') =>
   `event: delta\ndata: ${JSON.stringify({ generation_id: generationId, model, seq, delta: text })}\n\n`
 const modelDone = (model, lastSeq, generationId = 'g-1') =>
   `event: model_done\ndata: ${JSON.stringify({ generation_id: generationId, model, last_seq: lastSeq })}\n\n`
 const done = (models = undefined, generationId = 'g-1') =>
-  `event: done\ndata: ${JSON.stringify({ generation_id: generationId, status: 'completed', conversation_guid: 'c-1', ...(models === undefined ? { tokens: 1 } : { models }), total_tokens_used: 1 })}\n\n`
+  `event: done\ndata: ${JSON.stringify({ generation_id: generationId, status: 'completed', conversation_guid: '1', ...(models === undefined ? { tokens: 1 } : { models }), total_tokens_used: 1 })}\n\n`
 
 function parser(options = {}) {
   const events = []
@@ -27,7 +27,7 @@ function parser(options = {}) {
 
 test('frames CRLF, LF, comments, multi-line data, and multiple events', () => {
   const { p, events, errors } = parser()
-  p.push(`: keepalive\r\nevent: meta\r\ndata: {"schema":"platform-chat-sse.v2",\r\ndata: "generation_id":"g-1","conversation_guid":"c-1","models":["a"]}\r\n\r\n`)
+  p.push(`: keepalive\r\nevent: meta\r\ndata: {"schema":"platform-chat-sse.v2",\r\ndata: "generation_id":"g-1","conversation_guid":"1","models":["a"]}\r\n\r\n`)
   p.push(delta('a', 1, 'hi') + modelDone('a', 1) + done())
   p.finish()
   assert.equal(errors.length, 0)
@@ -113,7 +113,7 @@ test('rejects extra sensitive fields on delta, model_done, model_error, and glob
 })
 
 test('global done requires total_tokens_used and exact schema keys without sensitive top-level fields', () => {
-  const validSingle = { generation_id: 'g-1', status: 'completed', conversation_guid: 'c-1', tokens: 1, total_tokens_used: 1 }
+  const validSingle = { generation_id: 'g-1', status: 'completed', conversation_guid: '1', tokens: 1, total_tokens_used: 1 }
   for (const payload of [
     { ...validSingle, prompt: 'secret' },
     { ...validSingle, content: 'secret' },
@@ -121,20 +121,20 @@ test('global done requires total_tokens_used and exact schema keys without sensi
   ]) {
     const { p, errors } = parser(); p.push(meta() + modelDone('a', 0) + `event: done\ndata: ${JSON.stringify(payload)}\n\n`); assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR')
   }
-  const validCompare = { generation_id: 'g-1', status: 'completed', conversation_guid: 'c-1', total_tokens_used: 1, models: { a: { status: 'completed', tokens: 1 }, b: { status: 'failed', code: 'upstream_error' } } }
+  const validCompare = { generation_id: 'g-1', status: 'completed', conversation_guid: '1', total_tokens_used: 1, models: { a: { status: 'completed', tokens: 1 }, b: { status: 'failed', code: 'upstream_error' } } }
   for (const payload of [{ ...validCompare, tokens: 1 }, { ...validCompare, request_id: 'secret' }]) {
     const { p, errors } = parser({ models: ['a', 'b'] }); p.push(meta(['a', 'b']) + modelDone('a', 0) + 'event: model_error\ndata: ' + JSON.stringify({ generation_id: 'g-1', model: 'b', code: 'upstream_error' }) + '\n\n' + `event: done\ndata: ${JSON.stringify(payload)}\n\n`); assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR')
   }
 })
 
 test('global done callback is sanitized to schema fields only', () => {
-  const { p, events } = parser(); p.push(meta() + modelDone('a', 0) + 'event: done\ndata: ' + JSON.stringify({ generation_id: 'g-1', status: 'completed', conversation_guid: 'c-1', tokens: 1, total_tokens_used: 1 }) + '\n\n')
+  const { p, events } = parser(); p.push(meta() + modelDone('a', 0) + 'event: done\ndata: ' + JSON.stringify({ generation_id: 'g-1', status: 'completed', conversation_guid: '1', tokens: 1, total_tokens_used: 1 }) + '\n\n')
   assert.deepEqual(Object.keys(events.find(e => e.type === 'done')).sort(), ['conversation_guid', 'generation_id', 'status', 'tokens', 'total_tokens_used', 'type'])
 })
 
 test('rejects meta extra sensitive fields without callback leakage', () => {
   const { p, events, errors } = parser()
-  p.push(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: 'g-1', conversation_guid: 'c-1', models: ['a'], prompt: 'secret', Authorization: 'Bearer secret' })}\n\n`)
+  p.push(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: 'g-1', conversation_guid: '1', models: ['a'], prompt: 'secret', Authorization: 'Bearer secret' })}\n\n`)
   assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR'); assert.equal(events.length, 0)
 })
 
@@ -142,6 +142,50 @@ test('rejects missing, null, numeric, and blank meta conversation GUIDs', () => 
   for (const conversation_guid of [undefined, null, 42, '   ']) {
     const payload = { schema: 'platform-chat-sse.v2', generation_id: 'g-1', models: ['a'] }; if (conversation_guid !== undefined) payload.conversation_guid = conversation_guid
     const { p, errors } = parser(); p.push(`event: meta\ndata: ${JSON.stringify(payload)}\n\n`); assert.equal(errors[0].code, 'SSE_V2_PROTOCOL_ERROR')
+  }
+})
+
+test('rejects non-positive, non-canonical, non-decimal, and out-of-int64 conversation GUIDs in meta and done', () => {
+  for (const conversation_guid of ['0', '-1', '01', '+1', '1.0', 'abc', 'https://internal.example', '1\n2', '9223372036854775808']) {
+    const metaPayload = { schema: 'platform-chat-sse.v2', generation_id: 'g-1', conversation_guid, models: ['a'] }
+    const invalidMeta = parser()
+    invalidMeta.p.push(`event: meta\ndata: ${JSON.stringify(metaPayload)}\n\n`)
+    assert.deepEqual(invalidMeta.errors, [{ code: 'SSE_V2_PROTOCOL_ERROR' }], `meta:${conversation_guid}`)
+
+    const donePayload = { generation_id: 'g-1', status: 'completed', conversation_guid, tokens: 1, total_tokens_used: 1 }
+    const invalidDone = parser()
+    invalidDone.p.push(meta() + modelDone('a', 0) + `event: done\ndata: ${JSON.stringify(donePayload)}\n\n`)
+    assert.deepEqual(invalidDone.errors, [{ code: 'SSE_V2_PROTOCOL_ERROR' }], `done:${conversation_guid}`)
+  }
+})
+
+test('accepts the canonical signed-int64 maximum conversation GUID without numeric coercion', () => {
+  const conversation_guid = '9223372036854775807'
+  const { p, events, errors } = parser()
+  p.push(
+    `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: 'g-1', conversation_guid, models: ['a'] })}\n\n` +
+    modelDone('a', 0) +
+    `event: done\ndata: ${JSON.stringify({ generation_id: 'g-1', status: 'completed', conversation_guid, tokens: 1, total_tokens_used: 1 })}\n\n`,
+  )
+  p.finish()
+  assert.equal(errors.length, 0)
+  assert.equal(events[0].conversation_guid, conversation_guid)
+  assert.equal(events.at(-1).conversation_guid, conversation_guid)
+})
+
+test('rejects unsafe or overlong model and global error request IDs without exposing them', () => {
+  const unsafeIDs = ['', 'https://internal.example/request', 'line\nbreak', 'control\u0001byte', 'x'.repeat(129)]
+  for (const event of ['model_error', 'error']) {
+    for (const request_id of unsafeIDs) {
+      const payload = event === 'model_error'
+        ? { generation_id: 'g-1', model: 'a', code: 'timeout', request_id }
+        : { generation_id: 'g-1', code: 'timeout', request_id }
+      const { p, events, errors } = parser()
+      p.push(meta() + `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
+      assert.deepEqual(errors, [{ code: 'SSE_V2_PROTOCOL_ERROR' }], `${event}:${JSON.stringify(request_id)}`)
+      assert.equal(events.some(item => item.type === event), false)
+      assert.equal(JSON.stringify({ events, errors }).includes(request_id), request_id === '')
+    }
   }
 })
 
