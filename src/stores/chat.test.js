@@ -472,7 +472,8 @@ test('compare all-failed completion keeps the whole attempt transient and exclud
     const [user, assistant] = store.getActive().messages.slice(-2)
     assert.equal(store.generationState.status, 'failed')
     assert.ok(user.transientAttempt); assert.ok(assistant.transientAttempt); assert.equal(assistant.viewOnly, true)
-    assert.equal(assistant.replies['model-a'], 'view-only partial')
+    assert.ok(assistant.replies['model-a'].length > 0)
+    assert.ok('view-only partial'.startsWith(assistant.replies['model-a']))
     assert.equal(JSON.stringify(assistant.replies).includes('timeout'), false)
     const persisted = JSON.stringify(projectConversationForPersistence(store.getActive()))
     assert.equal(persisted.includes('failed compare prompt'), false); assert.equal(persisted.includes('view-only partial'), false)
@@ -723,8 +724,10 @@ test('duplicate-guid recovery keeps the transient assistant owned through draini
   const user = useUserStore(); const usageCalls = []; user.applyTokensUsed = (...args) => usageCalls.push(args)
   try {
     assert.equal(await store.resumePendingGeneration(), true)
-    await waitFor(() => store.generationState?.status === 'draining' && store.getActive()?.messages.some(message => message.localKey === messageKey && message.content.length > 0))
     const drainingAssistant = store.getActive().messages.find(message => message.localKey === messageKey)
+    assert.ok(drainingAssistant)
+    assert.equal(store.generationState?.status, 'draining')
+    await waitFor(() => drainingAssistant.content.length > 0)
     assert.equal(drainingAssistant.transientAttempt, generationId)
     await waitFor(() => store.streaming === false)
     assert.equal(store.activeId, D)
@@ -754,6 +757,37 @@ test('retryable null-guid resume failure preserves its isolated metadata', async
     assert.equal(await store.resumePendingGeneration(), true)
     assert.notEqual(sessionStorage.getItem('llm_platform_active_generation_v2'), null)
     assert.equal(store.streaming, false)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('resume replaces stale or forged message-key collisions without mutating the collided history message', async () => {
+  const generationId = '123e4567-e89b-42d3-a456-426614174000'
+  const collisionKey = 'stale-recovery-key'
+  const cases = [
+    ['user', { localKey: collisionKey, role: 'user', content: 'keep user' }],
+    ['committed assistant', { localKey: collisionKey, role: 'assistant', content: 'keep committed' }],
+    ['other generation', { localKey: collisionKey, role: 'assistant', content: 'keep other', transientAttempt: '123e4567-e89b-42d3-a456-426614174009', viewOnly: true }],
+    ['wrong mode', { localKey: collisionKey, role: 'assistant', multiModel: true, models: ['model-a', 'model-b'], replies: { 'model-a': 'keep a', 'model-b': 'keep b' }, modelStates: { 'model-a': { status: 'recovering', code: null }, 'model-b': { status: 'recovering', code: null } }, transientAttempt: generationId, viewOnly: true }],
+  ]
+  const originalFetch = globalThis.fetch
+  try {
+    for (const [name, collided] of cases) {
+      setActivePinia(createPinia()); sessionStorage.clear()
+      const store = useChatStore(); const original = structuredClone(collided)
+      store.conversations = [{ ...summary(A), messages: [collided] }]; store.activeId = A
+      sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId, mode: 'single', models: ['fixture-model'], conversationGuid: A, messageKey: collisionKey, ownerGuid: '1', ownerEpoch: authSession.capture().epoch }))
+      route = () => { throw new TypeError('history reload unavailable') }
+      globalThis.fetch = async () => jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 0, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: '', tokens: 0 } })
+      assert.equal(await store.resumePendingGeneration(), true, name)
+      await waitFor(() => store.streaming === false)
+      assert.deepEqual(store.getActive().messages.find(message => message.localKey === collisionKey), original, name)
+      const recovery = store.getActive().messages.find(message => message.transientAttempt === generationId && message.role === 'assistant' && !message.multiModel)
+      assert.ok(recovery, name); assert.notEqual(recovery.localKey, collisionKey, name); assert.equal(recovery.viewOnly, true, name)
+      assert.equal(new Set(store.getActive().messages.map(message => message.localKey)).size, store.getActive().messages.length, name)
+      const saved = JSON.parse(sessionStorage.getItem('llm_platform_active_generation_v2'))
+      assert.equal(saved.messageKey, recovery.localKey, name)
+      assert.equal(projectConversationForPersistence(store.getActive()).messages.some(message => message.localKey === recovery.localKey), false, name)
+    }
   } finally { globalThis.fetch = originalFetch }
 })
 

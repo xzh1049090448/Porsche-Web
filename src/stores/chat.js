@@ -36,6 +36,16 @@ const cloneAndFreeze = value => {
   if (value && typeof value === 'object') return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneAndFreeze(item)])))
   return value
 }
+const sameOrderedModels = (left, right) => Array.isArray(left) && left.length === right.length && left.every((model, index) => model === right[index])
+const hasExactModelKeys = (value, models) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === models.length && models.every(model => Object.prototype.hasOwnProperty.call(value, model))
+const ownsRecoveryAssistant = (message, saved) => {
+  if (message?.role !== 'assistant' || message.transientAttempt !== saved.generationId || message.viewOnly !== true) return false
+  if (saved.mode === 'single') return message.multiModel !== true && typeof message.content === 'string' && message.models == null && message.replies == null && message.modelStates == null
+  return message.multiModel === true && message.content == null && sameOrderedModels(message.models, saved.models) && hasExactModelKeys(message.replies, saved.models) && hasExactModelKeys(message.modelStates, saved.models) && saved.models.every(model => {
+    const state = message.modelStates[model]
+    return typeof message.replies[model] === 'string' && state && typeof state === 'object' && Object.keys(state).length === 2 && typeof state.status === 'string' && (state.code === null || typeof state.code === 'string')
+  })
+}
 
 const contextModels = message => (message.models || []).filter(model => Object.prototype.hasOwnProperty.call(message.contextReplies || {}, model))
 const isContextMessage = message => !message.transientAttempt && (!message.multiModel || !message.contextReplies || contextModels(message).length > 0)
@@ -116,6 +126,15 @@ export const useChatStore = defineStore('chat', () => {
 
   function getActive() {
     return conversations.value.find((c) => conversationKey(c) === activeId.value) || null
+  }
+
+  function uniqueMessageKey() {
+    const used = new Set(conversations.value.flatMap(conversation => (conversation.messages || []).map(message => message.localKey).filter(Boolean)))
+    const base = genLocalId()
+    if (!used.has(base)) return base
+    let suffix = 1
+    while (used.has(`${base}_${suffix}`)) suffix += 1
+    return `${base}_${suffix}`
   }
 
   let conversationsLoadPromise = null
@@ -499,12 +518,21 @@ export const useChatStore = defineStore('chat', () => {
           },
         })
       } else {
-        await mockApi.compareModels({ modelIds: run.models, content: body.messages?.at(-1)?.content || '', signal: run.controller.signal, onModelChunk({ model, delta }) { sequence[model] += 1; apply({ type: 'delta', model, seq: sequence[model], delta }) } })
+        const mockResult = await mockApi.compareModels({ modelIds: run.models, content: body.messages?.at(-1)?.content || '', signal: run.controller.signal, onModelChunk({ model, delta }) { sequence[model] += 1; apply({ type: 'delta', model, seq: sequence[model], delta }) } })
         if (!run.cancelRequested) {
-          for (const model of run.models) apply({ type: 'model_done', model, last_seq: sequence[model] })
-          const models = Object.fromEntries(run.models.map(model => [model, { status: 'completed', tokens: 0 }]))
-          run.terminalMeta = { total_tokens_used: 0 }
-          apply({ type: 'done', status: 'completed', conversation_guid: run.conv.guid, total_tokens_used: 0, models })
+          for (const model of run.models) {
+            const outcome = mockResult?.models?.[model]
+            if (outcome?.status === 'failed') apply({ type: 'model_error', model, code: outcome.code })
+            else apply({ type: 'model_done', model, last_seq: sequence[model] })
+          }
+          const snapshot = run.machine.snapshot()
+          const models = Object.fromEntries(snapshot.models.map(item => item.terminal === 'failed'
+            ? [item.model, { status: 'failed', code: item.code }]
+            : [item.model, { status: 'completed', tokens: Number.isSafeInteger(mockResult?.models?.[item.model]?.tokens) && mockResult.models[item.model].tokens >= 0 ? mockResult.models[item.model].tokens : 0 }]))
+          const completedTokens = Object.values(models).reduce((sum, item) => sum + (item.status === 'completed' ? item.tokens : 0), 0)
+          const totalTokensUsed = Number.isSafeInteger(mockResult?.total_tokens_used) && mockResult.total_tokens_used >= 0 ? mockResult.total_tokens_used : completedTokens
+          run.terminalMeta = { total_tokens_used: totalTokensUsed, models }
+          apply({ type: 'done', status: 'completed', conversation_guid: run.conv.guid, total_tokens_used: totalTokensUsed, models })
         }
       }
       return
@@ -668,13 +696,17 @@ export const useChatStore = defineStore('chat', () => {
       conversations.value.push(conv)
     }
     activeId.value = conversationKey(conv)
-    const messageKey = typeof saved.messageKey === 'string' && saved.messageKey ? saved.messageKey : genLocalId()
-    let assistant = (conv.messages || []).find(message => message.localKey === messageKey)
+    const savedMessageKey = typeof saved.messageKey === 'string' && saved.messageKey ? saved.messageKey : null
+    const collidingMessages = savedMessageKey ? conversations.value.flatMap(conversation => (conversation.messages || []).filter(message => message.localKey === savedMessageKey)) : []
+    const localCollision = savedMessageKey ? (conv.messages || []).find(message => message.localKey === savedMessageKey) : null
+    let assistant = ownsRecoveryAssistant(localCollision, saved) ? localCollision : null
+    const messageKey = assistant?.localKey || (savedMessageKey && collidingMessages.length === 0 ? savedMessageKey : uniqueMessageKey())
     if (!assistant) assistant = { localKey: messageKey, role: 'assistant', generationStatus: 'recovering', viewOnly: true, transientAttempt: saved.generationId, createdAt: Date.now(), ...(saved.mode === 'single' ? { content: '' } : { multiModel: true, models: saved.models, replies: Object.fromEntries(saved.models.map(model => [model, ''])), modelStates: Object.fromEntries(saved.models.map(model => [model, { status: 'recovering', code: null }])) }) }
     conv.messages ||= []
     if (!conv.messages.includes(assistant)) conv.messages.push(assistant)
     const run = { generationId: saved.generationId, mode: saved.mode, models: [...saved.models], context, userGuid: authSession.user()?.guid ?? null, conv, conversationKey: conversationKey(conv), user: null, assistant, originalTitle: conv.title, originalUpdatedAt: conv.updatedAt, controller: new AbortController(), recoveryController: null, cancelController: null, committed: false, cancelRequested: false, terminalMeta: null, machine: null, resumeRequiresHistory: true, historyPromise: null, cancelPromise: null, authoritativeAttempt: null }
     activeRun = run; streamController = run.controller; streaming.value = true
+    rememberRun(run)
     run.machine = createChatGeneration({ generationId: run.generationId, conversationGuid: savedGuid, messageKey: assistant.localKey, mode: run.mode, models: run.models, onChange: snapshot => applyMachineSnapshot(run, snapshot) })
     setGenerationPhase(run, 'recovering')
     await recoverGeneration(run)

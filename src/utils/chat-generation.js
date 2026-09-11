@@ -141,7 +141,6 @@ export function createChatGeneration(options = {}) {
       const item = modelFor(event.model)
       if (!item || item.terminal || (event.type === 'model_done' && event.last_seq !== item.lastSeq)) return fail('GENERATION_MODEL_TERMINAL_ERROR')
       item.terminal = event.type === 'model_done' ? 'completed' : 'failed'; item.code = event.type === 'model_error' ? safeCode(event.code) : null
-      if (event.type === 'model_error') item.displayedText = item.receivedText
       if (!safePlayerCall(item, event.type === 'model_done' ? 'finish' : 'cancel')) return snapshot()
       return snapshot()
     }
