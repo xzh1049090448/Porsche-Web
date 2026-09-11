@@ -658,6 +658,41 @@ test('null-guid resume isolates recovery from the active conversation and also w
   } finally { globalThis.fetch = originalFetch }
 })
 
+test('null-guid resume merges its placeholder into an existing authoritative conversation exactly once', async () => {
+  const store = useChatStore()
+  const existing = { ...summary(D), messages: [{ guid: A, role: 'user', content: 'stale loaded history', created_at: 1 }] }
+  store.conversations = [existing, { ...summary(A), messages: [{ guid: C, role: 'user', content: 'unrelated history', created_at: 1 }] }]
+  store.activeId = A
+  const generationId = '123e4567-e89b-42d3-a456-426614174000'
+  sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId, mode: 'single', models: ['fixture-model'], conversationGuid: null, messageKey: 'duplicate-guid-resume', ownerGuid: '1', ownerEpoch: authSession.capture().epoch }))
+  const authoritative = { ...summary(D), messages: [
+    { guid: C, role: 'user', content: 'recovered prompt', model: 'fixture-model', tokens: 0, created_at: 2 },
+    { guid: B, role: 'assistant', content: 'recovered answer', model: 'fixture-model', tokens: 3, created_at: 3 },
+  ] }
+  route = ({ url }) => {
+    assert.equal(url, `${listPath}/${D}`)
+    return authoritative
+  }
+  const originalFetch = globalThis.fetch; let gets = 0
+  globalThis.fetch = async () => {
+    gets += 1
+    return jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: D, total_tokens_used: 3, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: 'recovered answer', tokens: 3 } })
+  }
+  try {
+    assert.equal(await store.resumePendingGeneration(), true)
+    await waitFor(() => store.generationState?.status === 'completed')
+    assert.equal(gets, 1)
+    assert.equal(store.activeId, D)
+    assert.equal(store.conversations.filter(conversation => conversation.guid === D).length, 1)
+    assert.equal(store.getActive(), store.conversations.find(conversation => conversation.guid === D))
+    assert.deepEqual(store.getActive().messages.map(message => message.content), ['recovered prompt', 'recovered answer'])
+    assert.deepEqual(store.conversations.find(conversation => conversation.guid === A).messages.map(message => message.content), ['unrelated history'])
+    assert.equal(store.conversations.some(conversation => conversation.recoveryGenerationId === generationId), false)
+    assert.equal(await store.resumePendingGeneration(), false)
+    assert.equal(gets, 1)
+  } finally { globalThis.fetch = originalFetch }
+})
+
 test('retryable null-guid resume failure preserves its isolated metadata', async () => {
   const store = useChatStore(); store.conversations = []; store.activeId = null
   const generationId = '123e4567-e89b-42d3-a456-426614174000'

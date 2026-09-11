@@ -308,8 +308,19 @@ export const useChatStore = defineStore('chat', () => {
     const current = canonicalConversationGuid(run.conv.guid)
     if (current && current !== guid) return false
     if (!current) {
-      run.conv.guid = guid
-      if (activeId.value === run.conversationKey) activeId.value = guid
+      const placeholder = run.conv
+      const placeholderKey = run.conversationKey
+      const wasActive = activeId.value === run.conversationKey
+      const authoritative = conversations.value.find(item => conversationKey(item) !== placeholderKey && canonicalConversationGuid(item.guid) === guid)
+      if (authoritative) {
+        conversations.value = conversations.value.filter(item => conversationKey(item) !== placeholderKey)
+        run.conv = authoritative
+        run.originalTitle = authoritative.title
+        run.originalUpdatedAt = authoritative.updatedAt
+      } else {
+        placeholder.guid = guid
+      }
+      if (wasActive) activeId.value = guid
       run.conversationKey = guid
       rememberRun(run)
     }
@@ -424,7 +435,7 @@ export const useChatStore = defineStore('chat', () => {
       const attempt = matchRecoveredAttempt(run, conversation)
       if (!attempt) throw new Error('recovered attempt does not match history')
       conversations.value = upsertConversationByGuid(conversations.value, conversation)
-      run.conv = conversation
+      run.conv = conversations.value.find(item => canonicalConversationGuid(item.guid) === guid)
       run.conversationKey = guid
       run.user = attempt.user
       run.assistant = attempt.assistants.at(-1)
