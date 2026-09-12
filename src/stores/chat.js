@@ -712,7 +712,9 @@ export const useChatStore = defineStore('chat', () => {
     const hasDisplayedContent = run.mode === 'single'
       ? run.assistant?.content !== ''
       : !run.models.every(model => run.assistant?.replies?.[model] === '')
-    if (!ownsConversation || !ownsAttempt || !['failed', 'cancelled'].includes(status) || hasDisplayedContent) return false
+    const hasAcceptedContent = generationState.value?.generationId === run.generationId
+      && generationState.value.models?.some(model => typeof model.receivedText === 'string' && model.receivedText.length > 0)
+    if (!ownsConversation || !ownsAttempt || !['failed', 'cancelled'].includes(status) || hasDisplayedContent || hasAcceptedContent) return false
     const content = run.user.content
     const images = Array.isArray(run.user.images) ? [...run.user.images] : []
     const pending = Promise.resolve().then(() => {

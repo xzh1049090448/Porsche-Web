@@ -487,6 +487,40 @@ test('explicit attempt retry rejects displayed partials and stale conversation o
   } finally { globalThis.document.visibilityState = undefined; globalThis.fetch = originalFetch }
 })
 
+test('explicit attempt retry rejects accepted but undisplayed single and compare deltas', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    for (const mode of ['single', 'compare']) {
+      setActivePinia(createPinia())
+      const store = useChatStore(); const settings = useSettingsStore()
+      const models = mode === 'single' ? ['fixture-model'] : ['model-a', 'model-b']
+      settings.selectedModelId = models[0]
+      settings.compareMode = mode === 'compare'; settings.compareModelIds = models
+      store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+      let posts = 0
+      globalThis.document.visibilityState = 'visible'
+      globalThis.fetch = async (_url, options = {}) => {
+        posts += 1
+        const id = JSON.parse(options.body).generation_id
+        return sseResponse([
+          `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models })}\n\n`,
+          `event: delta\ndata: ${JSON.stringify({ generation_id: id, model: models[0], seq: 1, delta: 'accepted but not displayed' })}\n\n`,
+          `event: error\ndata: ${JSON.stringify({ generation_id: id, code: 'timeout', request_id: `req-undisplayed-${mode}` })}\n\n`,
+        ].join(''))
+      }
+      await store.sendMessage(`undisplayed ${mode}`); await waitFor(() => store.generationState?.status === 'failed')
+      const attempt = [...store.getActive().messages]
+      const assistant = attempt.at(-1)
+      assert.equal(mode === 'single' ? assistant.content : assistant.replies[models[0]], '', mode)
+      assert.ok(store.generationState.models.some(model => model.receivedText === 'accepted but not displayed'), mode)
+      assert.equal(await store.retryGenerationAttempt(), false, mode)
+      assert.equal(posts, 1, mode)
+      assert.deepEqual(store.getActive().messages, attempt, mode)
+      assert.ok(store.getActive().messages.every(message => message.transientAttempt), mode)
+    }
+  } finally { globalThis.document.visibilityState = undefined; globalThis.fetch = originalFetch }
+})
+
 test('compare keeps a failed model separate while its sibling completes in requested order', async () => {
   const store = useChatStore(); const settings = useSettingsStore()
   settings.compareMode = true; settings.compareModelIds = ['model-a', 'model-b']
