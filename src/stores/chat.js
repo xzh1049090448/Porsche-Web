@@ -632,7 +632,7 @@ export const useChatStore = defineStore('chat', () => {
     const generationId = createPlatformGenerationId()
     const originalTitle = conv.title
     const originalUpdatedAt = conv.updatedAt
-    const userMsg = {
+    let userMsg = {
       localKey: genLocalId(),
       role: 'user',
       content: userContent,
@@ -642,6 +642,7 @@ export const useChatStore = defineStore('chat', () => {
     }
     if (!conv.messages) conv.messages = []
     conv.messages.push(userMsg)
+    userMsg = conv.messages.at(-1)
     if (conv.messages.filter((m) => m.role === 'user' && !m.transientAttempt).length === 0) {
       conv.title = userContent.slice(0, 24) || useLocaleStore().t('chat.defaultTitle')
     }
@@ -649,7 +650,7 @@ export const useChatStore = defineStore('chat', () => {
     const mode = settings.compareMode ? 'compare' : 'single'
     const modelIds = mode === 'compare' ? [...settings.compareModelIds] : [settings.selectedModelId]
     const apiMessages = cloneAndFreeze(buildMessagesForApi(conv, userContent))
-    const assistantMsg = {
+    let assistantMsg = {
       localKey: genLocalId(),
       role: 'assistant',
       ...(mode === 'single' ? { content: '' } : { multiModel: true, models: modelIds, replies: Object.fromEntries(modelIds.map(id => [id, ''])), modelStates: Object.fromEntries(modelIds.map(id => [id, { status: 'starting', code: null }])) }),
@@ -659,6 +660,7 @@ export const useChatStore = defineStore('chat', () => {
       createdAt: Date.now(),
     }
     conv.messages.push(assistantMsg)
+    assistantMsg = conv.messages.at(-1)
     const run = {
       generationId, mode, models: modelIds, context,
       userGuid: authSession.user()?.guid ?? null,
@@ -799,6 +801,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!assistant) assistant = { localKey: messageKey, role: 'assistant', generationStatus: 'recovering', viewOnly: true, transientAttempt: saved.generationId, createdAt: Date.now(), ...(saved.mode === 'single' ? { content: '' } : { multiModel: true, models: saved.models, replies: Object.fromEntries(saved.models.map(model => [model, ''])), modelStates: Object.fromEntries(saved.models.map(model => [model, { status: 'recovering', code: null }])) }) }
     conv.messages ||= []
     if (!conv.messages.includes(assistant)) conv.messages.push(assistant)
+    assistant = conv.messages.find(message => message.localKey === messageKey && message.transientAttempt === saved.generationId)
     const run = { generationId: saved.generationId, mode: saved.mode, models: [...saved.models], context, userGuid: authSession.user()?.guid ?? null, conv, conversationKey: conversationKey(conv), user: null, assistant, originalTitle: conv.title, originalUpdatedAt: conv.updatedAt, controller: new AbortController(), recoveryController: null, cancelController: null, committed: false, cancelRequested: false, cancellationRecovery: false, terminalMeta: null, machine: null, resumeRequiresHistory: true, historyPromise: null, cancelPromise: null, recoveryPromise: null, recoveryFromCancel: false, cancellationRecoveryPromise: null, retryAttemptPromise: null, recoverable: false, authoritativeAttempt: null }
     activeRun = run; streamController = run.controller; streaming.value = true
     rememberRun(run)

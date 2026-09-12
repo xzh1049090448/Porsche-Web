@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { after, before, beforeEach, test } from 'node:test'
 import { createServer } from 'vite'
 import { createPinia, setActivePinia } from 'pinia'
+import { watch } from 'vue'
 import { setImmediate } from 'node:timers/promises'
 
 // Load the real store/API/mappers via the project's Vite aliases, replacing
@@ -818,6 +819,90 @@ test('generation projection preserves receiving and draining while transport pha
     assert.equal(store.generationState.status, 'draining'); assert.equal(store.generationState.phase, 'streaming')
     await waitFor(() => store.generationState?.status === 'completed')
   } finally { sendDone.resolve(); globalThis.document.visibilityState = undefined; globalThis.fetch = originalFetch }
+})
+
+test('timed SSE deltas cross the reactive message boundary incrementally before done', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  globalThis.document.visibilityState = 'visible'
+  const accepted = []; const rendered = []
+  const stopSubscription = store.$subscribe((_mutation, state) => {
+    const text = state.generationState?.models?.[0]?.receivedText
+    if (text && text !== accepted.at(-1)) accepted.push(text)
+  }, { flush: 'sync' })
+  const stopWatch = watch(() => {
+    const message = store.getActive()?.messages?.at(-1)
+    return message?.role === 'assistant' ? message.content : ''
+  }, value => { if (value && value !== rendered.at(-1)) rendered.push(value) }, { flush: 'sync' })
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (_url, options = {}) => {
+    const id = JSON.parse(options.body).generation_id; const encoder = new TextEncoder()
+    return new Response(new ReadableStream({ async start(controller) {
+      controller.enqueue(encoder.encode(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\n`))
+      for (let seq = 1; seq <= 26; seq += 1) {
+        await new Promise(resolve => setTimeout(resolve, 35))
+        controller.enqueue(encoder.encode(`event: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', seq, delta: String.fromCharCode(64 + seq) })}\n\n`))
+      }
+      controller.enqueue(encoder.encode(`event: model_done\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', last_seq: 26 })}\n\nevent: done\ndata: ${JSON.stringify({ generation_id: id, status: 'completed', conversation_guid: A, tokens: 26, total_tokens_used: 26 })}\n\n`)); controller.close()
+    } }), { status: 200, headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } })
+  }
+  try {
+    await store.sendMessage('timed stream'); await waitFor(() => store.generationState?.status === 'completed')
+    assert.ok(accepted.length >= 20, `accepted snapshots: ${accepted.length}`)
+    assert.ok(rendered.length >= 10, `reactive message growth: ${rendered.length}`)
+    assert.ok(rendered.every((value, index) => index === 0 || value.startsWith(rendered[index - 1])))
+    assert.equal(rendered.at(-1), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')
+  } finally { stopWatch(); stopSubscription(); globalThis.document.visibilityState = undefined; globalThis.fetch = originalFetch }
+})
+
+test('a contract-valid global error is terminal failed with no GET and remains explicitly retryable', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; const bodies = []; let gets = 0
+  globalThis.fetch = async (_url, options = {}) => {
+    if ((options.method || 'GET') === 'GET') { gets += 1; throw new Error('terminal error must not recover by GET') }
+    const body = JSON.parse(options.body); bodies.push(body); const id = body.generation_id
+    if (bodies.length === 1) return sseResponse(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\nevent: error\ndata: ${JSON.stringify({ generation_id: id, code: 'timeout', request_id: 'req-terminal-error' })}\n\n`)
+    return sseResponse(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\nevent: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', seq: 1, delta: 'retry success' })}\n\nevent: model_done\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', last_seq: 1 })}\n\nevent: done\ndata: ${JSON.stringify({ generation_id: id, status: 'completed', conversation_guid: A, tokens: 1, total_tokens_used: 1 })}\n\n`)
+  }
+  try {
+    await store.sendMessage('terminal error'); await waitFor(() => store.generationState?.status === 'failed')
+    const failed = store.getActive().messages.at(-1)
+    assert.equal(gets, 0); assert.equal(failed.content, ''); assert.equal(failed.viewOnly, true); assert.ok(failed.transientAttempt)
+    await store.retryGenerationAttempt(); await waitFor(() => store.generationState?.status === 'completed')
+    assert.equal(gets, 0); assert.equal(bodies.length, 2); assert.notEqual(bodies[0].generation_id, bodies[1].generation_id)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('authoritative cancel retains the displayed reactive prefix as transient view-only content', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  globalThis.document.visibilityState = 'visible'
+  const originalFetch = globalThis.fetch; const started = deferred(); let generationId; let cancelPosts = 0; const rendered = []
+  const stopWatch = watch(() => {
+    const message = store.getActive()?.messages?.at(-1)
+    return message?.role === 'assistant' ? message.content : ''
+  }, value => { if (value && value !== rendered.at(-1)) rendered.push(value) }, { flush: 'sync' })
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).endsWith('/cancel')) {
+      cancelPosts += 1
+      return jsonResponse({ generation_id: generationId, status: 'cancelled', mode: 'single', conversation_guid: null })
+    }
+    generationId = JSON.parse(options.body).generation_id; const encoder = new TextEncoder()
+    return new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(encoder.encode(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: generationId, conversation_guid: A, models: ['fixture-model'] })}\n\nevent: delta\ndata: ${JSON.stringify({ generation_id: generationId, model: 'fixture-model', seq: 1, delta: 'displayed prefix with pending tail' })}\n\n`)); started.resolve()
+    } }), { status: 200, headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } })
+  }
+  try {
+    const sending = store.sendMessage('cancel partial'); await started.promise
+    await waitFor(() => rendered.length >= 1)
+    const prefix = rendered.at(-1); assert.ok(prefix.length > 0); assert.ok(prefix.length < 'displayed prefix with pending tail'.length)
+    await store.cancelStream(); await sending; await new Promise(resolve => setTimeout(resolve, 50))
+    const assistant = store.getActive().messages.at(-1)
+    assert.equal(cancelPosts, 1); assert.equal(store.generationState.status, 'cancelled')
+    assert.equal(assistant.content, prefix); assert.equal(assistant.viewOnly, true); assert.ok(assistant.transientAttempt)
+    assert.equal(rendered.at(-1), prefix)
+  } finally { stopWatch(); globalThis.document.visibilityState = undefined; globalThis.fetch = originalFetch }
 })
 
 test('identity invalidation makes late stream callbacks unable to write into the next user store', async () => {
