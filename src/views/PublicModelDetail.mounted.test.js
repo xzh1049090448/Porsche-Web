@@ -17,8 +17,9 @@ const store=data("export const usePublicModelAdminStore=()=>globalThis.__detailM
 const i18n=data("export const useI18n=()=>({t:key=>key})")
 const element=data("export const ElMessage={warning(){}}")
 const form=data("export default {name:'PublicModelForm',props:['modelValue','model','busy','error'],emits:['update:modelValue','submit'],render(){return null}}")
+const shell=data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({inheritAttrs:false,setup(_,{attrs,slots}){return()=>h('section',attrs,[slots.default?.(),slots.actions?.()])}})`)
 let code=`${script.content}\n${template.code}\n__sfc__.render=render\nexport default __sfc__`
-for(const [from,to] of [['vue',vueURL],['vue-router',router],['element-plus',element],['@/stores/publicModelAdmin',store],['@/composables/useI18n',i18n],['@/components/public-admin/PublicModelForm.vue',form]]) code=code.replaceAll(`from '${from}'`,`from '${to}'`).replaceAll(`from "${from}"`,`from '${to}'`)
+for(const [from,to] of [['vue',vueURL],['vue-router',router],['element-plus',element],['@/stores/publicModelAdmin',store],['@/composables/useI18n',i18n],['@/components/public-admin/PublicModelForm.vue',form],['@/components/shell/PageHeader.vue',shell],['@/components/shell/StatusBadge.vue',shell]]) code=code.replaceAll(`from '${from}'`,`from '${to}'`).replaceAll(`from "${from}"`,`from '${to}'`)
 const Detail=(await import(data(code))).default
 const flush=async()=>{for(let i=0;i<5;i++)await nextTick();await new Promise(r=>setTimeout(r,0));await nextTick()}
 const model=guid=>({guid,modelKey:`model-${guid}`,upstreamModelId:`up/${guid}`,displayName:`Model ${guid}`,provider:'P',capabilities:[],contextWindow:1000,inputPriceUsdPerMillionTokens:null,outputPriceUsdPerMillionTokens:null,status:'draft',revision:1,lastUpstreamCheckAt:null,publicDisplayGroup:null,endpointTypes:[],publicRestrictions:[],priceSource:null,priceReviewer:null,priceEffectiveAt:null})

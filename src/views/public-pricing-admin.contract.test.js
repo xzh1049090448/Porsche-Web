@@ -16,9 +16,11 @@ test('diff, checks and history preserve pricing publication semantics',()=>{
  assert.match(history,/upstream_safety/);assert.match(history,/systemGenerated/);assert.match(history,/restore/);assert.doesNotMatch(history,/delete|rollback/)
  for(const token of ['load-more','aria-live','total','loading'])assert.ok(history.includes(token),token)
 })
-test('pricing administration uses shared page, surface, status, table and responsive dialog primitives',()=>{
+test('pricing administration composes shared page, surface and status components',()=>{
  const view=read('./PublicPricingAdmin.vue'),diff=read('../components/public-admin/PricingDiff.vue'),checks=read('../components/public-admin/PublicationChecks.vue'),history=read('../components/public-admin/PriceSnapshotHistory.vue')
- for(const token of ['console-page','page-header','surface-card','status-badge','responsive-table','responsive-dialog'])assert.match(view,new RegExp(token),token)
- for(const source of [diff,checks,history])assert.match(source,/surface-card/)
- assert.match(diff,/responsive-table/);assert.match(history,/pagination-bar/)
+ for(const component of ['PageHeader','SurfaceCard','StatusBadge']){
+  assert.match(view,new RegExp(`import ${component} from ['\"]@\\/components\\/shell\\/${component}\\.vue['\"]`)); assert.match(view,new RegExp(`<${component}\\b`))
+ }
+ for(const source of [diff,checks,history]){assert.match(source,/import SurfaceCard from ['"]@\/components\/shell\/SurfaceCard\.vue['"]/);assert.match(source,/<SurfaceCard\b/)}
+ assert.match(view,/responsive-table/);assert.match(view,/responsive-dialog/);assert.match(diff,/responsive-table/);assert.match(history,/pagination-bar/)
 })

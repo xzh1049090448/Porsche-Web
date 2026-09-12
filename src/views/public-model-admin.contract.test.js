@@ -90,14 +90,22 @@ test('root model UI has bilingual copy and accessible responsive states', () => 
   }
 })
 
-test('model administration composes the shared console surfaces and responsive controls', () => {
+test('model administration composes shared console components and responsive controls', () => {
   const list = read('./PublicModelsAdmin.vue')
   const detail = read('./PublicModelDetail.vue')
   const form = read('../components/public-admin/PublicModelForm.vue')
   const missing = read('../components/public-admin/MissingModelsPanel.vue')
-  for (const token of ['console-page','page-header','filter-toolbar','surface-card','status-badge','responsive-table','pagination-bar']) assert.match(list, new RegExp(token), token)
-  for (const token of ['console-page','page-header','surface-card','status-badge','detail-action-toolbar','responsive-table']) assert.match(detail, new RegExp(token), token)
-  for (const source of [list, detail]) assert.match(source, /statusTone/)
+  for (const source of [list, detail]) {
+    assert.match(source, /import PageHeader from ['"]@\/components\/shell\/PageHeader\.vue['"]/)
+    assert.match(source, /import StatusBadge from ['"]@\/components\/shell\/StatusBadge\.vue['"]/)
+    assert.match(source, /<PageHeader\b/)
+    assert.match(source, /<StatusBadge\b/)
+    assert.match(source, /statusTone/)
+  }
+  assert.match(list, /import SurfaceCard from ['"]@\/components\/shell\/SurfaceCard\.vue['"]/)
+  assert.match(list, /<SurfaceCard\b/)
+  for (const token of ['console-page','filter-toolbar','responsive-table','pagination-bar']) assert.match(list, new RegExp(token), token)
+  assert.match(detail, /detail-action-toolbar/); assert.match(detail, /responsive-table/)
   assert.match(form, /responsive-dialog/)
-  assert.match(missing, /surface-card/)
+  assert.match(missing, /import SurfaceCard from ['"]@\/components\/shell\/SurfaceCard\.vue['"]/); assert.match(missing, /<SurfaceCard\b/)
 })

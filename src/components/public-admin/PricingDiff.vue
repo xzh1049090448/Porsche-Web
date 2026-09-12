@@ -1,5 +1,5 @@
 <template>
-  <section class="panel surface-card" aria-labelledby="pricing-diff-title">
+  <SurfaceCard class="panel" aria-labelledby="pricing-diff-title">
     <h2 id="pricing-diff-title">{{ t('publicPricingAdmin.diffTitle') }}</h2>
     <p>{{ t('publicPricingAdmin.generationMeta',{draft:draft?.revision??'—',live:live?.release?.version??'—'}) }}</p>
     <article v-for="model in models" :key="model.modelKey" class="model-diff" :class="{changed:model.changed}">
@@ -13,9 +13,9 @@
       </tbody></table></div>
     </article>
     <p v-if="!models.length">{{t('publicPricingAdmin.empty')}}</p>
-  </section>
+  </SurfaceCard>
 </template>
-<script setup>
+<script setup>import SurfaceCard from '@/components/shell/SurfaceCard.vue';
 import{computed}from'vue';import{useI18n}from'@/composables/useI18n';import{buildPricingDiff,canonicalPricingInstant,pricingBusinessFields}from'./pricing-diff.js'
 const props=defineProps({draft:Object,live:Object}),{t}=useI18n(),MISSING=Symbol('missing')
 const display=value=>value===MISSING?t('publicPricingAdmin.missing'):Array.isArray(value)?(value.join(', ')||t('publicPricingAdmin.none')):value===null?t('publicModelsAdmin.notSet'):String(value)
