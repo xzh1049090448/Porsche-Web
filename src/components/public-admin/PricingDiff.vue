@@ -1,5 +1,5 @@
 <template>
-  <section class="panel" aria-labelledby="pricing-diff-title">
+  <section class="panel surface-card" aria-labelledby="pricing-diff-title">
     <h2 id="pricing-diff-title">{{ t('publicPricingAdmin.diffTitle') }}</h2>
     <p>{{ t('publicPricingAdmin.generationMeta',{draft:draft?.revision??'—',live:live?.release?.version??'—'}) }}</p>
     <article v-for="model in models" :key="model.modelKey" class="model-diff" :class="{changed:model.changed}">
@@ -8,7 +8,7 @@
       <dl class="operational">
         <template v-for="item in model.operations" :key="item.key"><dt>{{item.label}}</dt><dd>{{item.value}}</dd></template>
       </dl>
-      <div class="table-wrap"><table><thead><tr><th>{{t('publicPricingAdmin.field')}}</th><th>{{t('publicPricingAdmin.live')}}</th><th>{{t('publicPricingAdmin.draft')}}</th></tr></thead><tbody>
+      <div class="table-wrap responsive-table"><table><thead><tr><th>{{t('publicPricingAdmin.field')}}</th><th>{{t('publicPricingAdmin.live')}}</th><th>{{t('publicPricingAdmin.draft')}}</th></tr></thead><tbody>
         <tr v-for="field in model.fields" :key="field.key" :class="{changed:field.changed}"><th>{{field.label}}</th><td>{{field.live}}</td><td>{{field.draft}}</td></tr>
       </tbody></table></div>
     </article>

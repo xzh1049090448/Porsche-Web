@@ -1,5 +1,5 @@
 <template>
-  <el-dialog :model-value="modelValue" trap-focus :title="mode === 'edit' ? t('publicModelsAdmin.edit') : t('publicModelsAdmin.create')" width="min(760px, 96vw)" :close-on-click-modal="false" @update:model-value="emit('update:modelValue', $event)" @closed="emit('closed')">
+  <el-dialog class="responsive-dialog" :model-value="modelValue" trap-focus :title="mode === 'edit' ? t('publicModelsAdmin.edit') : t('publicModelsAdmin.create')" width="min(760px, 96vw)" :close-on-click-modal="false" @update:model-value="emit('update:modelValue', $event)" @closed="emit('closed')">
     <el-form ref="formRef" :model="form" label-position="top" @submit.prevent="submit">
       <div class="grid">
         <el-form-item :label="t('publicModelsAdmin.upstreamModelId')" required>

@@ -89,3 +89,15 @@ test('root model UI has bilingual copy and accessible responsive states', () => 
     assert.match(source, /@media\s*\(max-width:/)
   }
 })
+
+test('model administration composes the shared console surfaces and responsive controls', () => {
+  const list = read('./PublicModelsAdmin.vue')
+  const detail = read('./PublicModelDetail.vue')
+  const form = read('../components/public-admin/PublicModelForm.vue')
+  const missing = read('../components/public-admin/MissingModelsPanel.vue')
+  for (const token of ['console-page','page-header','filter-toolbar','surface-card','status-badge','responsive-table','pagination-bar']) assert.match(list, new RegExp(token), token)
+  for (const token of ['console-page','page-header','surface-card','status-badge','detail-action-toolbar','responsive-table']) assert.match(detail, new RegExp(token), token)
+  for (const source of [list, detail]) assert.match(source, /statusTone/)
+  assert.match(form, /responsive-dialog/)
+  assert.match(missing, /surface-card/)
+})
