@@ -1,5 +1,12 @@
 # 当前验证进度
 
+## 2026-09-12：全站视觉统一本地前端候选完成严格回归
+
+- 实现序列 `91d7202..d65216e` 完成 public、auth、console、chat、用户管理、公共模型/定价/内容管理与 Root 通知的统一视觉；Task12 以 `f90d1ec` 将开发专用金额 demo 的测试契约同步为生产路由已有的绝对路径 `/demo/admin/balance`，未改回生产 router。
+- 显式提供 A03/A05/A06/A08/A14/PublicPricing 六份权威后端合同并允许测试所需 loopback 后，完整 `npm test` 为 985/985 PASS、0 fail、0 skip。`VITE_USE_MOCK=false npm run build`、production bundle checker、公共模块图（8 chunks、154847 JS bytes、18464 CSS bytes，预算 200000）、定向 dist fixture/secret 扫描及 `git diff --check` 通过。构建保留第三方 PURE 注释、静态/动态重复导入和大于 500 kB chunk 警告。
+- 可见 Chromium 严格矩阵为 21 routes × 3 viewports（375×812、768×1024、1440×900）× 2 themes = 126/126；public/guest 使用匿名 refresh 401 上下文，console/admin 使用 synthetic Root 上下文，每例断言最终 pathname/query 与 route-specific landmark，console/page errors 为空。报告见 `docs/agents/validation/2026-09-12-full-site-visual-browser-matrix.md`。
+- 状态边界不变：`web-012` 继续 `in_progress`。P08 生产内容仍 `BLOCKED_PRODUCT`，email push 仍为 TODO；`/pricing/:modelKey` 只验证 loading，不标 ready/published，public pricing empty 明确为 SKIP。未 push、merge、deploy，未做真实生产/live acceptance，写状态仅使用 synthetic/mock fixture。
+
 ## 2026-09-12：BE06 合并进入 main
 
 - BE06 前端在最新 `origin/main` 上完成无冲突合并；配对后端也在吸收其最新远端提交后完成兼容合并。
