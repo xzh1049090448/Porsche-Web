@@ -57,7 +57,7 @@
         "A08：BE f2f9760 / FE 25b0731；后端真实 fixture 11/11、前端 focused 41/41、full 446/446、生产构建、可见 Chromium 提升/权限修改/降级、375/390 与 exact cleanup 通过，状态 PASS_LIMITED_SCOPE",
         "A09-A12：FE 8612242 / BE 258abb4；focused 8/8、前端全量 455/455、生产构建隔离扫描、可见 Chromium 7 项、后端全量/构建/伪造金额路由 404、A12 当前候选定向回归通过",
         "Public content/pricing Task11：FE 8001346bcfcaf16889a967f53b2042993e11fddf / BE 7d7d1dd8d141e2847c431d9c58e07fb53238eb72；三份冻结契约显式注入，前端511/511、生产build、public module graph、diff-check",
-        "Full-site visual Task12：显式注入 A03/A05/A06/A08/A14/PublicPricing 权威后端合同的 npm test 985/985、0 fail/skip；VITE_USE_MOCK=false production build、bundle checker、public graph、dist fixture/secret scan、diff-check"
+        "Full-site visual Task12（mock leakage 修复后）：显式注入 A03/A05/A06/A08/A14/PublicPricing 权威后端合同的 npm test 993/993、0 fail/skip；VITE_USE_MOCK=false production build、增强 bundle checker、public graph、全 dist mock/fixture scan、diff-check"
       ],
       "evidence": [
         "2026-09-04：B1-D 只读用户列表/详情、认证权限投影、分页回退及 F1/F2 候选闭合；132/132 Node 行为测试、build、writer Chrome 合成 API 矩阵通过。独立 Chrome 在 5177 复验分页/UI、详情错误重试、F1 撤权清理和权限恢复均 PASS；独立质量为本地 FE 候选 VERDICT PASS，offline audit freshness NOT_VERIFIED。",
@@ -71,7 +71,7 @@
         "2026-09-08：测试环境真实浏览器完成管理员列表、精确搜索、详情、刷新登录态、创建普通用户及软删除闭环；临时 GUID 355650202352226304 删除后活动列表恢复 4 条且 GUID 查询 0 条。发现删除后残留旧创建公告；隔离分支按 TDD 修复为删除成功公告，定向 10/10、全量 287/287、生产构建及 diff-check 通过。",
         "2026-09-10：A09/A10 开发专用 CNY Mock、A11 生产隔离、A12 当前候选复验均为 PASS_LIMITED_SCOPE。证据见 docs/agents/validation/a09-a12-balance-mock-20260910/manifest.json；外部后端 project_manager 本轮书面确认未获得。",
         "2026-09-11：public content/pricing 前端候选8001346绑定后端7d7d1dd及冻结契约89e94d9；显式A03/A14/public-pricing契约和VITE_USE_MOCK=false下全量511/511、0 skip，生产构建、8个公共chunk模块图（194574 JS bytes/5421 CSS bytes）及diff-check通过。P01/P03–P07仅为PASS_FRONTEND_LOCAL；浏览器夹具BLOCKED_FIXTURE、线上PENDING_LIVE_ACCEPTANCE，P08保持BLOCKED_PRODUCT。报告见docs/agents/validation/2026-09-09-public-content-pricing/frontend-report.md。",
-        "2026-09-12：全站视觉统一分支实现序列 91d7202..d65216e，Task12 测试契约修复 f90d1ec；严格可见 Chromium 矩阵 21 routes × 3 viewports × 2 themes = 126/126，通过匿名 public/guest 与 synthetic Root console/admin 独立上下文、final pathname/query 与 route-specific landmark 断言，console/page errors 均为空。生产构建 public graph 为 8 chunks / 154847 JS bytes / 18464 CSS bytes（预算 200000），bundle 与定向 dist 扫描通过。"
+        "2026-09-12：全站视觉统一分支实现序列 91d7202..d65216e，Task12 路由测试修复 f90d1ec、records ccdd098、计划文档 hygiene f1de8e0、production mock 隔离 3ad62df。此前 checker 只覆盖 A09 markers，导致通用 mock.js 及凭据/fixture marker 随静态 import 进入 production bundle；该“dist scan通过”结论已失效。修复后生产构建以构建期 alias 替换为无副作用 sentinel，manifest/graph 不再引用或打包通用 mock 实现；增强 checker RED 5项后 GREEN，开发 mock build仍保留真实 mock。权威 full 993/993；public graph 8 chunks / 154847 JS bytes / 18464 CSS bytes。严格可见 Chromium 原矩阵仍为126/126，修复后 production preview login/chat/admin smoke 3/3且console/page errors为空。"
       ],
       "notes": "全站视觉统一已完成本地前端候选及严格浏览器矩阵，但不改变 web-012 的 in_progress 边界。P08 真实价格、claims、terms、privacy、品牌文案仍 BLOCKED_PRODUCT；email push 仍为 TODO。/pricing/:modelKey 仅验证 loading，不记 ready/published；/pricing empty 独立 probe 未稳定证实，明确 SKIP。未 push、merge、deploy 或执行真实生产/live acceptance；矩阵写状态仅使用 synthetic/mock fixture。金额余额与既有安全边界保持不变。 ACTION_SECURITY_HMAC_KEY v1 lacks key ID/multi-key verification; rotation is prohibited while replayable post-0010 active snapshots exist unless a separately approved multi-key verifier or atomic full re-HMAC migration is delivered.",
       "a07_joint_acceptance": {
