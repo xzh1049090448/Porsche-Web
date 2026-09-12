@@ -550,4 +550,3 @@ Persist raw stdout bytes with exclusive file creation; do not redirect over exis
 **Step 7: Prepare integration without deploying**
 
 Summarize commits, test/build/browser evidence, review results, known warnings, P08 content todo, email notification todo, and deployment boundary. Use `finishing-a-development-branch` only after all gates pass. Push, PR creation, merge, migration, deployment, and live acceptance require their own explicit execution step.
-
