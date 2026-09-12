@@ -80,6 +80,7 @@ const canSend = computed(
 )
 
 function onKeydown(e) {
+  if (e.isComposing === true || e.keyCode === 229) return
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     if (inputLocked.value) return
