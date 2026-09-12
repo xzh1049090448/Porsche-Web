@@ -4,7 +4,7 @@
   "scope": "BE06 platform-chat-sse.v2 local cross-repository implementation and acceptance",
   "verdict": "PASS_LOCAL_CROSS_REPOSITORY",
   "revisions": {
-    "frontend_pre_evidence": "0c8db0eb80d77d0c827c03f0f6111b8511724055",
+    "frontend_pre_evidence": "db5e25f27e879d5697fe758e5f40048105312b6d",
     "backend": "4680c549bd28f8be57a438061cf9161914c046a0"
   },
   "contract": {
@@ -53,7 +53,7 @@
     "frontend": {
       "full_suite": {
         "command": "VITE_USE_MOCK=false with A03_BACKEND_CONTRACT, A05_BACKEND_CONTRACT, A06_BACKEND_CONTRACT, A08_BACKEND_CONTRACT, A14_BACKEND_CONTRACT, and PUBLIC_PRICING_BACKEND_CONTRACT set to authoritative backend contract files; npm test",
-        "result": "922/922 PASS",
+        "result": "926/926 PASS",
         "skips": 0
       },
       "production_build": {
@@ -66,14 +66,16 @@
       }
     },
     "controlled_browser": {
-      "environment": "local production build with synthetic backend and upstream responses",
+      "environment": "real local browser against the production build with synthetic backend and upstream responses",
       "result": "PASS",
       "matrix": {
         "single_lifecycle": "PASS",
-        "timed_incremental_growth": "PASS; final visible length 52",
-        "reduced_motion_growth": "PASS; final visible length 61",
+        "standard_raf_playback": "PASS; one grapheme per actual requestAnimationFrame; a requested 25ms cadence was observed at approximately 33ms in-browser",
+        "punctuation_cadence": "PASS; punctuation introduced no additional pause",
+        "reduced_motion_send_and_recovery": "PASS; 29 visible growth observations, maximum batch size 8 graphemes, and modeReason verified",
         "focus_preservation": "PASS",
-        "scroll_preservation": "PASS; observed scroll position 745",
+        "scroll_preservation": "PASS; manual upward scroll was not stolen while content grew",
+        "back_to_latest": "PASS; keyboard activation restored the latest-message position",
         "illegal_meta": "PASS; fail-closed, new generation UUID, zero recovery GET",
         "authoritative_cancel": "PASS; displayed prefix remains view-only",
         "compare_three_models": "PASS; successful siblings remain visible after one sibling failure",
