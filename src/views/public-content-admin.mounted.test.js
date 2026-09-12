@@ -25,7 +25,8 @@ async function previewComponent(){const source=await readFile(new URL('./PublicC
  ['@/api/publicContentAdmin.js',data("export const publicContentAdminApi={preview:(...v)=>globalThis.__pcApi.preview(...v)}")],
  ['@/utils/public-content-validation.js',data("export const renderSafePublicMarkdown=v=>'<p>'+v.replace(/[<>&]/g,'')+'</p>'")],
  ['@/composables/useI18n',data("export const useI18n=()=>({t:k=>k})")],
- ]);let code=`${script.content}\n${template.code}\n__sfc__.render=render\nexport default __sfc__`;for(const[from,to]of modules)code=code.replaceAll(`from '${from}'`,`from '${to}'`).replaceAll(`from'${from}'`,`from'${to}'`).replaceAll(`from "${from}"`,`from "${to}"`).replaceAll(`from"${from}"`,`from"${to}"`);return(await import(data(code))).default}
+ ['@/styles/public-content.scss',data('export{}')],
+ ]);let code=`${script.content}\n${template.code}\n__sfc__.render=render\nexport default __sfc__`;for(const[from,to]of modules)code=code.replaceAll(`from '${from}'`,`from '${to}'`).replaceAll(`from'${from}'`,`from'${to}'`).replaceAll(`from "${from}"`,`from "${to}"`).replaceAll(`from"${from}"`,`from"${to}"`).replaceAll(`import '${from}'`,`import '${to}'`).replaceAll(`import'${from}'`,`import'${to}'`).replaceAll(`import "${from}"`,`import "${to}"`).replaceAll(`import"${from}"`,`import"${to}"`);return(await import(data(code))).default}
 const legal=title=>`# ${title}\n\nVersion: v1\n\nEffective Date: 2026-09-11\n\n## Body\nText\n\n## Contact\nsupport@example.com`,base={revision:2,home:'# Home',about:'# About',terms:legal('Terms'),privacy:legal('Privacy'),legalReviewed:true}
 async function flush(){for(let i=0;i<8;i++)await nextTick();await new Promise(r=>setTimeout(r,0));await nextTick()}
 async function waitFor(predicate){for(let i=0;i<100;i++){if(predicate())return;await new Promise(r=>setTimeout(r,1));await nextTick()}assert.fail('mounted condition did not settle')}
