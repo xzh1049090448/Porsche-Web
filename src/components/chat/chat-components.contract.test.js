@@ -12,7 +12,9 @@ test('Chat mounts an accessible lifecycle region, resumes pending work, and dele
   assert.match(statusSource, /generationLifecycleStatus/)
   assert.match(statusSource, /chatStore\.cancelStream\(\)/)
   assert.match(source, /chatStore\.resumePendingGeneration\(\)/)
-  assert.ok(source.indexOf('resumePendingGeneration()') < source.indexOf('ensureActive()'), 'pending recovery must run before creating a replacement conversation')
+  assert.ok(source.indexOf('resumePendingGeneration()') < source.indexOf('loadModels()'), 'pending recovery must be checked before catalog/history initialization')
+  assert.match(source, /bootstrapping/)
+  assert.match(source, /:disabled="bootstrapping"/)
   assert.doesNotMatch(statusSource, /AbortController/)
 })
 
@@ -21,6 +23,7 @@ test('ChatInput blocks invalid compare selections and duplicate submission while
   assert.match(source, /validateGenerationSelection/)
   assert.match(source, /!chatStore\.streaming/)
   assert.match(source, /selection\.value\.valid/)
+  assert.match(source, /props\.disabled/)
 })
 
 test('ModelPanel exposes compare validation and enforces the exact two-to-three boundary', async () => {
@@ -39,4 +42,6 @@ test('ChatMessageList renders stable per-model failure and view-only labels outs
   assert.match(source, /chat\.viewOnlyPartial/)
   assert.match(source, /reply-error/)
   assert.doesNotMatch(source, /errorPrefix/)
+  assert.match(source, /canCopyGenerationMessage/)
+  assert.match(source, /prefers-reduced-motion:\s*reduce/)
 })

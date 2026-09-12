@@ -31,7 +31,7 @@
         class="model-item"
         :class="{ active: settings.selectedModelId === m.id }"
         :aria-checked="settings.selectedModelId === m.id"
-        :disabled="settings.compareMode || chatStore.streaming"
+        :disabled="disabled || settings.compareMode || chatStore.streaming"
         @click="onSingleModelChange(m.id)"
       >
         <span class="model-icon">{{ m.icon }}</span>
@@ -60,7 +60,7 @@
         type="button"
         class="scenario-btn"
         :class="{ active: settings.selectedScenarioId === s.id }"
-        :disabled="chatStore.streaming"
+        :disabled="disabled || chatStore.streaming"
         @click="settings.setScenario(s.id)"
       >
         <span class="scenario-name">{{ s.name }}</span>
@@ -75,7 +75,7 @@
           <div class="panel-subtitle">{{ t('model.compare') }}</div>
           <el-switch
             :model-value="settings.compareMode"
-            :disabled="chatStore.streaming"
+            :disabled="disabled || chatStore.streaming"
             @change="settings.setCompareMode"
           />
         </div>
@@ -94,7 +94,7 @@
             v-if="filteredModels.length"
             :model-value="settings.compareModelIds"
             class="compare-grid"
-            :disabled="chatStore.streaming"
+            :disabled="disabled || chatStore.streaming"
             :aria-invalid="!compareValidation.valid"
             aria-describedby="compare-model-validation"
             @change="onCompareModelsChange"
@@ -104,7 +104,7 @@
               :key="m.id"
               :value="m.id"
               class="compare-check"
-              :disabled="chatStore.streaming || (!settings.compareModelIds.includes(m.id) && settings.compareModelIds.length >= 3)"
+              :disabled="disabled || chatStore.streaming || (!settings.compareModelIds.includes(m.id) && settings.compareModelIds.length >= 3)"
             >
               <span class="model-icon sm">{{ m.icon }}</span>
               <span class="model-name">{{ m.name }}</span>
@@ -131,6 +131,10 @@ import { SCENARIO_PRESETS } from '@/constants/scenario-presets'
 import { useI18n } from '@/composables/useI18n'
 import { filterModels } from '@/utils/model-search'
 import { validateGenerationSelection } from '@/components/chat/generation-ui'
+
+defineProps({
+  disabled: { type: Boolean, default: false },
+})
 
 const MODEL_TYPE_TAGS = {
   chat: { color: 'var(--tag-chat)' },
@@ -175,9 +179,9 @@ function onSingleModelChange(id) {
 }
 
 function onCompareModelsChange(ids) {
-  const validation = validateGenerationSelection({ compareMode: true, compareModelIds: ids })
+  const validation = validateGenerationSelection({ ...settings, compareMode: true, compareModelIds: ids })
   if (!validation.valid) {
-    ElMessage.warning(t(validation.code === 'compare_duplicate' ? 'model.compareDuplicate' : 'model.compareCardinality'))
+    ElMessage.warning(t(validation.code === 'compare_duplicate' ? 'model.compareDuplicate' : validation.code === 'compare_cardinality' ? 'model.compareCardinality' : 'model.invalidSelection'))
     return
   }
   settings.setCompareModelIds(validation.models)

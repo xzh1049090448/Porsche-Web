@@ -13,24 +13,67 @@
     >
       {{ t(status === 'cancelling' ? 'chat.stoppingGeneration' : 'chat.stopGeneration') }}
     </button>
+    <button
+      v-if="showRetry"
+      type="button"
+      class="retry-button"
+      :disabled="retrying || status !== 'disconnected'"
+      :aria-label="t('chat.retryGeneration')"
+      @click="retry"
+    >
+      {{ t(retrying ? 'chat.retryingGeneration' : 'chat.retryGeneration') }}
+    </button>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import { useI18n } from '@/composables/useI18n'
 import { canCancelGeneration, generationLifecycleStatus } from '@/components/chat/generation-ui'
 
 const chatStore = useChatStore()
 const { t } = useI18n()
-const status = computed(() => generationLifecycleStatus(chatStore.generationState))
+const rawStatus = computed(() => generationLifecycleStatus(chatStore.generationState))
+const status = ref(rawStatus.value)
+let statusRevision = 0
+let recoveryTimer = null
+watch(rawStatus, next => {
+  const revision = ++statusRevision
+  if (recoveryTimer !== null) {
+    clearTimeout(recoveryTimer)
+    recoveryTimer = null
+  }
+  if (next === 'recovering' && status.value === 'disconnected') {
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = null
+      if (statusRevision === revision && rawStatus.value === next) status.value = next
+    }, 0)
+    return
+  }
+  status.value = next
+}, { flush: 'sync' })
+onBeforeUnmount(() => {
+  if (recoveryTimer !== null) clearTimeout(recoveryTimer)
+})
 const stoppable = computed(() => chatStore.streaming && canCancelGeneration(chatStore.generationState))
 const showStop = computed(() => stoppable.value || status.value === 'cancelling')
+const retrying = ref(false)
+const showRetry = computed(() => status.value === 'disconnected' || retrying.value)
 
 function stop() {
   if (!stoppable.value) return
   void chatStore.cancelStream()
+}
+
+async function retry() {
+  if (retrying.value || status.value !== 'disconnected') return
+  retrying.value = true
+  try {
+    await chatStore.retryPendingGeneration()
+  } finally {
+    retrying.value = false
+  }
 }
 </script>
 
@@ -58,7 +101,8 @@ function stop() {
   color: var(--danger);
 }
 
-.stop-button {
+.stop-button,
+.retry-button {
   min-width: 96px;
   min-height: 34px;
   padding: 6px 12px;

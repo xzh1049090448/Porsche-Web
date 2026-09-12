@@ -6,7 +6,7 @@
 
     <MobileDrawer v-model:show="showConfig" position="right" :title="t('chat.modelConfig')">
       <el-scrollbar class="config-drawer-scroll">
-        <ModelPanel />
+        <ModelPanel :disabled="bootstrapping" />
       </el-scrollbar>
     </MobileDrawer>
 
@@ -57,7 +57,7 @@
 
       <ChatMessageList class="chat-messages" />
       <GenerationStatus />
-      <ChatInput :mobile="isTablet" @send="onSend" />
+      <ChatInput :mobile="isTablet" :disabled="bootstrapping" @send="onSend" />
     </div>
 
     <aside class="chat-config-wrap desktop-only" :class="{ collapsed: configCollapsed }">
@@ -76,7 +76,7 @@
         </div>
         <div class="panel-body">
           <el-scrollbar>
-            <ModelPanel />
+            <ModelPanel :disabled="bootstrapping" />
           </el-scrollbar>
         </div>
       </template>
@@ -107,6 +107,7 @@ const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const showSidebar = ref(false)
 const showConfig = ref(false)
+const bootstrapping = ref(true)
 const { isTablet } = useBreakpoint()
 const { t } = useI18n()
 
@@ -131,16 +132,20 @@ function toggleConfig() {
 }
 
 onMounted(async () => {
-  await settingsStore.loadModels()
-  if (!USE_MOCK) {
-    await chatStore.fetchConversations()
+  try {
+    const resumed = await chatStore.resumePendingGeneration()
+    await settingsStore.loadModels()
+    if (!resumed) {
+      if (!USE_MOCK) await chatStore.fetchConversations()
+      await chatStore.ensureActive()
+    }
+  } finally {
+    bootstrapping.value = false
   }
-  const resumed = await chatStore.resumePendingGeneration()
-  if (!resumed) await chatStore.ensureActive()
 })
 
 function onSend(content, images) {
-  if (chatStore.streaming) return
+  if (bootstrapping.value || chatStore.streaming) return
   const selection = validateGenerationSelection(settingsStore)
   if (!selection.valid) return
   void chatStore.sendMessage(content, images)

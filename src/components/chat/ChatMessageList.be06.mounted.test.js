@@ -39,10 +39,13 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
   assert.match(wrapper.text(), /chat\.generationErrors\.upstream/)
   assert.match(wrapper.text(), /chat\.viewOnlyPartial/)
   assert.doesNotMatch(wrapper.text(), /gateway_upstream_error/)
+  assert.equal(wrapper.findAll('.col-actions').length, 2, 'terminal compare replies are copyable, including visible failed partials')
   chat.streaming = true
+  conversation.messages[0].generationStatus = 'receiving'
   conversation.messages[0].replies.a = ''
   await nextTick()
   assert.match(wrapper.text(), /chat\.generationErrors\.upstream/, 'an empty failed reply must not be rendered as waiting')
+  assert.equal(wrapper.findAll('.col-actions').length, 0, 'no compare reply is copyable while a sibling is still generating')
   conversation.messages = [{ localKey: 'done', role: 'assistant', content: 'saved', generationStatus: 'completed', viewOnly: false }]
   chat.streaming = false
   await nextTick()

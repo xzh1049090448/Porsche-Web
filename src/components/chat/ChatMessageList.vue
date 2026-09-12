@@ -55,7 +55,7 @@
                 </p>
               </template>
             </div>
-            <div v-if="replyFor(msg, m.id)" class="col-actions">
+            <div v-if="canCopyGenerationMessage(msg, replyFor(msg, m.id))" class="col-actions">
               <el-button text size="small" :icon="CopyDocument" @click="copy(msg.replies[m.id])">
                 {{ t('chat.copy') }}
               </el-button>
@@ -87,7 +87,7 @@
               </p>
             </template>
           </div>
-          <div v-if="msg.role === 'assistant' && msg.content" class="msg-actions">
+          <div v-if="canCopyGenerationMessage(msg)" class="msg-actions">
             <span v-if="msg.tokens" class="msg-tokens">{{ t('chat.tokens', { count: formatTokens(msg.tokens) }) }}</span>
             <el-button text size="small" :icon="CopyDocument" @click="copy(msg.content)">
               {{ t('chat.copy') }}
@@ -116,7 +116,7 @@ import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import MarkdownContent from '@/components/chat/MarkdownContent.vue'
 import { useI18n } from '@/composables/useI18n'
-import { generationErrorMessageKey, modelReplyPresentation } from '@/components/chat/generation-ui'
+import { canCopyGenerationMessage, generationErrorMessageKey, modelReplyPresentation } from '@/components/chat/generation-ui'
 
 const chatStore = useChatStore()
 const settings = useSettingsStore()
@@ -530,6 +530,13 @@ watch(
   .msg-images .thumb {
     width: 100px;
     height: 72px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor,
+  .loading-dots i {
+    animation: none;
   }
 }
 

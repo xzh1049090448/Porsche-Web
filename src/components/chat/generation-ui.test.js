@@ -31,13 +31,33 @@ test('only active lifecycle states can request authoritative cancellation', () =
 
 test('validates single and compare cardinality, uniqueness, and preserves order', () => {
   assert.equal(typeof ui.validateGenerationSelection, 'function')
-  assert.deepEqual(ui.validateGenerationSelection({ compareMode: false, selectedModelId: 'a', compareModelIds: [] }), { valid: true, code: null, models: ['a'] })
-  assert.equal(ui.validateGenerationSelection({ compareMode: false, selectedModelId: '', compareModelIds: [] }).code, 'single')
-  assert.deepEqual(ui.validateGenerationSelection({ compareMode: true, selectedModelId: 'a', compareModelIds: ['c', 'a'] }), { valid: true, code: null, models: ['c', 'a'] })
-  assert.deepEqual(ui.validateGenerationSelection({ compareMode: true, selectedModelId: 'a', compareModelIds: ['c', 'a', 'b'] }).models, ['c', 'a', 'b'])
-  assert.equal(ui.validateGenerationSelection({ compareMode: true, compareModelIds: ['a'] }).code, 'compare_cardinality')
-  assert.equal(ui.validateGenerationSelection({ compareMode: true, compareModelIds: ['a', 'b', 'c', 'd'] }).code, 'compare_cardinality')
-  assert.equal(ui.validateGenerationSelection({ compareMode: true, compareModelIds: ['a', 'a'] }).code, 'compare_duplicate')
+  const catalog = ['a', 'b', 'c', 'd'].map(id => ({ id }))
+  const single = { modelsLoaded: true, models: catalog, compareMode: false, selectedModelId: 'a', compareModelIds: [] }
+  assert.deepEqual(ui.validateGenerationSelection(single), { valid: true, code: null, models: ['a'] })
+  assert.equal(ui.validateGenerationSelection({ ...single, selectedModelId: '' }).code, 'single')
+  assert.equal(ui.validateGenerationSelection({ ...single, selectedModelId: ' a' }).code, 'invalid_model')
+  assert.equal(ui.validateGenerationSelection({ ...single, selectedModelId: 'unknown' }).code, 'invalid_model')
+  assert.equal(ui.validateGenerationSelection({ ...single, selectedModelId: new String('a') }).code, 'invalid_model')
+  assert.equal(ui.validateGenerationSelection({ ...single, modelsLoaded: false }).code, 'catalog')
+  assert.deepEqual(ui.validateGenerationSelection({ ...single, compareMode: true, compareModelIds: ['c', 'a'] }), { valid: true, code: null, models: ['c', 'a'] })
+  assert.deepEqual(ui.validateGenerationSelection({ ...single, compareMode: true, compareModelIds: ['c', 'a', 'b'] }).models, ['c', 'a', 'b'])
+  assert.equal(ui.validateGenerationSelection({ ...single, compareMode: true, compareModelIds: ['a'] }).code, 'compare_cardinality')
+  assert.equal(ui.validateGenerationSelection({ ...single, compareMode: true, compareModelIds: ['a', 'b', 'c', 'd'] }).code, 'compare_cardinality')
+  assert.equal(ui.validateGenerationSelection({ ...single, compareMode: true, compareModelIds: ['a', 'a'] }).code, 'compare_duplicate')
+  assert.equal(ui.validateGenerationSelection({ ...single, compareMode: true, compareModelIds: ['a', ' unknown'] }).code, 'invalid_model')
+})
+
+test('copy is available only after the whole attempt reaches an authoritative terminal state', () => {
+  assert.equal(typeof ui.canCopyGenerationMessage, 'function')
+  for (const status of ['waiting', 'receiving', 'draining', 'disconnected', 'recovering', 'cancelling']) {
+    assert.equal(ui.canCopyGenerationMessage({ role: 'assistant', content: 'partial', generationStatus: status }), false, status)
+  }
+  for (const status of ['completed', 'failed', 'cancelled']) {
+    assert.equal(ui.canCopyGenerationMessage({ role: 'assistant', content: 'visible', generationStatus: status, viewOnly: status !== 'completed' }), true, status)
+  }
+  assert.equal(ui.canCopyGenerationMessage({ role: 'assistant', content: 'history' }), true)
+  assert.equal(ui.canCopyGenerationMessage({ role: 'assistant', content: '' }), false)
+  assert.equal(ui.canCopyGenerationMessage({ role: 'assistant', content: 'partial', transientAttempt: 'id' }), false)
 })
 
 test('maps only stable error codes and keeps partial replies separate from errors', () => {

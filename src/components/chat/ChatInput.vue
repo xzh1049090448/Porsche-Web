@@ -9,12 +9,13 @@
     <div class="input-row">
       <el-upload
         v-if="canMultimodal"
+        :disabled="disabled || chatStore.streaming"
         :show-file-list="false"
         accept="image/*"
         :auto-upload="false"
         :on-change="onImageSelect"
       >
-        <el-button class="attach-btn touch-target" :icon="Picture" circle />
+        <el-button class="attach-btn touch-target" :icon="Picture" circle :disabled="disabled || chatStore.streaming" />
       </el-upload>
       <el-input
         v-model="text"
@@ -22,7 +23,7 @@
         :rows="mobile ? 1 : 2"
         :placeholder="placeholder"
         resize="none"
-        :disabled="chatStore.streaming"
+        :disabled="disabled || chatStore.streaming"
         class="chat-textarea"
         @keydown="onKeydown"
       />
@@ -51,6 +52,7 @@ import { validateGenerationSelection } from '@/components/chat/generation-ui'
 
 const props = defineProps({
   mobile: { type: Boolean, default: false },
+  disabled: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['send'])
@@ -66,12 +68,12 @@ const placeholder = computed(() =>
 )
 
 const canMultimodal = computed(
-  () => !settings.compareMode && settings.currentModel()?.multimodal
+  () => !props.disabled && !chatStore.streaming && !settings.compareMode && settings.currentModel()?.multimodal
 )
 const selection = computed(() => validateGenerationSelection(settings))
 
 const canSend = computed(
-  () => (text.value.trim() || pendingImages.value.length) && selection.value.valid && !chatStore.streaming
+  () => (text.value.trim() || pendingImages.value.length) && selection.value.valid && !props.disabled && !chatStore.streaming
 )
 
 function onKeydown(e) {

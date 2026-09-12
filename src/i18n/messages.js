@@ -101,6 +101,8 @@ export const messages = {
       errorPrefix: '[错误]',
       stopGeneration: '停止生成',
       stoppingGeneration: '正在停止…',
+      retryGeneration: '重新确认结果',
+      retryingGeneration: '正在确认结果…',
       viewOnlyPartial: '这是未完成的临时内容，仅供查看；不会保存，也不会用于后续对话。',
       generationStates: {
         waiting: '等待模型响应', receiving: '正在接收回复', draining: '正在完成本地展示', disconnected: '连接已中断，后台仍在生成', recovering: '正在恢复后台结果', cancelling: '正在向服务端停止生成', completed: '回复已完成', failed: '生成失败', cancelled: '生成已停止',
@@ -123,6 +125,7 @@ export const messages = {
       compareCardinality: '对比模式必须选择 2 至 3 个不同模型',
       compareDuplicate: '不能重复选择同一模型',
       compareValid: '已按顺序选择 {count} 个模型',
+      invalidSelection: '所选模型不在当前可用目录中',
       catalogStale: '正在显示最近一次可用的模型目录。',
       catalogUnavailable: '暂时无法加载模型目录，请稍后重试。',
     },
@@ -435,6 +438,8 @@ export const messages = {
       errorPrefix: '[Error]',
       stopGeneration: 'Stop generation',
       stoppingGeneration: 'Stopping…',
+      retryGeneration: 'Check result again',
+      retryingGeneration: 'Checking the result…',
       viewOnlyPartial: 'This incomplete content is view-only. It will not be saved or used in later context.',
       generationStates: {
         waiting: 'Waiting for the model', receiving: 'Receiving the reply', draining: 'Finishing local playback', disconnected: 'Connection lost; generation continues in the background', recovering: 'Recovering the background result', cancelling: 'Stopping generation on the server', completed: 'Reply completed', failed: 'Generation failed', cancelled: 'Generation stopped',
@@ -457,6 +462,7 @@ export const messages = {
       compareCardinality: 'Compare mode requires 2 to 3 distinct models',
       compareDuplicate: 'The same model cannot be selected twice',
       compareValid: '{count} models selected in request order',
+      invalidSelection: 'The selected model is not in the available catalog',
       catalogStale: 'Showing the most recently available model catalog.',
       catalogUnavailable: 'The model catalog is temporarily unavailable. Please try again later.',
     },
