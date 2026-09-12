@@ -5,6 +5,7 @@ import router, { bootstrapModeForPath, createLazyLoadFailureHandler, renderSafeL
 import './styles/tokens.scss'
 import './styles/foundations.scss'
 import './styles/public-bootstrap.css'
+import './styles/public-shell.scss'
 
 const bootstrapMode = bootstrapModeForPath(router, window.location.pathname)
 

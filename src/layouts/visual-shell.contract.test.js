@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom'
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 const dataModule = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
-const DOM_GLOBAL_KEYS = ['window', 'document', 'navigator', 'Node', 'Element', 'HTMLElement', 'SVGElement', 'Event', 'MouseEvent', 'getComputedStyle']
+const DOM_GLOBAL_KEYS = ['window', 'document', 'navigator', 'Node', 'Element', 'HTMLElement', 'SVGElement', 'XMLSerializer', 'Event', 'MouseEvent', 'getComputedStyle']
 const originalDomDescriptors = new Map(DOM_GLOBAL_KEYS.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
 
 function installDomGlobals(dom) {
@@ -62,13 +62,30 @@ async function mountedMainLayout() {
   return (await import(`${dataModule(code)}#${Date.now()}-${Math.random()}`)).default
 }
 
+async function mountedPublicHeader() {
+  const source = await read('../components/public/PublicHeader.vue')
+  const descriptor = parse(source, { filename: 'PublicHeader.vue' }).descriptor
+  const script = compileScript(descriptor, { id: 'visual-public-header', genDefaultAs: '__sfc__' })
+  const template = compileTemplate({ id: 'visual-public-header', filename: 'PublicHeader.vue', source: descriptor.template.content, compilerOptions: { bindingMetadata: script.bindings } })
+  assert.deepEqual(template.errors, [])
+
+  const vueURL = new URL('../../node_modules/vue/index.mjs', import.meta.url).href
+  const routerStub = dataModule(`import{h}from'${vueURL}';export const RouterLink={props:['to'],setup(p,{attrs,slots}){return()=>h('a',{...attrs,href:p.to},slots.default?.())}}`)
+  const i18nStub = dataModule(`import{ref}from'${vueURL}';export const usePublicI18n=()=>({locale:ref('zh'),t:key=>key,toggle(){}})`)
+  let code = `${script.content}\n${template.code}\n__sfc__.render=render\nexport default __sfc__`
+  code = code.replaceAll("from 'vue'", `from '${vueURL}'`).replaceAll('from "vue"', `from '${vueURL}'`)
+  code = code.replaceAll("from 'vue-router'", `from '${routerStub}'`)
+    .replaceAll("from '@/i18n/public-runtime.js'", `from '${i18nStub}'`)
+  return (await import(`${dataModule(code)}#${Date.now()}-${Math.random()}`)).default
+}
+
 test('current public and authenticated layouts keep stable accessible landmarks', async () => {
   const [publicLayout, mainLayout] = await Promise.all([
     read('./PublicLayout.vue'),
     read('./MainLayout.vue'),
   ])
 
-  assert.match(publicLayout, /class="public-layout"/)
+  assert.match(publicLayout, /class="[^"]*public-layout[^"]*"/)
   assert.match(publicLayout, /class="public-skip-link"[^>]+href="#public-content"/)
   assert.match(publicLayout, /<main id="public-content" tabindex="-1">/)
   assert.match(publicLayout, /<PublicHeader/)
@@ -221,7 +238,63 @@ test('theme toggle keeps translated tooltip, accessible label, and button behavi
   assert.match(toggle, /t\('theme\.toDark'\)/)
 })
 
-test.todo('Task 4 replaces the current public-layout marker with public-shell')
+test('Task 4 builds an accessible responsive public shell from a dedicated stylesheet', async () => {
+  const [layout, header, footer, state, main, shell] = await Promise.all([
+    read('./PublicLayout.vue'),
+    read('../components/public/PublicHeader.vue'),
+    read('../components/public/PublicFooter.vue'),
+    read('../components/public/PublicContentState.vue'),
+    read('../main.js'),
+    read('../styles/public-shell.scss'),
+  ])
+
+  assert.match(layout, /class="public-layout public-shell"/)
+  assert.match(layout, /class="public-skip-link"[^>]+href="#public-content"/)
+  assert.match(layout, /<main id="public-content" tabindex="-1">/)
+  assert.doesNotMatch(layout, /<style/)
+  assert.match(header, /class="public-nav public-nav--desktop"/)
+  assert.match(header, /class="public-nav-toggle"/)
+  assert.match(header, /:aria-expanded="menuOpen"/)
+  assert.match(header, /:aria-controls="navId"/)
+  assert.match(header, /class="public-locale"/)
+  assert.match(header, /class="public-theme"/)
+  assert.match(header, /class="[^"]*public-console-cta[^"]*"/)
+  assert.match(footer, /<footer[^>]+class="public-footer"/)
+  assert.match(state, /aria-live="polite"/)
+  assert.match(main, /import ['"]\.\/styles\/public-shell\.scss['"]/)
+  assert.match(shell, /height:\s*var\(--header-height\)/)
+  assert.match(shell, /min-(?:width|height):\s*var\(--control-min-size\)/)
+  assert.match(shell, /@media\s*\(max-width:\s*767px\)/)
+  assert.match(shell, /@media\s*\(min-width:\s*768px\)/)
+  assert.match(shell, /prefers-reduced-motion:\s*reduce/)
+  assert.match(shell, /html\[data-theme=['"]dark['"]\]/)
+})
+
+test('public mobile navigation reports state and closes after route selection', async () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://local.test/' })
+  try {
+    installDomGlobals(dom)
+    const [{ mount }, { nextTick }] = await Promise.all([import('@vue/test-utils'), import('vue')])
+    const PublicHeader = await mountedPublicHeader()
+    const wrapper = mount(PublicHeader)
+    try {
+      const toggle = wrapper.element.querySelector('.public-nav-toggle')
+      assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+      assert.equal(toggle.getAttribute('aria-controls'), 'public-mobile-nav')
+      toggle.click()
+      await nextTick()
+      assert.equal(toggle.getAttribute('aria-expanded'), 'true')
+      wrapper.element.querySelector('#public-mobile-nav a[href="/pricing"]').click()
+      await nextTick()
+      assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+    } finally {
+      wrapper.unmount()
+    }
+  } finally {
+    restoreDomGlobals()
+    dom.window.close()
+  }
+})
 
 test('Task 3 builds one console shell around desktop, mobile, and main landmarks', async () => {
   const [mainLayout, main, sidebar] = await Promise.all([

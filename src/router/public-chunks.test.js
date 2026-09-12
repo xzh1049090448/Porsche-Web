@@ -5,7 +5,7 @@ import { JSDOM } from 'jsdom'
 import { validatePublicGraph } from '../../scripts/check-public-route-chunks.mjs'
 import { publicModuleGraphPlugin } from '../../scripts/public-module-graph.mjs'
 
-const PUBLIC_FOUNDATION_MODULES = ['src/styles/tokens.scss', 'src/styles/foundations.scss']
+const PUBLIC_FOUNDATION_MODULES = ['src/styles/tokens.scss', 'src/styles/foundations.scss', 'src/styles/public-shell.scss']
 
 function fixture(extraModules = []) {
   const root = '/repo'
@@ -86,6 +86,10 @@ test('build-produced graph rejects a protected module injected into the public c
 test('build-produced graph rejects an unknown local module even without protected markers', () => {
   const graph = fixture(['src/utils/innocent-looking-unknown.js'])
   assert.throws(() => validatePublicGraph(graph), /non-public module.*innocent-looking-unknown/)
+})
+
+test('build-produced graph accepts only the dedicated public shell stylesheet', () => {
+  assert.deepEqual(validatePublicGraph(fixture()), { chunkCount: 2, codeBytes: 15, cssBytes: 100 })
 })
 
 test('build-produced graph rejects Element Plus, all-icons, auth modules, and non-foundation styles', () => {
