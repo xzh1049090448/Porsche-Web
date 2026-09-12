@@ -78,6 +78,7 @@ export const useChatStore = defineStore('chat', () => {
   const conversationDetailPromises = new Map()
   let streamController = null
   let activeRun = null
+  let generationViewEpoch = 0
   const canonicalConversationGuid = value => {
     if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value)) return null
     try { return BigInt(value) <= 9223372036854775807n ? value : null } catch { return null }
@@ -97,8 +98,9 @@ export const useChatStore = defineStore('chat', () => {
   }
   function detachActiveRun({ preserveRecovery = false, preserveView = false } = {}) {
     const run = activeRun
+    const controller = run?.controller ?? streamController
     activeRun = null
-    run?.controller?.abort()
+    controller?.abort()
     run?.recoveryController?.abort()
     run?.cancelController?.abort()
     streamController = null
@@ -110,6 +112,7 @@ export const useChatStore = defineStore('chat', () => {
   }
   const invalidateActiveRun = () => detachActiveRun()
   authSession.onInvalidate(() => {
+    generationViewEpoch += 1
     invalidateActiveRun()
     conversations.value = []; activeId.value = null
     streaming.value = false; loading.value = false
@@ -612,6 +615,7 @@ export const useChatStore = defineStore('chat', () => {
 
     streaming.value = true
     const context = authSession.capture()
+    const viewEpoch = generationViewEpoch
     streamController = new AbortController()
 
     let conv
@@ -619,9 +623,10 @@ export const useChatStore = defineStore('chat', () => {
       conv = await ensureActive()
       authSession.assertCurrent(context)
     } catch {
-      streaming.value = false
+      if (viewEpoch === generationViewEpoch) streaming.value = false
       return
     }
+    if (viewEpoch !== generationViewEpoch) return
 
     const userContent = content.trim()
     const generationId = createPlatformGenerationId()
@@ -750,6 +755,22 @@ export const useChatStore = defineStore('chat', () => {
     return pending
   }
 
+  function detachGenerationView() {
+    const run = activeRun
+    const hadWork = !!run || streaming.value || !!streamController || !!generationState.value
+    generationViewEpoch += 1
+    if (run) {
+      const terminal = ['completed', 'failed', 'cancelled'].includes(generationState.value?.status)
+      detachActiveRun({ preserveRecovery: !terminal })
+    } else {
+      streamController?.abort()
+      streamController = null
+      generationState.value = null
+      streaming.value = false
+    }
+    return hadWork
+  }
+
   async function resumePendingGeneration() {
     if (USE_MOCK) { forgetRun(); return false }
     if (streaming.value || activeRun) return false
@@ -806,6 +827,7 @@ export const useChatStore = defineStore('chat', () => {
     cancelStream,
     retryPendingGeneration,
     retryGenerationAttempt,
+    detachGenerationView,
     resumePendingGeneration,
   }
 })

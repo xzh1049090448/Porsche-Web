@@ -1196,6 +1196,88 @@ test('switching conversations detaches local generation without cancel POST and 
   } finally { globalThis.fetch = originalFetch }
 })
 
+test('view detach aborts a deferred stream, ignores late completion, and resumes by GET', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  const user = useUserStore(); const usageCalls = []; user.applyTokensUsed = (...args) => usageCalls.push(args)
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  route = () => ({ ...summary(A), messages: [
+    { guid: C, role: 'user', content: 'detached prompt', model: 'fixture-model', tokens: 0, created_at: 1 },
+    { guid: B, role: 'assistant', content: 'authoritative after detach', model: 'fixture-model', tokens: 3, created_at: 2 },
+  ] })
+  const originalFetch = globalThis.fetch; const response = deferred(); const started = deferred(); let generationId; let streamSignal; let gets = 0; let cancelPosts = 0
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).endsWith('/cancel')) { cancelPosts += 1; throw new Error('view detach must not cancel') }
+    if ((options.method || 'GET') === 'GET') {
+      gets += 1
+      return jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 3, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: 'authoritative after detach', tokens: 3 } })
+    }
+    generationId = JSON.parse(options.body).generation_id; streamSignal = options.signal; started.resolve()
+    return response.promise
+  }
+  try {
+    const sending = store.sendMessage('detached prompt'); await started.promise
+    const saved = sessionStorage.getItem('llm_platform_active_generation_v2'); const writesBefore = writes.length
+    assert.notEqual(saved, null)
+    assert.equal(store.detachGenerationView(), true)
+    assert.equal(store.detachGenerationView(), false)
+    assert.equal(streamSignal.aborted, true); assert.equal(cancelPosts, 0)
+    assert.equal(store.streaming, false); assert.equal(store.generationState, null)
+    assert.equal(sessionStorage.getItem('llm_platform_active_generation_v2'), saved)
+    response.resolve(sseResponse(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: generationId, conversation_guid: A, models: ['fixture-model'] })}\n\nevent: delta\ndata: ${JSON.stringify({ generation_id: generationId, model: 'fixture-model', seq: 1, delta: 'late secret' })}\n\nevent: model_done\ndata: ${JSON.stringify({ generation_id: generationId, model: 'fixture-model', last_seq: 1 })}\n\nevent: done\ndata: ${JSON.stringify({ generation_id: generationId, status: 'completed', conversation_guid: A, tokens: 99, total_tokens_used: 99 })}\n\n`))
+    await sending; await setImmediate()
+    assert.equal(store.generationState, null); assert.equal(store.getActive().messages.length, 0)
+    assert.equal(usageCalls.length, 0); assert.equal(writes.length, writesBefore)
+    assert.equal(await store.resumePendingGeneration(), true)
+    await waitFor(() => store.generationState?.status === 'completed')
+    assert.equal(gets, 1); assert.deepEqual(usageCalls, [[3, 3]])
+    assert.deepEqual(store.getActive().messages.map(message => message.content), ['detached prompt', 'authoritative after detach'])
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('view detach invalidates deferred recovery, cancel, and pre-run boot work', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    for (const kind of ['recovery', 'cancel']) {
+      setActivePinia(createPinia())
+      const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+      const usageCalls = []; useUserStore().applyTokensUsed = (...args) => usageCalls.push(args)
+      store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+      const late = deferred(); const started = deferred(); let generationId; let cancelPosts = 0; let lateSignal
+      globalThis.fetch = async (url, options = {}) => {
+        if (String(url).endsWith('/cancel')) { cancelPosts += 1; lateSignal = options.signal; started.resolve(); return late.promise }
+        if ((options.method || 'GET') === 'GET') { lateSignal = options.signal; started.resolve(); return late.promise }
+        generationId = JSON.parse(options.body).generation_id
+        if (kind === 'recovery') return sseResponse('')
+        return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true }))
+      }
+      const sending = store.sendMessage(`detach ${kind}`)
+      const cancelling = kind === 'cancel' ? (await waitFor(() => generationId), store.cancelStream()) : null
+      await started.promise
+      const saved = sessionStorage.getItem('llm_platform_active_generation_v2')
+      assert.notEqual(saved, null, kind)
+      assert.equal(store.detachGenerationView(), true, kind); assert.equal(lateSignal.aborted, true, kind)
+      late.resolve(jsonResponse({ generation_id: generationId, status: 'cancelled', mode: 'single', conversation_guid: null }))
+      await Promise.all([sending, cancelling]); await setImmediate()
+      assert.equal(store.generationState, null, kind); assert.equal(store.streaming, false, kind)
+      assert.equal(sessionStorage.getItem('llm_platform_active_generation_v2'), saved, kind)
+      assert.equal(usageCalls.length, 0, kind); assert.equal(cancelPosts, kind === 'cancel' ? 1 : 0, kind)
+    }
+
+    setActivePinia(createPinia())
+    const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+    store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+    const detailResponse = deferred(); route = () => detailResponse.promise
+    const loading = store.selectConversation(A)
+    let generationPosts = 0; globalThis.fetch = async () => { generationPosts += 1; throw new Error('detached boot must not POST') }
+    const sending = store.sendMessage('detach before run')
+    await setImmediate()
+    assert.equal(store.detachGenerationView(), true)
+    detailResponse.resolve(detail(A)); await Promise.all([loading, sending])
+    assert.equal(generationPosts, 0); assert.equal(store.streaming, false); assert.equal(store.generationState, null)
+    assert.equal(store.getActive().messages.some(message => message.transientAttempt), false)
+  } finally { globalThis.fetch = originalFetch }
+})
+
 test('switching during a 202 cancel aborts its controller before polling or late mutation', async () => {
   const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
   store.conversations = [{ ...summary(A), messages: [] }, { ...summary(B), messages: [] }]; store.activeId = A
