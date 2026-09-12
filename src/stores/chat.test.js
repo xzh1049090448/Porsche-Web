@@ -415,6 +415,78 @@ test('authoritative prefix mismatch fails closed and never persists assistant pa
   } finally { globalThis.fetch = originalFetch }
 })
 
+test('explicit empty-attempt retry replaces the failed view attempt and POSTs once with a new generation id', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; const bodies = []
+  globalThis.fetch = async (_url, options = {}) => {
+    const body = JSON.parse(options.body); bodies.push(body)
+    const id = body.generation_id
+    if (bodies.length === 1) return sseResponse([
+      `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\n`,
+      `event: error\ndata: ${JSON.stringify({ generation_id: id, code: 'timeout', request_id: 'req-empty-retry' })}\n\n`,
+    ].join(''))
+    return sseResponse([
+      `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\n`,
+      `event: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', seq: 1, delta: 'retried answer' })}\n\n`,
+      `event: model_done\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', last_seq: 1 })}\n\n`,
+      `event: done\ndata: ${JSON.stringify({ generation_id: id, status: 'completed', conversation_guid: A, tokens: 2, total_tokens_used: 2 })}\n\n`,
+    ].join(''))
+  }
+  try {
+    await store.sendMessage('retry this prompt'); await waitFor(() => store.generationState?.status === 'failed')
+    assert.equal(store.getActive().messages.at(-1).content, '')
+    const retryA = store.retryGenerationAttempt(); const retryB = store.retryGenerationAttempt()
+    await Promise.all([retryA, retryB]); await waitFor(() => store.generationState?.status === 'completed')
+    assert.equal(bodies.length, 2)
+    assert.notEqual(bodies[1].generation_id, bodies[0].generation_id)
+    assert.deepEqual(bodies[1].messages, [{ role: 'user', content: 'retry this prompt' }])
+    assert.deepEqual(store.getActive().messages.map(message => message.role), ['user', 'assistant'])
+    assert.deepEqual(store.getActive().messages.map(message => message.content), ['retry this prompt', 'retried answer'])
+    assert.equal(JSON.stringify(store.getActive().messages).includes('timeout'), false)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('explicit attempt retry rejects displayed partials and stale conversation or auth ownership', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    for (const invalidation of ['partial', 'switch', 'logout']) {
+      setActivePinia(createPinia())
+      authSession.clearSession()
+      authSession.setSession({ accessToken: 'fixture-access', user: { guid: '1', username: 'fixture', nickname: null, role: 'user', status: 'active' } })
+      const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+      store.conversations = [{ ...summary(A), messages: [] }, { ...summary(D), messages: [] }]; store.activeId = A
+      let posts = 0
+      globalThis.document.visibilityState = invalidation === 'partial' ? 'hidden' : undefined
+      globalThis.fetch = async (_url, options = {}) => {
+        posts += 1
+        const id = JSON.parse(options.body).generation_id
+        if (invalidation === 'partial') {
+          const encoder = new TextEncoder()
+          return new Response(new ReadableStream({ async start(controller) {
+            controller.enqueue(encoder.encode([
+              `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\n`,
+              `event: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', seq: 1, delta: 'visible partial' })}\n\n`,
+            ].join('')))
+            await new Promise(resolve => setTimeout(resolve, 25))
+            controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ generation_id: id, code: 'timeout', request_id: `req-${invalidation}` })}\n\n`))
+            controller.close()
+          } }), { status: 200, headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } })
+        }
+        return sseResponse([
+          `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\n`,
+          `event: error\ndata: ${JSON.stringify({ generation_id: id, code: 'timeout', request_id: `req-${invalidation}` })}\n\n`,
+        ].join(''))
+      }
+      await store.sendMessage(`retry guard ${invalidation}`); await waitFor(() => store.generationState?.status === 'failed')
+      if (invalidation === 'switch') store.selectConversation(D)
+      if (invalidation === 'logout') authSession.clearSession()
+      assert.equal(await store.retryGenerationAttempt(), false, invalidation)
+      assert.equal(posts, 1, invalidation)
+    }
+  } finally { globalThis.document.visibilityState = undefined; globalThis.fetch = originalFetch }
+})
+
 test('compare keeps a failed model separate while its sibling completes in requested order', async () => {
   const store = useChatStore(); const settings = useSettingsStore()
   settings.compareMode = true; settings.compareModelIds = ['model-a', 'model-b']
@@ -582,6 +654,44 @@ test('indeterminate cancel performs one cancel POST then recovers only through G
     assert.equal(cancelPosts, 1); assert.equal(gets, 1)
     assert.equal(store.generationState.status, 'cancelled')
   } finally { globalThis.fetch = originalFetch }
+})
+
+test('temporary cancel confirmation stays cancelling and retries GET only without replaying cancel', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; const started = deferred(); let generationId; let cancelPosts = 0; let gets = 0
+  const phases = []; const stop = store.$subscribe((_mutation, state) => { if (state.generationState?.phase) phases.push(state.generationState.phase) })
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).endsWith('/cancel')) {
+      cancelPosts += 1
+      return jsonResponse({ error: { code: 'request_failed', message: 'temporary', type: 'server_error', request_id: 'req-cancel-temporary' } }, 503)
+    }
+    if ((options.method || 'GET') === 'GET') {
+      gets += 1
+      if (gets === 1) throw new TypeError('temporary confirmation failure')
+      return jsonResponse({ generation_id: generationId, status: 'cancelled', mode: 'single', conversation_guid: null })
+    }
+    generationId = JSON.parse(options.body).generation_id; started.resolve()
+    return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true }))
+  }
+  try {
+    const sending = store.sendMessage('cancel confirmation'); await started.promise
+    await store.cancelStream(); await sending
+    assert.equal(cancelPosts, 1); assert.equal(gets, 1)
+    assert.equal(store.streaming, true)
+    assert.equal(store.generationState.status, 'cancelling')
+    assert.equal(store.generationState.phase, 'confirming_cancel')
+    assert.equal(phases.includes('disconnected'), false)
+    await store.sendMessage('blocked while confirming cancel')
+    assert.equal(store.getActive().messages.some(message => message.content === 'blocked while confirming cancel'), false)
+    await store.cancelStream()
+    assert.equal(cancelPosts, 1)
+
+    const retryA = store.retryPendingGeneration(); const retryB = store.retryPendingGeneration()
+    await Promise.all([retryA, retryB])
+    assert.equal(cancelPosts, 1); assert.equal(gets, 2)
+    assert.equal(store.generationState.status, 'cancelled')
+  } finally { stop(); globalThis.fetch = originalFetch }
 })
 
 test('cancel wins when an aborted recovery rejects before the authoritative cancel response', async () => {
