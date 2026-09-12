@@ -2,13 +2,21 @@
 
 ## Candidate and environment
 
-- Revision under test: `e41d6cb362ffb5adea03fa5a5a74edc9af45c4bb`
+- Revision under test: `ed06f061d600af733a0f2ae2a70b25afda9f739f` (report-only commits after the Task10 candidate; production files remain at the Task10 content)
 - Contract: SHA-256 `47cfbc485c4df0f5d2c12539f389f466c97bb8318adf04966757420287d10a2f`, version `v1.0.0-p0`, status `agreed_for_implementation`
 - Application: local production build served by Vite Preview at `http://127.0.0.1:5191`
 - Browser: visible Chromium through `playwright-skill`
 - Data: repository-compatible synthetic responses intercepted locally. User, model, content, notification and token values were invented for this run. No production credentials, upstream calls, database writes, or real mutations were used.
 - Primary language: `zh-CN`. The visible language controls remained present on public, authentication and console shells; alternate-language copy was not exhaustively repeated across all 126 combinations.
-- Screenshots: external-only directory `/private/tmp/porsche-web-visual-task11-20260912/screenshots`; no user data or secrets and no screenshots committed.
+- Screenshots: external-only directory `/private/tmp/porsche-web-visual-task11-auth-route-fix-20260912/screenshots`; no user data or secrets and no screenshots committed. All 20 PNG files have distinct SHA-256 hashes; login, register and chat captures are not duplicates.
+
+## Authentication and route assertions
+
+- Every route/viewport/theme case used a new browser context. The nine public and guest routes received an anonymous `401` refresh response. Only the twelve console and administration routes received the synthetic Root session.
+- Every case asserted its final pathname and required query boundary, then waited for a route-specific stable landmark. `/login` resolved to `/login?redirect=/chat` and required exactly one `.login-page form`; `/register` remained `/register` and required exactly one `.register-page form`. Neither guest page redirected to chat.
+- Canonical route changes were asserted explicitly: `/pricing` settled on its default paging/sort query and `/admin/public-models` settled on `?page=1&page_size=20`.
+- `/pricing/fixture-model` was reached through the visible model link, resolved to that exact pathname, and exposed `.pricing-detail .detail-state`. Its observed state remained **loading**; this case is not recorded as a ready or published-detail result.
+- The external result file `/private/tmp/porsche-web-visual-task11-auth-route-fix-20260912/matrix-results.json` records `auth`, `final`, `landmark`, viewport, theme, language, state and result for every case. Landmarks include `.public-home`, `.public-document`, `.public-not-found`, `.pricing-page`, `.pricing-detail .detail-state`, the two guest forms, `.chat-root`, each console page root, and distinct user/public-admin content structures.
 
 ## Matrix
 
@@ -22,7 +30,7 @@ Each row below passed all six combinations: `375x812`, `768x1024`, and `1440x900
 | `/privacy` | published legal content | PASS |
 | `/not-a-real-route` | public 404 | PASS |
 | `/pricing` | published model | PASS |
-| `/pricing/fixture-model` | published detail with nullable input price | PASS |
+| `/pricing/fixture-model` | loading state after exact detail navigation | PASS |
 | `/login` | anonymous form | PASS |
 | `/register` | anonymous form | PASS |
 | `/chat` | authenticated empty history/catalog | PASS |
@@ -38,7 +46,7 @@ Each row below passed all six combinations: `375x812`, `768x1024`, and `1440x900
 | `/admin/public-content/preview?revision=3` | sanitized preview fixture | PASS |
 | `/admin/notifications` | active unread/unacknowledged plus resolved-empty fixture | PASS |
 
-Total: **126/126 PASS**. Browser event collection returned `consoleErrors=[]` and `pageErrors=[]`.
+Total: **126/126 PASS**: 54 anonymous public/guest cases and 72 synthetic Root console/admin cases. Browser event collection returned `consoleErrors=[]` and `pageErrors=[]`.
 
 ## Interaction and state probes
 
@@ -47,7 +55,7 @@ Total: **126/126 PASS**. Browser event collection returned `consoleErrors=[]` an
 - Public model/pricing administration focused probe passed at 1440px and 390px: responsive tables, missing-model surface, creation dialog focus and Escape close, immutable identifiers, nullable price display, release history and password autocomplete.
 - Public pricing state probe observed a visible loading surface and a synthetic HTTP 503 retry/error surface at 375px with zero overflow. The deliberately injected browser resource error was classified as expected; unexpected console and page errors remained empty.
 - Empty states were observed for chat history/catalog, billing plans/orders, token lists and resolved notifications in the main matrix.
-- Representative screenshots cover home, login, chat and public-content administration at 375px and 1440px in both themes (16 files).
+- Representative screenshots cover home, login, register, chat and public-content administration at 375px and 1440px in both themes (20 files). Every file hash is unique.
 
 ## Explicit skips and boundaries
 
