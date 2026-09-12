@@ -56,7 +56,6 @@ html[data-theme='dark'] .public-shell { color-scheme: dark; }
 @media (prefers-color-scheme: dark) { html:not([data-theme='light']) .public-shell { color-scheme: dark; } }
 @media (max-width: 767px) {
   .public-header { padding: 0 16px; }
-  .public-console-cta { display: none; }
   .public-nav-toggle { display: inline-flex; }
   .public-nav { position: absolute; top: 100%; left: 0; right: 0; display: none; align-items: stretch; flex-direction: column; gap: 4px; padding: 16px; border-bottom: 1px solid var(--public-border); background: var(--public-card); box-shadow: var(--shadow-md); }
   .public-nav.is-open { display: flex; }
