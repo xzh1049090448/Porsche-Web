@@ -1,6 +1,6 @@
 <template>
-  <section class="admin-page">
-    <el-page-header ref="pageHeading" content="用户详情" tabindex="-1" @back="$router.push('/users')" />
+  <section class="admin-page console-page user-detail-page">
+    <header ref="pageHeading" class="page-header" tabindex="-1"><div class="page-header__copy"><p class="page-header__eyebrow">ADMINISTRATION</p><h1>用户详情</h1><p class="page-header__description">查看用户身份、套餐和权限状态。</p></div><div class="page-header__actions"><el-button @click="$router.push('/users')">返回用户列表</el-button></div></header>
 
     <el-alert v-if="!canRead" type="warning" :closable="false" title="暂无用户管理权限" description="权限信息不可用时不会加载用户详情。">
       <template #default><el-button link type="primary" @click="retryIdentity">重新检查身份</el-button></template>
@@ -11,9 +11,9 @@
     <el-skeleton v-else-if="store.detailLoading" :rows="6" animated />
 
     <template v-else-if="store.selected">
-      <el-card shadow="never">
+      <el-card shadow="never" class="surface-card detail-surface">
         <template #header>
-          <div class="title"><span class="title-name">{{ store.selected.username || '未设置用户名' }}</span><span class="title-actions"><el-tag>{{ statusLabel }}</el-tag><el-button v-if="canPromoteTarget" plain @click="openRolePermission('users.promote', store.selected, $event)">提升为管理员</el-button><el-button v-if="canPermissionsTarget" plain @click="openRolePermission('users.permissions.write', store.selected, $event)">权限设置</el-button><el-button v-if="canDemoteTarget" plain @click="openRolePermission('users.demote', store.selected, $event)">降级为普通用户</el-button><el-button v-if="canPasswordResetTarget" plain @click="openPasswordReset(store.selected, $event)">重置密码</el-button><el-button v-if="canStatusTarget" :type="nextStatus === 'disabled' ? 'danger' : 'primary'" plain @click="openStatus(store.selected, $event)">{{ nextStatus === 'disabled' ? '禁用' : '启用' }}</el-button><el-button v-if="canDeleteTarget" type="danger" plain @click="openDelete(store.selected, $event)">{{ t('deleteUser.confirm') }}</el-button></span></div>
+          <div class="title"><span class="title-name">{{ store.selected.username || '未设置用户名' }}</span><span class="title-actions detail-action-toolbar"><span class="status-badge" :class="`status-badge--${statusTone}`"><span class="status-badge__dot" aria-hidden="true" />{{ statusLabel }}</span><el-button v-if="canPromoteTarget" plain @click="openRolePermission('users.promote', store.selected, $event)">提升为管理员</el-button><el-button v-if="canPermissionsTarget" plain @click="openRolePermission('users.permissions.write', store.selected, $event)">权限设置</el-button><el-button v-if="canDemoteTarget" plain @click="openRolePermission('users.demote', store.selected, $event)">降级为普通用户</el-button><el-button v-if="canPasswordResetTarget" plain @click="openPasswordReset(store.selected, $event)">重置密码</el-button><el-button v-if="canStatusTarget" :type="nextStatus === 'disabled' ? 'danger' : 'primary'" plain @click="openStatus(store.selected, $event)">{{ nextStatus === 'disabled' ? '禁用' : '启用' }}</el-button><el-button v-if="canDeleteTarget" type="danger" plain @click="openDelete(store.selected, $event)">{{ t('deleteUser.confirm') }}</el-button></span></div>
         </template>
         <el-descriptions :column="2" border>
           <el-descriptions-item label="GUID">{{ store.selected.guid }}</el-descriptions-item>
@@ -30,18 +30,18 @@
         </el-descriptions>
       </el-card>
 
-      <el-card v-if="showPermissions" shadow="never" class="permissions">
+      <el-card v-if="showPermissions" shadow="never" class="permissions surface-card">
         <template #header>权限信息</template>
         <el-alert v-if="permissionUnavailable" type="warning" :closable="false" title="权限信息暂不可用" description="请重新检查身份后重试。">
           <template #default><el-button link type="primary" @click="retryIdentity">重新检查身份</el-button></template>
         </el-alert>
-        <el-table v-else :data="permissionRows">
+        <div v-else class="responsive-table"><el-table :data="permissionRows">
           <el-table-column prop="name" label="能力" />
           <el-table-column prop="baseline" label="基线" />
           <el-table-column prop="override" label="覆盖" />
           <el-table-column prop="policy_effective" label="策略结果" />
           <el-table-column prop="effective" label="当前有效" />
-        </el-table>
+        </el-table></div>
       </el-card>
     </template>
     <p class="sr-only" role="status" aria-live="polite">{{ editAnnouncement }} {{ statusAnnouncement }} {{ entitlementAnnouncement }} {{ rolePermissionAnnouncement }}</p>
@@ -213,6 +213,7 @@ const detailStatus = computed(() => store.detailError?.response?.status)
 const detailErrorTitle = computed(() => ({ 401: '认证会话无效', 403: '无权限访问', 404: '用户不存在', 503: '用户信息暂不可用' }[detailStatus.value] || '用户信息暂不可用'))
 const detailErrorDescription = computed(() => detailStatus.value === 403 ? '当前身份保持登录状态，可重新检查权限。' : '当前详情数据已清理，请重试或返回用户列表。')
 const statusLabel = computed(() => ({ active: '启用', disabled: '禁用', deleted: '已删除' }[store.selected?.status] || store.selected?.status))
+const statusTone = computed(() => ({ active: 'active', disabled: 'warning', deleted: 'gone' }[store.selected?.status] || 'warning'))
 const planLabel = computed(() => ({ free: '免费版', professional: '专业版', enterprise: '企业版' }[store.selected?.planType] || store.selected?.planType))
 
 function closeDetailInteractions() {
@@ -748,7 +749,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.admin-page { max-width: 1100px; margin: 0 auto; }
+.admin-page { max-width: 1100px; overflow: auto; }
+.detail-surface { overflow: hidden; }
 .title { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 20px; font-weight: 600; }
 .title-name { min-width: 0; overflow-wrap: anywhere; }
 .title-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
@@ -756,4 +758,6 @@ onBeforeUnmount(() => {
 .nickname-row { display: inline-flex; align-items: center; gap: 8px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .permissions { margin-top: 20px; }
+.responsive-table { width: 100%; overflow-x: auto; }
+@media (max-width: 768px) { .title { align-items: flex-start; } .title-actions { width: 100%; justify-content: flex-start; } .detail-action-toolbar :deep(.el-button) { flex: 1 1 auto; } .detail-surface :deep(.el-descriptions__body) { overflow-x: auto; } }
 </style>
