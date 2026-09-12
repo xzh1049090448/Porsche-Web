@@ -76,15 +76,21 @@ test('gateway token adapter uses only the implemented token CRUD paths and metho
   assert.match(source, /request\.post\(`\$\{PREFIX\}\/\$\{encodeURIComponent\(requiredGuid\(guid, 'token GUID'\)\)\}\/revoke`\)/)
 })
 
-test('API key route and all navigation variants expose the protected page', async () => {
-  const [router, layout] = await Promise.all([
+test('API key route is present in the single navigation model rendered on desktop and mobile', async () => {
+  const [router, layout, shellContract] = await Promise.all([
     readFile(sourcePath('../router/index.js'), 'utf8'),
     readFile(sourcePath('../layouts/MainLayout.vue'), 'utf8'),
+    readFile(sourcePath('../layouts/visual-shell.contract.test.js'), 'utf8'),
   ])
 
   assert.match(router, /path: '\/api-keys',[\s\S]*name: 'ApiKeys'/)
   assert.match(router, /path: '\/api-keys',[\s\S]*meta: \{ requiresAuth: true \}/)
-  assert.equal((layout.match(/index="\/api-keys"/g) || []).length, 2)
+  assert.equal((layout.match(/const navigation = computed/g) || []).length, 1)
+  assert.match(layout, /\{ to: '\/api-keys',[^\n]+visible: true \}/)
+  assert.match(layout, /<ConsoleSidebar\s+:items="navigation"/)
+  assert.match(layout, /class="drawer-nav-menu"[\s\S]*v-for="item in navigation"/)
+  assert.match(shellContract, /for \(const selector of \['nav\.console-sidebar', 'nav\.drawer-nav-menu'\]\)/)
+  assert.match(shellContract, /const routes = wrapper\.get\(selector\)\.findAll\('\[data-route\]'\)/)
   assert.match(layout, /command="api-keys"/)
 })
 
