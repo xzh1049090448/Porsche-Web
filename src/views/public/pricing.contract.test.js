@@ -16,12 +16,28 @@ test('pricing routes load real lazy pages and preserve encoded stable modelKey',
 })
 
 test('catalog exposes desktop filters/table, mobile drawer/cards and accessible controls', async () => {
-  const [page, filters, table, cards] = await Promise.all([read('./Pricing.vue'), read('../../components/public/PricingFilters.vue'), read('../../components/public/PricingTable.vue'), read('../../components/public/PricingCards.vue')])
-  assert.match(page, /260px/); assert.match(page, /@media\s*\(max-width:\s*767px\)/)
+  const [page, filters, table, cards, styles] = await Promise.all([read('./Pricing.vue'), read('../../components/public/PricingFilters.vue'), read('../../components/public/PricingTable.vue'), read('../../components/public/PricingCards.vue'), read('../../styles/public-pricing.scss')])
+  assert.match(page, /@\/styles\/public-pricing\.scss/)
+  assert.match(styles, /max-width:\s*1600px/); assert.match(styles, /grid-template-columns:\s*260px/); assert.match(styles, /@media\s*\(max-width:\s*767px\)/)
   assert.match(page, /PricingFilters/); assert.match(page, /PricingTable/); assert.match(page, /PricingCards/)
+  assert.match(page, /class="pricing-toolbar"/); assert.match(page, /class="pricing-results-count"/)
   assert.match(page, /role="dialog"/); assert.match(page, /aria-modal="true"/)
+  assert.match(page, /aria-controls="pricing-filter-drawer"/); assert.match(page, /:aria-expanded="drawerOpen"/)
   for (const field of ['search', 'provider', 'capability', 'endpoint', 'group', 'sort']) assert.match(filters, new RegExp(`name="${field}"`))
   assert.match(table, /publicPriceState/); assert.match(cards, /publicPriceState/)
+  assert.match(styles, /min-height:\s*44px/); assert.match(styles, /focus-visible/)
+})
+
+test('detail presents stable identity, two token price cards, metadata, disclaimer and console action', async () => {
+  const [detail, styles] = await Promise.all([read('./ModelPricingDetail.vue'), read('../../styles/public-pricing.scss')])
+  assert.match(detail, /class="pricing-detail-back"/)
+  assert.match(detail, /class="pricing-detail-title"/)
+  assert.match(detail, /class="pricing-model-key"/)
+  assert.equal((detail.match(/class="detail-price-card"/g) || []).length, 2)
+  assert.match(detail, /class="detail-metadata"/)
+  assert.match(detail, /class="detail-disclaimer"/)
+  assert.match(detail, /class="[^"]*pricing-console-cta[^"]*"/)
+  assert.match(styles, /\.pricing-detail/)
 })
 
 test('pages use the shared publication store and distinguish required failure states', async () => {
@@ -73,7 +89,7 @@ test('token prices preserve input/output units plus anonymous redaction and miss
 })
 
 test('USD per million token labels, page sizes, theme and responsive gates are explicit', async () => {
-  const all = (await Promise.all(['./Pricing.vue','./ModelPricingDetail.vue','../../components/public/PricingFilters.vue','../../components/public/PricingTable.vue','../../components/public/PricingCards.vue'].map(read))).join('\n')
+  const all = (await Promise.all(['./Pricing.vue','./ModelPricingDetail.vue','../../components/public/PricingFilters.vue','../../components/public/PricingTable.vue','../../components/public/PricingCards.vue','../../styles/public-pricing.scss'].map(read))).join('\n')
   const messages = await read('../../i18n/messages.js')
   assert.match(messages, /USD/); assert.match(messages, /百万/)
   for (const size of [20, 50, 100]) assert.match(all, new RegExp(`>${size}<`))

@@ -13,7 +13,7 @@ async function compileSFC(path, id, replacements) {
   const template = compileTemplate({ id, filename: path, source: descriptor.template.content, compilerOptions: { bindingMetadata: script.bindings } })
   assert.deepEqual(template.errors, [])
   let code = `${script.content}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
-  for (const [specifier, replacement] of replacements) code = code.replaceAll(`from '${specifier}'`, `from '${replacement}'`).replaceAll(`from "${specifier}"`, `from "${replacement}"`)
+  for (const [specifier, replacement] of replacements) code = code.replaceAll(`from '${specifier}'`, `from '${replacement}'`).replaceAll(`from "${specifier}"`, `from "${replacement}"`).replaceAll(`import '${specifier}'`, `import '${replacement}'`).replaceAll(`import "${specifier}"`, `import "${replacement}"`)
   return dataModule(code)
 }
 
@@ -22,6 +22,7 @@ test('mounted protected pricing blocks anonymous numeric sort and enables it aft
   for (const key of ['window', 'document', 'navigator', 'history', 'location', 'Node', 'Element', 'HTMLElement', 'SVGElement', 'Event']) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: dom.window[key] })
   const vueURL = new URL('../../../node_modules/vue/index.mjs', import.meta.url).href
   const runtimeStub = dataModule("export const usePublicI18n=()=>({t:key=>key})")
+  const styleStub = dataModule('export default {}')
   const filtersURL = await compileSFC('../../components/public/PricingFilters.vue', 'pricing-filters-mounted', [['vue', vueURL], ['@/i18n/public-runtime.js', runtimeStub]])
   const componentStub = dataModule(`import {defineComponent,h} from '${vueURL}';export default defineComponent({props:['status','message'],emits:['retry'],setup:(p)=>()=>h('div',p.message||p.status||'stub')})`)
   const routerStub = dataModule('export const useRoute=()=>globalThis.__pricingMount.route;export const useRouter=()=>globalThis.__pricingMount.router')
@@ -30,7 +31,7 @@ test('mounted protected pricing blocks anonymous numeric sort and enables it aft
     ['vue', vueURL], ['vue-router', routerStub],
     ['@/components/public/PricingFilters.vue', filtersURL], ['@/components/public/PricingTable.vue', componentStub],
     ['@/components/public/PricingCards.vue', componentStub], ['@/components/public/PublicContentState.vue', componentStub],
-    ['@/utils/public-pricing-query.js', pricingUtils], ['@/i18n/public-runtime.js', runtimeStub],
+    ['@/utils/public-pricing-query.js', pricingUtils], ['@/i18n/public-runtime.js', runtimeStub], ['@/styles/public-pricing.scss', styleStub],
   ])
   const code = Buffer.from(pricingURL.split(',')[1], 'base64').toString().replace("import('@/api/request.js')", 'globalThis.__pricingMount.loadAuth()')
   const Pricing = (await import(`${dataModule(code)}#${Date.now()}`)).default

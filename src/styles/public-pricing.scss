@@ -1,0 +1,64 @@
+.pricing-page {
+  width: calc(100% - 64px);
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 72px 0 96px;
+}
+
+.pricing-heading { max-width: 760px; }
+.pricing-heading h1,
+.pricing-detail-title { margin: 8px 0; font-size: clamp(36px, 5vw, 54px); line-height: 1.05; letter-spacing: -.035em; }
+.pricing-heading p { color: var(--public-muted); }
+.pricing-disclaimer,
+.detail-disclaimer { margin: 28px 0; padding: 16px 20px; border-left: 4px solid var(--public-primary); border-radius: 8px; background: color-mix(in srgb, var(--public-primary) 8%, var(--public-card)); color: var(--public-text); }
+.pricing-toolbar { display: flex; align-items: center; justify-content: flex-end; min-height: 44px; margin-bottom: 16px; }
+.pricing-results-count { color: var(--public-muted); font-variant-numeric: tabular-nums; }
+.pricing-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; }
+.pricing-results { min-width: 0; }
+.pricing-sidebar { position: sticky; top: 88px; align-self: start; padding: 20px; border: 1px solid var(--public-border); border-radius: 16px; background: var(--public-card); }
+.pricing-filter-toggle,
+.pricing-drawer,
+.pricing-drawer-backdrop { display: none; }
+.pricing-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin-top: 22px; }
+.pricing-pagination button,
+.pricing-pagination select { min-height: 44px; padding: 0 12px; border: 1px solid var(--public-border); border-radius: 8px; background: var(--public-card); color: var(--public-text); }
+.pricing-pagination button:disabled { cursor: not-allowed; opacity: .45; }
+.pricing-page :focus-visible,
+.pricing-detail :focus-visible { outline: 3px solid var(--public-primary); outline-offset: 3px; }
+
+.pricing-detail { width: min(920px, calc(100% - 48px)); margin: 0 auto; padding: 64px 0 96px; }
+.pricing-detail-back { display: inline-flex; align-items: center; min-height: 44px; color: var(--public-muted); }
+.pricing-detail > header { margin: 36px 0 42px; }
+.pricing-model-key { color: var(--public-muted); overflow-wrap: anywhere; }
+.detail-prices { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.detail-price-card,
+.detail-state,
+.detail-metadata { padding: 24px; border: 1px solid var(--public-border); border-radius: 16px; background: var(--public-card); }
+.detail-price-card strong { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: clamp(28px, 4vw, 36px); font-variant-numeric: tabular-nums; }
+.detail-price-card p,
+.detail-metadata dt { color: var(--public-muted); }
+.detail-metadata { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.detail-metadata dd { margin: 6px 0 0; overflow-wrap: anywhere; }
+.detail-metadata dd span { display: inline-block; margin-right: 7px; }
+.pricing-console-cta { margin-top: 24px; min-height: 44px; }
+
+@media (max-width: 767px) {
+  .pricing-page,
+  .pricing-detail { width: calc(100% - 32px); padding-top: 44px; }
+  .pricing-toolbar { justify-content: space-between; }
+  .pricing-layout { display: block; }
+  .pricing-sidebar,
+  .pricing-page .pricing-table-wrap { display: none; }
+  .pricing-filter-toggle { display: inline-flex; min-height: 44px; }
+  .pricing-pagination { align-items: stretch; flex-wrap: wrap; justify-content: center; }
+  .pricing-drawer-backdrop { position: fixed; inset: 0; z-index: 180; display: flex; justify-content: flex-end; background: rgba(15, 23, 42, .62); }
+  .pricing-drawer { display: block; width: min(340px, 90vw); height: 100%; overflow: auto; padding: 22px; background: var(--public-card); color: var(--public-text); }
+  .pricing-drawer > header { display: flex; align-items: center; justify-content: space-between; }
+  .pricing-drawer > header button { min-width: 44px; min-height: 44px; border: 0; background: transparent; color: inherit; font-size: 28px; }
+  .detail-prices,
+  .detail-metadata { grid-template-columns: 1fr; }
+}
+
+/* 375px, 768px and 1440px acceptance anchors. */
+@media (min-width: 768px) and (max-width: 1439px) { .pricing-page { width: calc(100% - 40px); } }
+@media (min-width: 1440px) { .pricing-page { width: min(1600px, calc(100% - 64px)); } }
