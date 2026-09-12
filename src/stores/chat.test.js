@@ -753,6 +753,50 @@ test('cancel wins when an aborted recovery rejects before the authoritative canc
   } finally { globalThis.fetch = originalFetch }
 })
 
+test('cancel confirmation chains after an existing recovery in either rejection order', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    for (const order of ['cancel-first', 'recovery-first']) {
+      setActivePinia(createPinia())
+      const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+      store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+      const oldRecovery = deferred(); const oldRecoveryStarted = deferred(); const cancel = deferred(); const cancelStarted = deferred(); const confirmationStarted = deferred()
+      let generationId; let cancelPosts = 0; let gets = 0
+      globalThis.fetch = async (url, options = {}) => {
+        if (String(url).endsWith('/cancel')) { cancelPosts += 1; cancelStarted.resolve(); return cancel.promise }
+        if ((options.method || 'GET') === 'GET') {
+          gets += 1
+          if (gets === 1) { oldRecoveryStarted.resolve(); return oldRecovery.promise }
+          confirmationStarted.resolve()
+          return jsonResponse({ generation_id: generationId, status: 'cancelled', mode: 'single', conversation_guid: null })
+        }
+        generationId = JSON.parse(options.body).generation_id
+        return sseResponse('')
+      }
+      const sending = store.sendMessage(`cancel recovery race ${order}`); await oldRecoveryStarted.promise
+      const cancelling = store.cancelStream(); await cancelStarted.promise
+      if (order === 'cancel-first') {
+        cancel.reject(new TypeError('ambiguous cancel first'))
+        await setImmediate()
+        assert.equal(gets, 1, order)
+        assert.equal(store.generationState.status, 'cancelling', order)
+        assert.equal(store.generationState.phase, 'confirming_cancel', order)
+        oldRecovery.reject(new TypeError('late old recovery rejection'))
+      } else {
+        oldRecovery.reject(new TypeError('old recovery rejection first'))
+        await sending
+        cancel.reject(new TypeError('late ambiguous cancel'))
+      }
+      await waitFor(() => gets === 2)
+      await confirmationStarted.promise
+      await Promise.all([sending, cancelling])
+      assert.equal(cancelPosts, 1, order); assert.equal(gets, 2, order)
+      assert.equal(store.generationState.status, 'cancelled', order)
+      assert.equal(await store.retryPendingGeneration(), false, order)
+    }
+  } finally { globalThis.fetch = originalFetch }
+})
+
 test('generation projection preserves receiving and draining while transport phase stays separate', async () => {
   const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
   store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
