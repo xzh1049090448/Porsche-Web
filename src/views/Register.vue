@@ -56,11 +56,7 @@ async function submit() {
 </script>
 
 <style scoped lang="scss">
-@use '@/styles/console-pages.scss';
-
-.register-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--login-bg); }
 .register-toolbar { position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 4px; }
-.register-card { width: min(420px, 100%); padding: 32px; background: var(--component-bg); border: 1px solid var(--border); border-radius: 12px; }
 .logo-icon { width: 48px; height: 48px; object-fit: contain; }
 .submit-btn, .login-link { width: 100%; margin-top: 8px; }
 </style>

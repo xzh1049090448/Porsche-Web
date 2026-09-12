@@ -217,8 +217,6 @@ async function submitVerify() {
 </script>
 
 <style scoped lang="scss">
-@use '@/styles/console-pages.scss';
-
 .page-container {
   padding: 24px;
   max-width: 1100px;

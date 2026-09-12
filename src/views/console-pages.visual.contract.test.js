@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import test from 'node:test'
 
 const read = (path) => readFile(new URL(path, import.meta.url), 'utf8')
@@ -84,4 +85,22 @@ test('chat presentation components use the shared workspace surfaces', async () 
   assert.match(messages, /message-list-shell conversation-surface/)
   assert.match(input, /chat-input composer-surface/)
   assert.match(models, /model-panel model-surface/)
+})
+
+test('production bundle emits shared console page CSS once through the console shell', async () => {
+  const manifest = JSON.parse(await readFile(resolve('dist/.vite/manifest.json'), 'utf8'))
+  const routeKeys = ['Login.vue', 'Register.vue', 'Chat.vue', 'Billing.vue', 'ApiKeys.vue', 'Profile.vue']
+  const cssFor = async (key) => {
+    const entry = manifest[key] || {}
+    const files = [...(entry.css || []), ...(entry.file?.endsWith('.css') ? [entry.file] : [])]
+    return Promise.all(files.map(file => readFile(resolve('dist', file), 'utf8')))
+  }
+  const shellCss = (await cssFor('src/styles/console-shell.scss')).join('\n')
+  assert.match(shellCss, /\.auth-page/)
+  assert.match(shellCss, /\.console-page/)
+  assert.match(shellCss, /\.chat-workspace/)
+  for (const key of routeKeys.map(name => `src/views/${name}`)) {
+    const routeCss = (await cssFor(key)).join('\n')
+    assert.doesNotMatch(routeCss, /\.auth-page|\.console-page|\.chat-workspace|\.token-surface/)
+  }
 })

@@ -188,8 +188,6 @@ function onSend(content, images) {
 </script>
 
 <style scoped lang="scss">
-@use '@/styles/console-pages.scss';
-
 .chat-root {
   height: 100%;
   overflow: hidden;

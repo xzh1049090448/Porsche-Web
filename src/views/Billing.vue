@@ -230,8 +230,6 @@ async function submitInvoice() {
 </script>
 
 <style scoped lang="scss">
-@use '@/styles/console-pages.scss';
-
 .page-container {
   padding: 24px;
   max-width: 1200px;

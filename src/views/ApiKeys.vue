@@ -247,8 +247,6 @@ function statusText(row) { const status = tokenStatus(row); return status === 'a
 </script>
 
 <style scoped lang="scss">
-@use '@/styles/console-pages.scss';
-
 .page-container { padding: 24px; max-width: 1280px; margin: 0 auto; height: 100%; overflow-y: auto; }
 .page-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 20px; }
 .page-title { margin: 0; color: var(--text-primary); }

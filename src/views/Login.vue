@@ -85,18 +85,6 @@ async function submitPwd() {
 </script>
 
 <style scoped lang="scss">
-@use '@/styles/console-pages.scss';
-
-.login-page {
-  position: relative;
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--login-bg);
-  padding: 24px;
-}
-
 .login-toolbar {
   position: absolute;
   top: 16px;
@@ -104,35 +92,6 @@ async function submitPwd() {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-.login-card {
-  width: min(420px, 100%);
-  padding: 32px;
-  background: var(--component-bg);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: var(--elevated-shadow);
-}
-
-.login-brand {
-  text-align: center;
-  margin-bottom: 24px;
-
-  h1 {
-    margin: 12px 0 4px;
-    font-size: 20px;
-    font-weight: 600;
-    line-height: 28px;
-    color: var(--text-primary);
-  }
-
-  p {
-    margin: 0;
-    color: var(--text-secondary);
-    font-size: 14px;
-    line-height: 22px;
-  }
 }
 
 .logo-icon {

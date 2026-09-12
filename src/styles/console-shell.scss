@@ -1,3 +1,5 @@
+@use './console-pages';
+
 .console-shell { height: 100%; min-height: 0; flex-direction: column; background: var(--surface-page); }
 .console-topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: var(--header-height); padding: 0 24px; background: var(--surface-card); border-bottom: 1px solid var(--border-default); box-shadow: var(--shadow-sm); z-index: 10; }
 .header-left, .header-right, .user-trigger, .app-brand { display: flex; align-items: center; }
