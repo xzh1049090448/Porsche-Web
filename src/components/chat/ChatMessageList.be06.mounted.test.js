@@ -20,6 +20,7 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
   const notifications = []
   let copyCalls = 0
   let resolveCopy
+  const copySignals = []
   const chat = reactive({ streaming: false, activeId: '1', generationState: null, retryCalls: 0, getActive: () => conversation, retryGenerationAttempt() { this.retryCalls += 1; return new Promise(resolve => { resolveRetry = resolve }) } })
   const settings = reactive({ models: [{ id: 'a', name: 'A', icon: 'A' }, { id: 'b', name: 'B', icon: 'B' }] })
   const MarkdownContent = defineComponent({ props: { content: String }, setup: props => () => h('div', { class: 'markdown' }, props.content) })
@@ -28,7 +29,7 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
     settings,
     MarkdownContent,
     notifications,
-    copyText() { copyCalls += 1; return new Promise(resolve => { resolveCopy = resolve }) },
+    copyText(_text, environment) { copyCalls += 1; copySignals.push(environment?.signal); return new Promise(resolve => { resolveCopy = resolve }) },
   }
   const replacements = new Map([
     ['vue', new URL('../../../node_modules/vue/index.mjs', import.meta.url).href],
@@ -36,7 +37,7 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
     ['@/stores/settings', encode('export const useSettingsStore=()=>globalThis.__be06ListFixture.settings')],
     ['@/composables/useI18n', encode('export const useI18n=()=>({t:key=>key})')],
     ['@/components/chat/generation-ui', new URL('./generation-ui.js', import.meta.url).href],
-    ['@/utils/clipboard', encode('export const copyText=text=>globalThis.__be06ListFixture.copyText(text)')],
+    ['@/utils/clipboard', encode('export const copyText=(text,environment)=>globalThis.__be06ListFixture.copyText(text,environment)')],
     ['@element-plus/icons-vue', encode('export const CopyDocument={}')],
     ['element-plus', encode('export const ElMessage={success:value=>globalThis.__be06ListFixture.notifications.push(["success",value]),warning:value=>globalThis.__be06ListFixture.notifications.push(["warning",value])}')],
   ])
@@ -56,6 +57,7 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
   const copyButton = wrapper.findAll('.col-actions button')[0]
   await copyButton.trigger('click'); await copyButton.trigger('click'); await nextTick()
   assert.equal(copyCalls, 1, 'copy must be singleflight while clipboard permission is pending')
+  assert.ok(copySignals[0] instanceof AbortSignal)
   assert.equal(copyButton.attributes('disabled'), '')
   assert.deepEqual(notifications, [], 'copy success must wait for the clipboard result')
   resolveCopy(false); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
@@ -66,6 +68,24 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
   globalThis.__be06ListFixture.copyText = async () => { copyCalls += 1; return true }
   await copyButton.trigger('click'); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
   assert.deepEqual(notifications.at(-1), ['success', 'chat.copied'], 'success is announced only after a confirmed copy')
+  const copyReplacements = []
+  globalThis.__be06ListFixture.copyText = (_text, environment) => {
+    copyCalls += 1
+    let resolve
+    const promise = new Promise(done => { resolve = done })
+    copyReplacements.push({ resolve, signal: environment.signal })
+    return promise
+  }
+  const copyButtons = wrapper.findAll('.col-actions button')
+  const beforeReplacement = copyCalls
+  await copyButtons[0].trigger('click'); await copyButtons[0].trigger('click'); await copyButtons[1].trigger('click'); await nextTick()
+  assert.equal(copyCalls, beforeReplacement + 2, 'a different copy replaces the old operation while same-button double click stays singleflight')
+  assert.equal(copyReplacements[0].signal.aborted, true)
+  const noticesBeforeLate = notifications.length
+  copyReplacements[0].resolve(true); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
+  assert.equal(notifications.length, noticesBeforeLate, 'late success from the replaced copy is ignored')
+  copyReplacements[1].resolve(true); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
+  assert.deepEqual(notifications.at(-1), ['success', 'chat.copied'])
   chat.streaming = true
   conversation.messages[0].generationStatus = 'receiving'
   conversation.messages[0].replies.a = ''
@@ -98,5 +118,20 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
   chat.generationState.generationId = 'stale-after-switch'
   await nextTick()
   assert.equal(wrapper.find('.regenerate-button').exists(), false, 'a detached or switched attempt must not expose retry')
-  wrapper.unmount(); delete globalThis.__be06ListFixture
+  conversation.messages = [{ localKey: 'unmount-copy', role: 'assistant', content: 'copy then leave', generationStatus: 'completed' }]
+  chat.streaming = false
+  const unmountCopy = {}
+  globalThis.__be06ListFixture.copyText = (_text, environment) => {
+    unmountCopy.signal = environment.signal
+    return new Promise((_resolve, reject) => { unmountCopy.reject = reject })
+  }
+  await nextTick()
+  await wrapper.get('.msg-actions button').trigger('click'); await nextTick()
+  const noticesBeforeUnmount = notifications.length
+  wrapper.unmount()
+  assert.equal(unmountCopy.signal.aborted, true)
+  unmountCopy.reject(new Error('late clipboard rejection'))
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(notifications.length, noticesBeforeUnmount, 'late clipboard settlement after unmount must not toast')
+  delete globalThis.__be06ListFixture
 })

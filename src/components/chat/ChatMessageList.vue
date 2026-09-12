@@ -79,7 +79,7 @@
               <el-button
                 text size="small" :icon="CopyDocument"
                 :loading="copyingKey === copyKey(msg, m.id)"
-                :disabled="copyingKey !== null"
+                :disabled="copyingKey === copyKey(msg, m.id)"
                 @click="copy(msg.replies[m.id], copyKey(msg, m.id))"
               >
                 {{ t(copyingKey === copyKey(msg, m.id) ? 'chat.copying' : 'chat.copy') }}
@@ -117,7 +117,7 @@
             <el-button
               text size="small" :icon="CopyDocument"
               :loading="copyingKey === copyKey(msg)"
-              :disabled="copyingKey !== null"
+              :disabled="copyingKey === copyKey(msg)"
               @click="copy(msg.content, copyKey(msg))"
             >
               {{ t(copyingKey === copyKey(msg) ? 'chat.copying' : 'chat.copy') }}
@@ -139,7 +139,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import { CopyDocument } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
@@ -157,6 +157,8 @@ const listRef = ref()
 const stickToBottom = ref(true)
 const retryingAttempt = ref(null)
 const copyingKey = ref(null)
+let copyOperation = null
+let disposed = false
 const SCROLL_BOTTOM_THRESHOLD = 80
 
 const messages = computed(() => chatStore.getActive()?.messages || [])
@@ -251,18 +253,37 @@ function copyKey(message, modelId = 'single') {
 }
 
 async function copy(text, key) {
-  if (copyingKey.value !== null) return
+  if (copyOperation?.key === key) return
+  copyOperation?.controller.abort()
+  const operation = { key, controller: new AbortController() }
+  copyOperation = operation
   copyingKey.value = key
   try {
-    const copied = await copyText(text)
+    const copied = await copyText(text, {
+      navigator: globalThis.navigator,
+      document: globalThis.document,
+      container: listRef.value,
+      signal: operation.controller.signal,
+    })
+    if (disposed || operation.controller.signal.aborted || copyOperation !== operation) return
     if (copied) ElMessage.success(t('chat.copied'))
     else ElMessage.warning(t('chat.copyFailed'))
-  } catch {
+  } catch (error) {
+    if (disposed || operation.controller.signal.aborted || copyOperation !== operation || error?.name === 'AbortError') return
     ElMessage.warning(t('chat.copyFailed'))
   } finally {
-    if (copyingKey.value === key) copyingKey.value = null
+    if (!disposed && copyOperation === operation) {
+      copyOperation = null
+      copyingKey.value = null
+    }
   }
 }
+
+onBeforeUnmount(() => {
+  disposed = true
+  copyOperation?.controller.abort()
+  copyOperation = null
+})
 
 function isNearBottom(el) {
   if (!el) return true
