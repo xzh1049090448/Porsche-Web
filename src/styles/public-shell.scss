@@ -15,9 +15,10 @@
 .public-header { position: sticky; top: 0; z-index: 100; display: flex; height: var(--header-height); align-items: center; justify-content: space-between; gap: 24px; padding: 0 max(24px, calc((100vw - 1200px) / 2)); border-bottom: 1px solid var(--public-border); background: color-mix(in srgb, var(--public-card) 90%, transparent); backdrop-filter: blur(16px); }
 .public-brand { flex: none; color: var(--public-text); font-size: 18px; font-weight: 800; letter-spacing: -.02em; }
 .public-nav, .public-header__actions, .public-footer nav { display: flex; align-items: center; gap: 22px; }
+.public-nav { order: 1; }
 .public-nav a, .public-footer a { color: var(--public-muted); }
 .public-nav a:hover, .public-footer a:hover { color: var(--public-primary); }
-.public-header__actions { gap: 8px; }
+.public-header__actions { order: 2; gap: 8px; }
 .public-locale, .public-theme, .public-nav-toggle { display: inline-flex; min-width: var(--control-min-size); min-height: var(--control-min-size); align-items: center; justify-content: center; border: 0; border-radius: 8px; color: var(--public-muted); background: transparent; cursor: pointer; }
 .public-locale:hover, .public-theme:hover, .public-nav-toggle:hover { color: var(--public-primary); background: var(--color-brand-soft); }
 .public-nav-toggle { display: none; }
