@@ -57,3 +57,73 @@ test('mounted protected pricing blocks anonymous numeric sort and enables it aft
   await scenario(false); await scenario(true)
   delete globalThis.__pricingMount
 })
+
+test('mobile pricing drawer traps focus, closes on Escape and clears modal focus when crossing to desktop', async () => {
+  if (!globalThis.document) {
+    const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://local.test/pricing' })
+    for (const key of ['window', 'document', 'navigator', 'history', 'location', 'Node', 'Element', 'HTMLElement', 'SVGElement', 'Event', 'KeyboardEvent']) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: dom.window[key] })
+  }
+  document.body.replaceChildren()
+  const listeners = new Set()
+  const desktop = {
+    matches: false,
+    media: '(min-width: 768px)',
+    addEventListener(type, listener) { if (type === 'change') listeners.add(listener) },
+    removeEventListener(type, listener) { if (type === 'change') listeners.delete(listener) },
+    dispatch(matches) { this.matches = matches; for (const listener of [...listeners]) listener({ matches, media: this.media }) },
+  }
+  window.matchMedia = query => { assert.equal(query, '(min-width: 768px)'); return desktop }
+  const vueURL = new URL('../../../node_modules/vue/index.mjs', import.meta.url).href
+  const runtimeStub = dataModule("export const usePublicI18n=()=>({t:key=>key})")
+  const styleStub = dataModule('export default {}')
+  const filtersURL = await compileSFC('../../components/public/PricingFilters.vue', 'pricing-filters-drawer', [['vue', vueURL], ['@/i18n/public-runtime.js', runtimeStub]])
+  const componentStub = dataModule(`import {defineComponent,h} from '${vueURL}';export default defineComponent({props:['status','message'],emits:['retry'],setup:(p)=>()=>h('div',p.message||p.status||'stub')})`)
+  const routerStub = dataModule('export const useRoute=()=>globalThis.__pricingMount.route;export const useRouter=()=>globalThis.__pricingMount.router')
+  const pricingUtils = new URL('../../utils/public-pricing-query.js', import.meta.url).href
+  const pricingURL = await compileSFC('./Pricing.vue', 'pricing-page-drawer', [
+    ['vue', vueURL], ['vue-router', routerStub],
+    ['@/components/public/PricingFilters.vue', filtersURL], ['@/components/public/PricingTable.vue', componentStub],
+    ['@/components/public/PricingCards.vue', componentStub], ['@/components/public/PublicContentState.vue', componentStub],
+    ['@/utils/public-pricing-query.js', pricingUtils], ['@/i18n/public-runtime.js', runtimeStub], ['@/styles/public-pricing.scss', styleStub],
+  ])
+  const Pricing = (await import(`${pricingURL}#${Date.now()}`)).default
+  const [{ mount }, { ref, nextTick }] = await Promise.all([import('@vue/test-utils'), import('vue')])
+  const store = ref({ site: { status: 'ready', data: { priceVisibility: 'visible' } }, models: { status: 'ready-empty', data: { items: [], total: 0, facets: { providers: [], capabilities: [], endpointTypes: [], publicDisplayGroups: [] } } }, details: {} })
+  store.loadSite = async () => store.value.site.data
+  store.loadModels = async () => store.value.models.data
+  store.cancel = () => {}
+  globalThis.__pricingMount = { route: { query: {}, fullPath: '/pricing' }, router: { replace: async () => {} } }
+  const wrapper = mount(Pricing, { attachTo: document.body, global: { provide: { 'public-home-publication': { store, ready: Promise.resolve() } }, stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+  await nextTick()
+  const trigger = wrapper.find('.pricing-filter-toggle')
+  await trigger.trigger('click'); await nextTick()
+  let dialog = wrapper.find('[role="dialog"]')
+  let focusable = dialog.findAll('button,input,select')
+  assert.equal(document.activeElement, focusable[0].element)
+  focusable.at(-1).element.focus()
+  await dialog.trigger('keydown', { key: 'Tab' })
+  assert.equal(document.activeElement, focusable[0].element)
+  await dialog.trigger('keydown', { key: 'Tab', shiftKey: true })
+  assert.equal(document.activeElement, focusable.at(-1).element)
+  await dialog.trigger('keydown', { key: 'Escape' }); await nextTick()
+  assert.equal(wrapper.find('[role="dialog"]').exists(), false)
+  assert.equal(document.activeElement, trigger.element)
+
+  await trigger.trigger('click'); await nextTick()
+  assert.equal(wrapper.find('[role="dialog"]').exists(), true)
+  assert.equal(listeners.size, 1)
+  desktop.dispatch(true); await nextTick()
+  assert.equal(wrapper.find('[role="dialog"]').exists(), false)
+  assert.equal(trigger.attributes('aria-expanded'), 'false')
+  assert.equal(document.activeElement, trigger.element)
+
+  desktop.dispatch(false)
+  await trigger.trigger('click'); await nextTick()
+  trigger.element.focus = () => {}
+  desktop.dispatch(true); await nextTick()
+  assert.equal(wrapper.find('[role="dialog"]').exists(), false)
+  assert.equal(document.activeElement, wrapper.find('.pricing-heading h1').element)
+  wrapper.unmount()
+  assert.equal(listeners.size, 0)
+  delete globalThis.__pricingMount
+})
