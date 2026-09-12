@@ -1,5 +1,5 @@
 <template>
-  <div class="chat-root">
+  <div class="chat-root chat-workspace">
     <MobileDrawer v-model:show="showSidebar" position="left" :title="t('chat.convListDrawer')">
       <ChatSidebar embedded @navigated="showSidebar = false" />
     </MobileDrawer>
@@ -188,6 +188,8 @@ function onSend(content, images) {
 </script>
 
 <style scoped lang="scss">
+@use '@/styles/console-pages.scss';
+
 .chat-root {
   height: 100%;
   overflow: hidden;

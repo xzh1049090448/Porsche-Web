@@ -1,5 +1,5 @@
 <template>
-  <div class="message-list-shell">
+  <div class="message-list-shell conversation-surface">
     <div ref="listRef" class="message-list" @scroll="onListScroll">
     <div v-if="!messages.length" class="welcome">
       <h2>{{ t('chat.welcomeTitle') }}</h2>

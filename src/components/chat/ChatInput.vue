@@ -1,5 +1,5 @@
 <template>
-  <div class="chat-input" :class="{ 'is-mobile': mobile, 'is-locked': inputLocked }">
+  <div class="chat-input composer-surface" :class="{ 'is-mobile': mobile, 'is-locked': inputLocked }">
     <div v-if="pendingImages.length" class="preview-row">
       <div v-for="(img, i) in pendingImages" :key="i" class="preview-item">
         <el-image :src="img.url" fit="cover" class="preview-img" lazy />

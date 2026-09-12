@@ -1,10 +1,10 @@
 <template>
-  <div class="billing-page page-container">
-    <h1 class="page-title">{{ t('billing.title') }}</h1>
+  <div class="billing-page page-container console-page">
+    <PageHeader :title="t('billing.title')" />
 
     <el-tabs v-model="mainTab" class="billing-tabs">
       <el-tab-pane :label="t('billing.tabPlans')" name="plans">
-    <el-row :gutter="16" class="usage-cards">
+    <el-row :gutter="16" class="usage-cards console-stat-grid surface-card">
       <el-col :xs="12" :sm="8">
         <el-statistic :title="t('billing.totalTokens')" :value="usage.totalTokens || 0" />
       </el-col>
@@ -29,7 +29,7 @@
       <el-col v-for="plan in displayPlans" :key="plan.id" :xs="24" :sm="8">
         <el-card
           shadow="hover"
-          class="plan-card"
+          class="plan-card surface-card"
           :class="{ recommended: plan.recommended, active: currentPlan === plan.id }"
         >
           <div v-if="plan.recommended" class="badge">{{ t('billing.recommended') }}</div>
@@ -58,7 +58,7 @@
 
     <el-row :gutter="20" class="mt-section">
       <el-col :xs="24" :md="12">
-        <el-card shadow="never">
+        <el-card shadow="never" class="surface-card">
           <template #header>{{ t('billing.invoice') }}</template>
           <el-form label-width="90px" size="small">
             <el-form-item :label="t('billing.selectOrder')">
@@ -82,7 +82,7 @@
     </el-row>
 
     <h2 class="section-title">{{ t('billing.orderHistory') }}</h2>
-    <el-table :data="orders" stripe>
+    <div class="surface-card console-section"><el-table :data="orders" stripe>
       <el-table-column prop="orderNo" :label="t('billing.orderNo')" width="180" />
       <el-table-column prop="plan" :label="t('billing.plan')" />
       <el-table-column prop="amount" :label="t('billing.amount')">
@@ -113,7 +113,7 @@
           </el-button>
         </template>
       </el-table-column>
-    </el-table>
+    </el-table></div>
       </el-tab-pane>
       <el-tab-pane v-if="analyticsAllowed" :label="t('analytics.title')" name="analytics">
         <ModelAnalyticsPanel />
@@ -137,6 +137,7 @@ import { checkAccess } from '@/api/modelAnalytics'
 import ModelAnalyticsPanel from '@/components/analytics/ModelAnalyticsPanel.vue'
 import { useUserStore } from '@/stores/user'
 import { useI18n } from '@/composables/useI18n'
+import PageHeader from '@/components/shell/PageHeader.vue'
 
 const userStore = useUserStore()
 const { t, ta, dateLocale } = useI18n()
@@ -229,6 +230,8 @@ async function submitInvoice() {
 </script>
 
 <style scoped lang="scss">
+@use '@/styles/console-pages.scss';
+
 .page-container {
   padding: 24px;
   max-width: 1200px;

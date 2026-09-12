@@ -1,20 +1,16 @@
 <template>
-  <div class="api-keys-page page-container">
-    <div class="page-heading">
-      <div>
-        <h1 class="page-title">{{ t('apiKeys.title') }}</h1>
-        <p class="page-description">{{ t('apiKeys.description') }}</p>
-      </div>
-      <el-button type="primary" @click="openCreate">{{ t('apiKeys.create') }}</el-button>
-    </div>
+  <div class="api-keys-page page-container console-page">
+    <PageHeader :title="t('apiKeys.title')" :description="t('apiKeys.description')">
+      <template #actions><el-button type="primary" @click="openCreate">{{ t('apiKeys.create') }}</el-button></template>
+    </PageHeader>
 
-    <el-row :gutter="16" class="summary-cards">
+    <el-row :gutter="16" class="summary-cards console-stat-grid">
       <el-col :xs="24" :sm="8"><el-card shadow="never"><el-statistic :title="t('apiKeys.active')" :value="summary.active" /></el-card></el-col>
       <el-col :xs="24" :sm="8"><el-card shadow="never"><el-statistic :title="t('apiKeys.revoked')" :value="summary.revoked" /></el-card></el-col>
       <el-col :xs="24" :sm="8"><el-card shadow="never"><el-statistic :title="t('apiKeys.expiring')" :value="summary.expiring" /></el-card></el-col>
     </el-row>
 
-    <el-card shadow="never" class="token-list-card">
+    <el-card shadow="never" class="token-list-card token-surface surface-card">
       <template #header>{{ t('apiKeys.listTitle') }}</template>
       <el-alert v-if="loadError" type="error" :closable="false" show-icon>
         <template #title>
@@ -90,6 +86,7 @@ import { apiKeySummary, isLiteralIP, tokenRows, tokenStatus } from '@/utils/gate
 import { copyText } from '@/utils/clipboard'
 import { useSettingsStore } from '@/stores/settings'
 import { useI18n } from '@/composables/useI18n'
+import PageHeader from '@/components/shell/PageHeader.vue'
 
 const { t } = useI18n()
 const settingsStore = useSettingsStore()
@@ -250,6 +247,8 @@ function statusText(row) { const status = tokenStatus(row); return status === 'a
 </script>
 
 <style scoped lang="scss">
+@use '@/styles/console-pages.scss';
+
 .page-container { padding: 24px; max-width: 1280px; margin: 0 auto; height: 100%; overflow-y: auto; }
 .page-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 20px; }
 .page-title { margin: 0; color: var(--text-primary); }

@@ -1,5 +1,5 @@
 <template>
-  <aside class="chat-sidebar" :class="{ 'is-embedded': embedded }">
+  <aside class="chat-sidebar surface-rail" :class="{ 'is-embedded': embedded }">
     <el-button type="primary" class="new-btn" :icon="Plus" @click="onNew">{{ t('chat.newChat') }}</el-button>
     <el-input
       v-model="keyword"

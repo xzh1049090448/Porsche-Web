@@ -1,12 +1,12 @@
 <template>
-  <div class="login-page">
+  <div class="auth-page login-page">
     <AuthStatus />
     <div class="login-toolbar">
       <LocaleToggle />
       <ThemeToggle />
     </div>
-    <div class="login-card">
-      <div class="login-brand">
+    <div class="auth-card login-card surface-card">
+      <div class="auth-brand login-brand">
         <img src="/logo.png" alt="" class="logo-icon" />
         <h1>{{ t('app.title') }}</h1>
         <p>{{ t('app.tagline') }}</p>
@@ -85,6 +85,8 @@ async function submitPwd() {
 </script>
 
 <style scoped lang="scss">
+@use '@/styles/console-pages.scss';
+
 .login-page {
   position: relative;
   min-height: 100vh;

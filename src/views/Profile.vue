@@ -1,11 +1,11 @@
 <template>
-  <div class="profile-page page-container">
-    <h1 class="page-title">{{ t('profile.title') }}</h1>
+  <div class="profile-page page-container console-page">
+    <PageHeader :title="t('profile.title')" />
 
     <el-alert v-if="userStore.profileError" title="个人资料暂时不可用，登录仍然有效" type="warning" :closable="false"><el-button @click="loadProfile">重试资料</el-button></el-alert>
     <el-row :gutter="20">
       <el-col :xs="24" :md="14">
-        <el-card shadow="never">
+        <el-card shadow="never" class="surface-card">
           <template #header>{{ t('profile.basicInfo') }}</template>
           <el-form :model="form" label-width="100px">
             <el-form-item :label="t('profile.nickname')">
@@ -18,7 +18,7 @@
           </el-form>
         </el-card>
 
-        <el-card shadow="never" class="mt-card">
+        <el-card shadow="never" class="mt-card surface-card">
           <template #header>{{ t('profile.changePassword') }}</template>
           <el-form :model="pwdForm" label-width="100px">
             <el-form-item :label="t('profile.oldPassword')">
@@ -38,7 +38,7 @@
       </el-col>
 
       <el-col :xs="24" :md="10">
-        <el-card shadow="never">
+        <el-card shadow="never" class="surface-card">
           <template #header>
             <span>{{ t('profile.verify') }}</span>
             <el-tag v-if="user?.verified" type="success" size="small" style="margin-left: 8px">
@@ -71,7 +71,7 @@
           </el-form>
         </el-card>
 
-        <el-card shadow="never" class="mt-card">
+        <el-card shadow="never" class="mt-card surface-card">
           <template #header>{{ t('profile.usageOverview') }}</template>
           <el-descriptions :column="1" border>
             <el-descriptions-item :label="t('profile.totalTokens')">
@@ -88,7 +88,7 @@
         </el-card>
       </el-col>
     </el-row>
-    <el-card shadow="never" class="mt-card">
+    <el-card shadow="never" class="mt-card surface-card">
       <template #header>{{ t('profile.sessions') }}</template>
       <el-button :loading="sessionsLoading" @click="loadSessions">{{ t('profile.refreshSessions') }}</el-button>
       <el-button type="warning" :disabled="sessionsLoading" @click="revokeOthers">{{ t('profile.revokeOthers') }}</el-button>
@@ -116,6 +116,7 @@ import { listSessions, revokeOtherSessions, revokeSession } from '@/api/auth'
 import { changePassword, submitRealName } from '@/api/users'
 import { getUsageStats } from '@/api/billing'
 import { useI18n } from '@/composables/useI18n'
+import PageHeader from '@/components/shell/PageHeader.vue'
 
 const userStore = useUserStore()
 const { t } = useI18n()
@@ -216,6 +217,8 @@ async function submitVerify() {
 </script>
 
 <style scoped lang="scss">
+@use '@/styles/console-pages.scss';
+
 .page-container {
   padding: 24px;
   max-width: 1100px;

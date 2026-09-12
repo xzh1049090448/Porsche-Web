@@ -1,5 +1,5 @@
 <template>
-  <div class="model-panel">
+  <div class="model-panel model-surface">
     <p v-if="settings.modelLoadError" class="catalog-status is-error">{{ t('model.catalogUnavailable') }}</p>
     <p v-else-if="settings.catalogStale" class="catalog-status">{{ t('model.catalogStale') }}</p>
     <div class="panel-title">

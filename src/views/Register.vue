@@ -1,7 +1,7 @@
 <template>
-  <div class="register-page">
-    <div class="register-card">
-      <h1>{{ t('login.register') }}</h1>
+  <div class="auth-page register-page">
+    <div class="auth-card register-card surface-card">
+      <div class="auth-brand"><h1>{{ t('login.register') }}</h1></div>
       <el-form ref="formRef" :model="form" :rules="rules" @submit.prevent>
         <el-form-item prop="username"><el-input v-model="form.username" :placeholder="t('login.username')" maxlength="20" /></el-form-item>
         <el-form-item prop="nickname"><el-input v-model="form.nickname" :placeholder="t('profile.nickname')" maxlength="50" /></el-form-item>
@@ -46,6 +46,8 @@ async function submit() {
 </script>
 
 <style scoped lang="scss">
+@use '@/styles/console-pages.scss';
+
 .register-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--login-bg); }
 .register-card { width: min(420px, 100%); padding: 32px; background: var(--component-bg); border: 1px solid var(--border); border-radius: 12px; }
 .submit-btn, .login-link { width: 100%; margin-top: 8px; }
