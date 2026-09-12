@@ -31,3 +31,11 @@ test('preview runtime installs and removes a robots meta element',async()=>{
  const dom=new JSDOM('<meta name="robots" content="noindex, nofollow">')
  assert.equal(dom.window.document.querySelector('meta[name="robots"]').content,'noindex, nofollow')
 })
+
+test('preview visibly identifies unpublished content without weakening sanitization',async()=>{
+ const source=await readFile(new URL('../views/PublicContentPreview.vue',import.meta.url),'utf8')
+ assert.match(source,/class="preview-banner"/)
+ assert.match(source,/role="status"/)
+ assert.match(source,/renderSafePublicMarkdown/)
+ assert.doesNotMatch(source,/v-html="documents/)
+})
