@@ -57,6 +57,12 @@
 
       <ChatMessageList class="chat-messages" />
       <GenerationStatus />
+      <div v-if="bootError" class="boot-error" role="status" aria-live="assertive">
+        <span>{{ t('chat.initializationFailed') }}</span>
+        <button type="button" class="boot-retry" :disabled="initializing" @click="initializeChat">
+          {{ t(initializing ? 'chat.retryingInitialization' : 'chat.retryInitialization') }}
+        </button>
+      </div>
       <ChatInput :mobile="isTablet" :disabled="bootstrapping" @send="onSend" />
     </div>
 
@@ -86,7 +92,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { Menu, Setting, DArrowLeft, DArrowRight } from '@element-plus/icons-vue'
 import ChatSidebar from '@/components/chat/ChatSidebar.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
@@ -108,6 +114,8 @@ const settingsStore = useSettingsStore()
 const showSidebar = ref(false)
 const showConfig = ref(false)
 const bootstrapping = ref(true)
+const initializing = ref(false)
+const bootError = ref(false)
 const { isTablet } = useBreakpoint()
 const { t } = useI18n()
 
@@ -131,14 +139,44 @@ function toggleConfig() {
   setItem('chatConfigCollapsed', configCollapsed.value)
 }
 
-onMounted(async () => {
+let disposed = false
+let bootRevision = 0
+
+async function initializeChat() {
+  if (disposed || initializing.value) return false
+  const revision = ++bootRevision
+  const current = () => !disposed && revision === bootRevision
+  initializing.value = true
+  bootstrapping.value = true
   try {
     await settingsStore.loadModels()
-    if (!USE_MOCK) await chatStore.fetchConversations()
+    if (!current()) return false
+    if (!settingsStore.modelsLoaded) throw new Error('catalog_unavailable')
+    if (!USE_MOCK) {
+      await chatStore.fetchConversations()
+      if (!current()) return false
+    }
     await chatStore.resumePendingGeneration()
+    if (!current()) return false
     await chatStore.ensureActive()
+    if (!current()) return false
+    bootError.value = false
     bootstrapping.value = false
-  } catch { /* Keep generation controls locked until catalog/history ownership can be established safely. */ }
+    return true
+  } catch {
+    if (current()) bootError.value = true
+    return false
+  } finally {
+    if (current()) initializing.value = false
+  }
+}
+
+onMounted(() => { void initializeChat() })
+
+onBeforeUnmount(() => {
+  disposed = true
+  bootRevision += 1
+  chatStore.detachGenerationView()
 })
 
 function onSend(content, images) {
@@ -153,6 +191,31 @@ function onSend(content, images) {
 .chat-root {
   height: 100%;
   overflow: hidden;
+}
+
+.boot-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px 16px;
+  color: var(--danger);
+  background: var(--sidebar-bg);
+}
+
+.boot-retry {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.boot-retry:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .chat-page {

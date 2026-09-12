@@ -68,7 +68,7 @@
       </button>
     </div>
 
-    <template v-if="settings.models.length > 1">
+    <template v-if="settings.models.length > 1 || settings.compareMode">
       <el-divider />
       <div class="compare-section">
         <div class="compare-header">
@@ -149,7 +149,14 @@ const filteredModels = computed(() => filterModels(settings.models, searchTerm.v
 const compareValidation = computed(() => validateGenerationSelection(settings))
 const compareValidationText = computed(() => compareValidation.value.valid
   ? t('model.compareValid', { count: compareValidation.value.models.length })
-  : t(compareValidation.value.code === 'compare_duplicate' ? 'model.compareDuplicate' : 'model.compareCardinality'))
+  : t(selectionMessageKey(compareValidation.value.code)))
+
+function selectionMessageKey(code) {
+  if (code === 'compare_duplicate') return 'model.compareDuplicate'
+  if (code === 'compare_cardinality') return 'model.compareCardinality'
+  if (code === 'invalid_model') return 'model.invalidModel'
+  return 'model.invalidSelection'
+}
 
 const localizedScenarios = computed(() =>
   SCENARIO_PRESETS.map((s) => ({
@@ -181,7 +188,7 @@ function onSingleModelChange(id) {
 function onCompareModelsChange(ids) {
   const validation = validateGenerationSelection({ ...settings, compareMode: true, compareModelIds: ids })
   if (!validation.valid) {
-    ElMessage.warning(t(validation.code === 'compare_duplicate' ? 'model.compareDuplicate' : validation.code === 'compare_cardinality' ? 'model.compareCardinality' : 'model.invalidSelection'))
+    ElMessage.warning(t(selectionMessageKey(validation.code)))
     return
   }
   settings.setCompareModelIds(validation.models)

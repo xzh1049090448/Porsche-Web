@@ -48,6 +48,7 @@ test('mounted message list uses the real store action to replace an empty failur
     ['@/stores/settings', encode('export const useSettingsStore=()=>globalThis.__be06AttemptFixture.settings')],
     ['@/composables/useI18n', encode('export const useI18n=()=>({t:key=>key})')],
     ['@/components/chat/generation-ui', new URL('./generation-ui.js', import.meta.url).href],
+    ['@/utils/clipboard', new URL('../../utils/clipboard.js', import.meta.url).href],
     ['@element-plus/icons-vue', encode('export const CopyDocument={}')],
     ['element-plus', encode('export const ElMessage={success(){}}')],
   ])

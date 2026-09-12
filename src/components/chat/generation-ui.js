@@ -5,6 +5,7 @@ const STABLE_ERROR_KEYS = Object.freeze({
   gateway_upstream_error: 'upstream',
   internal_error: 'requestFailed',
   invalid_request: 'invalidRequest',
+  invalid_model: 'invalidModel',
   rate_limited: 'rateLimited',
   timeout: 'timeout',
   upstream_error: 'upstream',

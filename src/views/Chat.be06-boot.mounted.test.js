@@ -17,7 +17,7 @@ test('mounted Chat locks generation controls while loading catalog and history b
   const template = compileTemplate({ id: 'be06-chat-boot', filename: 'Chat.vue', source: descriptor.template.content, compilerOptions: { bindingMetadata: script.bindings } })
   assert.deepEqual(template.errors, [])
   const resume = deferred(), load = deferred(), fetch = deferred(), order = []
-  const chat = reactive({ streaming: false, sent: 0, active: null, getActive() { return this.active }, async resumePendingGeneration() { order.push('resume'); this.active.messages.push({ role: 'assistant', content: '', generationStatus: 'recovering' }); return resume.promise }, async fetchConversations() { order.push('fetch'); await fetch.promise; this.active = { messages: [{ role: 'assistant', content: 'saved history' }] } }, async ensureActive() { order.push('ensure') }, sendMessage() { this.sent += 1 } })
+  const chat = reactive({ streaming: false, sent: 0, detachCalls: 0, cancelCalls: 0, active: null, getActive() { return this.active }, async resumePendingGeneration() { order.push('resume'); this.active.messages.push({ role: 'assistant', content: '', generationStatus: 'recovering' }); return resume.promise }, async fetchConversations() { order.push('fetch'); await fetch.promise; this.active = { messages: [{ role: 'assistant', content: 'saved history' }] } }, async ensureActive() { order.push('ensure') }, sendMessage() { this.sent += 1 }, detachGenerationView() { this.detachCalls += 1 }, cancelStream() { this.cancelCalls += 1 } })
   const settings = reactive({ modelsLoaded: false, models: [], compareMode: false, selectedModelId: '', compareModelIds: [], async loadModels() { order.push('load'); await load.promise; this.models = [{ id: 'a' }]; this.selectedModelId = 'a'; this.modelsLoaded = true } })
   const ChatInput = defineComponent({ props: { disabled: Boolean }, emits: ['send'], setup(props, { emit }) { return () => h('button', { id: 'send', disabled: props.disabled, onClick: () => { if (!props.disabled) emit('send', 'hello', []) } }, 'send') } })
   const ModelPanel = defineComponent({ props: { disabled: Boolean }, setup: props => () => h('button', { class: 'model-control', disabled: props.disabled }, 'model') })
@@ -41,23 +41,44 @@ test('mounted Chat locks generation controls while loading catalog and history b
     code = code.replace(new RegExp(`import ${name} from '[^']+'`), `const ${name}=globalThis.__be06BootFixture.${value}`)
   }
   const Chat = (await import(encode(code))).default
+  const abandoned = mount(Chat, { global: { stubs: { ElScrollbar: Empty, ElButton: Empty, ElIcon: Empty } } })
+  await nextTick()
+  abandoned.unmount()
+  assert.equal(chat.detachCalls, 1, 'unmount must detach the local view even before boot resolves')
+  assert.equal(chat.cancelCalls, 0, 'unmount must never issue authoritative cancellation')
   const wrapper = mount(Chat, { global: { stubs: { ElScrollbar: Empty, ElButton: Empty, ElIcon: Empty } } })
   await nextTick()
-  assert.deepEqual(order, ['load'])
+  assert.deepEqual(order, ['load', 'load'])
   assert.equal(wrapper.get('#send').attributes('disabled'), '')
   assert.ok(wrapper.findAll('.model-control').every(control => control.attributes('disabled') === ''))
   await wrapper.get('#send').trigger('click'); assert.equal(chat.sent, 0)
   load.resolve(); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
-  assert.deepEqual(order, ['load', 'fetch'])
+  assert.deepEqual(order, ['load', 'load', 'fetch'], 'the disposed first mount must not continue into history or recovery')
   fetch.resolve(); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
-  assert.deepEqual(order, ['load', 'fetch', 'resume'])
+  assert.deepEqual(order, ['load', 'load', 'fetch', 'resume'])
   assert.match(wrapper.text(), /saved history/)
   assert.match(wrapper.text(), /recovering/)
   assert.equal(wrapper.get('#send').attributes('disabled'), '')
   resume.resolve(true); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
-  assert.deepEqual(order, ['load', 'fetch', 'resume', 'ensure'])
+  assert.deepEqual(order, ['load', 'load', 'fetch', 'resume', 'ensure'])
   assert.match(wrapper.text(), /saved history/)
   assert.equal(wrapper.get('#send').attributes('disabled'), undefined)
   await wrapper.get('#send').trigger('click'); assert.equal(chat.sent, 1)
-  wrapper.unmount(); delete globalThis.__be06BootFixture
+  wrapper.unmount()
+  assert.equal(chat.detachCalls, 2)
+  assert.equal(chat.cancelCalls, 0)
+  for (const state of [
+    { status: 'receiving', phase: 'streaming' },
+    { status: 'recovering', phase: 'recovering' },
+    { status: 'cancelling', phase: 'confirming_cancel' },
+  ]) {
+    chat.streaming = true
+    chat.generationState = state
+    const active = mount(Chat, { global: { stubs: { ElScrollbar: Empty, ElButton: Empty, ElIcon: Empty } } })
+    await nextTick()
+    active.unmount()
+  }
+  assert.equal(chat.detachCalls, 5, 'stream, recovery, and cancel-confirmation mounts all detach their local view')
+  assert.equal(chat.cancelCalls, 0, 'no unmount lifecycle issues a cancel request')
+  delete globalThis.__be06BootFixture
 })

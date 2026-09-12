@@ -19,7 +19,7 @@ test('mounted compare selector accepts only ordered distinct selections of two o
   const settings = reactive({
     models: ['a', 'b', 'c', 'd'].map(id => ({ id, name: id.toUpperCase(), icon: id, type: 'chat' })), modelsLoaded: true, modelLoadError: false, catalogStale: false,
     compareMode: true, compareModelIds: ['c', 'a'], selectedModelId: 'a', selectedScenarioId: 'policy',
-    setCompareModelIds(ids) { calls.push([...ids]); this.compareModelIds = [...ids] }, setCompareMode() {}, setModel() {}, setScenario() {},
+    setCompareModelIds(ids) { calls.push([...ids]); this.compareModelIds = [...ids] }, setCompareMode: value => { settings.compareMode = value }, setModel() {}, setScenario() {},
   })
   const chat = reactive({ streaming: false })
   globalThis.__be06PanelFixture = { settings, chat, warnings: [] }
@@ -37,6 +37,7 @@ test('mounted compare selector accepts only ordered distinct selections of two o
   let code = `${script.content}\n${template.code}\n__sfc__.render=render\nexport default __sfc__`
   for (const [specifier, replacement] of replacements) code = code.replaceAll(`from '${specifier}'`, `from '${replacement}'`).replaceAll(`from "${specifier}"`, `from "${replacement}"`)
   const Panel = (await import(encode(code))).default
+  const Switch = defineComponent({ props: { modelValue: Boolean, disabled: Boolean }, emits: ['change'], setup(props, { emit }) { return () => h('button', { id: 'compare-toggle', disabled: props.disabled, onClick: () => emit('change', !props.modelValue) }, 'toggle') } })
   const Group = defineComponent({ emits: ['change'], setup(_props, { emit }) { return () => h('div', { id: 'group' }, [
     h('button', { id: 'one', onClick: () => emit('change', ['a']) }, 'one'),
     h('button', { id: 'two', onClick: () => emit('change', ['c', 'a']) }, 'two'),
@@ -44,7 +45,7 @@ test('mounted compare selector accepts only ordered distinct selections of two o
     h('button', { id: 'four', onClick: () => emit('change', ['a', 'b', 'c', 'd']) }, 'four'),
     h('button', { id: 'duplicate', onClick: () => emit('change', ['a', 'a']) }, 'duplicate'),
   ]) } })
-  const wrapper = mount(Panel, { global: { stubs: { ElInput: true, ElEmpty: true, ElDivider: true, ElSwitch: true, ElCheckboxGroup: Group, ElCheckbox: true, ElIcon: true } } })
+  const wrapper = mount(Panel, { global: { stubs: { ElInput: true, ElEmpty: true, ElDivider: true, ElSwitch: Switch, ElCheckboxGroup: Group, ElCheckbox: true, ElIcon: true } } })
   assert.match(wrapper.text(), /model\.compareValid:2/)
   await wrapper.get('#one').trigger('click'); await wrapper.get('#four').trigger('click'); await wrapper.get('#duplicate').trigger('click')
   assert.deepEqual(calls, [])
@@ -52,7 +53,14 @@ test('mounted compare selector accepts only ordered distinct selections of two o
   await wrapper.get('#three').trigger('click'); await nextTick()
   assert.deepEqual(calls, [['c', 'a', 'b']])
   assert.deepEqual(settings.compareModelIds, ['c', 'a', 'b'])
-  settings.compareMode = false; chat.streaming = true; await nextTick()
+  settings.compareModelIds = ['a', 'unknown']; await nextTick()
+  assert.match(wrapper.text(), /model\.invalidModel/)
+  assert.doesNotMatch(wrapper.get('#compare-model-validation').text(), /model\.compareCardinality/)
+  settings.models = [settings.models[0]]; settings.compareMode = true; settings.compareModelIds = ['a']; await nextTick()
+  assert.equal(wrapper.find('#compare-toggle').exists(), true)
+  await wrapper.get('#compare-toggle').trigger('click'); await nextTick()
+  assert.equal(settings.compareMode, false)
+  chat.streaming = true; await nextTick()
   assert.ok(wrapper.findAll('.model-item').every(item => item.attributes('disabled') === ''))
   assert.ok(wrapper.findAll('.scenario-btn').every(item => item.attributes('disabled') === ''))
   wrapper.unmount(); delete globalThis.__be06PanelFixture

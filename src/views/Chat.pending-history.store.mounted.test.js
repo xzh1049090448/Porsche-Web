@@ -16,7 +16,7 @@ Object.defineProperty(globalThis.navigator, 'locks', { configurable: true, value
 
 const [testUtils, vue, pinia, vite] = await Promise.all([import('@vue/test-utils'), import('vue'), import('pinia'), import('vite')])
 const { mount } = testUtils
-const { defineComponent, h, onMounted, ref } = vue
+const { defineComponent, h, onMounted, onBeforeUnmount, ref } = vue
 const { createPinia, setActivePinia } = pinia
 const { createServer } = vite
 const server = await createServer({ envFile: false, server: { middlewareMode: true, watch: null, ws: false }, optimizeDeps: { noDiscovery: true, include: [] }, define: { 'import.meta.env.VITE_USE_MOCK': 'false' } })
@@ -26,7 +26,7 @@ const { authSession } = await server.ssrLoadModule('/src/api/request.js')
 test.after(() => server.close())
 
 const waitFor = async predicate => { for (let i = 0; i < 200; i += 1) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 5)) } assert.fail('condition not reached') }
-const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
+const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
 
 test('mounted boot with the real store keeps fetched history visible while pending recovery merges and settles', async () => {
   setActivePinia(createPinia())
@@ -46,26 +46,39 @@ test('mounted boot with the real store keeps fetched history visible while pendi
   }
   store.resumePendingGeneration = async () => { order.push('resume'); return originalResume() }
   store.ensureActive = async () => { order.push('ensure'); return store.getActive() }
-  const pending = deferred(); let gets = 0
+  const requests = []; let gets = 0; let cancelPosts = 0
   const originalFetch = globalThis.fetch
-  globalThis.fetch = async () => { gets += 1; return pending.promise }
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).endsWith('/cancel')) { cancelPosts += 1; throw new Error('view unmount must not cancel') }
+    assert.equal(options.method || 'GET', 'GET')
+    gets += 1
+    const request = deferred(); requests.push(request)
+    options.signal?.addEventListener('abort', () => request.reject(new DOMException('aborted', 'AbortError')), { once: true })
+    return request.promise
+  }
   const Harness = defineComponent({
     setup() {
       const booting = ref(true)
+      let disposed = false
       onMounted(async () => {
         await settings.loadModels()
+        if (disposed) return
         await store.fetchConversations()
+        if (disposed) return
         await store.resumePendingGeneration()
+        if (disposed) return
         await store.ensureActive()
+        if (disposed) return
         booting.value = false
       })
+      onBeforeUnmount(() => { disposed = true; store.detachGenerationView() })
       return () => h('div', [
         h('span', { class: 'boot-state' }, booting.value ? 'booting' : 'ready'),
         ...(store.getActive()?.messages || []).map(message => h('p', { class: 'message' }, message.content || message.generationStatus)),
       ])
     },
   })
-  const wrapper = mount(Harness)
+  let wrapper = mount(Harness)
   try {
     await waitFor(() => gets === 1)
     assert.deepEqual(order, ['load', 'fetch', 'resume'])
@@ -73,11 +86,22 @@ test('mounted boot with the real store keeps fetched history visible while pendi
     assert.match(wrapper.text(), /waiting/)
     assert.equal(store.generationState.phase, 'recovering')
     assert.match(wrapper.text(), /booting/)
-    pending.resolve(new Response(JSON.stringify({ generation_id: generationId, status: 'cancelled', mode: 'single', conversation_guid: null }), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }))
+    const saved = sessionStorage.getItem('llm_platform_active_generation_v2')
+    wrapper.unmount()
+    await waitFor(() => store.streaming === false)
+    assert.equal(cancelPosts, 0)
+    assert.equal(sessionStorage.getItem('llm_platform_active_generation_v2'), saved, 'unmount preserves recovery metadata')
+    order.length = 0
+    wrapper = mount(Harness)
+    await waitFor(() => gets === 2)
+    assert.deepEqual(order, ['load', 'fetch', 'resume'])
+    assert.equal(cancelPosts, 0)
+    requests[1].resolve(new Response(JSON.stringify({ generation_id: generationId, status: 'cancelled', mode: 'single', conversation_guid: null }), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }))
     await waitFor(() => order.includes('ensure') && wrapper.text().includes('ready'))
     assert.deepEqual(order, ['load', 'fetch', 'resume', 'ensure'])
     assert.match(wrapper.text(), /persisted history/)
     assert.equal(store.conversations.length, 1, 'recovery must not replace authoritative history with a blank conversation')
+    assert.equal(gets, 2, 'remount must recover the same metadata with GET only')
   } finally {
     wrapper.unmount(); globalThis.fetch = originalFetch; sessionStorage.removeItem('llm_platform_active_generation_v2')
   }

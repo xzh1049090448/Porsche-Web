@@ -17,18 +17,28 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
   assert.deepEqual(template.errors, [])
   const conversation = reactive({ messages: [{ localKey: 'reply', role: 'assistant', multiModel: true, models: ['a', 'b'], replies: { a: 'partial A', b: 'complete B' }, modelStates: { a: { status: 'failed', code: 'gateway_upstream_error' }, b: { status: 'completed', code: null } }, generationStatus: 'completed', viewOnly: true }] })
   let resolveRetry
+  const notifications = []
+  let copyCalls = 0
+  let resolveCopy
   const chat = reactive({ streaming: false, activeId: '1', generationState: null, retryCalls: 0, getActive: () => conversation, retryGenerationAttempt() { this.retryCalls += 1; return new Promise(resolve => { resolveRetry = resolve }) } })
   const settings = reactive({ models: [{ id: 'a', name: 'A', icon: 'A' }, { id: 'b', name: 'B', icon: 'B' }] })
   const MarkdownContent = defineComponent({ props: { content: String }, setup: props => () => h('div', { class: 'markdown' }, props.content) })
-  globalThis.__be06ListFixture = { chat, settings, MarkdownContent }
+  globalThis.__be06ListFixture = {
+    chat,
+    settings,
+    MarkdownContent,
+    notifications,
+    copyText() { copyCalls += 1; return new Promise(resolve => { resolveCopy = resolve }) },
+  }
   const replacements = new Map([
     ['vue', new URL('../../../node_modules/vue/index.mjs', import.meta.url).href],
     ['@/stores/chat', encode('export const useChatStore=()=>globalThis.__be06ListFixture.chat')],
     ['@/stores/settings', encode('export const useSettingsStore=()=>globalThis.__be06ListFixture.settings')],
     ['@/composables/useI18n', encode('export const useI18n=()=>({t:key=>key})')],
     ['@/components/chat/generation-ui', new URL('./generation-ui.js', import.meta.url).href],
+    ['@/utils/clipboard', encode('export const copyText=text=>globalThis.__be06ListFixture.copyText(text)')],
     ['@element-plus/icons-vue', encode('export const CopyDocument={}')],
-    ['element-plus', encode('export const ElMessage={success(){}}')],
+    ['element-plus', encode('export const ElMessage={success:value=>globalThis.__be06ListFixture.notifications.push(["success",value]),warning:value=>globalThis.__be06ListFixture.notifications.push(["warning",value])}')],
   ])
   let code = `${script.content}\n${template.code}\n__sfc__.render=render\nexport default __sfc__`
   for (const [specifier, replacement] of replacements) code = code.replaceAll(`from '${specifier}'`, `from '${replacement}'`).replaceAll(`from "${specifier}"`, `from "${replacement}"`)
@@ -43,6 +53,19 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
   assert.doesNotMatch(wrapper.findAll('.reply-col')[1].text(), /chat\.viewOnlyPartial/, 'successful sibling must not inherit the failed model warning')
   assert.doesNotMatch(wrapper.text(), /gateway_upstream_error/)
   assert.equal(wrapper.findAll('.col-actions').length, 2, 'terminal compare replies are copyable, including visible failed partials')
+  const copyButton = wrapper.findAll('.col-actions button')[0]
+  await copyButton.trigger('click'); await copyButton.trigger('click'); await nextTick()
+  assert.equal(copyCalls, 1, 'copy must be singleflight while clipboard permission is pending')
+  assert.equal(copyButton.attributes('disabled'), '')
+  assert.deepEqual(notifications, [], 'copy success must wait for the clipboard result')
+  resolveCopy(false); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
+  assert.deepEqual(notifications, [['warning', 'chat.copyFailed']])
+  globalThis.__be06ListFixture.copyText = async () => { copyCalls += 1; throw new Error('permission denied') }
+  await copyButton.trigger('click'); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
+  assert.deepEqual(notifications.at(-1), ['warning', 'chat.copyFailed'], 'clipboard rejection is handled with safe localized feedback')
+  globalThis.__be06ListFixture.copyText = async () => { copyCalls += 1; return true }
+  await copyButton.trigger('click'); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
+  assert.deepEqual(notifications.at(-1), ['success', 'chat.copied'], 'success is announced only after a confirmed copy')
   chat.streaming = true
   conversation.messages[0].generationStatus = 'receiving'
   conversation.messages[0].replies.a = ''

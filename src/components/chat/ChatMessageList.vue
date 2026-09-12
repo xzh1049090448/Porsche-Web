@@ -76,8 +76,13 @@
               </template>
             </div>
             <div v-if="canCopyGenerationMessage(msg, replyFor(msg, m.id))" class="col-actions">
-              <el-button text size="small" :icon="CopyDocument" @click="copy(msg.replies[m.id])">
-                {{ t('chat.copy') }}
+              <el-button
+                text size="small" :icon="CopyDocument"
+                :loading="copyingKey === copyKey(msg, m.id)"
+                :disabled="copyingKey !== null"
+                @click="copy(msg.replies[m.id], copyKey(msg, m.id))"
+              >
+                {{ t(copyingKey === copyKey(msg, m.id) ? 'chat.copying' : 'chat.copy') }}
               </el-button>
             </div>
           </div>
@@ -109,8 +114,13 @@
           </div>
           <div v-if="canCopyGenerationMessage(msg)" class="msg-actions">
             <span v-if="msg.tokens" class="msg-tokens">{{ t('chat.tokens', { count: formatTokens(msg.tokens) }) }}</span>
-            <el-button text size="small" :icon="CopyDocument" @click="copy(msg.content)">
-              {{ t('chat.copy') }}
+            <el-button
+              text size="small" :icon="CopyDocument"
+              :loading="copyingKey === copyKey(msg)"
+              :disabled="copyingKey !== null"
+              @click="copy(msg.content, copyKey(msg))"
+            >
+              {{ t(copyingKey === copyKey(msg) ? 'chat.copying' : 'chat.copy') }}
             </el-button>
           </div>
         </template>
@@ -137,6 +147,7 @@ import { useSettingsStore } from '@/stores/settings'
 import MarkdownContent from '@/components/chat/MarkdownContent.vue'
 import { useI18n } from '@/composables/useI18n'
 import { canCopyGenerationMessage, canRetryGenerationMessage, generationErrorMessageKey, modelReplyPresentation } from '@/components/chat/generation-ui'
+import { copyText } from '@/utils/clipboard'
 
 const chatStore = useChatStore()
 const settings = useSettingsStore()
@@ -145,6 +156,7 @@ const listRef = ref()
 /** 用户未主动上滑时跟随流式输出滚到底部 */
 const stickToBottom = ref(true)
 const retryingAttempt = ref(null)
+const copyingKey = ref(null)
 const SCROLL_BOTTOM_THRESHOLD = 80
 
 const messages = computed(() => chatStore.getActive()?.messages || [])
@@ -234,9 +246,22 @@ function formatTokens(n) {
   return Number(n || 0).toLocaleString()
 }
 
-function copy(text) {
-  navigator.clipboard.writeText(text)
-  ElMessage.success(t('chat.copied'))
+function copyKey(message, modelId = 'single') {
+  return `${message.guid || message.localKey || 'message'}:${modelId}`
+}
+
+async function copy(text, key) {
+  if (copyingKey.value !== null) return
+  copyingKey.value = key
+  try {
+    const copied = await copyText(text)
+    if (copied) ElMessage.success(t('chat.copied'))
+    else ElMessage.warning(t('chat.copyFailed'))
+  } catch {
+    ElMessage.warning(t('chat.copyFailed'))
+  } finally {
+    if (copyingKey.value === key) copyingKey.value = null
+  }
 }
 
 function isNearBottom(el) {

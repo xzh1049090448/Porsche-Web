@@ -61,6 +61,11 @@ test('validates single and compare cardinality, uniqueness, and preserves order'
   assert.equal(ui.validateGenerationSelection({ ...single, compareMode: true, compareModelIds: ['a', ' unknown'] }).code, 'invalid_model')
 })
 
+test('invalid catalog ids remain distinct from compare cardinality failures', () => {
+  const catalog = { modelsLoaded: true, models: [{ id: 'a' }, { id: 'b' }], compareMode: true }
+  assert.equal(ui.validateGenerationSelection({ ...catalog, compareModelIds: ['a', 'unknown'] }).code, 'invalid_model')
+})
+
 test('copy is available only after the whole attempt reaches an authoritative terminal state', () => {
   assert.equal(typeof ui.canCopyGenerationMessage, 'function')
   for (const status of ['waiting', 'receiving', 'draining', 'disconnected', 'recovering', 'cancelling']) {
@@ -77,6 +82,7 @@ test('copy is available only after the whole attempt reaches an authoritative te
 test('maps only stable error codes and keeps partial replies separate from errors', () => {
   assert.equal(typeof ui.generationErrorMessageKey, 'function')
   assert.equal(ui.generationErrorMessageKey('timeout'), 'chat.generationErrors.timeout')
+  assert.equal(ui.generationErrorMessageKey('invalid_model'), 'chat.generationErrors.invalidModel')
   assert.equal(ui.generationErrorMessageKey('/internal/path?token=secret'), 'chat.generationErrors.requestFailed')
   const presentation = ui.modelReplyPresentation?.({
     replies: { a: 'partial answer' },
