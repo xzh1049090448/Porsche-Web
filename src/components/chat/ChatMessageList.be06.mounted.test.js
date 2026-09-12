@@ -68,23 +68,26 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
   globalThis.__be06ListFixture.copyText = async () => { copyCalls += 1; return true }
   await copyButton.trigger('click'); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
   assert.deepEqual(notifications.at(-1), ['success', 'chat.copied'], 'success is announced only after a confirmed copy')
-  const copyReplacements = []
+  const queuedCopies = []
   globalThis.__be06ListFixture.copyText = (_text, environment) => {
     copyCalls += 1
     let resolve
     const promise = new Promise(done => { resolve = done })
-    copyReplacements.push({ resolve, signal: environment.signal })
+    queuedCopies.push({ resolve, signal: environment.signal })
     return promise
   }
   const copyButtons = wrapper.findAll('.col-actions button')
   const beforeReplacement = copyCalls
   await copyButtons[0].trigger('click'); await copyButtons[0].trigger('click'); await copyButtons[1].trigger('click'); await nextTick()
-  assert.equal(copyCalls, beforeReplacement + 2, 'a different copy replaces the old operation while same-button double click stays singleflight')
-  assert.equal(copyReplacements[0].signal.aborted, true)
-  const noticesBeforeLate = notifications.length
-  copyReplacements[0].resolve(true); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
-  assert.equal(notifications.length, noticesBeforeLate, 'late success from the replaced copy is ignored')
-  copyReplacements[1].resolve(true); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
+  assert.equal(copyCalls, beforeReplacement + 1, 'A pending then B click must retain one global native write')
+  assert.ok(copyButtons.every(button => button.attributes('disabled') === ''), 'every copy target is disabled during the global singleflight')
+  assert.equal(queuedCopies[0].signal.aborted, false, 'a competing copy target must not abort the in-flight native write')
+  queuedCopies[0].resolve(true); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
+  assert.deepEqual(notifications.at(-1), ['success', 'chat.copied'])
+  assert.ok(wrapper.findAll('.col-actions button').every(button => button.attributes('disabled') === undefined))
+  await wrapper.findAll('.col-actions button')[1].trigger('click'); await nextTick()
+  assert.equal(copyCalls, beforeReplacement + 2, 'B may start only after A settles')
+  queuedCopies[1].resolve(true); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
   assert.deepEqual(notifications.at(-1), ['success', 'chat.copied'])
   chat.streaming = true
   conversation.messages[0].generationStatus = 'receiving'

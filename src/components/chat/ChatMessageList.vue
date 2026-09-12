@@ -79,7 +79,7 @@
               <el-button
                 text size="small" :icon="CopyDocument"
                 :loading="copyingKey === copyKey(msg, m.id)"
-                :disabled="copyingKey === copyKey(msg, m.id)"
+                :disabled="copyingKey !== null"
                 @click="copy(msg.replies[m.id], copyKey(msg, m.id))"
               >
                 {{ t(copyingKey === copyKey(msg, m.id) ? 'chat.copying' : 'chat.copy') }}
@@ -117,7 +117,7 @@
             <el-button
               text size="small" :icon="CopyDocument"
               :loading="copyingKey === copyKey(msg)"
-              :disabled="copyingKey === copyKey(msg)"
+              :disabled="copyingKey !== null"
               @click="copy(msg.content, copyKey(msg))"
             >
               {{ t(copyingKey === copyKey(msg) ? 'chat.copying' : 'chat.copy') }}
@@ -253,8 +253,7 @@ function copyKey(message, modelId = 'single') {
 }
 
 async function copy(text, key) {
-  if (copyOperation?.key === key) return
-  copyOperation?.controller.abort()
+  if (copyOperation) return
   const operation = { key, controller: new AbortController() }
   copyOperation = operation
   copyingKey.value = key
