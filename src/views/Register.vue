@@ -1,7 +1,15 @@
 <template>
   <div class="auth-page register-page">
+    <div class="register-toolbar" role="group" :aria-label="t('app.title')">
+      <LocaleToggle />
+      <ThemeToggle />
+    </div>
     <div class="auth-card register-card surface-card">
-      <div class="auth-brand"><h1>{{ t('login.register') }}</h1></div>
+      <div class="auth-brand">
+        <img src="/logo.png" alt="" class="logo-icon" />
+        <h1>{{ t('app.title') }}</h1>
+        <p>{{ t('app.tagline') }}</p>
+      </div>
       <el-form ref="formRef" :model="form" :rules="rules" @submit.prevent>
         <el-form-item prop="username"><el-input v-model="form.username" :placeholder="t('login.username')" maxlength="20" /></el-form-item>
         <el-form-item prop="nickname"><el-input v-model="form.nickname" :placeholder="t('profile.nickname')" maxlength="50" /></el-form-item>
@@ -21,6 +29,8 @@ import { authErrorMessage } from '@/api/auth-errors'
 import { useRouter } from 'vue-router'
 import { register } from '@/api/auth'
 import { useI18n } from '@/composables/useI18n'
+import LocaleToggle from '@/components/LocaleToggle.vue'
+import ThemeToggle from '@/components/ThemeToggle.vue'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -49,6 +59,8 @@ async function submit() {
 @use '@/styles/console-pages.scss';
 
 .register-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--login-bg); }
+.register-toolbar { position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 4px; }
 .register-card { width: min(420px, 100%); padding: 32px; background: var(--component-bg); border: 1px solid var(--border); border-radius: 12px; }
+.logo-icon { width: 48px; height: 48px; object-fit: contain; }
 .submit-btn, .login-link { width: 100%; margin-top: 8px; }
 </style>

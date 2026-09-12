@@ -40,7 +40,12 @@ test('visual composition retains security and behavior anchors', async () => {
   assert.match(login, /safeAuthRedirect/)
   assert.match(login, /<AuthStatus/)
   assert.match(register, /await register\(/)
-  assert.match(chat, /<GenerationStatus/)
+  assert.match(register, /<img src="\/logo\.png" alt="" class="logo-icon"/)
+  assert.match(register, /t\('app\.title'\)/)
+  assert.match(register, /t\('app\.tagline'\)/)
+  assert.match(register, /<LocaleToggle/)
+  assert.match(register, /<ThemeToggle/)
+  assert.match(register, /role="group" :aria-label="t\('app\.title'\)"/)
   assert.match(chat, /<GenerationStatus/)
   assert.match(apiKeys, /createdSecret\.value = ''/)
   assert.match(apiKeys, /onBeforeUnmount\(clearSecret\)/)
@@ -51,6 +56,21 @@ test('visual composition retains security and behavior anchors', async () => {
   const production = [login, register, chat, apiKeys, billing, profile].join('\n')
   assert.doesNotMatch(production, /sk-[A-Za-z0-9]{8,}/)
   assert.doesNotMatch(production, /Bearer\s+[A-Za-z0-9._-]{8,}/)
+})
+
+test('streaming lock and authoritative cancel controls remain wired', async () => {
+  const [status, input] = await Promise.all([
+    read('../components/chat/GenerationStatus.vue'),
+    read('../components/chat/ChatInput.vue'),
+  ])
+  assert.match(status, /v-if="showStop"/)
+  assert.match(status, /:aria-label="t\('chat\.stopGeneration'\)"/)
+  assert.match(status, /@click="stop"/)
+  assert.match(status, /void chatStore\.cancelStream\(\)/)
+  assert.match(status, /canCancelGeneration\(chatStore\.generationState\)/)
+  assert.match(input, /inputLocked = computed\(\(\) => props\.disabled \|\| chatStore\.streaming\)/)
+  assert.match(input, /:readonly="inputLocked"/)
+  assert.match(input, /:loading="chatStore\.streaming"/)
 })
 
 test('chat presentation components use the shared workspace surfaces', async () => {
