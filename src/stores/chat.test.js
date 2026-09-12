@@ -8,7 +8,7 @@ import { setImmediate } from 'node:timers/promises'
 // Load the real store/API/mappers via the project's Vite aliases, replacing
 // only Axios's transport so every request stays inside these local fixtures.
 let server, useChatStore, projectConversationForPersistence, useSettingsStore, useUserStore, request, authSession, route, calls = [], writes = []
-const browserGlobals = ['localStorage', 'sessionStorage', 'navigator', 'isSecureContext', 'BroadcastChannel', 'document']
+const browserGlobals = ['localStorage', 'sessionStorage', 'navigator', 'isSecureContext', 'BroadcastChannel', 'document', 'matchMedia']
 const originalGlobals = new Map(browserGlobals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
 const A = '9223372036854775701'
 const B = '9223372036854775702'
@@ -31,6 +31,19 @@ const waitFor = async predicate => {
     await new Promise(resolve => setTimeout(resolve, 5))
   }
   assert.fail('condition was not reached')
+}
+const assertReducedMotionGrowth = (snapshots, total) => {
+  const growth = snapshots.filter((snapshot, index) => snapshot.length > 0 && (index === 0 || snapshot.length !== snapshots[index - 1].length))
+  assert.ok(growth.some(snapshot => snapshot.mode === 'catch-up' && snapshot.modeReason === 'reduced-motion'))
+  let displayed = 0
+  for (const snapshot of growth) {
+    const amount = snapshot.length - displayed
+    const remaining = total - displayed
+    assert.ok(amount >= 1 && amount <= Math.min(8, Math.max(1, Math.ceil(remaining * 0.10))), `batch ${amount} with ${remaining} remaining`)
+    displayed = snapshot.length
+  }
+  assert.ok(growth.length >= 10, `growth count: ${growth.length}`)
+  assert.equal(displayed, total)
 }
 
 before(async () => {
@@ -94,6 +107,7 @@ beforeEach(() => {
   authSession.clearSession()
   authSession.setSession({ accessToken: 'fixture-access', user: { guid: '1', username: 'fixture', nickname: null, role: 'user', status: 'active' } })
   calls = []; writes = []
+  globalThis.matchMedia = undefined
   globalThis.sessionStorage.clear()
   route = ({ url, method }) => {
     if (url === listPath && method === 'get') return { items: [summary(A), summary(B)], total: 2 }
@@ -857,6 +871,49 @@ test('timed SSE deltas cross the reactive message boundary incrementally before 
     assert.ok(rendered.every((value, index) => index === 0 || value.length - rendered[index - 1].length === 1), `standard frame batches: ${rendered.map(value => value.length).join(',')}`)
     assert.equal(rendered.at(-1), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')
   } finally { stopWatch(); stopSubscription(); globalThis.document.visibilityState = undefined; globalThis.fetch = originalFetch }
+})
+
+test('system reduced-motion preference drives bounded catch-up for a new generation', async () => {
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const originalFetch = globalThis.fetch; const snapshots = []; const answer = 'x'.repeat(100)
+  globalThis.matchMedia = query => ({ matches: query === '(prefers-reduced-motion: reduce)' })
+  const stopWatch = watch(() => {
+    const model = store.generationState?.models?.[0]
+    return model ? { length: model.displayedText.length, mode: model.mode, modeReason: model.modeReason } : null
+  }, value => { if (value) snapshots.push(value) }, { flush: 'sync' })
+  globalThis.fetch = async (_url, options = {}) => {
+    const id = JSON.parse(options.body).generation_id
+    return sseResponse(`event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: A, models: ['fixture-model'] })}\n\nevent: delta\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', seq: 1, delta: answer })}\n\nevent: model_done\ndata: ${JSON.stringify({ generation_id: id, model: 'fixture-model', last_seq: 1 })}\n\nevent: done\ndata: ${JSON.stringify({ generation_id: id, status: 'completed', conversation_guid: A, tokens: 100, total_tokens_used: 100 })}\n\n`)
+  }
+  try {
+    await store.sendMessage('reduced motion'); await waitFor(() => store.generationState?.status === 'completed')
+    assertReducedMotionGrowth(snapshots, answer.length)
+  } finally { stopWatch(); globalThis.fetch = originalFetch }
+})
+
+test('system reduced-motion preference also drives bounded catch-up for recovered completion', async () => {
+  const store = useChatStore(); store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const generationId = '123e4567-e89b-42d3-a456-426614174000'; const answer = 'r'.repeat(100); const snapshots = []
+  sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId, mode: 'single', models: ['fixture-model'], conversationGuid: A, messageKey: 'reduced-resume', ownerGuid: '1', ownerEpoch: authSession.capture().epoch }))
+  globalThis.matchMedia = query => ({ matches: query === '(prefers-reduced-motion: reduce)' })
+  route = ({ url }) => {
+    assert.equal(url, `${listPath}/${A}`)
+    return { ...summary(A), messages: [
+      { guid: C, role: 'user', content: 'recovered prompt', model: 'fixture-model', tokens: 0, created_at: 1 },
+      { guid: B, role: 'assistant', content: answer, model: 'fixture-model', tokens: 100, created_at: 2 },
+    ] }
+  }
+  const originalFetch = globalThis.fetch
+  const stopWatch = watch(() => {
+    const model = store.generationState?.models?.[0]
+    return model ? { length: model.displayedText.length, mode: model.mode, modeReason: model.modeReason } : null
+  }, value => { if (value) snapshots.push(value) }, { flush: 'sync' })
+  globalThis.fetch = async () => jsonResponse({ generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: A, total_tokens_used: 100, result: { model: 'fixture-model', status: 'completed', assistant_message_guid: B, content: answer, tokens: 100 } })
+  try {
+    assert.equal(await store.resumePendingGeneration(), true); await waitFor(() => store.generationState?.status === 'completed')
+    assertReducedMotionGrowth(snapshots, answer.length)
+  } finally { stopWatch(); globalThis.fetch = originalFetch }
 })
 
 test('a contract-valid global error is terminal failed with no GET and remains explicitly retryable', async () => {

@@ -77,7 +77,7 @@ export function createChatGeneration(options = {}) {
     globalDone,
     models: models.map(item => {
       const player = playerSnapshot(item)
-      return { model: item.model, receivedText: item.receivedText, displayedText: item.displayedText, pendingCount: player.pendingCount, lastSeq: item.lastSeq, terminal: item.terminal, code: item.code }
+      return { model: item.model, receivedText: item.receivedText, displayedText: item.displayedText, pendingCount: player.pendingCount, lastSeq: item.lastSeq, terminal: item.terminal, code: item.code, mode: player.mode, modeReason: player.modeReason, maxBatchSize: player.maxBatchSize }
     }),
     diagnostics: [...diagnostics],
   })
