@@ -12,6 +12,7 @@ test('normalizes every BE06 lifecycle state without collapsing recovery phases',
     [{ status: 'disconnected', phase: 'disconnected' }, 'disconnected'],
     [{ status: 'recovering', phase: 'recovering' }, 'recovering'],
     [{ status: 'cancelling', phase: 'cancelling' }, 'cancelling'],
+    [{ status: 'cancelling', phase: 'confirming_cancel' }, 'confirming_cancel'],
     [{ status: 'completed', phase: 'completed' }, 'completed'],
     [{ status: 'failed', phase: 'failed' }, 'failed'],
     [{ status: 'cancelled', phase: 'cancelled' }, 'cancelled'],
@@ -21,12 +22,25 @@ test('normalizes every BE06 lifecycle state without collapsing recovery phases',
 
 test('only active lifecycle states can request authoritative cancellation', () => {
   assert.equal(typeof ui.canCancelGeneration, 'function')
-  for (const status of ['waiting', 'receiving', 'draining', 'disconnected', 'recovering']) {
+  for (const status of ['waiting', 'receiving', 'disconnected', 'recovering']) {
     assert.equal(ui.canCancelGeneration({ status }), true, status)
   }
-  for (const status of ['cancelling', 'completed', 'failed', 'cancelled']) {
+  for (const status of ['draining', 'cancelling', 'confirming_cancel', 'completed', 'failed', 'cancelled']) {
     assert.equal(ui.canCancelGeneration({ status }), false, status)
   }
+})
+
+test('first-byte retry requires the owned terminal empty attempt and rejects partial or stale attempts', () => {
+  assert.equal(typeof ui.canRetryGenerationMessage, 'function')
+  const message = { role: 'assistant', content: '', generationStatus: 'failed', transientAttempt: 'attempt-1' }
+  const state = { generationId: 'attempt-1', status: 'failed', models: [{ receivedText: '', displayedText: '' }] }
+  assert.equal(ui.canRetryGenerationMessage(message, state, true), true)
+  assert.equal(ui.canRetryGenerationMessage({ ...message, generationStatus: 'cancelled' }, { ...state, status: 'cancelled' }, true), true)
+  assert.equal(ui.canRetryGenerationMessage({ ...message, content: 'partial' }, state, true), false)
+  assert.equal(ui.canRetryGenerationMessage(message, { ...state, generationId: 'stale' }, true), false)
+  assert.equal(ui.canRetryGenerationMessage(message, state, false), false)
+  assert.equal(ui.canRetryGenerationMessage({ ...message, multiModel: true, models: ['a', 'b'], replies: { a: '', b: '' } }, { ...state, models: [{ receivedText: '', displayedText: '' }, { receivedText: '', displayedText: '' }] }, true), true)
+  assert.equal(ui.canRetryGenerationMessage({ ...message, multiModel: true, models: ['a', 'b'], replies: { a: 'partial', b: '' } }, state, true), false)
 })
 
 test('validates single and compare cardinality, uniqueness, and preserves order', () => {
@@ -67,7 +81,7 @@ test('maps only stable error codes and keeps partial replies separate from error
   const presentation = ui.modelReplyPresentation?.({
     replies: { a: 'partial answer' },
     modelStates: { a: { status: 'failed', code: 'gateway_upstream_error' } },
-    viewOnly: true,
+    viewOnly: false,
   }, 'a')
   assert.deepEqual(presentation, {
     content: 'partial answer', status: 'failed', errorKey: 'chat.generationErrors.upstream', viewOnly: true,

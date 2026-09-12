@@ -11,17 +11,17 @@
       :aria-label="t('chat.stopGeneration')"
       @click="stop"
     >
-      {{ t(status === 'cancelling' ? 'chat.stoppingGeneration' : 'chat.stopGeneration') }}
+      {{ t('chat.stopGeneration') }}
     </button>
     <button
       v-if="showRetry"
       type="button"
       class="retry-button"
-      :disabled="retrying || status !== 'disconnected'"
-      :aria-label="t('chat.retryGeneration')"
+      :disabled="retrying || !retryable"
+      :aria-label="t(isCancelConfirmation ? 'chat.retryCancelConfirmation' : 'chat.retryGeneration')"
       @click="retry"
     >
-      {{ t(retrying ? 'chat.retryingGeneration' : 'chat.retryGeneration') }}
+      {{ t(retrying ? (isCancelConfirmation ? 'chat.retryingCancelConfirmation' : 'chat.retryingGeneration') : (isCancelConfirmation ? 'chat.retryCancelConfirmation' : 'chat.retryGeneration')) }}
     </button>
   </div>
 </template>
@@ -57,9 +57,11 @@ onBeforeUnmount(() => {
   if (recoveryTimer !== null) clearTimeout(recoveryTimer)
 })
 const stoppable = computed(() => chatStore.streaming && canCancelGeneration(chatStore.generationState))
-const showStop = computed(() => stoppable.value || status.value === 'cancelling')
+const showStop = computed(() => stoppable.value)
 const retrying = ref(false)
-const showRetry = computed(() => status.value === 'disconnected' || retrying.value)
+const isCancelConfirmation = computed(() => ['cancelling', 'confirming_cancel'].includes(status.value))
+const retryable = computed(() => ['disconnected', 'confirming_cancel'].includes(status.value))
+const showRetry = computed(() => status.value === 'disconnected' || isCancelConfirmation.value || retrying.value)
 
 function stop() {
   if (!stoppable.value) return
@@ -67,7 +69,7 @@ function stop() {
 }
 
 async function retry() {
-  if (retrying.value || status.value !== 'disconnected') return
+  if (retrying.value || !retryable.value) return
   retrying.value = true
   try {
     await chatStore.retryPendingGeneration()

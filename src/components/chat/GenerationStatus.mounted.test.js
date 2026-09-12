@@ -38,18 +38,29 @@ test('mounted lifecycle status is announced and cancellation is authoritative an
   assert.equal(store.retryCalls, 1)
   resolveRetry(false); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
   store.generationState = { status: 'disconnected', phase: 'disconnected' }; await nextTick()
-  for (const status of ['waiting', 'receiving', 'draining', 'disconnected', 'recovering']) {
+  for (const status of ['waiting', 'receiving', 'disconnected', 'recovering']) {
     store.generationState = { status, phase: status }; await nextTick()
     if (status === 'recovering') { await new Promise(resolve => setTimeout(resolve, 0)); await nextTick() }
     assert.equal(wrapper.get('[aria-live="polite"]').text(), `chat.generationStates.${status}`)
     assert.equal(wrapper.get('button').attributes('disabled'), undefined)
   }
-  const stop = wrapper.get('button')
+  store.generationState = { status: 'draining', phase: 'streaming' }; await nextTick()
+  assert.equal(wrapper.get('[aria-live="polite"]').text(), 'chat.generationStates.draining')
+  assert.equal(wrapper.find('.stop-button').exists(), false)
+  store.generationState = { status: 'receiving', phase: 'streaming' }; await nextTick()
+  const stop = wrapper.get('.stop-button')
   await stop.trigger('click'); await nextTick()
   assert.equal(store.calls, 1)
   assert.equal(wrapper.get('button').attributes('disabled'), '')
   await wrapper.get('button').trigger('click'); await nextTick()
   assert.equal(store.calls, 1)
+  assert.equal(wrapper.find('.stop-button').exists(), false)
+  assert.equal(wrapper.find('.retry-button').exists(), true)
+  assert.equal(wrapper.get('.retry-button').attributes('disabled'), '')
+  store.generationState = { status: 'cancelling', phase: 'confirming_cancel' }; await nextTick()
+  assert.equal(wrapper.get('[aria-live="polite"]').text(), 'chat.generationStates.confirming_cancel')
+  assert.equal(wrapper.find('.stop-button').exists(), false)
+  assert.equal(wrapper.get('.retry-button').attributes('disabled'), undefined)
   for (const status of ['completed', 'failed', 'cancelled']) {
     store.generationState = { status, phase: status }; store.streaming = false; await nextTick()
     assert.equal(wrapper.get('[aria-live="polite"]').text(), `chat.generationStates.${status}`)

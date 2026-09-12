@@ -103,9 +103,13 @@ export const messages = {
       stoppingGeneration: '正在停止…',
       retryGeneration: '重新确认结果',
       retryingGeneration: '正在确认结果…',
+      retryCancelConfirmation: '重新确认停止结果',
+      retryingCancelConfirmation: '正在确认停止结果…',
+      regenerate: '重新生成',
+      regenerating: '正在重新生成…',
       viewOnlyPartial: '这是未完成的临时内容，仅供查看；不会保存，也不会用于后续对话。',
       generationStates: {
-        waiting: '等待模型响应', receiving: '正在接收回复', draining: '正在完成本地展示', disconnected: '连接已中断，后台仍在生成', recovering: '正在恢复后台结果', cancelling: '正在向服务端停止生成', completed: '回复已完成', failed: '生成失败', cancelled: '生成已停止',
+        waiting: '等待模型响应', receiving: '正在接收回复', draining: '正在完成本地展示', disconnected: '连接已中断，后台仍在生成', recovering: '正在恢复后台结果', cancelling: '正在确认服务端停止结果', confirming_cancel: '正在确认服务端停止结果', completed: '回复已完成', failed: '生成失败', cancelled: '生成已停止',
       },
       generationErrors: {
         cancelled: '该模型已停止生成。', upstream: '该模型暂时无法完成回复。', invalidRequest: '请求参数无效，请检查模型设置。', rateLimited: '请求过于频繁，请稍后重试。', timeout: '该模型生成超时。', requestFailed: '生成未能完成，请稍后重试。',
@@ -440,9 +444,13 @@ export const messages = {
       stoppingGeneration: 'Stopping…',
       retryGeneration: 'Check result again',
       retryingGeneration: 'Checking the result…',
+      retryCancelConfirmation: 'Check stop result again',
+      retryingCancelConfirmation: 'Checking the stop result…',
+      regenerate: 'Generate again',
+      regenerating: 'Generating again…',
       viewOnlyPartial: 'This incomplete content is view-only. It will not be saved or used in later context.',
       generationStates: {
-        waiting: 'Waiting for the model', receiving: 'Receiving the reply', draining: 'Finishing local playback', disconnected: 'Connection lost; generation continues in the background', recovering: 'Recovering the background result', cancelling: 'Stopping generation on the server', completed: 'Reply completed', failed: 'Generation failed', cancelled: 'Generation stopped',
+        waiting: 'Waiting for the model', receiving: 'Receiving the reply', draining: 'Finishing local playback', disconnected: 'Connection lost; generation continues in the background', recovering: 'Recovering the background result', cancelling: 'Confirming the server stopped generation', confirming_cancel: 'Confirming the server stopped generation', completed: 'Reply completed', failed: 'Generation failed', cancelled: 'Generation stopped',
       },
       generationErrors: {
         cancelled: 'This model was stopped.', upstream: 'This model could not complete its reply.', invalidRequest: 'The request is invalid. Check the model settings.', rateLimited: 'Too many requests. Try again later.', timeout: 'This model timed out.', requestFailed: 'Generation could not be completed. Try again later.',

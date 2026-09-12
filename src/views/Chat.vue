@@ -133,15 +133,12 @@ function toggleConfig() {
 
 onMounted(async () => {
   try {
-    const resumed = await chatStore.resumePendingGeneration()
     await settingsStore.loadModels()
-    if (!resumed) {
-      if (!USE_MOCK) await chatStore.fetchConversations()
-      await chatStore.ensureActive()
-    }
-  } finally {
+    if (!USE_MOCK) await chatStore.fetchConversations()
+    await chatStore.resumePendingGeneration()
+    await chatStore.ensureActive()
     bootstrapping.value = false
-  }
+  } catch { /* Keep generation controls locked until catalog/history ownership can be established safely. */ }
 })
 
 function onSend(content, images) {

@@ -16,7 +16,8 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
   const template = compileTemplate({ id: 'be06-message-list', filename: 'ChatMessageList.vue', source: descriptor.template.content, compilerOptions: { bindingMetadata: script.bindings } })
   assert.deepEqual(template.errors, [])
   const conversation = reactive({ messages: [{ localKey: 'reply', role: 'assistant', multiModel: true, models: ['a', 'b'], replies: { a: 'partial A', b: 'complete B' }, modelStates: { a: { status: 'failed', code: 'gateway_upstream_error' }, b: { status: 'completed', code: null } }, generationStatus: 'completed', viewOnly: true }] })
-  const chat = reactive({ streaming: false, activeId: '1', getActive: () => conversation })
+  let resolveRetry
+  const chat = reactive({ streaming: false, activeId: '1', generationState: null, retryCalls: 0, getActive: () => conversation, retryGenerationAttempt() { this.retryCalls += 1; return new Promise(resolve => { resolveRetry = resolve }) } })
   const settings = reactive({ models: [{ id: 'a', name: 'A', icon: 'A' }, { id: 'b', name: 'B', icon: 'B' }] })
   const MarkdownContent = defineComponent({ props: { content: String }, setup: props => () => h('div', { class: 'markdown' }, props.content) })
   globalThis.__be06ListFixture = { chat, settings, MarkdownContent }
@@ -37,7 +38,9 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
   assert.match(wrapper.text(), /partial A/)
   assert.match(wrapper.text(), /complete B/)
   assert.match(wrapper.text(), /chat\.generationErrors\.upstream/)
-  assert.match(wrapper.text(), /chat\.viewOnlyPartial/)
+  assert.equal(wrapper.findAll('.reply-view-only-warning').length, 1)
+  assert.match(wrapper.get('.reply-view-only-warning').text(), /chat\.viewOnlyPartial/)
+  assert.doesNotMatch(wrapper.findAll('.reply-col')[1].text(), /chat\.viewOnlyPartial/, 'successful sibling must not inherit the failed model warning')
   assert.doesNotMatch(wrapper.text(), /gateway_upstream_error/)
   assert.equal(wrapper.findAll('.col-actions').length, 2, 'terminal compare replies are copyable, including visible failed partials')
   chat.streaming = true
@@ -51,5 +54,26 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
   await nextTick()
   assert.match(wrapper.text(), /saved/)
   assert.doesNotMatch(wrapper.text(), /chat\.viewOnlyPartial/)
+  const attemptId = '123e4567-e89b-42d3-a456-426614174000'
+  conversation.messages = [
+    { localKey: 'user', role: 'user', content: 'retry me', transientAttempt: attemptId },
+    { localKey: 'empty', role: 'assistant', content: '', generationStatus: 'failed', errorCode: 'timeout', viewOnly: true, transientAttempt: attemptId },
+  ]
+  chat.generationState = { generationId: attemptId, status: 'failed', models: [{ receivedText: '', displayedText: '' }] }
+  await nextTick()
+  assert.equal(wrapper.findAll('.message.assistant .bubble').length, 0, 'first-byte failure must not leave an empty assistant bubble')
+  assert.match(wrapper.get('.attempt-failure').text(), /chat\.generationErrors\.timeout/)
+  const retry = wrapper.get('.regenerate-button')
+  await retry.trigger('click'); await retry.trigger('click'); await nextTick()
+  assert.equal(chat.retryCalls, 1, 'regeneration must singleflight')
+  assert.equal(retry.attributes('disabled'), '')
+  resolveRetry(false); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
+  conversation.messages[1].content = 'partial'
+  await nextTick()
+  assert.equal(wrapper.find('.regenerate-button').exists(), false, 'partial attempts must never expose new-POST retry')
+  conversation.messages[1].content = ''
+  chat.generationState.generationId = 'stale-after-switch'
+  await nextTick()
+  assert.equal(wrapper.find('.regenerate-button').exists(), false, 'a detached or switched attempt must not expose retry')
   wrapper.unmount(); delete globalThis.__be06ListFixture
 })

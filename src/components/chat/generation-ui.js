@@ -1,5 +1,5 @@
-const ACTIVE_STATUSES = new Set(['waiting', 'receiving', 'draining', 'disconnected', 'recovering'])
-const LIFECYCLE_STATUSES = new Set([...ACTIVE_STATUSES, 'cancelling', 'completed', 'failed', 'cancelled'])
+const ACTIVE_STATUSES = new Set(['waiting', 'receiving', 'disconnected', 'recovering'])
+const LIFECYCLE_STATUSES = new Set([...ACTIVE_STATUSES, 'draining', 'cancelling', 'confirming_cancel', 'completed', 'failed', 'cancelled'])
 const STABLE_ERROR_KEYS = Object.freeze({
   cancelled: 'cancelled',
   gateway_upstream_error: 'upstream',
@@ -49,6 +49,18 @@ export function canCopyGenerationMessage(message, content = message?.content) {
   return !message.generationStatus && !message.transientAttempt
 }
 
+export function canRetryGenerationMessage(message, state, isLast) {
+  if (!isLast || message?.role !== 'assistant' || !message.transientAttempt) return false
+  if (!['failed', 'cancelled'].includes(message.generationStatus) || state?.generationId !== message.transientAttempt || state.status !== message.generationStatus) return false
+  const visibleContent = message.multiModel
+    ? Object.values(message.replies || {}).some(content => typeof content === 'string' && content.length > 0)
+    : typeof message.content === 'string' && message.content.length > 0
+  const acceptedContent = Array.isArray(state.models) && state.models.some(model =>
+    (typeof model?.receivedText === 'string' && model.receivedText.length > 0)
+      || (typeof model?.displayedText === 'string' && model.displayedText.length > 0))
+  return !visibleContent && !acceptedContent
+}
+
 export function generationErrorMessageKey(code) {
   return `chat.generationErrors.${STABLE_ERROR_KEYS[code] || 'requestFailed'}`
 }
@@ -63,6 +75,6 @@ export function modelReplyPresentation(message, modelId) {
     content,
     status,
     errorKey: status === 'failed' ? generationErrorMessageKey(state?.code) : null,
-    viewOnly: message?.viewOnly === true,
+    viewOnly: ['failed', 'cancelled'].includes(status) || (message?.multiModel !== true && message?.viewOnly === true),
   }
 }

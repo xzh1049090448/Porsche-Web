@@ -14,7 +14,20 @@
       <el-avatar :size="36" :class="msg.role">
         {{ msg.role === 'user' ? t('chat.userAvatar') : t('chat.aiAvatar') }}
       </el-avatar>
-      <div class="bubble" :class="{ 'multi-bubble': msg.multiModel }">
+      <div v-if="isEmptyTerminalAttempt(msg)" class="attempt-failure" role="status" aria-live="polite">
+        <p class="reply-error">{{ t(attemptFailureKey(msg)) }}</p>
+        <button
+          v-if="canRetryAttempt(msg)"
+          type="button"
+          class="regenerate-button"
+          :disabled="retryingAttempt === msg.localKey"
+          :aria-label="t('chat.regenerate')"
+          @click="retryAttempt(msg)"
+        >
+          {{ t(retryingAttempt === msg.localKey ? 'chat.regenerating' : 'chat.regenerate') }}
+        </button>
+      </div>
+      <div v-else class="bubble" :class="{ 'multi-bubble': msg.multiModel }">
         <div v-if="msg.images?.length" class="msg-images">
           <el-image
             v-for="(img, i) in msg.images"
@@ -52,6 +65,13 @@
                   role="status"
                 >
                   {{ t(modelReplyPresentation(msg, m.id).errorKey) }}
+                </p>
+                <p
+                  v-if="modelReplyPresentation(msg, m.id).viewOnly"
+                  class="reply-view-only-warning"
+                  role="note"
+                >
+                  {{ t('chat.viewOnlyPartial') }}
                 </p>
               </template>
             </div>
@@ -116,7 +136,7 @@ import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import MarkdownContent from '@/components/chat/MarkdownContent.vue'
 import { useI18n } from '@/composables/useI18n'
-import { canCopyGenerationMessage, generationErrorMessageKey, modelReplyPresentation } from '@/components/chat/generation-ui'
+import { canCopyGenerationMessage, canRetryGenerationMessage, generationErrorMessageKey, modelReplyPresentation } from '@/components/chat/generation-ui'
 
 const chatStore = useChatStore()
 const settings = useSettingsStore()
@@ -124,6 +144,7 @@ const { t } = useI18n()
 const listRef = ref()
 /** 用户未主动上滑时跟随流式输出滚到底部 */
 const stickToBottom = ref(true)
+const retryingAttempt = ref(null)
 const SCROLL_BOTTOM_THRESHOLD = 80
 
 const messages = computed(() => chatStore.getActive()?.messages || [])
@@ -152,8 +173,35 @@ function replyFor(msg, modelId) {
 
 function showViewOnlyWarning(msg) {
   if (msg.role !== 'assistant' || msg.viewOnly !== true) return false
-  if (msg.multiModel) return ['failed', 'cancelled'].includes(msg.generationStatus) || Object.values(msg.modelStates || {}).some(state => ['failed', 'cancelled'].includes(state?.status))
+  if (msg.multiModel) return false
   return ['failed', 'cancelled'].includes(msg.generationStatus)
+}
+
+function hasVisibleContent(msg) {
+  if (msg.multiModel) return Object.values(msg.replies || {}).some(content => typeof content === 'string' && content.length > 0)
+  return typeof msg.content === 'string' && msg.content.length > 0
+}
+
+function isEmptyTerminalAttempt(msg) {
+  return msg.role === 'assistant' && ['failed', 'cancelled'].includes(msg.generationStatus) && !hasVisibleContent(msg)
+}
+
+function attemptFailureKey(msg) {
+  return generationErrorMessageKey(msg.generationStatus === 'cancelled' ? 'cancelled' : msg.errorCode)
+}
+
+function canRetryAttempt(msg) {
+  return canRetryGenerationMessage(msg, chatStore.generationState, isLastMessage(msg))
+}
+
+async function retryAttempt(msg) {
+  if (retryingAttempt.value || !canRetryAttempt(msg)) return
+  retryingAttempt.value = msg.localKey
+  try {
+    await chatStore.retryGenerationAttempt()
+  } finally {
+    if (retryingAttempt.value === msg.localKey) retryingAttempt.value = null
+  }
 }
 
 function singleErrorKey(msg) {
@@ -455,6 +503,7 @@ watch(
 }
 
 .reply-error,
+.reply-view-only-warning,
 .view-only-warning {
   margin: 8px 0 0;
   color: var(--danger);
@@ -462,10 +511,39 @@ watch(
   line-height: 18px;
 }
 
+.reply-view-only-warning,
 .view-only-warning {
   color: var(--text-secondary);
   border-top: 1px solid var(--border);
   padding-top: 8px;
+}
+
+.attempt-failure {
+  max-width: min(720px, 85%);
+  padding: 12px 16px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: var(--component-bg);
+}
+
+.attempt-failure .reply-error {
+  margin-top: 0;
+}
+
+.regenerate-button {
+  min-height: 34px;
+  margin-top: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+
+  &:disabled {
+    color: var(--text-disabled);
+    cursor: not-allowed;
+  }
 }
 
 .model-icon {
