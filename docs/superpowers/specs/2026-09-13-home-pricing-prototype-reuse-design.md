@@ -1,7 +1,7 @@
 # 主页、公开价格与全站切换/字号统一设计
 
 日期：2026-09-13  
-状态：已完成交互确认，待用户书面复核  
+状态：用户已书面确认，待实施
 目标分支：`design/home-pricing-prototype-reuse`  
 基线：`origin/main@72c4d8c182486cc440da02cfc137a2260d85b8c8`
 
