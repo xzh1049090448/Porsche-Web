@@ -8,7 +8,27 @@ import { createServer as createViteServer } from 'vite'
 
 import config from './vite.config.js'
 
-const proxyEntries = Object.entries(config.server.proxy ?? {})
+const resolvedConfig = typeof config === 'function' ? config({ mode: 'test', command: 'serve' }) : config
+const proxyEntries = Object.entries(resolvedConfig.server.proxy ?? {})
+
+test('production aliases the development fixture module to a side-effect-free sentinel', () => {
+  const production = config({ mode: 'production', command: 'build' })
+  const aliases = production.resolve.alias
+  assert.match(aliases.find(alias => alias.find === '@/api/mock')?.replacement ?? '', /production-api-sentinel\.js$/)
+  assert.match(aliases.find(alias => alias.find === './mock')?.replacement ?? '', /production-api-sentinel\.js$/)
+})
+
+test('mock-enabled development retains the real mock module', () => {
+  const previous = process.env.VITE_USE_MOCK
+  process.env.VITE_USE_MOCK = 'true'
+  try {
+    const development = config({ mode: 'development', command: 'serve' })
+    assert.equal(development.resolve.alias.some(alias => alias.find === '@/api/mock' || alias.find === './mock'), false)
+  } finally {
+    if (previous === undefined) delete process.env.VITE_USE_MOCK
+    else process.env.VITE_USE_MOCK = previous
+  }
+})
 
 function matchesViteProxyContext(context, url) {
   return context.startsWith('^')
