@@ -45,7 +45,7 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
   for (const [specifier, replacement] of replacements) code = code.replaceAll(`from '${specifier}'`, `from '${replacement}'`).replaceAll(`from "${specifier}"`, `from "${replacement}"`)
   code = code.replaceAll("import MarkdownContent from '@/components/chat/MarkdownContent.vue'", 'const MarkdownContent=globalThis.__be06ListFixture.MarkdownContent')
   const List = (await import(encode(code))).default
-  const wrapper = mount(List, { global: { stubs: { ElAvatar: { template: '<span><slot /></span>' }, ElButton: { template: '<button><slot /></button>' }, ElImage: true } } })
+  const wrapper = mount(List, { attachTo: document.body, global: { stubs: { ElAvatar: { template: '<span><slot /></span>' }, ElButton: { template: '<button><slot /></button>' }, ElImage: true } } })
   assert.match(wrapper.text(), /partial A/)
   assert.match(wrapper.text(), /complete B/)
   assert.match(wrapper.text(), /chat\.generationErrors\.upstream/)
@@ -128,6 +128,37 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
     unmountCopy.signal = environment.signal
     return new Promise((_resolve, reject) => { unmountCopy.reject = reject })
   }
+  await nextTick()
+  chat.streaming = true
+  await nextTick()
+  const list = wrapper.get('.message-list')
+  let scrollHeight = 1000
+  Object.defineProperties(list.element, {
+    scrollHeight: { configurable: true, get: () => scrollHeight },
+    clientHeight: { configurable: true, get: () => 200 },
+    scrollTop: { configurable: true, writable: true, value: 800 },
+  })
+  await list.trigger('scroll'); await nextTick()
+  assert.equal(wrapper.find('.back-to-latest').exists(), false)
+  list.element.scrollTop = 400
+  await list.trigger('scroll'); await nextTick()
+  const backToLatest = wrapper.get('.back-to-latest')
+  assert.equal(backToLatest.attributes('type'), 'button')
+  assert.match(backToLatest.text(), /chat\.backToLatest/)
+  backToLatest.element.focus()
+  assert.equal(document.activeElement, backToLatest.element, 'return-to-latest control must be keyboard focusable')
+  conversation.messages[0].content = 'copy then leave, increment while reading'
+  await nextTick(); await nextTick()
+  assert.equal(list.element.scrollTop, 400, 'incremental DOM updates must not steal scroll while the user is reading above')
+  await backToLatest.trigger('click'); await nextTick(); await nextTick()
+  assert.equal(list.element.scrollTop, 1000)
+  assert.equal(wrapper.find('.back-to-latest').exists(), false)
+  scrollHeight = 1200
+  conversation.messages[0].content = 'copy then leave, next incremental chunk'
+  await nextTick(); await nextTick()
+  assert.equal(list.element.scrollTop, 1200, 'manual return must restore following for later incremental DOM updates')
+
+  chat.streaming = false
   await nextTick()
   await wrapper.get('.msg-actions button').trigger('click'); await nextTick()
   const noticesBeforeUnmount = notifications.length

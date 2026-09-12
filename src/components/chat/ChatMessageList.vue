@@ -1,5 +1,6 @@
 <template>
-  <div ref="listRef" class="message-list" @scroll="onListScroll">
+  <div class="message-list-shell">
+    <div ref="listRef" class="message-list" @scroll="onListScroll">
     <div v-if="!messages.length" class="welcome">
       <h2>{{ t('chat.welcomeTitle') }}</h2>
       <p>{{ t('chat.welcomeDesc') }}</p>
@@ -135,6 +136,16 @@
 
       </div>
     </div>
+    </div>
+    <button
+      v-if="!stickToBottom"
+      type="button"
+      class="back-to-latest"
+      :aria-label="t('chat.backToLatest')"
+      @click="scrollToBottom(true)"
+    >
+      {{ t('chat.backToLatest') }}
+    </button>
   </div>
 </template>
 
@@ -334,12 +345,38 @@ watch(
 </script>
 
 <style scoped lang="scss">
-.message-list {
+.message-list-shell {
+  position: relative;
   flex: 1;
   min-height: 0;
+}
+
+.message-list {
+  height: 100%;
+  box-sizing: border-box;
   overflow-y: auto;
   padding: 24px;
   background: var(--app-bg);
+}
+
+.back-to-latest {
+  position: absolute;
+  right: 24px;
+  bottom: 18px;
+  z-index: 2;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--component-bg);
+  color: var(--text-primary);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 14%);
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 }
 
 .welcome {
@@ -619,6 +656,11 @@ watch(
 @media (max-width: 768px) {
   .message-list {
     padding: 12px 12px 8px;
+  }
+
+  .back-to-latest {
+    right: 12px;
+    bottom: 12px;
   }
 
   .welcome {

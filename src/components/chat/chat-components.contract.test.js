@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFile } from 'node:fs/promises'
+import { messages } from '../../i18n/messages.js'
 
 const read = name => readFile(new URL(name, import.meta.url), 'utf8')
 
@@ -48,4 +49,6 @@ test('ChatMessageList renders stable per-model failure and view-only labels outs
   assert.match(source, /retryGenerationAttempt/)
   assert.match(source, /reply-view-only-warning/)
   assert.match(source, /prefers-reduced-motion:\s*reduce/)
+  assert.equal(messages.zh.chat.backToLatest, '回到最新')
+  assert.equal(messages.en.chat.backToLatest, 'Back to latest')
 })
