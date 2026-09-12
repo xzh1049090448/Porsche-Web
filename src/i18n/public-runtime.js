@@ -1,6 +1,20 @@
 import { ref } from 'vue'
-import { translate } from './index.js'
+import { publicMessages } from './public-messages.js'
 import { getItem, setItem } from '../utils/storage.js'
+
+function translate(locale, key, params = {}) {
+  const keys = key.split('.')
+  let value = publicMessages[locale]
+  for (const part of keys) value = value?.[part]
+  if (value == null) {
+    value = publicMessages.zh
+    for (const part of keys) value = value?.[part]
+  }
+  if (typeof value !== 'string') return key
+  return value.replace(/\{(\w+)\}/g, (_, name) =>
+    params[name] != null ? String(params[name]) : `{${name}}`
+  )
+}
 
 export const PUBLIC_LOCALE_KEY = 'uiLocale'
 export function readPublicLocale(storage) { return getItem(PUBLIC_LOCALE_KEY, 'zh', storage) === 'en' ? 'en' : 'zh' }

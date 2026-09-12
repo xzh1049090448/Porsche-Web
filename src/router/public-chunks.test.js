@@ -30,6 +30,17 @@ test('build plugin emits a sanitized graph accepted for the small public bootstr
   assert.doesNotMatch(JSON.stringify(graph), /\/repo\//)
 })
 
+test('public graph accepts only the dedicated public message catalog', () => {
+  assert.deepEqual(validatePublicGraph(fixture(['src/i18n/public-runtime.js', 'src/i18n/public-messages.js'])), {
+    chunkCount: 2,
+    codeBytes: 15,
+    cssBytes: 100,
+  })
+  for (const moduleId of ['src/i18n/index.js', 'src/i18n/messages.js']) {
+    assert.throws(() => validatePublicGraph(fixture([moduleId])), /non-public module/)
+  }
+})
+
 test('early document theme uses valid storage first and otherwise follows the system', () => {
   const html = readFileSync(new URL('../../index.html', import.meta.url), 'utf8')
   const parsed = new JSDOM(html)

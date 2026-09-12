@@ -1,6 +1,24 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { messages } from './messages.js'
+import { publicMessages } from './public-messages.js'
 import { applyPublicLocale, persistPublicLocale, publicText, readPublicLocale } from './public-runtime.js'
+
+test('public runtime imports only the dedicated public message catalog', () => {
+  const source = readFileSync(new URL('./public-runtime.js', import.meta.url), 'utf8')
+  assert.match(source, /from ['"]\.\/public-messages\.js['"]/)
+  assert.doesNotMatch(source, /from ['"]\.\/(?:index|messages)\.js['"]/)
+})
+
+test('dedicated public messages stay identical to the authenticated catalog', () => {
+  for (const locale of ['zh', 'en']) {
+    assert.deepEqual(publicMessages[locale], {
+      app: { title: messages[locale].app.title },
+      publicSite: messages[locale].publicSite,
+    })
+  }
+})
 test('public runtime exposes every shell and state label in Chinese and English', () => {
   for (const locale of ['zh', 'en']) for (const key of ['skip', 'home', 'advantages', 'models', 'announcements', 'faq', 'cta', 'console', 'pricing', 'about', 'terms', 'privacy', 'loading', 'preparing', 'empty', 'error', 'retry', 'demo', 'menu', 'toc', 'version', 'effectiveDate', 'contact', 'acknowledge', 'language']) assert.notEqual(publicText(locale, key), `publicSite.${key}`)
   assert.notEqual(publicText('zh', 'retry'), publicText('en', 'retry'))
