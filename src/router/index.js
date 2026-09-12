@@ -4,7 +4,7 @@ import { safeAuthRedirect } from '../utils/auth-redirect.js'
 const mainLayout = () => import('@/layouts/MainLayout.vue')
 
 const developmentOnlyRoutes = import.meta.env?.DEV ? [
-  { path: 'demo/admin/balance', name: 'AdminBalanceMockDemo', component: () => import('@/views/AdminBalanceMockDemo.vue'), meta: { requiresAuth: true } },
+  { path: '/demo/admin/balance', name: 'AdminBalanceMockDemo', component: () => import('@/views/AdminBalanceMockDemo.vue'), meta: { requiresAuth: true } },
 ] : []
 
 export const routes = [

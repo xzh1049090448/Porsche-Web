@@ -71,8 +71,13 @@ test('route inventory freezes public, guest, authenticated, Root, and DEV metada
   const devRoute = devModule.routes.find(route => route.name === 'AdminBalanceMockDemo')
   assert.deepEqual(
     { path: devRoute?.path, name: devRoute?.name, meta: devRoute?.meta },
-    { path: 'demo/admin/balance', name: 'AdminBalanceMockDemo', meta: { requiresAuth: true } },
+    { path: '/demo/admin/balance', name: 'AdminBalanceMockDemo', meta: { requiresAuth: true } },
   )
+  const devRouter = createRouter({ history: createMemoryHistory(), routes: devModule.routes.map(route => ({ ...route, component: Stub, children: route.children?.map(child => ({ ...child, component: Stub })) })) })
+  const resolvedDevRoute = devRouter.resolve('/demo/admin/balance')
+  assert.equal(resolvedDevRoute.name, 'AdminBalanceMockDemo')
+  assert.equal(resolvedDevRoute.meta.requiresAuth, true)
+  assert.equal(routes.some(route => route.name === 'AdminBalanceMockDemo'), false)
 })
 
 test('actual matcher resolves public routes and 404 through PublicLayout', () => {
