@@ -22,6 +22,7 @@ function fallbackGraphemes(value) {
 export function createGraphemePlayback({
   onDisplay = () => {},
   onError = () => {},
+  afterDisplay = callback => callback(),
   requestFrame = DEFAULT_FRAME,
   cancelFrame = DEFAULT_CANCEL,
   now = DEFAULT_NOW,
@@ -35,6 +36,7 @@ export function createGraphemePlayback({
   let carry = ''
   let pending = []
   let frameHandle = null
+  let waitingForCommit = false
   let generation = 0
   let finished = false
   let disposed = false
@@ -49,7 +51,6 @@ export function createGraphemePlayback({
   let hasDisplayed = false
   let failed = false
   let errorCode = null
-  let lastGrapheme = ''
 
   function snapshot() {
     const current = now()
@@ -85,6 +86,7 @@ export function createGraphemePlayback({
     closeCatchUp(now())
     releaseFrame()
     pending = []
+    waitingForCommit = false
     carry = ''
     carryStartedAt = null
     modeReason = 'error'
@@ -92,7 +94,7 @@ export function createGraphemePlayback({
   }
 
   function schedule() {
-    if (frameHandle !== null || disposed || failed || pending.length === 0) return
+    if (frameHandle !== null || waitingForCommit || disposed || failed || pending.length === 0) return
     const token = generation
     try {
       frameHandle = requestFrame(timestamp => {
@@ -104,27 +106,25 @@ export function createGraphemePlayback({
       let visible = true
       try { visible = isPageVisible() !== false } catch { return failClosed() }
       const backlog = remaining > 120
-      const nextMode = reducedMotion || backlog || lag > targetLagMs ? 'catch-up' : 'standard'
+      const nextMode = !visible || reducedMotion || backlog || lag > targetLagMs ? 'catch-up' : 'standard'
       if (nextMode === 'catch-up' && catchUpStartedAt === null) {
         catchUpStartedAt = frameTime
-        modeReason = reducedMotion ? 'reduced-motion' : backlog ? 'backlog' : 'queue-lag'
+        modeReason = !visible ? 'background' : reducedMotion ? 'reduced-motion' : backlog ? 'backlog' : 'queue-lag'
       } else if (nextMode === 'standard' && mode === 'catch-up' && catchUpStartedAt !== null) {
         catchUpDurationMs += Math.max(0, frameTime - catchUpStartedAt)
         catchUpStartedAt = null
         modeReason = 'standard'
       }
       mode = nextMode
-      const punctuationPause = /[.!?;:。！？；：]\s*$/u.test(lastGrapheme)
-      const interval = reducedMotion ? 0 : punctuationPause ? 90 : backlog || mode === 'catch-up' ? 5 : 30
-      if (visible && hasDisplayed && frameTime - lastDisplayAt < interval) {
+      const interval = mode === 'standard' ? 25 : 0
+      if (hasDisplayed && frameTime - lastDisplayAt < interval) {
         schedule()
         return
       }
-      const amount = !visible ? remaining : backlog || mode === 'standard' ? 1 : Math.min(8, Math.max(1, Math.ceil(remaining * 0.1)))
+      const amount = mode === 'standard' ? 1 : Math.min(8, Math.max(1, Math.ceil(remaining * 0.1)))
       maxBatchSize = Math.max(maxBatchSize, amount)
       const batch = pending.splice(0, Math.min(amount, remaining))
       displayedText += batch.join('')
-      lastGrapheme = batch.at(-1) || lastGrapheme
       lastDisplayAt = frameTime
       hasDisplayed = true
       try {
@@ -133,8 +133,20 @@ export function createGraphemePlayback({
         failClosed()
         return
       }
-      if (pending.length) schedule()
-      else if (mode === 'catch-up' && catchUpStartedAt !== null) {
+      if (pending.length) {
+        waitingForCommit = true
+        const committed = () => {
+          if (disposed || token !== generation) return
+          waitingForCommit = false
+          schedule()
+        }
+        try {
+          const result = afterDisplay(committed)
+          if (result && typeof result.then === 'function') result.catch(failClosed)
+        } catch {
+          failClosed()
+        }
+      } else if (mode === 'catch-up' && catchUpStartedAt !== null) {
         closeCatchUp(frameTime)
         mode = 'standard'
         modeReason = 'standard'
@@ -177,6 +189,7 @@ export function createGraphemePlayback({
       generation += 1
       const cleanupFailed = releaseFrame()
       pending = []; carry = ''; carryStartedAt = null; finished = true
+      waitingForCommit = false
       if (cleanupFailed) failClosed()
       return snapshot()
     },
@@ -186,6 +199,7 @@ export function createGraphemePlayback({
       generation += 1
       const cleanupFailed = releaseFrame()
       pending = []; carry = ''; carryStartedAt = null; disposed = true; finished = true
+      waitingForCommit = false
       if (cleanupFailed) failClosed()
       return snapshot()
     },

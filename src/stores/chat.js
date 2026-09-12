@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { getItem, setItem, removeItem } from '@/utils/storage'
 import { USE_MOCK, authSession } from '@/api/request'
 import { mockApi } from '@/api/mock'
@@ -679,6 +679,7 @@ export const useChatStore = defineStore('chat', () => {
       mode,
       models: modelIds,
       onChange: snapshot => applyMachineSnapshot(run, snapshot),
+      playback: { afterDisplay: callback => nextTick(callback) },
     })
     applyMachineSnapshot(run, run.machine.snapshot())
     const body = {
@@ -805,7 +806,7 @@ export const useChatStore = defineStore('chat', () => {
     const run = { generationId: saved.generationId, mode: saved.mode, models: [...saved.models], context, userGuid: authSession.user()?.guid ?? null, conv, conversationKey: conversationKey(conv), user: null, assistant, originalTitle: conv.title, originalUpdatedAt: conv.updatedAt, controller: new AbortController(), recoveryController: null, cancelController: null, committed: false, cancelRequested: false, cancellationRecovery: false, terminalMeta: null, machine: null, resumeRequiresHistory: true, historyPromise: null, cancelPromise: null, recoveryPromise: null, recoveryFromCancel: false, cancellationRecoveryPromise: null, retryAttemptPromise: null, recoverable: false, authoritativeAttempt: null }
     activeRun = run; streamController = run.controller; streaming.value = true
     rememberRun(run)
-    run.machine = createChatGeneration({ generationId: run.generationId, conversationGuid: savedGuid, messageKey: assistant.localKey, mode: run.mode, models: run.models, onChange: snapshot => applyMachineSnapshot(run, snapshot) })
+    run.machine = createChatGeneration({ generationId: run.generationId, conversationGuid: savedGuid, messageKey: assistant.localKey, mode: run.mode, models: run.models, onChange: snapshot => applyMachineSnapshot(run, snapshot), playback: { afterDisplay: callback => nextTick(callback) } })
     setGenerationPhase(run, 'recovering')
     await recoverGeneration(run)
     return true

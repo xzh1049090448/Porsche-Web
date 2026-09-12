@@ -68,48 +68,93 @@ test('holds complete emoji and Indic candidates until a boundary is confirmed', 
   assert.equal(indic.snapshot().displayedText, 'क्ष')
 })
 
-test('standard mode observes a 30ms minimum between display commits', () => {
+test('standard mode observes a 25ms minimum between display commits', () => {
   const clock = scheduler(); let current = 0; const displays = []
   const player = createGraphemePlayback({ onDisplay: t => displays.push(t), requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => current })
   player.push('AB'); player.finish()
   assert.equal(clock.step(0), true); assert.deepEqual(displays, ['A'])
-  current = 29; assert.equal(clock.step(29), true); assert.deepEqual(displays, ['A'])
-  current = 30; assert.equal(clock.step(30), true); assert.deepEqual(displays, ['A', 'AB'])
+  current = 24; assert.equal(clock.step(24), true); assert.deepEqual(displays, ['A'])
+  current = 25; assert.equal(clock.step(25), true); assert.deepEqual(displays, ['A', 'AB'])
 })
 
-test('first confirmed grapheme displays on the next RAF, then later graphemes respect 30ms', () => {
+test('first confirmed grapheme displays on the next RAF, then later graphemes respect 25ms', () => {
   const clock = scheduler(); let current = 100; const displays = []
   const player = createGraphemePlayback({ onDisplay: t => displays.push(t), requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => current })
   player.push('你好'); player.finish()
   current = 100; assert.equal(clock.step(100), true); assert.deepEqual(displays, ['你'])
-  current = 129; assert.equal(clock.step(129), true); assert.deepEqual(displays, ['你'])
-  current = 130; assert.equal(clock.step(130), true); assert.deepEqual(displays, ['你', '你好'])
+  current = 124; assert.equal(clock.step(124), true); assert.deepEqual(displays, ['你'])
+  current = 125; assert.equal(clock.step(125), true); assert.deepEqual(displays, ['你', '你好'])
 })
 
-test('sentence punctuation pauses the next grapheme for 90ms', () => {
+test('sentence punctuation uses the same 25ms cadence as other graphemes', () => {
   const clock = scheduler(); let current = 0; const displays = []
   const player = createGraphemePlayback({ onDisplay: text => displays.push(text), requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => current })
   player.push('A。B'); player.finish()
-  clock.step(0); current = 30; clock.step(30)
+  clock.step(0); current = 25; clock.step(25)
   assert.deepEqual(displays, ['A', 'A。'])
-  current = 119; clock.step(119); assert.deepEqual(displays, ['A', 'A。'])
-  current = 120; clock.step(120); assert.deepEqual(displays, ['A', 'A。', 'A。B'])
+  current = 49; clock.step(49); assert.deepEqual(displays, ['A', 'A。'])
+  current = 50; clock.step(50); assert.deepEqual(displays, ['A', 'A。', 'A。B'])
 })
 
-test('backlog above 120 graphemes uses a 5ms interval', () => {
-  const clock = scheduler(); let current = 0; const displays = []
-  const player = createGraphemePlayback({ onDisplay: text => displays.push(text), requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => current })
-  player.push('x'.repeat(122)); player.finish()
-  clock.step(0); current = 4; clock.step(4); assert.equal(displays.length, 1)
-  current = 5; clock.step(5); assert.equal(displays.length, 2)
+test('background, reduced-motion, and lag catch-up use the same bounded ordered batches', () => {
+  for (const [reason, options, firstFrame] of [
+    ['background', { isPageVisible: () => false }, 0],
+    ['reduced-motion', { reducedMotion: true }, 0],
+    ['queue-lag', { targetLagMs: 10 }, 1000],
+  ]) {
+    const clock = scheduler(); const displays = []; const batches = []; let previous = ''
+    const player = createGraphemePlayback({
+      ...options,
+      onDisplay(text) { displays.push(text); batches.push([...text].length - [...previous].length); previous = text },
+      requestFrame: clock.requestFrame,
+      cancelFrame: clock.cancelFrame,
+      now: () => 0,
+    })
+    player.push('x'.repeat(100)); player.finish()
+    let remaining = 100; let frame = firstFrame
+    while (clock.step(frame++)) {
+      const amount = batches.at(-1)
+      assert.ok(amount <= Math.min(8, Math.max(1, Math.ceil(remaining * 0.10))))
+      assert.ok(remaining <= 1 || amount < remaining, `${reason} drained ${remaining} graphemes in one callback`)
+      remaining -= amount
+    }
+    assert.ok(displays.length >= 10, `${reason} growth count: ${displays.length}`)
+    assert.equal(displays.at(-1), 'x'.repeat(100))
+    assert.equal(player.snapshot().modeReason, 'standard')
+    assert.equal(player.snapshot().maxBatchSize, 8)
+  }
 })
 
-test('inactive tab flushes all queued graphemes immediately', () => {
-  const clock = scheduler(); const displays = []
-  const player = createGraphemePlayback({ onDisplay: text => displays.push(text), isPageVisible: () => false, requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0 })
-  player.push('A👍🏽B'); player.finish(); clock.step(0)
-  assert.deepEqual(displays, ['A👍🏽B'])
-  assert.equal(player.snapshot().pendingCount, 0)
+test('background reason is observable and switching visible safely continues playback', () => {
+  const clock = scheduler(); let visible = false; const reasons = []
+  const player = createGraphemePlayback({
+    onDisplay: () => reasons.push(player.snapshot().modeReason),
+    isPageVisible: () => visible,
+    requestFrame: clock.requestFrame,
+    cancelFrame: clock.cancelFrame,
+    now: () => 0,
+  })
+  player.push('x'.repeat(30)); player.finish(); clock.step(0)
+  assert.equal(reasons.at(-1), 'background')
+  visible = true
+  while (clock.step(1000)) {}
+  assert.equal(player.snapshot().displayedText, 'x'.repeat(30))
+})
+
+test('next frame is not requested until the display commit boundary completes', () => {
+  const clock = scheduler(); const displays = []; const commits = []
+  const player = createGraphemePlayback({
+    onDisplay: text => displays.push(text),
+    afterDisplay: callback => commits.push(callback),
+    requestFrame: clock.requestFrame,
+    cancelFrame: clock.cancelFrame,
+    now: () => 0,
+  })
+  player.push('ABC'); player.finish(); clock.step(0)
+  assert.deepEqual(displays, ['A']); assert.equal(clock.size, 0); assert.equal(commits.length, 1)
+  player.push('D'); assert.equal(clock.size, 0)
+  commits.shift()(); assert.equal(clock.size, 1)
+  clock.step(25); assert.deepEqual(displays, ['A', 'AB']); assert.equal(clock.size, 0)
 })
 
 test('fallback segmentation keeps combining marks, flags, modifiers, and ZWJ emoji intact', () => {
@@ -117,7 +162,7 @@ test('fallback segmentation keeps combining marks, flags, modifiers, and ZWJ emo
   Intl.Segmenter = undefined
   try {
     const player = createGraphemePlayback({ onDisplay: text => displays.push(text), isPageVisible: () => false, requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => 0 })
-    player.push('e\u0301 🇺🇸 👍🏽 👨‍👩'); player.finish(); clock.step(0)
+    player.push('e\u0301 🇺🇸 👍🏽 👨‍👩'); player.finish(); while (clock.step(0)) {}
     assert.equal(displays.at(-1), 'é 🇺🇸 👍🏽 👨‍👩')
   } finally { Intl.Segmenter = original }
 })

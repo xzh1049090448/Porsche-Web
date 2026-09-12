@@ -584,14 +584,17 @@ test('compare completion keeps failed sibling partial only in the display overla
     await store.sendMessage('compare'); await waitFor(() => store.generationState?.status === 'completed')
     const assistant = store.getActive().messages.at(-1)
     const failedOverlay = assistant.replies['model-b']
-    assert.match(failedOverlay, /^failed secret partia/)
+    assert.ok(failedOverlay.length > 0)
+    assert.ok('failed secret partial'.startsWith(failedOverlay))
+    assert.ok(failedOverlay.length < 'failed secret partial'.length)
     assert.deepEqual(assistant.modelStates['model-b'], { status: 'failed', code: 'timeout' })
-    assert.equal(JSON.stringify(projectConversationForPersistence(store.getActive())).includes(failedOverlay), false)
-    assert.equal(JSON.stringify(projectConversationForPersistence(store.getActive())).includes('timeout'), false)
+    const persistedAssistant = projectConversationForPersistence(store.getActive()).messages.at(-1)
+    assert.deepEqual(persistedAssistant.models, ['model-a'])
+    assert.equal(Object.hasOwn(persistedAssistant.replies, 'model-b'), false)
+    assert.equal(JSON.stringify(persistedAssistant).includes('timeout'), false)
     await store.sendMessage('follow-up'); await waitFor(() => requestNumber === 2 && store.generationState?.status === 'completed')
-    assert.equal(JSON.stringify(bodies[1].messages).includes(failedOverlay), false)
+    assert.equal(bodies[1].messages.find(message => message.role === 'assistant')?.content, '__MULTI_MODEL__{"model-a":"authoritative success"}')
     assert.equal(JSON.stringify(bodies[1].messages).includes('timeout'), false)
-    assert.equal(JSON.stringify(bodies[1].messages).includes('authoritative success'), true)
   } finally { globalThis.document.visibilityState = undefined; globalThis.fetch = originalFetch }
 })
 
@@ -851,6 +854,7 @@ test('timed SSE deltas cross the reactive message boundary incrementally before 
     assert.ok(accepted.length >= 20, `accepted snapshots: ${accepted.length}`)
     assert.ok(rendered.length >= 10, `reactive message growth: ${rendered.length}`)
     assert.ok(rendered.every((value, index) => index === 0 || value.startsWith(rendered[index - 1])))
+    assert.ok(rendered.every((value, index) => index === 0 || value.length - rendered[index - 1].length === 1), `standard frame batches: ${rendered.map(value => value.length).join(',')}`)
     assert.equal(rendered.at(-1), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')
   } finally { stopWatch(); stopSubscription(); globalThis.document.visibilityState = undefined; globalThis.fetch = originalFetch }
 })

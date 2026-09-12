@@ -47,7 +47,7 @@ test('compare models remain independent and done drains playback', () => {
   assert.equal(g.snapshot().status, 'draining'); while (clock.step(1000)) {} assert.equal(g.snapshot().status, 'completed'); assert.equal(g.snapshot().models[0].displayedText, 'A'); assert.equal(g.snapshot().models[1].displayedText, 'B')
 })
 
-test('fake-clock generation snapshots grow at 30ms cadence and honor the 90ms punctuation pause', () => {
+test('fake-clock generation snapshots grow one grapheme per frame at a uniform 25ms cadence', () => {
   const clock = scheduler(); let now = 0; const displayed = []
   const g = createChatGeneration({ ...base(), onChange: snapshot => {
     const value = snapshot.models[0].displayedText
@@ -55,17 +55,32 @@ test('fake-clock generation snapshots grow at 30ms cadence and honor the 90ms pu
   }, playback: { requestFrame: clock.requestFrame, cancelFrame: clock.cancelFrame, now: () => now } })
   g.handleEvent(meta())
   now = 0; g.handleEvent(delta('model-a', 1, 'A'))
-  now = 35; g.handleEvent(delta('model-a', 2, '。')); clock.step(now)
-  now = 70; g.handleEvent(delta('model-a', 3, 'B')); clock.step(now)
+  now = 25; g.handleEvent(delta('model-a', 2, '。')); clock.step(now)
+  now = 50; g.handleEvent(delta('model-a', 3, 'B')); clock.step(now)
   assert.deepEqual(displayed, ['A', 'A。'])
-  now = 105; g.handleEvent(delta('model-a', 4, 'C')); clock.step(now)
-  assert.equal(displayed.at(-1), 'A。')
-  now = 160; clock.step(now)
+  now = 75; g.handleEvent(delta('model-a', 4, 'C')); clock.step(now)
   assert.equal(displayed.at(-1), 'A。B')
   g.handleEvent(modelDone('model-a', 4)); g.handleEvent(done())
-  now = 190; while (clock.step(now)) now += 30
+  now = 100; while (clock.step(now)) now += 25
   assert.deepEqual(displayed, ['A', 'A。', 'A。B', 'A。BC'])
   assert.equal(g.snapshot().status, 'completed')
+})
+
+test('generation waits for the display commit before requesting the next render frame', () => {
+  const clock = scheduler(); const commits = []; const displayed = []
+  const g = createChatGeneration({ ...base(), onChange: snapshot => {
+    const value = snapshot.models[0].displayedText
+    if (value && value !== displayed.at(-1)) displayed.push(value)
+  }, playback: {
+    requestFrame: clock.requestFrame,
+    cancelFrame: clock.cancelFrame,
+    now: () => 0,
+    afterDisplay: callback => commits.push(callback),
+  } })
+  g.handleEvent(meta()); g.handleEvent(delta('model-a', 1, 'ABC')); g.handleEvent(modelDone('model-a', 1)); g.handleEvent(done())
+  clock.step(0)
+  assert.deepEqual(displayed, ['A']); assert.equal(clock.size, 0)
+  commits.shift()(); assert.equal(clock.size, 1)
 })
 
 test('EOF and transport errors fail closed, never success', () => {
