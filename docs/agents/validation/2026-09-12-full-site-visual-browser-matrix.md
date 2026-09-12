@@ -46,7 +46,7 @@ Total: **126/126 PASS**. Browser event collection returned `consoleErrors=[]` an
 - API Keys/Profile focused probe passed at 1440px and 390px: table/card overflow, creation drawer, one-time secret dialog focus, copy stub, close cleanup, no secret persistence, profile forms, session table and revoke controls. No real token or session mutation occurred.
 - Public model/pricing administration focused probe passed at 1440px and 390px: responsive tables, missing-model surface, creation dialog focus and Escape close, immutable identifiers, nullable price display, release history and password autocomplete.
 - Public pricing state probe observed a visible loading surface and a synthetic HTTP 503 retry/error surface at 375px with zero overflow. The deliberately injected browser resource error was classified as expected; unexpected console and page errors remained empty.
-- Empty states were observed for chat history/catalog, billing plans/orders, token lists, resolved notifications and other zero-item responses in the main matrix.
+- Empty states were observed for chat history/catalog, billing plans/orders, token lists and resolved notifications in the main matrix.
 - Representative screenshots cover home, login, chat and public-content administration at 375px and 1440px in both themes (16 files).
 
 ## Explicit skips and boundaries
@@ -54,10 +54,11 @@ Total: **126/126 PASS**. Browser event collection returned `consoleErrors=[]` an
 | State | Result | Reason |
 | --- | --- | --- |
 | Live production content and prices | SKIP | P08 production content remains pending; Task11 used synthetic published documents and pricing. |
+| Public pricing empty (`/pricing`, state `empty`) | SKIP | The independent empty-state probe did not stably prove the empty surface and instead reached the unavailable surface. This probe is not included in the 126/126 published-state PASS and does not change the separately proven loading and synthetic 503 results. |
 | Live authenticated account data | SKIP | No real credentials or user data were permitted. |
 | Live writes: registration, billing purchase/payment, token creation/revoke, profile/session mutation, user/admin mutations, publish/restore/read/acknowledge | SKIP | Dangerous and externally visible writes were intentionally not executed; browser interactions used local synthetic fixtures and copy stubs only. |
 | Real upstream chat generation and paid streaming | SKIP | Existing BE06 synthetic lifecycle evidence remains separate; no upstream or paid request was authorized here. |
-| Public 410/authenticated-only/live 503 backend variants across every viewport-theme pair | SKIP | The matrix covered representative synthetic ready, empty, loading, 404 and 503 states; live service variants require a dedicated acceptance environment. |
+| Public 410/authenticated-only/live 503 backend variants across every viewport-theme pair | SKIP | The matrix covered representative synthetic ready, loading, 404 and 503 states; live service variants require a dedicated acceptance environment. |
 | Exhaustive `en` copy matrix | SKIP | Every case records `zh-CN`; language toggles were present, but a second 126-case copy matrix was outside this Task11 minimum. |
 
 No concrete production visual or accessibility defect was reproduced, so no production file or focused TDD repair was required.
