@@ -6,7 +6,7 @@
 
     <MobileDrawer v-model:show="showConfig" position="right" :title="t('chat.modelConfig')">
       <el-scrollbar class="config-drawer-scroll">
-        <ModelPanel />
+        <ModelPanel :disabled="bootstrapping" />
       </el-scrollbar>
     </MobileDrawer>
 
@@ -56,8 +56,14 @@
       </div>
 
       <ChatMessageList class="chat-messages" />
-      <el-button v-if="chatStore.streaming" @click="chatStore.cancelStream()">停止接收（已产生的用量仍可能计费）</el-button>
-      <ChatInput :mobile="isTablet" @send="onSend" />
+      <GenerationStatus />
+      <div v-if="bootError" class="boot-error" role="status" aria-live="assertive">
+        <span>{{ t('chat.initializationFailed') }}</span>
+        <button type="button" class="boot-retry" :disabled="initializing" @click="initializeChat">
+          {{ t(initializing ? 'chat.retryingInitialization' : 'chat.retryInitialization') }}
+        </button>
+      </div>
+      <ChatInput :mobile="isTablet" :disabled="bootstrapping" @send="onSend" />
     </div>
 
     <aside class="chat-config-wrap desktop-only" :class="{ collapsed: configCollapsed }">
@@ -76,7 +82,7 @@
         </div>
         <div class="panel-body">
           <el-scrollbar>
-            <ModelPanel />
+            <ModelPanel :disabled="bootstrapping" />
           </el-scrollbar>
         </div>
       </template>
@@ -86,11 +92,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { Menu, Setting, DArrowLeft, DArrowRight } from '@element-plus/icons-vue'
 import ChatSidebar from '@/components/chat/ChatSidebar.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
+import GenerationStatus from '@/components/chat/GenerationStatus.vue'
 import ModelPanel from '@/components/chat/ModelPanel.vue'
 import MobileDrawer from '@/components/mobile/MobileDrawer.vue'
 import { USE_MOCK } from '@/api/request'
@@ -100,11 +107,15 @@ import { useBreakpoint } from '@/composables/useBreakpoint'
 import { getItem, setItem } from '@/utils/storage'
 
 import { useI18n } from '@/composables/useI18n'
+import { validateGenerationSelection } from '@/components/chat/generation-ui'
 
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const showSidebar = ref(false)
 const showConfig = ref(false)
+const bootstrapping = ref(true)
+const initializing = ref(false)
+const bootError = ref(false)
 const { isTablet } = useBreakpoint()
 const { t } = useI18n()
 
@@ -128,16 +139,51 @@ function toggleConfig() {
   setItem('chatConfigCollapsed', configCollapsed.value)
 }
 
-onMounted(async () => {
-  await settingsStore.loadModels()
-  if (!USE_MOCK) {
-    await chatStore.fetchConversations()
+let disposed = false
+let bootRevision = 0
+
+async function initializeChat() {
+  if (disposed || initializing.value) return false
+  const revision = ++bootRevision
+  const current = () => !disposed && revision === bootRevision
+  initializing.value = true
+  bootstrapping.value = true
+  try {
+    await settingsStore.loadModels()
+    if (!current()) return false
+    if (!settingsStore.modelsLoaded) throw new Error('catalog_unavailable')
+    if (!USE_MOCK) {
+      await chatStore.fetchConversations()
+      if (!current()) return false
+    }
+    await chatStore.resumePendingGeneration()
+    if (!current()) return false
+    await chatStore.ensureActive()
+    if (!current()) return false
+    bootError.value = false
+    bootstrapping.value = false
+    return true
+  } catch {
+    if (current()) bootError.value = true
+    return false
+  } finally {
+    if (current()) initializing.value = false
   }
-  await chatStore.ensureActive()
+}
+
+onMounted(() => { void initializeChat() })
+
+onBeforeUnmount(() => {
+  disposed = true
+  bootRevision += 1
+  chatStore.detachGenerationView()
 })
 
 function onSend(content, images) {
-  chatStore.sendMessage(content, images)
+  if (bootstrapping.value || chatStore.streaming) return
+  const selection = validateGenerationSelection(settingsStore)
+  if (!selection.valid) return
+  void chatStore.sendMessage(content, images)
 }
 </script>
 
@@ -145,6 +191,31 @@ function onSend(content, images) {
 .chat-root {
   height: 100%;
   overflow: hidden;
+}
+
+.boot-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px 16px;
+  color: var(--danger);
+  background: var(--sidebar-bg);
+}
+
+.boot-retry {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.boot-retry:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .chat-page {

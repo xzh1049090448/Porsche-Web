@@ -41,6 +41,7 @@ export function isSafeAuthRead(url = '', method = 'GET') {
     /^\/api\/v1\/users\/me(?:\/usage)?$/,
     /^\/api\/v1\/auth\/(?:self|sessions)$/,
     /^\/api\/v1\/platform\/models(?:\/[^/]+)?$/,
+    /^\/api\/v1\/platform\/chat\/generations\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     /^\/api\/v1\/conversations(?:\/[^/]+(?:\/export\/markdown)?)?$/,
     /^\/api\/v1\/billing\/(?:plans|usage|orders|invoices)(?:\/[^/]+)?$/,
     /^\/api\/v1\/billing\/analytics\/(?:access|summary|models|export|charts\/[^/]+)$/,

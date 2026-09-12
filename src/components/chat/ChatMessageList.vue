@@ -1,5 +1,6 @@
 <template>
-  <div ref="listRef" class="message-list" @scroll="onListScroll">
+  <div class="message-list-shell">
+    <div ref="listRef" class="message-list" @scroll="onListScroll">
     <div v-if="!messages.length" class="welcome">
       <h2>{{ t('chat.welcomeTitle') }}</h2>
       <p>{{ t('chat.welcomeDesc') }}</p>
@@ -14,7 +15,20 @@
       <el-avatar :size="36" :class="msg.role">
         {{ msg.role === 'user' ? t('chat.userAvatar') : t('chat.aiAvatar') }}
       </el-avatar>
-      <div class="bubble" :class="{ 'multi-bubble': msg.multiModel }">
+      <div v-if="isEmptyTerminalAttempt(msg)" class="attempt-failure" role="status" aria-live="polite">
+        <p class="reply-error">{{ t(attemptFailureKey(msg)) }}</p>
+        <button
+          v-if="canRetryAttempt(msg)"
+          type="button"
+          class="regenerate-button"
+          :disabled="retryingAttempt === msg.localKey"
+          :aria-label="t('chat.regenerate')"
+          @click="retryAttempt(msg)"
+        >
+          {{ t(retryingAttempt === msg.localKey ? 'chat.regenerating' : 'chat.regenerate') }}
+        </button>
+      </div>
+      <div v-else class="bubble" :class="{ 'multi-bubble': msg.multiModel }">
         <div v-if="msg.images?.length" class="msg-images">
           <el-image
             v-for="(img, i) in msg.images"
@@ -30,7 +44,8 @@
           <div v-for="m in modelsForMessage(msg)" :key="m.id" class="reply-col">
             <div class="reply-header">
               <span class="model-icon">{{ m.icon }}</span>
-              {{ m.name }}
+              <span class="reply-model-name">{{ m.name }}</span>
+              <span class="reply-state">{{ t(`chat.generationStates.${modelReplyPresentation(msg, m.id).status}`) }}</span>
             </div>
             <div class="reply-body">
               <div v-if="isMultiModelWaiting(msg, m.id)" class="reply-loading">
@@ -41,15 +56,34 @@
               </div>
               <template v-else>
                 <MarkdownContent
-                  :content="replyFor(msg, m.id)"
+                  :content="modelReplyPresentation(msg, m.id).content"
                   :streaming="isMultiModelStreaming(msg, m.id)"
                 />
                 <span v-if="isMultiModelStreaming(msg, m.id)" class="cursor">|</span>
+                <p
+                  v-if="modelReplyPresentation(msg, m.id).errorKey"
+                  class="reply-error"
+                  role="status"
+                >
+                  {{ t(modelReplyPresentation(msg, m.id).errorKey) }}
+                </p>
+                <p
+                  v-if="modelReplyPresentation(msg, m.id).viewOnly"
+                  class="reply-view-only-warning"
+                  role="note"
+                >
+                  {{ t('chat.viewOnlyPartial') }}
+                </p>
               </template>
             </div>
-            <div v-if="replyFor(msg, m.id)" class="col-actions">
-              <el-button text size="small" :icon="CopyDocument" @click="copy(msg.replies[m.id])">
-                {{ t('chat.copy') }}
+            <div v-if="canCopyGenerationMessage(msg, replyFor(msg, m.id))" class="col-actions">
+              <el-button
+                text size="small" :icon="CopyDocument"
+                :loading="copyingKey === copyKey(msg, m.id)"
+                :disabled="copyingKey !== null"
+                @click="copy(msg.replies[m.id], copyKey(msg, m.id))"
+              >
+                {{ t(copyingKey === copyKey(msg, m.id) ? 'chat.copying' : 'chat.copy') }}
               </el-button>
             </div>
           </div>
@@ -74,29 +108,57 @@
               />
               <span v-else class="plain-text">{{ msg.content }}</span>
               <span v-if="streamingLast(msg) && msg.content" class="cursor">|</span>
+              <p v-if="singleErrorKey(msg)" class="reply-error" role="status">
+                {{ t(singleErrorKey(msg)) }}
+              </p>
             </template>
           </div>
-          <div v-if="msg.role === 'assistant' && msg.content" class="msg-actions">
+          <div v-if="canCopyGenerationMessage(msg)" class="msg-actions">
             <span v-if="msg.tokens" class="msg-tokens">{{ t('chat.tokens', { count: formatTokens(msg.tokens) }) }}</span>
-            <el-button text size="small" :icon="CopyDocument" @click="copy(msg.content)">
-              {{ t('chat.copy') }}
+            <el-button
+              text size="small" :icon="CopyDocument"
+              :loading="copyingKey === copyKey(msg)"
+              :disabled="copyingKey !== null"
+              @click="copy(msg.content, copyKey(msg))"
+            >
+              {{ t(copyingKey === copyKey(msg) ? 'chat.copying' : 'chat.copy') }}
             </el-button>
           </div>
         </template>
 
+        <p
+          v-if="showViewOnlyWarning(msg)"
+          class="view-only-warning"
+          role="note"
+        >
+          {{ t('chat.viewOnlyPartial') }}
+        </p>
+
       </div>
     </div>
+    </div>
+    <button
+      v-if="!stickToBottom"
+      type="button"
+      class="back-to-latest"
+      :aria-label="t('chat.backToLatest')"
+      @click="scrollToBottom(true)"
+    >
+      {{ t('chat.backToLatest') }}
+    </button>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import { CopyDocument } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import MarkdownContent from '@/components/chat/MarkdownContent.vue'
 import { useI18n } from '@/composables/useI18n'
+import { canCopyGenerationMessage, canRetryGenerationMessage, generationErrorMessageKey, modelReplyPresentation } from '@/components/chat/generation-ui'
+import { copyText } from '@/utils/clipboard'
 
 const chatStore = useChatStore()
 const settings = useSettingsStore()
@@ -104,14 +166,17 @@ const { t } = useI18n()
 const listRef = ref()
 /** 用户未主动上滑时跟随流式输出滚到底部 */
 const stickToBottom = ref(true)
+const retryingAttempt = ref(null)
+const copyingKey = ref(null)
+let copyOperation = null
+let disposed = false
 const SCROLL_BOTTOM_THRESHOLD = 80
 
 const messages = computed(() => chatStore.getActive()?.messages || [])
 
 function modelsForMessage(msg) {
   return (msg.models || [])
-    .map((id) => settings.models.find((m) => m.id === id))
-    .filter(Boolean)
+    .map((id) => settings.models.find((m) => m.id === id) || { id, name: id, icon: 'AI' })
 }
 
 function isLastMessage(msg) {
@@ -128,24 +193,65 @@ function streamingLast(msg) {
 }
 
 function replyFor(msg, modelId) {
-  return msg.replies?.[modelId] ?? ''
+  return modelReplyPresentation(msg, modelId).content
+}
+
+function showViewOnlyWarning(msg) {
+  if (msg.role !== 'assistant' || msg.viewOnly !== true) return false
+  if (msg.multiModel) return false
+  return ['failed', 'cancelled'].includes(msg.generationStatus)
+}
+
+function hasVisibleContent(msg) {
+  if (msg.multiModel) return Object.values(msg.replies || {}).some(content => typeof content === 'string' && content.length > 0)
+  return typeof msg.content === 'string' && msg.content.length > 0
+}
+
+function isEmptyTerminalAttempt(msg) {
+  return msg.role === 'assistant' && ['failed', 'cancelled'].includes(msg.generationStatus) && !hasVisibleContent(msg)
+}
+
+function attemptFailureKey(msg) {
+  return generationErrorMessageKey(msg.generationStatus === 'cancelled' ? 'cancelled' : msg.errorCode)
+}
+
+function canRetryAttempt(msg) {
+  return canRetryGenerationMessage(msg, chatStore.generationState, isLastMessage(msg))
+}
+
+async function retryAttempt(msg) {
+  if (retryingAttempt.value || !canRetryAttempt(msg)) return
+  retryingAttempt.value = msg.localKey
+  try {
+    await chatStore.retryGenerationAttempt()
+  } finally {
+    if (retryingAttempt.value === msg.localKey) retryingAttempt.value = null
+  }
+}
+
+function singleErrorKey(msg) {
+  return msg.role === 'assistant' && msg.generationStatus === 'failed' ? generationErrorMessageKey(msg.errorCode) : null
 }
 
 function isMultiModelWaiting(msg, modelId) {
+  const reply = modelReplyPresentation(msg, modelId)
   return (
     chatStore.streaming &&
     isLastMessage(msg) &&
     msg.multiModel &&
-    replyFor(msg, modelId).length === 0
+    ['waiting', 'receiving', 'draining', 'recovering'].includes(reply.status) &&
+    reply.content.length === 0
   )
 }
 
 function isMultiModelStreaming(msg, modelId) {
+  const reply = modelReplyPresentation(msg, modelId)
   return (
     chatStore.streaming &&
     isLastMessage(msg) &&
     msg.multiModel &&
-    replyFor(msg, modelId).length > 0
+    ['waiting', 'receiving', 'draining', 'recovering'].includes(reply.status) &&
+    reply.content.length > 0
   )
 }
 
@@ -153,10 +259,41 @@ function formatTokens(n) {
   return Number(n || 0).toLocaleString()
 }
 
-function copy(text) {
-  navigator.clipboard.writeText(text)
-  ElMessage.success(t('chat.copied'))
+function copyKey(message, modelId = 'single') {
+  return `${message.guid || message.localKey || 'message'}:${modelId}`
 }
+
+async function copy(text, key) {
+  if (copyOperation) return
+  const operation = { key, controller: new AbortController() }
+  copyOperation = operation
+  copyingKey.value = key
+  try {
+    const copied = await copyText(text, {
+      navigator: globalThis.navigator,
+      document: globalThis.document,
+      container: listRef.value,
+      signal: operation.controller.signal,
+    })
+    if (disposed || operation.controller.signal.aborted || copyOperation !== operation) return
+    if (copied) ElMessage.success(t('chat.copied'))
+    else ElMessage.warning(t('chat.copyFailed'))
+  } catch (error) {
+    if (disposed || operation.controller.signal.aborted || copyOperation !== operation || error?.name === 'AbortError') return
+    ElMessage.warning(t('chat.copyFailed'))
+  } finally {
+    if (!disposed && copyOperation === operation) {
+      copyOperation = null
+      copyingKey.value = null
+    }
+  }
+}
+
+onBeforeUnmount(() => {
+  disposed = true
+  copyOperation?.controller.abort()
+  copyOperation = null
+})
 
 function isNearBottom(el) {
   if (!el) return true
@@ -183,7 +320,7 @@ watch(
   () => chatStore.streaming,
   (streaming, prev) => {
     if (streaming && !prev) {
-      stickToBottom.value = true
+      stickToBottom.value = isNearBottom(listRef.value)
     }
   }
 )
@@ -208,12 +345,38 @@ watch(
 </script>
 
 <style scoped lang="scss">
-.message-list {
+.message-list-shell {
+  position: relative;
   flex: 1;
   min-height: 0;
+}
+
+.message-list {
+  height: 100%;
+  box-sizing: border-box;
   overflow-y: auto;
   padding: 24px;
   background: var(--app-bg);
+}
+
+.back-to-latest {
+  position: absolute;
+  right: 24px;
+  bottom: 18px;
+  z-index: 2;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--component-bg);
+  color: var(--text-primary);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 14%);
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 }
 
 .welcome {
@@ -408,6 +571,63 @@ watch(
   gap: 6px;
 }
 
+.reply-model-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reply-state {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.reply-error,
+.reply-view-only-warning,
+.view-only-warning {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.reply-view-only-warning,
+.view-only-warning {
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.attempt-failure {
+  max-width: min(720px, 85%);
+  padding: 12px 16px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: var(--component-bg);
+}
+
+.attempt-failure .reply-error {
+  margin-top: 0;
+}
+
+.regenerate-button {
+  min-height: 34px;
+  margin-top: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+
+  &:disabled {
+    color: var(--text-disabled);
+    cursor: not-allowed;
+  }
+}
+
 .model-icon {
   width: 20px;
   height: 20px;
@@ -436,6 +656,11 @@ watch(
 @media (max-width: 768px) {
   .message-list {
     padding: 12px 12px 8px;
+  }
+
+  .back-to-latest {
+    right: 12px;
+    bottom: 12px;
   }
 
   .welcome {
@@ -470,6 +695,13 @@ watch(
   .msg-images .thumb {
     width: 100px;
     height: 72px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor,
+  .loading-dots i {
+    animation: none;
   }
 }
 

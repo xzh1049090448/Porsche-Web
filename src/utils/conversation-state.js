@@ -13,7 +13,10 @@ export function upsertConversationByGuid(conversations, conversation) {
   const next = applyConversationGuid(conversation, guid)
   const index = conversations.findIndex((item) => item.guid === guid)
   if (index < 0) return [next, ...conversations]
-  return conversations.map((item, itemIndex) => (itemIndex === index ? next : item))
+  return conversations.flatMap((item, itemIndex) => {
+    if (item.guid !== guid) return [item]
+    return itemIndex === index ? [next] : []
+  })
 }
 
 /** Removes one conversation using its opaque business GUID. */

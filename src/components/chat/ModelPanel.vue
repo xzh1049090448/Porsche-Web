@@ -31,7 +31,7 @@
         class="model-item"
         :class="{ active: settings.selectedModelId === m.id }"
         :aria-checked="settings.selectedModelId === m.id"
-        :disabled="settings.compareMode"
+        :disabled="disabled || settings.compareMode || chatStore.streaming"
         @click="onSingleModelChange(m.id)"
       >
         <span class="model-icon">{{ m.icon }}</span>
@@ -60,6 +60,7 @@
         type="button"
         class="scenario-btn"
         :class="{ active: settings.selectedScenarioId === s.id }"
+        :disabled="disabled || chatStore.streaming"
         @click="settings.setScenario(s.id)"
       >
         <span class="scenario-name">{{ s.name }}</span>
@@ -67,22 +68,35 @@
       </button>
     </div>
 
-    <template v-if="settings.models.length > 1">
+    <template v-if="settings.models.length > 1 || settings.compareMode">
       <el-divider />
       <div class="compare-section">
         <div class="compare-header">
           <div class="panel-subtitle">{{ t('model.compare') }}</div>
           <el-switch
             :model-value="settings.compareMode"
+            :disabled="disabled || chatStore.streaming"
             @change="settings.setCompareMode"
           />
         </div>
         <template v-if="settings.compareMode">
           <p class="hint">{{ t('model.compareHint') }}</p>
+          <p
+            id="compare-model-validation"
+            class="compare-validation"
+            :class="{ 'is-error': !compareValidation.valid }"
+            role="status"
+            aria-live="polite"
+          >
+            {{ compareValidationText }}
+          </p>
           <el-checkbox-group
             v-if="filteredModels.length"
             :model-value="settings.compareModelIds"
             class="compare-grid"
+            :disabled="disabled || chatStore.streaming"
+            :aria-invalid="!compareValidation.valid"
+            aria-describedby="compare-model-validation"
             @change="onCompareModelsChange"
           >
             <el-checkbox
@@ -90,6 +104,7 @@
               :key="m.id"
               :value="m.id"
               class="compare-check"
+              :disabled="disabled || chatStore.streaming || (!settings.compareModelIds.includes(m.id) && settings.compareModelIds.length >= 3)"
             >
               <span class="model-icon sm">{{ m.icon }}</span>
               <span class="model-name">{{ m.name }}</span>
@@ -111,9 +126,15 @@ import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Cpu } from '@element-plus/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
+import { useChatStore } from '@/stores/chat'
 import { SCENARIO_PRESETS } from '@/constants/scenario-presets'
 import { useI18n } from '@/composables/useI18n'
 import { filterModels } from '@/utils/model-search'
+import { validateGenerationSelection } from '@/components/chat/generation-ui'
+
+defineProps({
+  disabled: { type: Boolean, default: false },
+})
 
 const MODEL_TYPE_TAGS = {
   chat: { color: 'var(--tag-chat)' },
@@ -121,9 +142,21 @@ const MODEL_TYPE_TAGS = {
 }
 
 const settings = useSettingsStore()
+const chatStore = useChatStore()
 const { t } = useI18n()
 const searchTerm = ref('')
 const filteredModels = computed(() => filterModels(settings.models, searchTerm.value))
+const compareValidation = computed(() => validateGenerationSelection(settings))
+const compareValidationText = computed(() => compareValidation.value.valid
+  ? t('model.compareValid', { count: compareValidation.value.models.length })
+  : t(selectionMessageKey(compareValidation.value.code)))
+
+function selectionMessageKey(code) {
+  if (code === 'compare_duplicate') return 'model.compareDuplicate'
+  if (code === 'compare_cardinality') return 'model.compareCardinality'
+  if (code === 'invalid_model') return 'model.invalidModel'
+  return 'model.invalidSelection'
+}
 
 const localizedScenarios = computed(() =>
   SCENARIO_PRESETS.map((s) => ({
@@ -153,11 +186,12 @@ function onSingleModelChange(id) {
 }
 
 function onCompareModelsChange(ids) {
-  if (!ids.length) {
-    ElMessage.warning(t('model.compareMin'))
+  const validation = validateGenerationSelection({ ...settings, compareMode: true, compareModelIds: ids })
+  if (!validation.valid) {
+    ElMessage.warning(t(selectionMessageKey(validation.code)))
     return
   }
-  settings.setCompareModelIds(ids)
+  settings.setCompareModelIds(validation.models)
 }
 </script>
 
@@ -374,6 +408,17 @@ function onCompareModelsChange(ids) {
   color: var(--text-secondary);
   margin: 0 0 8px;
   line-height: 18px;
+}
+
+.compare-validation {
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+
+  &.is-error {
+    color: var(--danger);
+  }
 }
 
 .compare-grid {

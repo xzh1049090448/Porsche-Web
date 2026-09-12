@@ -29,3 +29,11 @@ test('conversation state rejects numeric or blank identifiers', () => {
   assert.deepEqual(removeConversationByGuid([{ guid: 'ok' }], '  '), [{ guid: 'ok' }])
   assert.equal(applyConversationGuid({ guid: 'ok' }, 903496573054181376).guid, 'ok')
 })
+
+test('conversation upsert collapses duplicate matching GUIDs around the authoritative object', () => {
+  const duplicate = [{ guid: GUID, title: 'stale-a' }, { guid: 'other', title: 'other' }, { guid: GUID, title: 'stale-b' }]
+  const authoritative = { guid: GUID, title: 'authoritative', messages: [] }
+  const result = upsertConversationByGuid(duplicate, authoritative)
+  assert.deepEqual(result.map(item => item.guid), [GUID, 'other'])
+  assert.equal(result[0].title, 'authoritative')
+})

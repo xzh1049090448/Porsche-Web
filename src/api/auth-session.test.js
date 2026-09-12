@@ -18,21 +18,24 @@ test('session user whitelist excludes server-only and unexpected fields', () => 
 })
 
 test('SSE, conversation export, and analytics native requests use the shared authenticated fetch path', async () => {
-  const [platform, conversations, analytics] = await Promise.all([
+  const [platform, generation, conversations, analytics] = await Promise.all([
     readFile(new URL('./platform.js', import.meta.url), 'utf8'),
+    readFile(new URL('./platform-generation.js', import.meta.url), 'utf8'),
     readFile(new URL('./conversations.js', import.meta.url), 'utf8'),
     readFile(new URL('./modelAnalytics.js', import.meta.url), 'utf8'),
   ])
 
-  assert.equal((platform.match(/authenticatedFetch\(/g) || []).length, 2)
-  assert.match(platform, /chat\/completions/)
-  assert.match(platform, /chat\/compare/)
+  assert.match(platform, /streamPlatformGeneration/)
+  assert.match(platform, /streamPlatformCompareGeneration/)
+  assert.match(generation, /import \{ authenticatedFetch \}/)
+  assert.match(generation, /chat\/\$\{compare \? 'compare' : 'completions'\}/)
+  assert.match(generation, /authenticatedFetchImpl/)
   assert.match(conversations, /authenticatedFetch\(/)
   assert.match(conversations, /export\/markdown/)
   assert.equal((analytics.match(/authenticatedFetch\(/g) || []).length, 2)
   assert.match(analytics, /\/access/)
   assert.match(analytics, /\/export/)
-  for (const source of [platform, conversations, analytics]) {
+  for (const source of [platform, generation, conversations, analytics]) {
     assert.doesNotMatch(source, /getAuthToken\(/)
   }
 })
