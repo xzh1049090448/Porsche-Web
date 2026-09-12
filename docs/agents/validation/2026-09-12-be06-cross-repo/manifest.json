@@ -1,0 +1,112 @@
+{
+  "schema": "be06-cross-repository-local-acceptance-v1",
+  "recorded_date": "2026-09-12",
+  "scope": "BE06 platform-chat-sse.v2 local cross-repository implementation and acceptance",
+  "verdict": "PASS_LOCAL_CROSS_REPOSITORY",
+  "revisions": {
+    "frontend_pre_evidence": "0c8db0eb80d77d0c827c03f0f6111b8511724055",
+    "backend": "4680c549bd28f8be57a438061cf9161914c046a0"
+  },
+  "contract": {
+    "path": "interface-contract.json",
+    "version": "v1.0.0-p0",
+    "status": "agreed_for_implementation",
+    "protocol": "platform-chat-sse.v2",
+    "protocol_status": "closed",
+    "sha256": "47cfbc485c4df0f5d2c12539f389f466c97bb8318adf04966757420287d10a2f"
+  },
+  "verification": {
+    "backend": {
+      "no_fixture_full": {
+        "command": "go test ./...",
+        "result": "PASS"
+      },
+      "build": {
+        "command": "go build ./...",
+        "result": "PASS"
+      },
+      "vet": {
+        "command": "go vet ./...",
+        "result": "PASS"
+      },
+      "affected_race": {
+        "command": "go test -race -p 1 ./internal/service ./internal/handler ./internal/app ./internal/router",
+        "result": "PASS"
+      },
+      "disposable_fixture": {
+        "environment": "loopback-only MySQL 8.4 and Redis 7.4",
+        "normal": "8/8 PASS",
+        "race_p1": "8/8 PASS",
+        "skips": 0,
+        "coverage": [
+          "two-and-three-model compare",
+          "partial sibling failure",
+          "disconnect followed by owner-bound GET",
+          "authoritative cancellation",
+          "lease renewal",
+          "commit-unknown reconciliation",
+          "quota boundaries",
+          "duplicate and quota races"
+        ]
+      }
+    },
+    "frontend": {
+      "full_suite": {
+        "command": "VITE_USE_MOCK=false with A03_BACKEND_CONTRACT, A05_BACKEND_CONTRACT, A06_BACKEND_CONTRACT, A08_BACKEND_CONTRACT, A14_BACKEND_CONTRACT, and PUBLIC_PRICING_BACKEND_CONTRACT set to authoritative backend contract files; npm test",
+        "result": "922/922 PASS",
+        "skips": 0
+      },
+      "production_build": {
+        "command": "VITE_USE_MOCK=false npm run build",
+        "result": "PASS"
+      },
+      "initialization": {
+        "command": "VITE_USE_MOCK=false ./init.sh",
+        "result": "PASS"
+      }
+    },
+    "controlled_browser": {
+      "environment": "local production build with synthetic backend and upstream responses",
+      "result": "PASS",
+      "matrix": {
+        "single_lifecycle": "PASS",
+        "timed_incremental_growth": "PASS; final visible length 52",
+        "reduced_motion_growth": "PASS; final visible length 61",
+        "focus_preservation": "PASS",
+        "scroll_preservation": "PASS; observed scroll position 745",
+        "illegal_meta": "PASS; fail-closed, new generation UUID, zero recovery GET",
+        "authoritative_cancel": "PASS; displayed prefix remains view-only",
+        "compare_three_models": "PASS; successful siblings remain visible after one sibling failure",
+        "disconnect_recovery": "PASS; one generation POST and three owner-bound GET requests",
+        "duplicate_suppression": "PASS; duplicate content rendered once",
+        "malformed_sensitive_payload": "PASS; sensitive value not rendered",
+        "ime_composition": "PASS",
+        "viewport_375": "PASS",
+        "viewport_390": "PASS",
+        "unmount_cleanup": "PASS"
+      }
+    }
+  },
+  "independent_verdict": "PASS",
+  "cleanup": {
+    "result": "PASS",
+    "removed": {
+      "containers": 2,
+      "volumes": 2,
+      "networks": 1
+    },
+    "loopback_listeners_remaining": 0
+  },
+  "skips": 0,
+  "not_run": [
+    "real account mutation",
+    "paid or real upstream generation",
+    "production migration",
+    "production deployment",
+    "public HTTPS acceptance",
+    "push",
+    "pull request",
+    "merge"
+  ],
+  "release_boundary": "Local cross-repository BE06 acceptance is complete. Production and external release acceptance remain pending separate authorization."
+}

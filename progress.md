@@ -1,5 +1,12 @@
 # 当前验证进度
 
+## 2026-09-12：BE06 platform-chat-sse.v2 本地跨仓库验收通过
+
+- 前端候选 `0c8db0eb80d77d0c827c03f0f6111b8511724055` 绑定后端 `4680c549bd28f8be57a438061cf9161914c046a0`；`interface-contract.json` 为 `v1.0.0-p0` / `agreed_for_implementation`，`platform-chat-sse.v2` 为 `closed`，SHA-256 为 `47cfbc485c4df0f5d2c12539f389f466c97bb8318adf04966757420287d10a2f`。
+- 前端六份后端合同显式注入的全量 Node 测试 `922/922`、0 skip，`VITE_USE_MOCK=false` 生产构建与 `init.sh` PASS。后端 fresh `go test ./...`、build、vet、affected race PASS；隔离 loopback-only MySQL 8.4 / Redis 7.4 的八个 BE06 compare integration 在 normal 与 `race -p 1` 均为 `8/8` PASS、0 skip。
+- 本地 production synthetic 浏览器矩阵覆盖单模型生命周期、定时与 reduced-motion 字符簇增长、焦点、滚动、非法 meta fail-closed、权威取消及 view-only 前缀、三模型与兄弟失败、断流 `1 POST + 3 GET`、重复抑制、畸形敏感值不渲染、IME、375/390 和 unmount，全部 PASS；独立最终 verdict 为 PASS。
+- 隔离 fixture 已精确清理 2 个容器、2 个卷、1 个网络及 loopback listener。`web-013` 仅标记 BE06 本地跨仓库范围为 `passing`；真实账号、付费或真实上游、生产 migration/deploy、公开 HTTPS、push、PR、merge 均未运行。证据见 `docs/agents/validation/2026-09-12-be06-cross-repo/manifest.json`。
+
 ## 2026-09-11：公共内容与定价分支同步主分支
 
 - `feature/public-content-pricing` 已语义合并最新 `origin/main`，公共页面路由与 Root 定价管理保留，并兼容主分支新增的开发环境金额演示路由。

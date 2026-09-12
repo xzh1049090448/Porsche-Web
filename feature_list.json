@@ -1,6 +1,6 @@
 {
   "project": "Porsche-Web（大模型聚合平台用户端前端）",
-  "last_updated": "2026-09-11",
+  "last_updated": "2026-09-12",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -140,6 +140,30 @@
         "backend_project_manager_confirmation": "NOT_OBTAINED",
         "scope_boundary": "A09/A10 only development CNY Mock; A11 proves production isolation; A12 is current-candidate revalidation of the existing soft-delete slice. No production or real money capability was run."
       }
+    },
+    {
+      "id": "web-013",
+      "priority": 0,
+      "area": "llm-platform",
+      "title": "BE06：可恢复、可取消的 platform-chat-sse.v2 对话流",
+      "user_visible_behavior": "单模型或 2–3 模型对比生成按字符簇渐进显示；断流后只通过 owner-bound GET 恢复，停止按钮执行服务端取消，失败兄弟不隐藏成功输出。",
+      "status": "passing",
+      "phase": "local_cross_repository_pass_pending_release_acceptance",
+      "verification": [
+        "冻结 platform-chat-sse.v2 合同及 GET/cancel/no-replay 边界",
+        "前端六份后端合同显式注入的全量 Node 测试 922/922、0 skip",
+        "VITE_USE_MOCK=false 生产构建与 init.sh",
+        "后端无 fixture 全量、build、vet 与 affected race",
+        "MySQL 8.4 / Redis 7.4 隔离 fixture：normal 8/8、race -p 1 8/8、0 skip",
+        "本地 production synthetic 浏览器生命周期、恢复、取消、对比、字符簇、可访问性与移动端矩阵"
+      ],
+      "evidence": [
+        "2026-09-12：前端候选 0c8db0eb80d77d0c827c03f0f6111b8511724055 绑定后端 4680c549bd28f8be57a438061cf9161914c046a0；interface-contract.json 为 v1.0.0-p0/agreed_for_implementation，platform-chat-sse.v2 为 closed，SHA-256 47cfbc485c4df0f5d2c12539f389f466c97bb8318adf04966757420287d10a2f。",
+        "2026-09-12：前端全量 922/922、0 skip，生产构建与 init.sh PASS；后端全量/build/vet/affected race PASS，隔离 MySQL/Redis normal 8/8 与 race -p 1 8/8、0 skip，并精确清理 2 容器、2 卷、1 网络和 loopback listener。",
+        "2026-09-12：本地 production synthetic 浏览器验证单/多模型增量显示、断流 1 POST + 3 GET 恢复、服务端取消及 view-only 前缀、兄弟失败隔离、重复抑制、畸形敏感值不渲染、IME、焦点/滚动、reduced motion、375/390 与 unmount 均 PASS；独立最终 verdict PASS。",
+        "证据：docs/agents/validation/2026-09-12-be06-cross-repo/manifest.json"
+      ],
+      "notes": "仅代表 BE06 本地跨仓库实现与 synthetic 联合验收通过。真实账号、付费或真实上游、生产 migration/deploy、公开 HTTPS、push、PR、merge 均未执行，继续作为独立发布授权与验收边界；不改变 web-004 更宽泛对话功能或 web-009 历史 M3 状态。"
     },
     {
       "id": "web-009",
