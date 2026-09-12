@@ -1,5 +1,5 @@
 <template>
-  <div class="chat-input" :class="{ 'is-mobile': mobile }">
+  <div class="chat-input" :class="{ 'is-mobile': mobile, 'is-locked': inputLocked }">
     <div v-if="pendingImages.length" class="preview-row">
       <div v-for="(img, i) in pendingImages" :key="i" class="preview-item">
         <el-image :src="img.url" fit="cover" class="preview-img" lazy />
@@ -23,7 +23,9 @@
         :rows="mobile ? 1 : 2"
         :placeholder="placeholder"
         resize="none"
-        :disabled="disabled || chatStore.streaming"
+        :readonly="inputLocked"
+        :aria-disabled="inputLocked"
+        :aria-busy="inputLocked"
         class="chat-textarea"
         @keydown="onKeydown"
       />
@@ -62,6 +64,7 @@ const settings = useSettingsStore()
 const { t } = useI18n()
 const text = ref('')
 const pendingImages = ref([])
+const inputLocked = computed(() => props.disabled || chatStore.streaming)
 
 const placeholder = computed(() =>
   props.mobile ? t('chat.inputPlaceholderMobile') : t('chat.inputPlaceholder')
@@ -79,6 +82,7 @@ const canSend = computed(
 function onKeydown(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
+    if (inputLocked.value) return
     send()
   }
 }
