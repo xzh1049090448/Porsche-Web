@@ -129,8 +129,6 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
     return new Promise((_resolve, reject) => { unmountCopy.reject = reject })
   }
   await nextTick()
-  chat.streaming = true
-  await nextTick()
   const list = wrapper.get('.message-list')
   let scrollHeight = 1000
   Object.defineProperties(list.element, {
@@ -147,9 +145,11 @@ test('mounted message list keeps sibling partial output, stable failure copy, an
   assert.match(backToLatest.text(), /chat\.backToLatest/)
   backToLatest.element.focus()
   assert.equal(document.activeElement, backToLatest.element, 'return-to-latest control must be keyboard focusable')
+  chat.streaming = true
   conversation.messages[0].content = 'copy then leave, increment while reading'
   await nextTick(); await nextTick()
-  assert.equal(list.element.scrollTop, 400, 'incremental DOM updates must not steal scroll while the user is reading above')
+  assert.equal(list.element.scrollTop, 400, 'starting generation and its incremental DOM must not steal scroll while the user is reading above')
+  assert.equal(wrapper.find('.back-to-latest').exists(), true, 'the return control must remain available after generation starts')
   await backToLatest.trigger('click'); await nextTick(); await nextTick()
   assert.equal(list.element.scrollTop, 1000)
   assert.equal(wrapper.find('.back-to-latest').exists(), false)

@@ -320,7 +320,7 @@ watch(
   () => chatStore.streaming,
   (streaming, prev) => {
     if (streaming && !prev) {
-      stickToBottom.value = true
+      stickToBottom.value = isNearBottom(listRef.value)
     }
   }
 )
