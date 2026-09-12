@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom'
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 const dataModule = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
-const DOM_GLOBAL_KEYS = ['window', 'document', 'navigator', 'Node', 'Element', 'HTMLElement', 'SVGElement', 'XMLSerializer', 'Event', 'MouseEvent', 'getComputedStyle']
+const DOM_GLOBAL_KEYS = ['window', 'document', 'navigator', 'Node', 'Element', 'HTMLElement', 'SVGElement', 'XMLSerializer', 'Event', 'MouseEvent', 'matchMedia', 'getComputedStyle']
 const originalDomDescriptors = new Map(DOM_GLOBAL_KEYS.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
 
 function installDomGlobals(dom) {
@@ -65,14 +65,12 @@ async function mountedMainLayout() {
 async function mountedPublicHeader() {
   const source = await read('../components/public/PublicHeader.vue')
   const descriptor = parse(source, { filename: 'PublicHeader.vue' }).descriptor
-  const script = compileScript(descriptor, { id: 'visual-public-header', genDefaultAs: '__sfc__' })
-  const template = compileTemplate({ id: 'visual-public-header', filename: 'PublicHeader.vue', source: descriptor.template.content, compilerOptions: { bindingMetadata: script.bindings } })
-  assert.deepEqual(template.errors, [])
+  const script = compileScript(descriptor, { id: 'visual-public-header' })
 
   const vueURL = new URL('../../node_modules/vue/index.mjs', import.meta.url).href
-  const routerStub = dataModule(`import{h}from'${vueURL}';export const RouterLink={props:['to'],setup(p,{attrs,slots}){return()=>h('a',{...attrs,href:p.to},slots.default?.())}}`)
+  const routerStub = dataModule(`import{h}from'${vueURL}';export const useRouter=()=>({afterEach(fn){globalThis.__publicRouteHook=fn;return()=>{globalThis.__publicRouteHook=null}}});export const RouterLink={props:['to'],setup(p,{attrs,slots}){return()=>h('a',{...attrs,href:p.to},slots.default?.())}}`)
   const i18nStub = dataModule(`import{ref}from'${vueURL}';export const usePublicI18n=()=>({locale:ref('zh'),t:key=>key,toggle(){}})`)
-  let code = `${script.content}\n${template.code}\n__sfc__.render=render\nexport default __sfc__`
+  let code = script.content
   code = code.replaceAll("from 'vue'", `from '${vueURL}'`).replaceAll('from "vue"', `from '${vueURL}'`)
   code = code.replaceAll("from 'vue-router'", `from '${routerStub}'`)
     .replaceAll("from '@/i18n/public-runtime.js'", `from '${i18nStub}'`)
@@ -85,11 +83,11 @@ test('current public and authenticated layouts keep stable accessible landmarks'
     read('./MainLayout.vue'),
   ])
 
-  assert.match(publicLayout, /class="[^"]*public-layout[^"]*"/)
-  assert.match(publicLayout, /class="public-skip-link"[^>]+href="#public-content"/)
-  assert.match(publicLayout, /<main id="public-content" tabindex="-1">/)
-  assert.match(publicLayout, /<PublicHeader/)
-  assert.match(publicLayout, /<PublicFooter/)
+  assert.match(publicLayout, /class:\s*'public-layout public-shell'/)
+  assert.match(publicLayout, /class:\s*'public-skip-link',[^}]+href:\s*'#public-content'/)
+  assert.match(publicLayout, /h\('main', \{ id: 'public-content', tabindex: '-1' \}/)
+  assert.match(publicLayout, /h\(PublicHeader/)
+  assert.match(publicLayout, /h\(PublicFooter/)
 
   assert.match(mainLayout, /class="main-layout console-shell"/)
   assert.match(mainLayout, /<AuthStatus/)
@@ -248,19 +246,19 @@ test('Task 4 builds an accessible responsive public shell from a dedicated style
     read('../styles/public-shell.scss'),
   ])
 
-  assert.match(layout, /class="public-layout public-shell"/)
-  assert.match(layout, /class="public-skip-link"[^>]+href="#public-content"/)
-  assert.match(layout, /<main id="public-content" tabindex="-1">/)
+  assert.match(layout, /class:\s*'public-layout public-shell'/)
+  assert.match(layout, /class:\s*'public-skip-link',[^}]+href:\s*'#public-content'/)
+  assert.match(layout, /h\('main', \{ id: 'public-content', tabindex: '-1' \}/)
   assert.doesNotMatch(layout, /<style/)
-  assert.match(header, /class="public-nav public-nav--desktop"/)
-  assert.match(header, /class="public-nav-toggle"/)
-  assert.match(header, /:aria-expanded="menuOpen"/)
-  assert.match(header, /:aria-controls="navId"/)
-  assert.match(header, /class="public-locale"/)
-  assert.match(header, /class="public-theme"/)
-  assert.match(header, /class="[^"]*public-console-cta[^"]*"/)
-  assert.match(footer, /<footer[^>]+class="public-footer"/)
-  assert.match(state, /aria-live="polite"/)
+  assert.match(header, /class:\s*\['public-nav'/)
+  assert.match(header, /class:\s*'public-nav-toggle'/)
+  assert.match(header, /'aria-expanded':\s*menuOpen\.value/)
+  assert.match(header, /'aria-controls':\s*navId/)
+  assert.match(header, /class:\s*'public-locale'/)
+  assert.match(header, /class:\s*'public-theme'/)
+  assert.match(header, /public-console-cta/)
+  assert.match(footer, /h\('footer', \{ class: 'public-footer' \}/)
+  assert.match(state, /'aria-live': 'polite'/)
   assert.match(main, /import ['"]\.\/styles\/public-shell\.scss['"]/)
   assert.match(shell, /height:\s*var\(--header-height\)/)
   assert.match(shell, /min-(?:width|height):\s*var\(--control-min-size\)/)
@@ -270,13 +268,16 @@ test('Task 4 builds an accessible responsive public shell from a dedicated style
   assert.match(shell, /html\[data-theme=['"]dark['"]\]/)
 })
 
-test('public mobile navigation reports state and closes after route selection', async () => {
+test('public mobile navigation closes for route changes, Escape, and desktop breakpoints', async () => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://local.test/' })
+  let breakpointListener
   try {
+    const media = { matches: false, set onchange(listener) { breakpointListener = listener } }
+    dom.window.matchMedia = () => media
     installDomGlobals(dom)
     const [{ mount }, { nextTick }] = await Promise.all([import('@vue/test-utils'), import('vue')])
     const PublicHeader = await mountedPublicHeader()
-    const wrapper = mount(PublicHeader)
+    const wrapper = mount(PublicHeader, { attachTo: dom.window.document.body })
     try {
       const toggle = wrapper.element.querySelector('.public-nav-toggle')
       assert.equal(toggle.getAttribute('aria-expanded'), 'false')
@@ -284,16 +285,42 @@ test('public mobile navigation reports state and closes after route selection', 
       toggle.click()
       await nextTick()
       assert.equal(toggle.getAttribute('aria-expanded'), 'true')
-      wrapper.element.querySelector('#public-mobile-nav a[href="/pricing"]').click()
+      globalThis.__publicRouteHook()
+      await nextTick()
+      assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+      toggle.click()
+      await nextTick()
+      wrapper.element.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await nextTick()
+      assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+      assert.equal(dom.window.document.activeElement, toggle)
+      toggle.click()
+      await nextTick()
+      breakpointListener({ matches: true })
       await nextTick()
       assert.equal(toggle.getAttribute('aria-expanded'), 'false')
     } finally {
       wrapper.unmount()
+      assert.equal(breakpointListener, null)
+      assert.equal(globalThis.__publicRouteHook, null)
     }
   } finally {
+    delete globalThis.__publicRouteHook
     restoreDomGlobals()
     dom.window.close()
   }
+})
+
+test('public shell selectors and legacy public tokens have one stylesheet owner', async () => {
+  const [globalStyles, mobileStyles, publicShell] = await Promise.all([
+    read('../styles/global.scss'), read('../styles/mobile.scss'), read('../styles/public-shell.scss'),
+  ])
+  for (const legacy of [globalStyles, mobileStyles]) {
+    assert.doesNotMatch(legacy, /--public-(?:primary|bg|card|text|muted|border)/)
+    assert.doesNotMatch(legacy, /\.public-(?:layout|header|footer|nav|skip-link|home|hero|button|state|document|cta)/)
+  }
+  assert.match(publicShell, /\.public-header/)
+  assert.match(publicShell, /\.public-nav/)
 })
 
 test('Task 3 builds one console shell around desktop, mobile, and main landmarks', async () => {

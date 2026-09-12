@@ -1,6 +1,15 @@
-<script setup>
+<script>
+import { h } from 'vue'
 import { usePublicI18n } from '@/i18n/public-runtime.js'
-const { t } = usePublicI18n()
-defineProps({ links: { type: Array, default: () => [] } })
+export default {
+  props: { links: { type: Array, default: () => [] } },
+  setup(props) {
+    const { t } = usePublicI18n()
+    const link = (href, label) => h('a', { href }, label)
+    return () => h('footer', { class: 'public-footer' }, [
+      h('strong', { class: 'public-footer__brand' }, 'Porsche'),
+      h('nav', { 'aria-label': t('menu') }, [link('/about', t('about')), link('/terms', t('terms')), link('/privacy', t('privacy')), ...props.links.filter(item => item.placement === 'contact').map(item => h('a', { href: item.href }, item.label))]),
+    ])
+  },
+}
 </script>
-<template><footer class="public-footer"><strong class="public-footer__brand">Porsche</strong><nav :aria-label="t('menu')"><RouterLink to="/about">{{ t('about') }}</RouterLink><RouterLink to="/terms">{{ t('terms') }}</RouterLink><RouterLink to="/privacy">{{ t('privacy') }}</RouterLink><a v-for="link in links.filter(item => item.placement === 'contact')" :key="link.href" :href="link.href">{{ link.label }}</a></nav></footer></template>
