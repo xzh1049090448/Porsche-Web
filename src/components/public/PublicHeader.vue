@@ -37,12 +37,12 @@ export default {
       ]
       return h('header', { class: 'public-header', onKeydown: handleEscape }, [
         link('/', 'Porsche', { class: 'public-brand', 'aria-label': t('home') }),
+        h('button', { ref: toggleButton, type: 'button', class: 'public-nav-toggle', 'aria-expanded': menuOpen.value, 'aria-controls': navId, onClick: () => { menuOpen.value = !menuOpen.value } }, [h('span', { 'aria-hidden': 'true' }, '☰'), h('span', { class: 'sr-only' }, t('menu'))]),
+        h('nav', { id: navId, class: ['public-nav', { 'is-open': menuOpen.value }], 'aria-label': t('menu') }, navLinks),
         h('div', { class: 'public-header__actions' }, [
           h('button', { type: 'button', class: 'public-locale', 'aria-label': t('language'), onClick: toggle }, t('language')),
           h('button', { type: 'button', class: 'public-theme', 'aria-label': '切换主题 / Switch theme', 'aria-pressed': document.documentElement.dataset.theme === 'dark', onClick: toggleTheme }, '◐'),
-          h('button', { ref: toggleButton, type: 'button', class: 'public-nav-toggle', 'aria-expanded': menuOpen.value, 'aria-controls': navId, onClick: () => { menuOpen.value = !menuOpen.value } }, [h('span', { 'aria-hidden': 'true' }, '☰'), h('span', { class: 'sr-only' }, t('menu'))]),
         ]),
-        h('nav', { id: navId, class: ['public-nav', { 'is-open': menuOpen.value }], 'aria-label': t('menu') }, navLinks),
       ])
     }
   },
