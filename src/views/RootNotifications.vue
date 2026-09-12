@@ -1,21 +1,24 @@
 <template>
-  <section class="notifications-page" aria-labelledby="notifications-title">
-    <header><div><p class="eyebrow">ROOT</p><h1 id="notifications-title">{{ t('rootNotifications.title') }}</h1><p>{{ t('rootNotifications.description') }}</p></div><el-button :loading="store.loading" @click="store.refresh">{{ t('rootNotifications.refresh') }}</el-button></header>
+  <section class="notifications-page console-page" aria-labelledby="notifications-title">
+    <PageHeader eyebrow="ROOT" :title="t('rootNotifications.title')" :description="t('rootNotifications.description')">
+      <template #actions><el-button :loading="store.loading" @click="store.refresh">{{ t('rootNotifications.refresh') }}</el-button></template>
+    </PageHeader>
     <el-alert v-if="store.error" role="alert" :title="errorText(store.error)" type="error" show-icon :closable="false" />
     <el-alert v-if="store.mutationError" role="alert" :title="errorText(store.mutationError)" type="error" show-icon :closable="false" />
     <div class="receipt-summary" aria-live="polite">{{ t('rootNotifications.unread', {count:store.unreadCount}) }}</div>
-    <div class="notification-groups">
-      <section v-for="group in groups" :key="group.state" class="notification-group" :aria-labelledby="`notification-${group.state}`">
+    <p class="email-delivery-todo">Email push delivery — TODO</p>
+    <div class="notification-groups responsive-table">
+      <SurfaceCard v-for="group in groups" :key="group.state" class="notification-group" :aria-labelledby="`notification-${group.state}`">
         <h2 :id="`notification-${group.state}`">{{ t(`rootNotifications.groups.${group.state}`) }} <span>{{ group.total }}</span></h2>
         <p v-if="!store.loading&&!group.items.length" class="empty">{{ t('rootNotifications.empty') }}</p>
         <div :id="`notification-list-${group.state}`">
           <article v-for="item in group.items" :key="item.guid" class="notification-card" :class="{unread:!item.read}">
-            <div><h3>{{ t(`rootNotifications.types.${item.type}`) }}</h3><p>{{ formatTime(item.updatedAt) }}</p><div class="states"><el-tag size="small" :type="item.read?'info':'warning'">{{ t(item.read?'rootNotifications.read':'rootNotifications.unreadState') }}</el-tag><el-tag size="small" :type="item.acknowledged?'success':'info'">{{ t(item.acknowledged?'rootNotifications.acknowledged':'rootNotifications.unacknowledged') }}</el-tag></div></div>
+            <div><h3>{{ t(`rootNotifications.types.${item.type}`) }}</h3><p>{{ formatTime(item.updatedAt) }}</p><div class="states"><StatusBadge :status="item.read?'active':'pending'" :label="t(item.read?'rootNotifications.read':'rootNotifications.unreadState')"/><StatusBadge :status="item.acknowledged?'active':'pending'" :label="t(item.acknowledged?'rootNotifications.acknowledged':'rootNotifications.unacknowledged')"/></div></div>
             <div class="actions"><el-button v-if="!item.read" :loading="pending(item,'markRead')" @click="store.markRead(item.guid)">{{ t('rootNotifications.markRead') }}</el-button><el-button v-if="!item.acknowledged" type="primary" :loading="pending(item,'acknowledge')" @click="store.acknowledge(item.guid)">{{ t('rootNotifications.acknowledge') }}</el-button></div>
           </article>
         </div>
-        <el-button v-if="group.items.length<group.total" :id="`load-more-${group.state}`" class="load-more" :loading="group.loading" :aria-controls="`notification-list-${group.state}`" @click="store.loadMore(group.state)">{{ t('rootNotifications.loadMore') }}</el-button>
-      </section>
+        <el-button v-if="group.items.length<group.total" :id="`load-more-${group.state}`" class="load-more pagination-bar" :loading="group.loading" :aria-controls="`notification-list-${group.state}`" @click="store.loadMore(group.state)">{{ t('rootNotifications.loadMore') }}</el-button>
+      </SurfaceCard>
     </div>
   </section>
 </template>
@@ -23,6 +26,9 @@
 import {computed} from 'vue'
 import {useI18n} from '@/composables/useI18n'
 import {useRootNotificationsStore} from '@/stores/rootNotifications'
+import PageHeader from '@/components/shell/PageHeader.vue'
+import SurfaceCard from '@/components/shell/SurfaceCard.vue'
+import StatusBadge from '@/components/shell/StatusBadge.vue'
 const {t}=useI18n(),store=useRootNotificationsStore()
 const groups=computed(()=>[{state:'active',items:store.active,total:store.activeTotal,loading:store.activeLoadingMore},{state:'resolved',items:store.resolved,total:store.resolvedTotal,loading:store.resolvedLoadingMore}])
 const pending=(item,kind)=>Boolean(store.pendingReceipts[item.guid]?.[kind])

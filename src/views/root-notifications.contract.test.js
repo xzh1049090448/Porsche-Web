@@ -23,3 +23,10 @@ test('inbox groups active and resolved notifications with localized type-safe pr
   assert.doesNotMatch(view + badge, /payload|raw_upstream_response|channel_address|secret|token|authorization/i)
   assert.doesNotMatch(view + badge + messages, /email.*(?:toggle|switch)|(?:toggle|switch).*email/i)
 })
+
+test('notification administration composes shared controls and preserves the future email boundary',()=>{
+ const view=read('./RootNotifications.vue')
+ for(const component of ['PageHeader','SurfaceCard','StatusBadge']){assert.match(view,new RegExp(`import ${component} from ['\"]@\\/components\\/shell\\/${component}\\.vue['\"]`));assert.match(view,new RegExp(`<${component}\\b`))}
+ for(const token of ['notification-list','markRead','acknowledge','responsive-table','pagination-bar','email-delivery-todo'])assert.match(view,new RegExp(token),token)
+ assert.match(view,/Email push.*TODO/i);assert.doesNotMatch(view,/email.*(?:toggle|switch)|(?:toggle|switch).*email/i)
+})
