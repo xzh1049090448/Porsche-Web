@@ -30,6 +30,38 @@ const elements = (value, name) => {
   visit(templateAst(value))
   return matches
 }
+const renderedComponentIsWired = (value, name, expectedFile) => {
+  if (elements(value, name).length === 0) return false
+  const descriptor = parseVue(value)
+  const normalized = value => String(value || '').replace(/-/g, '').toLowerCase()
+  const sourceMatches = value => String(value || '').replace(/\\/g, '/').endsWith(`/${expectedFile}`)
+  for (const block of [descriptor.scriptSetup, descriptor.script].filter(Boolean)) {
+    let ast
+    try { ast = vueCompiler.babelParse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
+    catch (error) { throw new Error(`home component wiring must parse cleanly: ${error.message}`, { cause: error }) }
+    const imports = new Map()
+    for (const statement of ast.program.body) if (statement.type === 'ImportDeclaration') {
+      for (const specifier of statement.specifiers) imports.set(specifier.local.name, statement.source.value)
+    }
+    if (block === descriptor.scriptSetup && [...imports].some(([local, source]) => normalized(local) === normalized(name) && sourceMatches(source))) return true
+    for (const statement of ast.program.body) {
+      if (statement.type !== 'ExportDefaultDeclaration') continue
+      let options = statement.declaration
+      if (['CallExpression', 'OptionalCallExpression'].includes(options?.type) && options.callee?.type === 'Identifier' && options.callee.name === 'defineComponent') options = options.arguments[0]
+      if (options?.type !== 'ObjectExpression') continue
+      const components = options.properties.find(property => (property.key?.name ?? property.key?.value) === 'components')
+      const registry = components?.type === 'ObjectMethod' ? undefined : components?.value
+      if (registry?.type !== 'ObjectExpression') continue
+      for (const property of registry.properties) {
+        if (property.type === 'SpreadElement') continue
+        const registered = property.key?.name ?? property.key?.value
+        const local = property.shorthand ? property.key?.name : property.value?.name
+        if (normalized(registered) === normalized(name) && sourceMatches(imports.get(local))) return true
+      }
+    }
+  }
+  return false
+}
 const staticAttribute = (node, name) => node.props.find(prop => prop.type === 6 && prop.name === name)?.value?.content
 const boundAttribute = (node, name) => node.props.find(prop => prop.type === 7 && prop.name === 'bind' && prop.arg?.type === 4 && prop.arg.content === name)?.exp?.content
 const unknownStaticValue = Symbol('unknown static value')
@@ -711,6 +743,8 @@ test('public content pages compose the approved safe landing system', () => {
 
   assert.equal(elements(home, 'HeroPreview').length, 1, 'the rendered home tree contains its hero preview')
   assert.equal(elements(home, 'PublicSection').length, 3, 'the rendered home tree contains the three approved public sections')
+  assert.equal(renderedComponentIsWired(home, 'HeroPreview', 'HeroPreview.vue'), true, 'the rendered hero preview resolves to its imported Vue component')
+  assert.equal(renderedComponentIsWired(home, 'PublicSection', 'PublicSection.vue'), true, 'the rendered sections resolve to their imported Vue component')
   assert.match(hero, /aria-hidden="true"/)
   assert.match(hero, /capability-preview/)
   assert.doesNotMatch(hero, /v-html|api[_-]?key|token|user(?:name)?|chat/i)

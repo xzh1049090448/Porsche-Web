@@ -1033,9 +1033,8 @@ const compoundMayTarget = (candidate, target) => {
         return matches(base)
       }
     }
-    const identities = compoundTokens(subject).filter(token => token === '*' || !token.startsWith(':'))
-    const baseMatches = identities.length === 0 || identities.includes('*') || (targetIdentities.length > 0 && targetIdentities.every(token => identities.includes(token)))
-    return baseMatches
+    const identities = compoundTokens(subject).filter(token => token !== '*' && !token.startsWith(':'))
+    return identities.length === 0 || (targetIdentities.length > 0 && identities.every(token => targetTokens.has(token)))
   }
   return matches(candidate)
 }

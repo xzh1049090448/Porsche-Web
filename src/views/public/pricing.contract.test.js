@@ -237,6 +237,21 @@ const callsFunction = (node, name, argument) => reachableAstContains(node, candi
 })
 const memberUsesState = node => astContains(node, candidate => ['MemberExpression', 'OptionalMemberExpression'].includes(candidate.type) && !candidate.computed && candidate.property?.name === 'state')
 const functionParameters = node => ['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node?.type) ? node.params || [] : []
+const knownObjectOmitsProperty = (node, propertyName, definitions, resolving = new Set()) => {
+  node = unwrapExpression(node)
+  if (!node) return false
+  if (node.type === 'Identifier' && definitions.has(node.name) && !resolving.has(node.name)) return knownObjectOmitsProperty(definitions.get(node.name), propertyName, definitions, new Set(resolving).add(node.name))
+  if (node.type !== 'ObjectExpression') return false
+  for (const property of node.properties) {
+    if (property.type === 'SpreadElement') {
+      if (!knownObjectOmitsProperty(property.argument, propertyName, definitions, resolving)) return false
+    } else {
+      const key = property.computed ? staticPropertyKey(property.key) : property.key?.name || property.key?.value
+      if (String(key) === String(propertyName)) return false
+    }
+  }
+  return true
+}
 const expressionDerivedFrom = (node, origins, definitions = new Map(), path = [], resolving = new Set()) => {
   node = unwrapExpression(node)
   if (!node) return false
@@ -266,7 +281,11 @@ const expressionDerivedFrom = (node, origins, definitions = new Map(), path = []
       : expressionDerivedFrom(property.value, origins, definitions, [], resolving))
     for (let index = node.properties.length - 1; index >= 0; index -= 1) {
       const property = node.properties[index]
-      if (property.type === 'SpreadElement') return expressionDerivedFrom(property.argument, origins, definitions, path, resolving)
+      if (property.type === 'SpreadElement') {
+        if (expressionDerivedFrom(property.argument, origins, definitions, path, resolving)) return true
+        if (knownObjectOmitsProperty(property.argument, path[0], definitions, resolving)) continue
+        return false
+      }
       const key = property.computed ? staticPropertyKey(property.key) : property.key?.name || property.key?.value
       if (String(key) === path[0]) {
         const derived = expressionDerivedFrom(property.value, origins, definitions, path.slice(1), resolving)
@@ -442,7 +461,10 @@ const helperReturnsCorrectStateFromOrigin = (binding, component, modelName, rend
     const labelResult = effectiveObjectLabel(node, definitions)
     return transparentlyCarriesState(node, origins, definitions)
       && renderedPaths.every(path => path[0] === 'label'
-        ? labelResult.labels.length > 0 && labelResult.labels.every(label => label !== absentObjectLabel && label !== unknownObjectLabel && validLabelExpression(label, origins, definitions, mode))
+        ? expressionDerivedFrom(node, origins, definitions, ['state'])
+          && expressionDerivedFrom(node, origins, definitions, ['value'])
+          && labelResult.labels.length > 0
+          && labelResult.labels.every(label => label !== absentObjectLabel && label !== unknownObjectLabel && validLabelExpression(label, origins, definitions, mode))
         : expressionDerivedFrom(node, origins, definitions, path))
   }
   if (binding.body?.type !== 'BlockStatement') return returnIsValid(binding.body, new Map(), 'unknown')
@@ -450,15 +472,31 @@ const helperReturnsCorrectStateFromOrigin = (binding, component, modelName, rend
   const alwaysReturns = statement => statement?.type === 'ReturnStatement'
     || (statement?.type === 'BlockStatement' && alwaysReturns(statement.body.at(-1)))
     || (statement?.type === 'IfStatement' && statement.alternate && alwaysReturns(statement.consequent) && alwaysReturns(statement.alternate))
-  const visitStatements = (statements, inherited = new Map(), inheritedMode = 'unknown') => {
-    const definitions = new Map(inherited)
+  const visitStatements = (statements, inherited = new Map(), inheritedMode = 'unknown', reuse = false) => {
+    const definitions = reuse ? inherited : new Map(inherited)
     let mode = inheritedMode
+    const applyAssignment = expression => {
+      expression = unwrapExpression(expression)
+      if (expression?.type === 'AssignmentExpression' && expression.operator === '=' && expression.left?.type === 'Identifier') definitions.set(expression.left.name, expression.right)
+      if (expression?.type === 'SequenceExpression') for (const item of expression.expressions) applyAssignment(item)
+    }
     for (const statement of statements || []) {
       if (statement.type === 'VariableDeclaration') {
-        for (const declaration of statement.declarations) if (declaration.id?.type === 'Identifier' && declaration.init) definitions.set(declaration.id.name, declaration.init)
+        for (const declaration of statement.declarations) if (declaration.id?.type === 'Identifier') {
+          if (declaration.init) definitions.set(declaration.id.name, declaration.init)
+          else definitions.delete(declaration.id.name)
+        }
+      } else if (statement.type === 'ExpressionStatement') {
+        applyAssignment(statement.expression)
       } else if (statement.type === 'ReturnStatement') { returns.push(returnIsValid(statement.argument, definitions, mode)); return true }
       else if (statement.type === 'BlockStatement') { if (visitStatements(statement.body, definitions, mode)) return true }
       else if (statement.type === 'IfStatement') {
+        const condition = staticValue(statement.test)
+        if (condition !== unknownStaticValue) {
+          const branch = condition ? statement.consequent : statement.alternate
+          if (branch && visitStatements(branch.type === 'BlockStatement' ? branch.body : [branch], definitions, mode, true)) return true
+          continue
+        }
         const [consequentMode, alternateMode] = labelConditionModes(statement.test, origins, definitions, mode)
         visitStatements(statement.consequent?.type === 'BlockStatement' ? statement.consequent.body : [statement.consequent], definitions, consequentMode)
         if (statement.alternate) visitStatements(statement.alternate.type === 'BlockStatement' ? statement.alternate.body : [statement.alternate], definitions, alternateMode)
@@ -1021,7 +1059,7 @@ const selectorStructure = selector => {
   return { compounds, combinators, leading }
 }
 const selectorCompounds = selector => selectorStructure(selector).compounds
-const compoundTokens = compound => [...compound.matchAll(/(?:^|(?<=[^\w-]))(?:[a-z][\w-]*|[.#:][\w-]+|\[[^\]]+\])/gi)].map(match => match[0])
+const compoundTokens = compound => [...compound.matchAll(/[.#:][\w-]+|\[[^\]]+\]|(?:^|(?<=[^\w.#:-]))[a-z][\w-]*/gi)].map(match => match[0])
 const compoundSubjectAlternatives = compound => {
   const expand = subject => {
     const match = /:([\w-]+)\s*\(/.exec(subject)
@@ -1092,9 +1130,8 @@ const compoundMayTarget = (candidate, target) => {
         return matches(base)
       }
     }
-    const identities = compoundTokens(subject).filter(token => token === '*' || !token.startsWith(':'))
-    const baseMatches = identities.length === 0 || identities.includes('*') || (targetIdentities.length > 0 && targetIdentities.every(token => identities.includes(token)))
-    return baseMatches
+    const identities = compoundTokens(subject).filter(token => token !== '*' && !token.startsWith(':'))
+    return identities.length === 0 || (targetIdentities.length > 0 && identities.every(token => targetTokens.has(token)))
   }
   return matches(candidate)
 }

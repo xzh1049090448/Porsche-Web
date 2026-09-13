@@ -342,6 +342,22 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (node.type === 'SequenceExpression') return isComponentReference(node.expressions.at(-1), resolving)
     return false
   }
+  const resolvedVNodeType = (node, resolving = new Set()) => {
+    node = unwrapScriptExpression(node)
+    if (!node || resolving.size > 32) return undefined
+    if (node.type === 'StringLiteral') return node
+    if (node.type === 'Identifier' && bindings.has(node.name) && !resolving.has(node.name)) return resolvedVNodeType(bindings.get(node.name), new Set(resolving).add(node.name))
+    if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+      const value = memberValue(node.object, memberName(node), resolving)
+      return value ? resolvedVNodeType(value, resolving) : undefined
+    }
+    if (node.type === 'ConditionalExpression') {
+      const condition = staticValue(node.test)
+      return condition.known ? resolvedVNodeType(condition.value ? node.consequent : node.alternate, resolving) : undefined
+    }
+    if (node.type === 'SequenceExpression') return resolvedVNodeType(node.expressions.at(-1), resolving)
+    return undefined
+  }
   const returns = body => {
     body = unwrapScriptExpression(body)
     if (!body) return []
@@ -376,8 +392,7 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (!['CallExpression', 'OptionalCallExpression'].includes(node.type)) return false
     if (unwrapScriptExpression(node.callee)?.type === 'Identifier' && renderNames.has(node.callee.name)) {
       if (isComponentReference(node.arguments[0])) return true
-      let vnodeType = unwrapScriptExpression(node.arguments[0])
-      if (vnodeType?.type === 'Identifier' && bindings.has(vnodeType.name)) vnodeType = unwrapScriptExpression(bindings.get(vnodeType.name))
+      const vnodeType = resolvedVNodeType(node.arguments[0])
       const componentVNode = vnodeType?.type !== 'StringLiteral'
       const children = node.arguments.length >= 3 ? node.arguments.slice(2) : node.arguments.slice(1)
       const inspectRenderedChild = child => {
@@ -688,7 +703,7 @@ const selectorMayTarget = (selector, target) => {
     }
     const classes = [...subject.matchAll(/\.[\w-]+/g)].map(value => value[0])
     const tags = [...subject.matchAll(/(?:^|[^\w.#:-])([a-z][\w-]*)/gi)].map(value => value[1])
-    return classes.includes(targetClass) || (classes.length === 0 && tags.length === 0)
+    return (classes.length === 0 && tags.length === 0) || (classes.length > 0 && classes.every(value => value === targetClass) && tags.length === 0)
   }
   return matches(selectorSubject(selector))
 }
