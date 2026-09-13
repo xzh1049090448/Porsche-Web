@@ -167,26 +167,7 @@ const mediaQueryMatchesScreen = (query, width, reduced) => {
 }
 const mediaMatchesScreen = (conditions, width, reduced) => conditions.every(condition => splitTopLevel(condition, ',').some(query => mediaQueryMatchesScreen(query, width, reduced)))
 const selectorSpecificity = selector => (selector.match(/#[\w-]+/g) || []).length * 100 + (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (selector.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
-const selectorTargetsClass = (selector, target) => {
-  const compounds = selector.trim().split(/\s+|[>+~]/).filter(Boolean)
-  if (compounds.length !== 1) return false
-  const targetClass = target.slice(1)
-  const classes = [...compounds[0].matchAll(/\.([\w-]+)/g)].map(match => match[1])
-  if (!classes.includes(targetClass)) return false
-  const phase = targetClass.match(/^(.*)-(enter|leave)-(active|from|to)$/)
-  const simultaneous = new Set([targetClass])
-  if (phase) {
-    const [, prefix, direction, state] = phase
-    if (state === 'active') {
-      const from = `${prefix}-${direction}-from`
-      const to = `${prefix}-${direction}-to`
-      if (classes.includes(from) && classes.includes(to)) return false
-      simultaneous.add(from).add(to)
-    } else simultaneous.add(`${prefix}-${direction}-active`)
-  }
-  if (classes.some(className => !simultaneous.has(className))) return false
-  return compounds[0].replace(/\.[\w-]+/g, '') === ''
-}
+const selectorTargetsClass = (selector, target) => selector.trim() === target
 const applicableRules = (rules, selector, width, reduced) => rules.filter(rule => rule.selectors.some(candidate => selectorTargetsClass(candidate, selector)) && mediaMatchesScreen(rule.media, width, reduced))
 const reducedRuleExists = (rules, selector, width) => applicableRules(rules, selector, width, true).some(rule => rule.media.some(condition => /prefers-reduced-motion\s*:\s*reduce/i.test(condition)))
 const transitionTime = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:ms|s)$/i
