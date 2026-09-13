@@ -191,6 +191,7 @@ const renderNodesFromScripts = (descriptor, file) => {
     const bindings = new Map()
     const helpers = new Map()
     const reassigned = new Set()
+    const patternAssignments = new Set()
     const assignmentRoot = expression => {
       expression = unwrapJavaScript(expression)
       while (['MemberExpression', 'OptionalMemberExpression'].includes(expression?.type)) expression = unwrapJavaScript(expression.object)
@@ -207,12 +208,19 @@ const renderNodesFromScripts = (descriptor, file) => {
       else if (pattern?.type === 'AssignmentPattern') bindDynamicPattern(pattern.left)
       else for (const child of pattern?.properties || pattern?.elements || []) bindDynamicPattern(child?.argument || child?.value || child)
     }
-    const bindPattern = (pattern, value) => {
+    const bindPattern = (pattern, value, assignment = false) => {
       pattern = unwrapJavaScript(pattern)
       if (!pattern) return
-      if (pattern.type === 'Identifier') { bindings.set(pattern.name, value); return }
+      if (pattern.type === 'Identifier') {
+        if (assignment && (patternAssignments.has(pattern.name) || bindings.has(pattern.name))) reassigned.add(pattern.name)
+        else {
+          if (assignment) patternAssignments.add(pattern.name)
+          bindings.set(pattern.name, value)
+        }
+        return
+      }
       if (pattern.type === 'AssignmentPattern') {
-        bindPattern(pattern.left, { type: 'StaticDefaultReference', value, fallback: pattern.right, start: pattern.start, end: pattern.end })
+        bindPattern(pattern.left, { type: 'StaticDefaultReference', value, fallback: pattern.right, start: pattern.start, end: pattern.end }, assignment)
         return
       }
       if (pattern.type === 'ObjectPattern') {
@@ -220,7 +228,7 @@ const renderNodesFromScripts = (descriptor, file) => {
           if (property.type === 'RestElement') { bindDynamicPattern(property.argument); continue }
           const name = propertyName(property)
           if (name === undefined) bindDynamicPattern(property.value)
-          else bindPattern(property.value, memberBinding(value, name, property))
+          else bindPattern(property.value, memberBinding(value, name, property), assignment)
         }
         return
       }
@@ -229,13 +237,14 @@ const renderNodesFromScripts = (descriptor, file) => {
           const element = pattern.elements[index]
           if (!element) continue
           if (element.type === 'RestElement') bindDynamicPattern(element.argument)
-          else bindPattern(element, memberBinding(value, index, element))
+          else bindPattern(element, memberBinding(value, index, element), assignment)
         }
       }
     }
     walk(ast.program, node => {
       if (node.type === 'FunctionDeclaration' && node.id) helpers.set(node.id.name, node)
-      if (node.type === 'AssignmentExpression' && assignmentRoot(node.left)) reassigned.add(assignmentRoot(node.left))
+      if (node.type === 'AssignmentExpression' && ['ObjectPattern', 'ArrayPattern'].includes(node.left?.type)) bindPattern(node.left, node.right, true)
+      else if (node.type === 'AssignmentExpression' && assignmentRoot(node.left)) reassigned.add(assignmentRoot(node.left))
       if (node.type === 'UpdateExpression' && assignmentRoot(node.argument)) reassigned.add(assignmentRoot(node.argument))
       if (node.type !== 'VariableDeclarator' || !node.init) return
       bindPattern(node.id, node.init)
@@ -502,6 +511,8 @@ const nestedStyleDeclarations = source => {
     let parentheses = 0
     const record = end => {
       const statement = clean.slice(statementStart, end).trim()
+      const include = statement.match(/^@include\s+([\s\S]+)$/)
+      if (include) { declarations.push({ property: '@include', value: include[1].trim(), contexts }); return }
       const match = statement.match(/^((?:--|\$)?[\w-]+)\s*:\s*([\s\S]+)$/)
       if (match) declarations.push({ property: match[1].startsWith('$') || match[1].startsWith('--') ? match[1] : match[1].toLowerCase(), value: match[2].trim(), contexts })
     }
@@ -526,6 +537,71 @@ const nestedStyleDeclarations = source => {
   }
   parseScope(0, [])
   return declarations
+}
+const sassMixinDefinitions = source => {
+  const clean = source.replace(/\/\*[\s\S]*?\*\//g, '')
+  const definitions = new Map()
+  const pattern = /@mixin\s+([\w-]+)\s*(\([^{}]*\))?\s*\{/g
+  for (const match of clean.matchAll(pattern)) {
+    const open = match.index + match[0].lastIndexOf('{')
+    let cursor = open + 1
+    let braces = 1
+    let quote = ''
+    while (cursor < clean.length && braces > 0) {
+      const character = clean[cursor]
+      if (quote) { if (character === quote && clean[cursor - 1] !== '\\') quote = '' }
+      else if (character === '"' || character === "'") quote = character
+      else if (character === '{') braces += 1
+      else if (character === '}') braces -= 1
+      cursor += 1
+    }
+    if (braces !== 0) continue
+    const params = splitTopLevel(match[2]?.slice(1, -1) || '', ',').map(parameter => {
+      const [name, ...fallback] = splitTopLevel(parameter, ':')
+      return { name: name?.trim(), fallback: fallback.length ? fallback.join(':').trim() : undefined }
+    }).filter(parameter => /^\$[\w-]+$/.test(parameter.name || ''))
+    definitions.set(match[1], { params, body: clean.slice(open + 1, cursor - 1) })
+  }
+  return definitions
+}
+const substituteMixinBindings = (value, bindings) => String(value).replace(/\$[A-Za-z_-][\w-]*/g, name => bindings.get(name) ?? name)
+const parseMixinInclude = value => {
+  const match = value.trim().match(/^([\w-]+)\s*(?:\(([\s\S]*)\))?$/)
+  return match ? { name: match[1], args: splitTopLevel(match[2] || '', ',') } : undefined
+}
+const expandedMixinDeclarations = source => {
+  const definitions = sassMixinDefinitions(source)
+  const expanded = []
+  const unresolved = (contexts, value) => expanded.push({ property: '@include-unknown', value, contexts })
+  const expand = (rawInclude, contexts, inherited = new Map(), stack = new Set(), depth = 0) => {
+    const include = parseMixinInclude(substituteMixinBindings(rawInclude, inherited))
+    if (!include || !definitions.has(include.name) || stack.has(include.name) || depth > 24) { unresolved(contexts, rawInclude); return }
+    const definition = definitions.get(include.name)
+    const positional = []
+    const named = new Map()
+    for (const argument of include.args) {
+      const [candidate, ...rest] = splitTopLevel(argument, ':')
+      if (/^\$[\w-]+$/.test(candidate || '') && rest.length) named.set(candidate, rest.join(':').trim())
+      else positional.push(argument)
+    }
+    const local = new Map(inherited)
+    let position = 0
+    for (const parameter of definition.params) {
+      const value = named.get(parameter.name) ?? positional[position++] ?? parameter.fallback
+      if (value !== undefined) local.set(parameter.name, substituteMixinBindings(value, inherited))
+    }
+    const nestedStack = new Set(stack).add(include.name)
+    for (const declaration of nestedStyleDeclarations(definition.body)) {
+      const nestedContexts = contexts.concat(declaration.contexts.filter(context => !/^@mixin\b/.test(context)).map(context => substituteMixinBindings(context, local)))
+      if (declaration.property === '@include') expand(declaration.value, nestedContexts, local, nestedStack, depth + 1)
+      else expanded.push({ ...declaration, value: substituteMixinBindings(declaration.value, local), contexts: nestedContexts })
+    }
+  }
+  for (const declaration of nestedStyleDeclarations(source)) {
+    if (declaration.property !== '@include' || declaration.contexts.some(context => /^@mixin\b/.test(context))) continue
+    expand(declaration.value, declaration.contexts)
+  }
+  return expanded
 }
 const normalizedStyleContext = contexts => contexts.filter(context => !context.startsWith('@')).map(context => context.replace(/\s+/g, ' ').trim()).join(' ')
 const effectiveStyleSelectors = contexts => contexts.filter(context => !context.startsWith('@')).reduce((parents, context) => {
@@ -580,10 +656,14 @@ const resolvedTransformValues = (value, declaration, declarations, resolving = n
     .flatMap(replacement => replacement === undefined ? [undefined] : resolvedTransformValues(`${value.slice(0, reference.start)}${replacement}${value.slice(reference.end)}`, declaration, declarations, resolving))
 }
 const assertTypographyScalingPolicy = (styleSources, evidence) => {
-  const declarations = styleSources.flatMap(style => nestedStyleDeclarations(style.source).map(declaration => ({ ...declaration, file: style.file })))
+  const declarations = styleSources.flatMap(style => nestedStyleDeclarations(style.source)
+    .filter(declaration => declaration.property !== '@include' && !declaration.contexts.some(context => /^@mixin\b/.test(context)))
+    .concat(expandedMixinDeclarations(style.source))
+    .map(declaration => ({ ...declaration, file: style.file })))
   for (const declaration of declarations) {
     const targetsTypography = effectiveStyleSelectors(declaration.contexts).some(selector => selectorTargetsTypography(selector, evidence))
     if (!targetsTypography) continue
+    if (declaration.property === '@include-unknown') assert.fail(`Sass mixin must resolve on typography in ${declaration.file} (${normalizedStyleContext(declaration.contexts) || 'root'})`)
     if (declaration.property === 'zoom') assert.fail(`zoom is forbidden on typography in ${declaration.file} (${normalizedStyleContext(declaration.contexts) || 'root'})`)
     if (/(?:^|-)transform$/.test(declaration.property)) {
       const resolved = resolvedTransformValues(declaration.value, declaration, declarations)
