@@ -177,32 +177,76 @@ const directiveIsStaticallyFalse = prop => {
   return value !== unknownStaticValue && !value
 }
 const staticallyHidden = node => node.type === 1 && node.props?.some(directiveIsStaticallyFalse)
+const templateNodeScopes = new WeakMap()
 const renderedElements = (root, name) => {
   const matches = []
-  const visit = node => {
+  const visit = (node, inherited) => {
     if (staticallyHidden(node)) return
+    const scoped = node.type === 1 ? new Set([...inherited, ...vForBindingNames(node)]) : inherited
+    templateNodeScopes.set(node, scoped)
     if (node.type === 1 && node.tag === name) matches.push(node)
-    for (const child of node.children || []) visit(child)
-    for (const branch of node.branches || []) visit(branch)
+    for (const child of node.children || []) visit(child, scoped)
+    for (const branch of node.branches || []) visit(branch, scoped)
   }
-  visit(root)
+  visit(root, templateNodeScopes.get(root) || new Set())
   return matches
+}
+const templateExpressionScopes = new WeakMap()
+const vForParts = node => {
+  const expression = node?.props?.find(prop => prop.type === 7 && prop.name === 'for')?.exp?.content
+  const match = expression?.match(/^\s*(.*?)\s+(?:in|of)\s+([\s\S]+)$/)
+  return match ? { bindings: match[1], source: match[2] } : undefined
+}
+const vForBindingNames = node => {
+  const parts = vForParts(node)
+  if (!parts) return []
+  const parameters = parts.bindings.trim().replace(/^\(([\s\S]*)\)$/, '$1')
+  let ast
+  try { ast = vueCompiler.babelParse(`(${parameters}) => 0`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression }
+  catch (error) { throw new Error(`pricing v-for aliases must parse cleanly: ${error.message}`, { cause: error }) }
+  const names = []
+  const collect = pattern => {
+    if (!pattern) return
+    if (pattern.type === 'Identifier') names.push(pattern.name)
+    else if (pattern.type === 'AssignmentPattern') collect(pattern.left)
+    else if (pattern.type === 'RestElement') collect(pattern.argument)
+    else if (pattern.type === 'ObjectPattern') for (const property of pattern.properties) collect(property.type === 'RestElement' ? property.argument : property.value)
+    else if (pattern.type === 'ArrayPattern') for (const element of pattern.elements) collect(element)
+  }
+  for (const parameter of ast?.params || []) collect(parameter)
+  return names
 }
 const templateExpressionAsts = root => {
   const expressions = []
-  const add = content => {
+  const add = (content, locals) => {
     if (!content) return
-    try { expressions.push(vueCompiler.babelParse(`(${content})`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression) }
+    try {
+      const expression = vueCompiler.babelParse(`(${content})`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression
+      const mark = node => {
+        if (!node || typeof node !== 'object') return
+        templateExpressionScopes.set(node, locals)
+        for (const [key, value] of Object.entries(node)) {
+          if (['loc', 'start', 'end', 'extra'].includes(key)) continue
+          if (Array.isArray(value)) for (const item of value) mark(item)
+          else mark(value)
+        }
+      }
+      mark(expression)
+      expressions.push(expression)
+    }
     catch (error) { throw new Error(`pricing rendered expression must parse cleanly: ${error.message}`, { cause: error }) }
   }
-  const visit = node => {
+  const visit = (node, inherited = new Set()) => {
     if (staticallyHidden(node)) return
-    if (node.type === 5) add(node.content.content)
-    if (node.type === 1) for (const prop of node.props || []) if (prop.type === 7 && prop.exp?.content) add(prop.exp.content)
-    for (const child of node.children || []) visit(child)
-    for (const branch of node.branches || []) visit(branch)
+    const scoped = node.type === 1 ? new Set([...inherited, ...vForBindingNames(node)]) : inherited
+    if (node.type === 5) add(node.content.content, scoped)
+    if (node.type === 1) for (const prop of node.props || []) if (prop.type === 7 && prop.exp?.content) {
+      add(prop.name === 'for' ? vForParts(node)?.source : prop.exp.content, prop.name === 'for' ? inherited : scoped)
+    }
+    for (const child of node.children || []) visit(child, scoped)
+    for (const branch of node.branches || []) visit(branch, scoped)
   }
-  visit(root)
+  visit(root, templateNodeScopes.get(root) || new Set())
   return expressions.filter(Boolean)
 }
 const astContains = (node, predicate) => {
@@ -450,6 +494,7 @@ const forwardedStateArgument = (argument, definitions, binding, renderedCall, re
 }
 const correctPublicStateCall = (stateCall, component, modelName, binding, renderedCall, stateAuthority, definitions = new Map()) => {
   if (stateCall.callee?.type !== 'Identifier') return false
+  if (templateExpressionScopes.get(stateCall)?.has(stateCall.callee.name)) return false
   const authorized = stateAuthority?.scriptCalls?.has(stateCall)
     ? stateAuthority.authorizedCalls.has(stateCall)
     : stateAuthority?.templateNames?.has(stateCall.callee.name)
@@ -584,7 +629,7 @@ const renderedPriceStateFor = (expression, component, modelName, bindings, path 
     if (node.callee?.type === 'Identifier' && correctPublicStateCall(node, component, modelName, undefined, undefined, stateAuthority)) {
       return path.length === 0 || ['state', 'value'].includes(String(path[0]))
     }
-    if (node.callee?.type === 'Identifier' && bindings.has(node.callee.name)) {
+    if (node.callee?.type === 'Identifier' && !templateExpressionScopes.get(node)?.has(node.callee.name) && bindings.has(node.callee.name)) {
       return (bindings.get(node.callee.name) || []).some(binding => helperReturnsCorrectState(binding, component, modelName, node, [path], bindings))
     }
     if (path.length > 0 || node.callee?.type !== 'Identifier' || node.callee.name !== 't') return false
@@ -689,6 +734,15 @@ const staticBindingInitializers = (value, importer) => {
         const scope = new Map(inherited)
         for (const name of patternNames(node.param)) scope.set(name, false)
         visitScope(node.body, scope)
+        return
+      }
+      if (node.type === 'SwitchStatement') {
+        visitScope(node.discriminant, inherited)
+        const scope = scopedBindings(node.cases.flatMap(branch => branch.consequent), inherited)
+        for (const branch of node.cases) {
+          visitScope(branch.test, scope)
+          for (const statement of branch.consequent) visitScope(statement, scope)
+        }
         return
       }
       if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression') {
