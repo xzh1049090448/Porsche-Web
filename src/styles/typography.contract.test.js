@@ -190,12 +190,23 @@ const renderNodesFromScripts = (descriptor, file) => {
     }
     const bindings = new Map()
     const helpers = new Map()
+    const reassigned = new Set()
     walk(ast.program, node => {
       if (node.type === 'FunctionDeclaration' && node.id) helpers.set(node.id.name, node)
+      if (node.type === 'AssignmentExpression' && node.left?.type === 'Identifier') reassigned.add(node.left.name)
+      if (node.type === 'UpdateExpression' && node.argument?.type === 'Identifier') reassigned.add(node.argument.name)
       if (node.type !== 'VariableDeclarator' || node.id?.type !== 'Identifier' || !node.init) return
       bindings.set(node.id.name, node.init)
       if (['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapJavaScript(node.init)?.type)) helpers.set(node.id.name, unwrapJavaScript(node.init))
     })
+    const resolveHelper = (name, resolving = new Set()) => {
+      if (!name) return { status: 'missing' }
+      if (reassigned.has(name) || resolving.has(name)) return { status: 'dynamic' }
+      if (helpers.has(name)) return { status: 'resolved', name, helper: helpers.get(name) }
+      const alias = unwrapJavaScript(bindings.get(name))
+      if (alias?.type === 'Identifier') return resolveHelper(alias.name, new Set(resolving).add(name))
+      return { status: bindings.has(name) ? 'dynamic' : 'missing' }
+    }
     const dereference = (expression, environment, resolving = new Set()) => {
       expression = unwrapJavaScript(expression)
       if (expression?.type !== 'Identifier' || resolving.has(expression.name)) return expression
@@ -257,10 +268,10 @@ const renderNodesFromScripts = (descriptor, file) => {
       const node = { name, ...props, parent, typography: dynamicType }
       nodes.push(node)
       const analyzeHelper = (expression, activeEnvironment, activeStack, activeDepth) => {
-        const name = calleeName(expression.callee)
-        const helper = helpers.get(name)
-        if (!helper) return false
-        if (activeStack.has(name) || activeDepth >= 24) { node.typography = true; return true }
+        const resolved = resolveHelper(calleeName(expression.callee))
+        if (resolved.status === 'missing') return false
+        if (resolved.status === 'dynamic' || activeStack.has(resolved.name) || activeDepth >= 24) { node.typography = true; return true }
+        const { helper } = resolved
         const nestedEnvironment = new Map(activeEnvironment)
         for (let index = 0; index < helper.params.length; index += 1) {
           const parameter = unwrapJavaScript(helper.params[index])
@@ -268,7 +279,7 @@ const renderNodesFromScripts = (descriptor, file) => {
           const argument = expression.arguments[index] ?? (parameter?.type === 'AssignmentPattern' ? parameter.right : undefined)
           if (target?.type === 'Identifier' && argument) nestedEnvironment.set(target.name, dereference(argument, activeEnvironment))
         }
-        const nestedStack = new Set(activeStack).add(name)
+        const nestedStack = new Set(activeStack).add(resolved.name)
         for (const returned of returnExpressions(helper.body)) markVisibleChild(returned, nestedEnvironment, nestedStack, activeDepth + 1, true)
         return true
       }
