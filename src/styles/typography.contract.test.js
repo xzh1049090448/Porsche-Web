@@ -191,10 +191,15 @@ const renderNodesFromScripts = (descriptor, file) => {
     const bindings = new Map()
     const helpers = new Map()
     const reassigned = new Set()
+    const assignmentRoot = expression => {
+      expression = unwrapJavaScript(expression)
+      while (['MemberExpression', 'OptionalMemberExpression'].includes(expression?.type)) expression = unwrapJavaScript(expression.object)
+      return expression?.type === 'Identifier' ? expression.name : undefined
+    }
     walk(ast.program, node => {
       if (node.type === 'FunctionDeclaration' && node.id) helpers.set(node.id.name, node)
-      if (node.type === 'AssignmentExpression' && node.left?.type === 'Identifier') reassigned.add(node.left.name)
-      if (node.type === 'UpdateExpression' && node.argument?.type === 'Identifier') reassigned.add(node.argument.name)
+      if (node.type === 'AssignmentExpression' && assignmentRoot(node.left)) reassigned.add(assignmentRoot(node.left))
+      if (node.type === 'UpdateExpression' && assignmentRoot(node.argument)) reassigned.add(assignmentRoot(node.argument))
       if (node.type !== 'VariableDeclarator' || node.id?.type !== 'Identifier' || !node.init) return
       bindings.set(node.id.name, node.init)
       if (['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapJavaScript(node.init)?.type)) helpers.set(node.id.name, unwrapJavaScript(node.init))
@@ -216,7 +221,7 @@ const renderNodesFromScripts = (descriptor, file) => {
     const objectProperties = (expression, environment, resolving = new Set()) => {
       expression = unwrapJavaScript(expression)
       if (expression?.type === 'Identifier') {
-        if (resolving.has(expression.name)) return { known: false, values: new Map() }
+        if (reassigned.has(expression.name) || resolving.has(expression.name)) return { known: false, values: new Map() }
         const value = environment.get(expression.name) ?? bindings.get(expression.name)
         return value ? objectProperties(value, environment, new Set(resolving).add(expression.name)) : { known: false, values: new Map() }
       }
@@ -226,14 +231,14 @@ const renderNodesFromScripts = (descriptor, file) => {
       for (const property of expression.properties) {
         if (property.type === 'SpreadElement') {
           const spread = objectProperties(property.argument, environment, resolving)
-          if (!spread.known) { known = false; values.delete('class'); values.delete('id') }
+          if (!spread.known) { known = false; values.clear() }
           else for (const [name, value] of spread.values) values.set(name, value)
           continue
         }
         if (property.type !== 'ObjectProperty') continue
         const name = propertyName(property)
         if (name !== undefined) values.set(String(name), property.value)
-        else { known = false; values.delete('class'); values.delete('id') }
+        else { known = false; values.clear() }
       }
       return { known, values }
     }
@@ -242,6 +247,42 @@ const renderNodesFromScripts = (descriptor, file) => {
       const classes = staticStrings(props.values.get('class'), environment, bindings).flatMap(value => value.split(/\s+/).filter(Boolean))
       const id = staticStrings(props.values.get('id'), environment, bindings)[0]
       return { known: props.known, classes: [...new Set(classes)], id }
+    }
+    const memberName = member => {
+      const property = unwrapJavaScript(member?.property)
+      if (!member?.computed && property?.type === 'Identifier') return property.name
+      if (member?.computed && ['StringLiteral', 'NumericLiteral'].includes(property?.type)) return String(property.value)
+      return undefined
+    }
+    const staticReference = (expression, environment, resolving = new Set()) => {
+      expression = unwrapJavaScript(expression)
+      if (!expression || resolving.size > 32) return { status: 'dynamic' }
+      if (expression.type === 'Identifier') {
+        if (reassigned.has(expression.name) || resolving.has(expression.name)) return { status: 'dynamic' }
+        const value = environment.get(expression.name) ?? bindings.get(expression.name)
+        return value ? staticReference(value, environment, new Set(resolving).add(expression.name)) : { status: 'known', value: expression }
+      }
+      if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) {
+        const token = `member:${expression.start}:${expression.end}`
+        if (resolving.has(token)) return { status: 'dynamic' }
+        const nestedResolving = new Set(resolving).add(token)
+        const name = memberName(expression)
+        if (name === undefined) return { status: 'dynamic' }
+        const object = staticReference(expression.object, environment, nestedResolving)
+        if (object.status !== 'known') return object
+        const properties = objectProperties(object.value, environment, nestedResolving)
+        if (!properties.values.has(name)) return { status: properties.known ? 'missing' : 'dynamic' }
+        return staticReference(properties.values.get(name), environment, nestedResolving)
+      }
+      return { status: 'known', value: expression }
+    }
+    const resolveHelperCallee = (callee, environment) => {
+      const reference = staticReference(callee, environment)
+      if (reference.status !== 'known') return reference
+      const value = unwrapJavaScript(reference.value)
+      if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(value?.type)) return { status: 'resolved', name: `function:${value.start}`, helper: value }
+      if (value?.type === 'Identifier') return resolveHelper(value.name)
+      return { status: 'dynamic' }
     }
     const returnExpressions = body => {
       body = unwrapJavaScript(body)
@@ -268,7 +309,7 @@ const renderNodesFromScripts = (descriptor, file) => {
       const node = { name, ...props, parent, typography: dynamicType }
       nodes.push(node)
       const analyzeHelper = (expression, activeEnvironment, activeStack, activeDepth) => {
-        const resolved = resolveHelper(calleeName(expression.callee))
+        const resolved = resolveHelperCallee(expression.callee, activeEnvironment)
         if (resolved.status === 'missing') return false
         if (resolved.status === 'dynamic' || activeStack.has(resolved.name) || activeDepth >= 24) { node.typography = true; return true }
         const { helper } = resolved
