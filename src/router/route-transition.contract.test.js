@@ -245,19 +245,28 @@ const selectorSubject = selector => {
 }
 const assertEveryPhaseOpacityOnly = (rules, name) => {
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const phaseClass = new RegExp(`\\.${escapedName}-(?:enter|leave)-(?:active|from|to)(?![\\w-])`)
-  const geometryProperties = /^(?:transform|translate|scale|rotate|filter|width|height|top|left|right|bottom)$/i
+  const phaseClass = new RegExp(`\\.${escapedName}-(enter|leave)-(?:active|from|to)(?![\\w-])`, 'g')
   for (const rule of rules) {
-    const selectors = rule.selectors.filter(selector => phaseClass.test(selectorSubject(selector)))
-    if (selectors.length === 0) continue
-    const label = selectors.join(', ')
+    const targets = rule.selectors.flatMap(selector => [...selectorSubject(selector).matchAll(phaseClass)].map(match => ({ selector, direction: match[1] })))
+    if (targets.length === 0) continue
+    const label = targets.map(target => target.selector).join(', ')
     const properties = ruleProperties(rule)
-    for (const property of properties.keys()) assert.doesNotMatch(property, geometryProperties, `${label} must not declare ${property}; route phases may change opacity only`)
+    for (const [property, value] of properties) {
+      const allowed = property === 'opacity' || property.startsWith('transition-') || property.startsWith('--') || (property === 'will-change' && value.trim().toLowerCase() === 'opacity')
+      assert.equal(allowed, true, `${label} must not declare ${property}; route phases may declare opacity and its transition only`)
+    }
     const transitionProperties = transitionValues(properties, 'transition-property', '')
     if (transitionProperties.length > 0) assert.ok(transitionProperties.every(property => property === 'opacity' || property === 'none'), `${label} transition-property must be opacity or none; found ${transitionProperties.join(', ')}`)
-    for (const [property, value] of properties) {
-      if (/^animation(?:-|$)/i.test(property)) assert.ok(/^none$|^0m?s$/i.test(value.trim()), `${label} must not create CSS animation through ${property}`)
+    const durations = transitionValues(properties, 'transition-duration', '').map(milliseconds)
+    const delays = transitionValues(properties, 'transition-delay', '').map(milliseconds)
+    const disabled = transitionProperties.length > 0 && transitionProperties.every(property => property === 'none')
+    const reduced = rule.media.some(condition => /prefers-reduced-motion\s*:\s*reduce/i.test(condition))
+    if (durations.length > 0) {
+      assert.ok(durations.every(Number.isFinite), `${label} transition duration must use ms or s units`)
+      if (disabled || reduced) assert.ok(durations.every(duration => Math.abs(duration) <= 1), `${label} disabled or reduced-motion transition duration must be zero or near-zero`)
+      else for (const { direction } of targets) assert.deepEqual(durations, [direction === 'enter' ? 350 : 200], `${label} ${direction} transition duration must use the approved timing`)
     }
+    if (delays.length > 0) assert.ok(delays.every(delay => delay === 0), `${label} transition delay must be zero or omitted`)
   }
 }
 const assertOpacityTransition = (rules, selector, durationMs) => {
