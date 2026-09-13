@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { basename, dirname, extname, join, resolve } from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import vuePlugin from '@vitejs/plugin-vue'
+import { compileString } from 'sass'
 
 const vueCompiler = (() => {
   const plugin = vuePlugin()
@@ -179,13 +181,13 @@ const renderNodesFromScripts = (descriptor, file) => {
     const seen = new WeakSet()
     const isCall = node => ['CallExpression', 'OptionalCallExpression'].includes(unwrapJavaScript(node)?.type)
     const calleeName = node => unwrapJavaScript(node)?.type === 'Identifier' ? unwrapJavaScript(node).name : undefined
-    const walk = (node, visit) => {
+    const walk = (node, visit, parent) => {
       if (!node || typeof node !== 'object') return
-      visit(node)
+      visit(node, parent)
       for (const [key, value] of Object.entries(node)) {
         if (['loc', 'start', 'end', 'extra'].includes(key)) continue
-        if (Array.isArray(value)) for (const child of value) walk(child, visit)
-        else if (value && typeof value === 'object' && typeof value.type === 'string') walk(value, visit)
+        if (Array.isArray(value)) for (const child of value) walk(child, visit, node)
+        else if (value && typeof value === 'object' && typeof value.type === 'string') walk(value, visit, node)
       }
     }
     const bindings = new Map()
@@ -241,10 +243,29 @@ const renderNodesFromScripts = (descriptor, file) => {
         }
       }
     }
+    const parents = new WeakMap()
+    walk(ast.program, (node, parent) => { if (parent) parents.set(node, parent) })
+    const assignmentIsUnconditional = node => {
+      for (let current = parents.get(node); current; current = parents.get(current)) {
+        if (['IfStatement', 'ConditionalExpression', 'LogicalExpression', 'SwitchStatement', 'SwitchCase', 'ForStatement', 'ForInStatement', 'ForOfStatement', 'WhileStatement', 'DoWhileStatement', 'TryStatement', 'CatchClause'].includes(current.type)) return false
+        if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'Program'].includes(current.type)) return true
+      }
+      return false
+    }
     walk(ast.program, node => {
       if (node.type === 'FunctionDeclaration' && node.id) helpers.set(node.id.name, node)
       if (node.type === 'AssignmentExpression' && ['ObjectPattern', 'ArrayPattern'].includes(node.left?.type)) bindPattern(node.left, node.right, true)
-      else if (node.type === 'AssignmentExpression' && assignmentRoot(node.left)) reassigned.add(assignmentRoot(node.left))
+      else if (node.type === 'AssignmentExpression' && node.operator === '=' && node.left?.type === 'Identifier' && assignmentIsUnconditional(node)) {
+        const assigned = unwrapJavaScript(node.right)
+        const staticallyKnown = ['ArrowFunctionExpression', 'FunctionExpression', 'ObjectExpression', 'ArrayExpression'].includes(assigned?.type)
+          || (assigned?.type === 'Identifier' && (helpers.has(assigned.name) || (bindings.has(assigned.name) && !reassigned.has(assigned.name))))
+        if (staticallyKnown) {
+          bindings.set(node.left.name, node.right)
+          reassigned.delete(node.left.name)
+          if (['ArrowFunctionExpression', 'FunctionExpression'].includes(assigned?.type)) helpers.set(node.left.name, assigned)
+          else helpers.delete(node.left.name)
+        } else reassigned.add(node.left.name)
+      } else if (node.type === 'AssignmentExpression' && assignmentRoot(node.left)) reassigned.add(assignmentRoot(node.left))
       if (node.type === 'UpdateExpression' && assignmentRoot(node.argument)) reassigned.add(assignmentRoot(node.argument))
       if (node.type !== 'VariableDeclarator' || !node.init) return
       bindPattern(node.id, node.init)
@@ -344,12 +365,40 @@ const renderNodesFromScripts = (descriptor, file) => {
       if (value?.type === 'Identifier') return resolveHelper(value.name)
       return { status: 'dynamic' }
     }
+    const renderStaticValue = expression => {
+      expression = unwrapJavaScript(expression)
+      if (!expression) return { known: false }
+      if (['BooleanLiteral', 'NumericLiteral', 'StringLiteral'].includes(expression.type)) return { known: true, value: expression.value }
+      if (expression.type === 'NullLiteral') return { known: true, value: null }
+      if (expression.type === 'Identifier' && expression.name === 'undefined') return { known: true, value: undefined }
+      if (expression.type === 'UnaryExpression' && expression.operator === '!') {
+        const value = renderStaticValue(expression.argument)
+        return value.known ? { known: true, value: !value.value } : value
+      }
+      return { known: false }
+    }
     const returnExpressions = body => {
       body = unwrapJavaScript(body)
       if (!body) return []
       if (body.type !== 'BlockStatement') return [body]
       const values = []
-      walk(body, node => { if (node.type === 'ReturnStatement' && node.argument) values.push(node.argument) })
+      const visit = node => {
+        if (!node || typeof node !== 'object') return
+        if (node.type === 'ReturnStatement') { if (node.argument) values.push(node.argument); return }
+        if (node !== body && ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod', 'ClassMethod'].includes(node.type)) return
+        if (node.type === 'IfStatement') {
+          const condition = renderStaticValue(node.test)
+          if (condition.known) visit(condition.value ? node.consequent : node.alternate)
+          else { visit(node.consequent); visit(node.alternate) }
+          return
+        }
+        for (const [key, value] of Object.entries(node)) {
+          if (['loc', 'start', 'end', 'extra'].includes(key)) continue
+          if (Array.isArray(value)) for (const child of value) visit(child)
+          else if (value && typeof value === 'object' && typeof value.type === 'string') visit(value)
+        }
+      }
+      visit(body)
       return values
     }
     const parseRenderCall = (call, parent, environment = new Map(), helperStack = new Set(), depth = 0, instantiated = false) => {
@@ -411,8 +460,19 @@ const renderNodesFromScripts = (descriptor, file) => {
           else if (!analyzeHelper(expression, activeEnvironment, activeStack, activeDepth)) for (const argument of expression.arguments) markVisibleChild(argument, activeEnvironment, activeStack, activeDepth, activeInstantiation)
           return
         }
-        if (expression.type === 'ConditionalExpression') { markVisibleChild(expression.consequent, activeEnvironment, activeStack, activeDepth, activeInstantiation); markVisibleChild(expression.alternate, activeEnvironment, activeStack, activeDepth, activeInstantiation); return }
-        if (expression.type === 'LogicalExpression' || expression.type === 'BinaryExpression') { markVisibleChild(expression.left, activeEnvironment, activeStack, activeDepth, activeInstantiation); markVisibleChild(expression.right, activeEnvironment, activeStack, activeDepth, activeInstantiation); return }
+        if (expression.type === 'ConditionalExpression') {
+          const condition = renderStaticValue(expression.test)
+          if (condition.known) markVisibleChild(condition.value ? expression.consequent : expression.alternate, activeEnvironment, activeStack, activeDepth, activeInstantiation)
+          else { markVisibleChild(expression.consequent, activeEnvironment, activeStack, activeDepth, activeInstantiation); markVisibleChild(expression.alternate, activeEnvironment, activeStack, activeDepth, activeInstantiation) }
+          return
+        }
+        if (expression.type === 'LogicalExpression') {
+          const left = renderStaticValue(expression.left)
+          markVisibleChild(expression.left, activeEnvironment, activeStack, activeDepth, activeInstantiation)
+          if (!left.known || (expression.operator === '&&' ? Boolean(left.value) : expression.operator === '||' ? !left.value : left.value == null)) markVisibleChild(expression.right, activeEnvironment, activeStack, activeDepth, activeInstantiation)
+          return
+        }
+        if (expression.type === 'BinaryExpression') { markVisibleChild(expression.left, activeEnvironment, activeStack, activeDepth, activeInstantiation); markVisibleChild(expression.right, activeEnvironment, activeStack, activeDepth, activeInstantiation); return }
         if (expression.type === 'SequenceExpression') { markVisibleChild(expression.expressions.at(-1), activeEnvironment, activeStack, activeDepth, activeInstantiation); return }
         if (expression.type === 'SpreadElement' || expression.type === 'AwaitExpression') { markVisibleChild(expression.argument, activeEnvironment, activeStack, activeDepth, activeInstantiation) }
       }
@@ -420,10 +480,65 @@ const renderNodesFromScripts = (descriptor, file) => {
       for (const child of children) markVisibleChild(child)
       return node
     }
-    // Only syntax is inspected: render helpers, slots, and component bodies are never invoked.
-    walk(ast.program, node => {
-      if (isCall(node) && renderCalls.has(calleeName(node.callee)) && !seen.has(node)) parseRenderCall(node, undefined)
-    })
+    const renderRootExpressions = []
+    const optionsFrom = declaration => {
+      declaration = unwrapJavaScript(declaration)
+      if (isCall(declaration) && declaration.callee?.type === 'Identifier' && declaration.callee.name === 'defineComponent') declaration = unwrapJavaScript(declaration.arguments[0])
+      return declaration?.type === 'ObjectExpression' ? declaration : undefined
+    }
+    const optionFunction = (options, name) => {
+      const property = options?.properties.find(candidate => propertyName(candidate) === name)
+      if (!property) return undefined
+      return property.type === 'ObjectMethod' ? property : unwrapJavaScript(property.value)
+    }
+    for (const statement of ast.program.body) {
+      if (statement.type !== 'ExportDefaultDeclaration') continue
+      const options = optionsFrom(statement.declaration)
+      const render = optionFunction(options, 'render')
+      if (render) renderRootExpressions.push(...returnExpressions(render.body))
+      const setup = optionFunction(options, 'setup')
+      if (setup) for (const returned of returnExpressions(setup.body)) {
+        const resolved = dereference(returned, new Map())
+        if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(resolved?.type)) renderRootExpressions.push(...returnExpressions(resolved.body))
+        else renderRootExpressions.push(resolved)
+      }
+    }
+    const analyzeRoot = (expression, environment = new Map(), stack = new Set(), depth = 0) => {
+      expression = dereference(expression, environment)
+      if (!expression || depth > 24) return
+      if (isCall(expression) && renderCalls.has(calleeName(expression.callee))) { parseRenderCall(expression, undefined, environment, stack, depth, true); return }
+      if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(expression.type)) {
+        for (const returned of returnExpressions(expression.body)) analyzeRoot(returned, environment, stack, depth + 1)
+        return
+      }
+      if (expression.type === 'ConditionalExpression') {
+        const condition = renderStaticValue(expression.test)
+        if (condition.known) analyzeRoot(condition.value ? expression.consequent : expression.alternate, environment, stack, depth + 1)
+        else { analyzeRoot(expression.consequent, environment, stack, depth + 1); analyzeRoot(expression.alternate, environment, stack, depth + 1) }
+        return
+      }
+      if (expression.type === 'LogicalExpression') {
+        const left = renderStaticValue(expression.left)
+        analyzeRoot(expression.left, environment, stack, depth + 1)
+        if (!left.known || (expression.operator === '&&' ? Boolean(left.value) : expression.operator === '||' ? !left.value : left.value == null)) analyzeRoot(expression.right, environment, stack, depth + 1)
+        return
+      }
+      if (expression.type === 'SequenceExpression') { analyzeRoot(expression.expressions.at(-1), environment, stack, depth + 1); return }
+      if (expression.type === 'ArrayExpression') { for (const child of expression.elements) analyzeRoot(child, environment, stack, depth + 1); return }
+      if (!isCall(expression)) return
+      const resolved = resolveHelperCallee(expression.callee, environment)
+      if (resolved.status !== 'resolved' || stack.has(resolved.name)) return
+      const nestedEnvironment = new Map(environment)
+      for (let index = 0; index < resolved.helper.params.length; index += 1) {
+        const parameter = unwrapJavaScript(resolved.helper.params[index])
+        const target = parameter?.type === 'AssignmentPattern' ? parameter.left : parameter
+        const argument = expression.arguments[index] ?? (parameter?.type === 'AssignmentPattern' ? parameter.right : undefined)
+        if (target?.type === 'Identifier' && argument) nestedEnvironment.set(target.name, dereference(argument, environment))
+      }
+      for (const returned of returnExpressions(resolved.helper.body)) analyzeRoot(returned, nestedEnvironment, new Set(stack).add(resolved.name), depth + 1)
+    }
+    // Only the component's effective render/setup return is inspected; helpers are followed from that root without invoking code.
+    for (const expression of renderRootExpressions) analyzeRoot(expression)
   }
   return nodes
 }
@@ -603,6 +718,48 @@ const expandedMixinDeclarations = source => {
   }
   return expanded
 }
+const sassImportCandidates = path => {
+  const extension = extname(path)
+  const directory = dirname(path)
+  const name = basename(path, extension)
+  const candidates = extension ? [path] : [path, `${path}.scss`, `${path}.sass`, join(path, 'index.scss'), join(path, '_index.scss')]
+  if (!name.startsWith('_')) candidates.push(join(directory, `_${name}${extension || '.scss'}`))
+  return candidates
+}
+const compileSassStyleSources = styleSources => {
+  const sources = new Map(styleSources.map(style => [resolve(style.file.replace(/#style-\d+$/, '')), style.source]))
+  const sourceRoot = [...sources.keys()].map(file => file.match(/^(.*\/src)(?:\/|$)/)?.[1]).find(Boolean)
+  const contractUrl = file => new URL(`contract:${encodeURIComponent(resolve(file))}`)
+  const contractFile = url => resolve(decodeURIComponent(url.href.slice('contract:'.length)))
+  const importer = {
+    canonicalize(specifier, context) {
+      if (/^(?:sass:|https?:|data:)/i.test(specifier)) return null
+      let requested
+      if (specifier.startsWith('@/') && sourceRoot) requested = resolve(sourceRoot, specifier.slice(2))
+      else if (specifier.startsWith('file:')) requested = fileURLToPath(specifier)
+      else if (context.containingUrl?.protocol === 'file:') requested = resolve(dirname(fileURLToPath(context.containingUrl)), specifier)
+      else if (context.containingUrl?.protocol === 'contract:') requested = resolve(dirname(contractFile(context.containingUrl)), specifier)
+      else return null
+      const found = sassImportCandidates(requested).find(candidate => sources.has(resolve(candidate)))
+      return found ? contractUrl(found) : null
+    },
+    load(url) {
+      const contents = sources.get(url.protocol === 'contract:' ? contractFile(url) : resolve(fileURLToPath(url)))
+      return contents === undefined ? null : { contents, syntax: 'scss' }
+    },
+  }
+  return styleSources.map(style => {
+    if (!/@(?:use|import|mixin|include)\b|\$[A-Za-z_-][\w-]*\s*:/.test(style.source)) return { ...style, compiled: false }
+    try {
+      const file = resolve(style.file.replace(/#style-\d+$/, ''))
+      const result = compileString(style.source, { url: contractUrl(file), importers: [importer], logger: { warn() {}, debug() {} } })
+      return { ...style, source: result.css, compiled: true }
+    } catch {
+      // Fall back to the focused static expander so unresolved includes on typography fail conservatively.
+      return { ...style, compiled: false }
+    }
+  })
+}
 const normalizedStyleContext = contexts => contexts.filter(context => !context.startsWith('@')).map(context => context.replace(/\s+/g, ' ').trim()).join(' ')
 const effectiveStyleSelectors = contexts => contexts.filter(context => !context.startsWith('@')).reduce((parents, context) => {
   const children = splitTopLevel(context, ',')
@@ -611,10 +768,12 @@ const effectiveStyleSelectors = contexts => contexts.filter(context => !context.
 const selectorTargetsTypography = (selector, evidence) => {
   const compounds = selectorCompounds(selector)
   const rightmost = compounds.at(-1) || ''
-  const tokens = compoundTokens(rightmost)
-  const identities = tokens.filter(token => /^[.#]/.test(token) && !token.startsWith(':'))
-  if (identities.length ? identities.some(token => evidence.has(token.toLowerCase())) : tokens.some(token => evidence.has(token.toLowerCase()))) return true
-  return /(^|[^\w-])\*/.test(rightmost) && (compounds.length === 1 || compounds.slice(0, -1).some(compound => compoundTokens(compound).some(token => evidence.has(token.toLowerCase()))))
+  if (compoundSubjectAlternatives(rightmost).some(alternative => {
+    const tokens = compoundTokens(alternative)
+    const identities = tokens.filter(token => /^[.#]/.test(token) && !token.startsWith(':'))
+    return identities.length ? identities.some(token => evidence.has(token.toLowerCase())) : tokens.some(token => evidence.has(token.toLowerCase()))
+  })) return true
+  return /(^|[^\w-])\*/.test(rightmost) && (compounds.length === 1 || compounds.slice(0, -1).some(compound => compoundSubjectAlternatives(compound).some(alternative => compoundTokens(alternative).some(token => evidence.has(token.toLowerCase())))))
 }
 const scopeHeaders = declaration => declaration.contexts.filter(context => !context.startsWith('@')).map(context => normalizeSelector(context))
 const scopeContains = (outer, inner) => outer.length <= inner.length && outer.every((value, index) => value === inner[index])
@@ -656,9 +815,9 @@ const resolvedTransformValues = (value, declaration, declarations, resolving = n
     .flatMap(replacement => replacement === undefined ? [undefined] : resolvedTransformValues(`${value.slice(0, reference.start)}${replacement}${value.slice(reference.end)}`, declaration, declarations, resolving))
 }
 const assertTypographyScalingPolicy = (styleSources, evidence) => {
-  const declarations = styleSources.flatMap(style => nestedStyleDeclarations(style.source)
+  const declarations = compileSassStyleSources(styleSources).flatMap(style => nestedStyleDeclarations(style.source)
     .filter(declaration => declaration.property !== '@include' && !declaration.contexts.some(context => /^@mixin\b/.test(context)))
-    .concat(expandedMixinDeclarations(style.source))
+    .concat(style.compiled ? [] : expandedMixinDeclarations(style.source))
     .map(declaration => ({ ...declaration, file: style.file })))
   for (const declaration of declarations) {
     const targetsTypography = effectiveStyleSelectors(declaration.contexts).some(selector => selectorTargetsTypography(selector, evidence))
@@ -745,14 +904,40 @@ const selectorCompounds = selector => {
   return compounds
 }
 const compoundTokens = compound => [...compound.matchAll(/[.#:][\w-]+|\[[^\]]+\]|(?:^|(?<=[^\w.#:-]))[a-z][\w-]*/gi)].map(match => match[0])
+const compoundSubjectAlternatives = compound => {
+  const expand = subject => {
+    const match = /:([\w-]+)\s*\(/.exec(subject)
+    if (!match) return [subject]
+    const open = subject.indexOf('(', match.index)
+    let cursor = open + 1
+    let depth = 1
+    let quote = ''
+    for (; cursor < subject.length && depth > 0; cursor += 1) {
+      const character = subject[cursor]
+      if (quote) { if (character === quote && subject[cursor - 1] !== '\\') quote = '' }
+      else if (character === '"' || character === "'") quote = character
+      else if (character === '(') depth += 1
+      else if (character === ')') depth -= 1
+    }
+    if (depth !== 0) return [subject]
+    const before = subject.slice(0, match.index)
+    const after = subject.slice(cursor)
+    if (!['is', 'where'].includes(match[1].toLowerCase())) return expand(before + after)
+    return splitTopLevel(subject.slice(open + 1, cursor - 1), ',').flatMap(branch => expand(`${before}${selectorCompounds(branch).at(-1) || ''}${after}`))
+  }
+  return expand(compound)
+}
 const selectorTargetsContract = (selector, target) => {
   const candidateCompounds = selectorCompounds(selector)
   const targetCompounds = selectorCompounds(target)
   if (candidateCompounds.length < targetCompounds.length) return false
   const offset = candidateCompounds.length - targetCompounds.length
   return targetCompounds.every((compound, index) => {
-    const candidateTokens = new Set(compoundTokens(candidateCompounds[offset + index]))
-    return compoundTokens(compound).every(token => candidateTokens.has(token))
+    const targetTokens = compoundTokens(compound)
+    return compoundSubjectAlternatives(candidateCompounds[offset + index]).some(alternative => {
+      const candidateTokens = new Set(compoundTokens(alternative))
+      return targetTokens.every(token => candidateTokens.has(token))
+    })
   })
 }
 const assertNoContextualOverrides = (stylesheet, selector, properties, message, widths) => {

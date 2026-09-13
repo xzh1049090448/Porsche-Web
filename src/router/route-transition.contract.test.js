@@ -362,12 +362,35 @@ const selectorSubject = selector => {
   }
   return selector.slice(start).trim()
 }
+const selectorSubjectAlternatives = selector => {
+  const expand = subject => {
+    const match = /:([\w-]+)\s*\(/g.exec(subject)
+    if (!match) return [subject]
+    const open = subject.indexOf('(', match.index)
+    let cursor = open + 1
+    let depth = 1
+    let quote = ''
+    for (; cursor < subject.length && depth > 0; cursor += 1) {
+      const character = subject[cursor]
+      if (quote) { if (character === quote && subject[cursor - 1] !== '\\') quote = '' }
+      else if (character === '"' || character === "'") quote = character
+      else if (character === '(') depth += 1
+      else if (character === ')') depth -= 1
+    }
+    if (depth !== 0) return [subject]
+    const before = subject.slice(0, match.index)
+    const after = subject.slice(cursor)
+    if (!['is', 'where'].includes(match[1].toLowerCase())) return expand(before + after)
+    return splitTopLevel(subject.slice(open + 1, cursor - 1), ',').flatMap(branch => expand(`${before}${selectorSubject(branch)}${after}`))
+  }
+  return expand(selectorSubject(selector))
+}
 const assertEveryPhaseOpacityOnly = (rules, name, widths) => {
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const phaseClass = new RegExp(`\\.${escapedName}-(enter|leave)-(?:active|from|to)(?![\\w-])`, 'g')
   for (const rule of rules) {
     if (!widths.some(width => mediaMatchesScreen(rule.media, width, false) || mediaMatchesScreen(rule.media, width, true))) continue
-    const targets = rule.selectors.flatMap(selector => [...selectorSubject(selector).matchAll(phaseClass)].map(match => ({ selector, direction: match[1], phase: match[0] })))
+    const targets = rule.selectors.flatMap(selector => selectorSubjectAlternatives(selector).flatMap(subject => [...subject.matchAll(phaseClass)].map(match => ({ selector, direction: match[1], phase: match[0] }))))
     if (targets.length === 0) continue
     const label = targets.map(target => target.selector).join(', ')
     const properties = ruleProperties(rule)

@@ -210,7 +210,27 @@ const astContains = (node, predicate) => {
   if (predicate(node)) return true
   return Object.entries(node).some(([key, value]) => !['loc', 'start', 'end', 'extra'].includes(key) && (Array.isArray(value) ? value.some(item => astContains(item, predicate)) : astContains(value, predicate)))
 }
-const callsFunction = (node, name, argument) => astContains(node, candidate => {
+const reachableAstContains = (node, predicate) => {
+  node = unwrapExpression(node)
+  if (!node || typeof node !== 'object') return false
+  if (predicate(node)) return true
+  if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return false
+  if (node.type === 'LogicalExpression') {
+    const leftMatches = reachableAstContains(node.left, predicate)
+    const left = staticValue(node.left)
+    if (left === unknownStaticValue) return leftMatches || reachableAstContains(node.right, predicate)
+    const reachesRight = node.operator === '&&' ? Boolean(left) : node.operator === '||' ? !left : left === null || left === undefined
+    return leftMatches || (reachesRight && reachableAstContains(node.right, predicate))
+  }
+  if (node.type === 'ConditionalExpression') {
+    const testMatches = reachableAstContains(node.test, predicate)
+    const condition = staticValue(node.test)
+    if (condition !== unknownStaticValue) return testMatches || reachableAstContains(condition ? node.consequent : node.alternate, predicate)
+    return testMatches || reachableAstContains(node.consequent, predicate) || reachableAstContains(node.alternate, predicate)
+  }
+  return Object.entries(node).some(([key, value]) => !['loc', 'start', 'end', 'extra'].includes(key) && (Array.isArray(value) ? value.some(item => reachableAstContains(item, predicate)) : reachableAstContains(value, predicate)))
+}
+const callsFunction = (node, name, argument) => reachableAstContains(node, candidate => {
   if (!['CallExpression', 'OptionalCallExpression'].includes(candidate.type) || candidate.callee?.type !== 'Identifier' || candidate.callee.name !== name) return false
   if (argument === undefined) return true
   return candidate.arguments.some(value => value?.type === 'StringLiteral' && value.value === argument)
@@ -936,14 +956,40 @@ const selectorCompounds = selector => {
   return compounds
 }
 const compoundTokens = compound => [...compound.matchAll(/(?:^|(?<=[^\w-]))(?:[a-z][\w-]*|[.#:][\w-]+|\[[^\]]+\])/gi)].map(match => match[0])
+const compoundSubjectAlternatives = compound => {
+  const expand = subject => {
+    const match = /:([\w-]+)\s*\(/.exec(subject)
+    if (!match) return [subject]
+    const open = subject.indexOf('(', match.index)
+    let cursor = open + 1
+    let depth = 1
+    let quote = ''
+    for (; cursor < subject.length && depth > 0; cursor += 1) {
+      const character = subject[cursor]
+      if (quote) { if (character === quote && subject[cursor - 1] !== '\\') quote = '' }
+      else if (character === '"' || character === "'") quote = character
+      else if (character === '(') depth += 1
+      else if (character === ')') depth -= 1
+    }
+    if (depth !== 0) return [subject]
+    const before = subject.slice(0, match.index)
+    const after = subject.slice(cursor)
+    if (!['is', 'where'].includes(match[1].toLowerCase())) return expand(before + after)
+    return splitCssTopLevel(subject.slice(open + 1, cursor - 1), ',').flatMap(branch => expand(`${before}${selectorCompounds(branch).at(-1) || ''}${after}`))
+  }
+  return expand(compound)
+}
 const selectorTargetsContract = (selector, target) => {
   const candidateCompounds = selectorCompounds(selector)
   const targetCompounds = selectorCompounds(target)
   if (candidateCompounds.length < targetCompounds.length) return false
   const offset = candidateCompounds.length - targetCompounds.length
   return targetCompounds.every((compound, index) => {
-    const candidateTokens = new Set(compoundTokens(candidateCompounds[offset + index]))
-    return compoundTokens(compound).every(token => candidateTokens.has(token))
+    const targetTokens = compoundTokens(compound)
+    return compoundSubjectAlternatives(candidateCompounds[offset + index]).some(alternative => {
+      const candidateTokens = new Set(compoundTokens(alternative))
+      return targetTokens.every(token => candidateTokens.has(token))
+    })
   })
 }
 const assertNoContextualOverrides = (rules, selector, properties, widths) => {
