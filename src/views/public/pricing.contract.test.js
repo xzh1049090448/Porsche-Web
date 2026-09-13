@@ -360,6 +360,7 @@ const copyWithoutSafePerRequestClauses = value => value.split(/(?:[。；;!?]+|(
   .map(clause => clause.trim())
   .filter(clause => clause && !safePerRequestExplanation(clause))
   .join(' ')
+const perRequestPriceClaim = /(?:单次调用价|每次请求(?:价格|价)|每请求(?:价格|价)|per[- ]request\s+(?:price|pricing)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request\b)/i
 const prototypePatterns = [
   [/ModelHub/i, 'prototype product name'],
   [/40\+|\b\d+\+?\s*(?:个\s*)?(?:模型|供应商)|\b\d+\+?\s*(?:models?|providers?)\b/i, 'hard-coded prototype model or provider count'],
@@ -368,7 +369,7 @@ const prototypePatterns = [
   [/Tailwind\s+CDN/i, 'Tailwind CDN claim'],
   [/\d+(?:\.\d+)?\s*(?:x|×|倍)(?![\w-])/i, 'prototype multiplier'],
   [numericPerRequestOffer, 'numeric per-request price offer'],
-  [/(?:单次调用价|每次请求(?:价格|价)|每请求(?:价格|价)|per[- ]request\s+(?:price|pricing)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request\b)/i, 'per-request price'],
+  [perRequestPriceClaim, 'per-request price'],
   [/(?:admin|demo)(?:@[^\s<"']+)?\s*(?:\/|:|：)\s*(?:admin|password|123456)/i, 'demo credentials'],
   [/\b(?:admin|demo)@[A-Z0-9._%+-]+\.[A-Z]{2,}\b/i, 'demo account email'],
   [/(?:password|密码)\s*[:=：]\s*["']?(?:admin\d*|demo\d*|123456(?:78)?)/i, 'demo password'],
@@ -427,8 +428,10 @@ test('pricing presentation rejects prototype counts, multipliers and per-request
   const pricingMessages = Object.values(messages).flatMap(locale => stringValues(locale.publicSite?.pricingCatalog))
   assert.ok(pricingMessages.length > 0, 'runtime pricingCatalog messages must exist')
   const presentation = [page, detail, filters, table, cards].flatMap(visibleStrings).concat(pricingMessages)
-    .map(copyWithoutSafePerRequestClauses)
-  for (const [pattern, label] of prototypePatterns) for (const copy of presentation) assert.doesNotMatch(copy, pattern, label)
+  for (const [pattern, label] of prototypePatterns) for (const copy of presentation) {
+    const inspected = pattern === perRequestPriceClaim ? copyWithoutSafePerRequestClauses(copy) : copy
+    assert.doesNotMatch(inspected, pattern, label)
+  }
 })
 
 test('detail presents stable identity, two token price cards, metadata, disclaimer and console action', async () => {

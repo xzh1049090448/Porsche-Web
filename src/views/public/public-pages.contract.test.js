@@ -258,6 +258,7 @@ const copyWithoutSafePerRequestClauses = value => value.split(/(?:[。；;!?]+|(
   .map(clause => clause.trim())
   .filter(clause => clause && !safePerRequestExplanation(clause))
   .join(' ')
+const perRequestPriceClaim = /(?:单次调用价|每次请求(?:价格|价)|每请求(?:价格|价)|per[- ]request\s+(?:price|pricing)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request\b)/i
 const prototypePatterns = [
   [/ModelHub/i, 'prototype product name'],
   [/40\+/i, 'prototype model count'],
@@ -270,7 +271,7 @@ const prototypePatterns = [
   [/(?:API[_ -]?KEY\s*[=:]\s*["']?(?:sk-)?[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{8,})/i, 'demo API credential'],
   [/\d+(?:\.\d+)?\s*(?:x|×|倍)(?![\w-])/i, 'prototype multiplier'],
   [numericPerRequestOffer, 'numeric per-request price offer'],
-  [/(?:单次调用价|每次请求(?:价格|价)|每请求(?:价格|价)|per[- ]request\s+(?:price|pricing)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request\b)/i, 'per-request pricing'],
+  [perRequestPriceClaim, 'per-request pricing'],
 ]
 const tailwindUrl = /(?:https?:)?\/\/[^\s"')]*(?:cdn\.tailwindcss\.com|tailwind)[^\s"')]*/i
 const assertNoTailwindLoading = (cssSources, vueSources) => {
@@ -431,7 +432,6 @@ test('public content pages compose the approved safe landing system', () => {
     .flatMap(catalog => Object.values(catalog).flatMap(locale => stringValues(locale.publicSite)))
   assert.ok(runtimePublicMessages.length > 0, 'runtime publicSite messages must exist')
   const visibleCopy = vueSources.flatMap(visibleStrings).concat(runtimePublicMessages)
-    .map(copyWithoutSafePerRequestClauses)
 
   assertNoTailwindLoading(publicStyleSources, vueSources)
 
@@ -451,5 +451,8 @@ test('public content pages compose the approved safe landing system', () => {
   assert.match(preview, /preview-banner/)
   assert.match(preview, /aria-live="polite"/)
   assert.match(`${home}${about}${legal}`, /v-html="(?:home\.|content\.)/)
-  for (const [pattern, label] of prototypePatterns) for (const copy of visibleCopy) assert.doesNotMatch(copy, pattern, label)
+  for (const [pattern, label] of prototypePatterns) for (const copy of visibleCopy) {
+    const inspected = pattern === perRequestPriceClaim ? copyWithoutSafePerRequestClauses(copy) : copy
+    assert.doesNotMatch(inspected, pattern, label)
+  }
 })
