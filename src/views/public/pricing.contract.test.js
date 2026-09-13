@@ -108,14 +108,28 @@ const staticValue = node => {
   if (!node) return unknownStaticValue
   if (['BooleanLiteral', 'NumericLiteral', 'StringLiteral'].includes(node.type)) return node.value
   if (node.type === 'NullLiteral') return null
-  if (node.type === 'UnaryExpression' && node.operator === '!') {
+  if (node.type === 'UnaryExpression' && ['!', '+', '-', '~'].includes(node.operator)) {
     const value = staticValue(node.argument)
-    return value === unknownStaticValue ? unknownStaticValue : !value
+    if (value === unknownStaticValue) return unknownStaticValue
+    if (node.operator === '!') return !value
+    if (node.operator === '+') return +value
+    if (node.operator === '-') return -value
+    return ~value
   }
-  if (node.type === 'BinaryExpression' && ['===', '!==', '==', '!='].includes(node.operator)) {
+  if (node.type === 'BinaryExpression' && ['+', '-', '*', '/', '%', '**', '<', '<=', '>', '>=', '===', '!==', '==', '!='].includes(node.operator)) {
     const left = staticValue(node.left)
     const right = staticValue(node.right)
     if (left === unknownStaticValue || right === unknownStaticValue) return unknownStaticValue
+    if (node.operator === '+') return left + right
+    if (node.operator === '-') return left - right
+    if (node.operator === '*') return left * right
+    if (node.operator === '/') return left / right
+    if (node.operator === '%') return left % right
+    if (node.operator === '**') return left ** right
+    if (node.operator === '<') return left < right
+    if (node.operator === '<=') return left <= right
+    if (node.operator === '>') return left > right
+    if (node.operator === '>=') return left >= right
     if (node.operator === '===') return left === right
     if (node.operator === '!==') return left !== right
     if (node.operator === '==') return left == right
@@ -265,6 +279,7 @@ const staticExpressionPossibilities = (node, bindings, resolving = new Set()) =>
   if (node?.type === 'StringLiteral' || node?.type === 'NumericLiteral' || node?.type === 'BooleanLiteral') return [node.value]
   if (node?.type === 'NullLiteral') return [null]
   if (node?.type === 'Identifier') return bindingPossibilities(node.name, [], bindings, resolving)
+  if (node?.type === 'ArrayExpression') return node.elements.filter(Boolean).flatMap(element => staticExpressionPossibilities(element, bindings, resolving))
   if (node?.type === 'MemberExpression' || node?.type === 'OptionalMemberExpression') {
     const reference = memberReference(node)
     return reference ? bindingPossibilities(reference.name, reference.path, bindings, resolving) : []

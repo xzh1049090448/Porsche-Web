@@ -30,14 +30,79 @@ const elements = (value, name) => {
 }
 const staticAttribute = (node, name) => node.props.find(prop => prop.type === 6 && prop.name === name)?.value?.content
 const boundAttribute = (node, name) => node.props.find(prop => prop.type === 7 && prop.name === 'bind' && prop.arg?.type === 4 && prop.arg.content === name)?.exp?.content
+const unknownStaticValue = Symbol('unknown static value')
+const staticValue = node => {
+  node = unwrapExpression(node)
+  if (!node) return unknownStaticValue
+  if (['BooleanLiteral', 'NumericLiteral', 'StringLiteral'].includes(node.type)) return node.value
+  if (node.type === 'NullLiteral') return null
+  if (node.type === 'UnaryExpression' && ['!', '+', '-', '~'].includes(node.operator)) {
+    const value = staticValue(node.argument)
+    if (value === unknownStaticValue) return unknownStaticValue
+    if (node.operator === '!') return !value
+    if (node.operator === '+') return +value
+    if (node.operator === '-') return -value
+    return ~value
+  }
+  if (node.type === 'BinaryExpression' && ['+', '-', '*', '/', '%', '**', '<', '<=', '>', '>=', '===', '!==', '==', '!='].includes(node.operator)) {
+    const left = staticValue(node.left)
+    const right = staticValue(node.right)
+    if (left === unknownStaticValue || right === unknownStaticValue) return unknownStaticValue
+    if (node.operator === '+') return left + right
+    if (node.operator === '-') return left - right
+    if (node.operator === '*') return left * right
+    if (node.operator === '/') return left / right
+    if (node.operator === '%') return left % right
+    if (node.operator === '**') return left ** right
+    if (node.operator === '<') return left < right
+    if (node.operator === '<=') return left <= right
+    if (node.operator === '>') return left > right
+    if (node.operator === '>=') return left >= right
+    if (node.operator === '===') return left === right
+    if (node.operator === '!==') return left !== right
+    if (node.operator === '==') return left == right
+    return left != right
+  }
+  if (node.type === 'LogicalExpression') {
+    const left = staticValue(node.left)
+    const right = staticValue(node.right)
+    if (left !== unknownStaticValue) {
+      if (node.operator === '&&') return left ? right : left
+      if (node.operator === '||') return left ? left : right
+      if (node.operator === '??') return left === null || left === undefined ? right : left
+    }
+    if (right !== unknownStaticValue && node.operator === '&&' && !right) return false
+    if (right !== unknownStaticValue && node.operator === '||' && right) return true
+    return unknownStaticValue
+  }
+  if (node.type === 'ConditionalExpression') {
+    const condition = staticValue(node.test)
+    if (condition !== unknownStaticValue) return staticValue(condition ? node.consequent : node.alternate)
+    const consequent = staticValue(node.consequent)
+    const alternate = staticValue(node.alternate)
+    return consequent !== unknownStaticValue && alternate !== unknownStaticValue && Boolean(consequent) === Boolean(alternate) ? Boolean(consequent) : unknownStaticValue
+  }
+  return unknownStaticValue
+}
+const directiveIsStaticallyFalse = prop => {
+  if (prop.type !== 7 || !['if', 'else-if', 'show'].includes(prop.name) || !prop.exp?.content) return false
+  let expression
+  try { expression = vueCompiler.babelParse(`(${prop.exp.content})`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression }
+  catch (error) { throw new Error(`public visibility expression must parse cleanly: ${error.message}`, { cause: error }) }
+  const value = staticValue(expression)
+  return value !== unknownStaticValue && !value
+}
+const staticallyHidden = node => node.type === 1 && node.props?.some(directiveIsStaticallyFalse)
 const dataSectionOrder = value => {
   const order = []
   const visit = node => {
+    if (staticallyHidden(node)) return
     if (node.type === 1) {
       const section = staticAttribute(node, 'data-section')
       if (section) order.push(section)
     }
     for (const child of node.children || []) visit(child)
+    for (const branch of node.branches || []) visit(branch)
   }
   visit(templateAst(value))
   return order
@@ -97,6 +162,7 @@ const staticExpressionPossibilities = (node, bindings, resolving = new Set()) =>
   if (node?.type === 'StringLiteral' || node?.type === 'NumericLiteral' || node?.type === 'BooleanLiteral') return [node.value]
   if (node?.type === 'NullLiteral') return [null]
   if (node?.type === 'Identifier') return bindingPossibilities(node.name, [], bindings, resolving)
+  if (node?.type === 'ArrayExpression') return node.elements.filter(Boolean).flatMap(element => staticExpressionPossibilities(element, bindings, resolving))
   if (node?.type === 'MemberExpression' || node?.type === 'OptionalMemberExpression') {
     const reference = memberReference(node)
     return reference ? bindingPossibilities(reference.name, reference.path, bindings, resolving) : []

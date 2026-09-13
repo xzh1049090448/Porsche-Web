@@ -35,6 +35,92 @@ const elements = (source, name) => {
 }
 const staticAttribute = (node, name) => node.props.find(prop => prop.type === 6 && prop.name === name)?.value?.content
 const boundAttribute = (node, name) => node.props.find(prop => prop.type === 7 && prop.name === 'bind' && prop.arg?.type === 4 && prop.arg.content === name)?.exp?.content
+const unwrapKeyExpression = node => {
+  while (node && ['ParenthesizedExpression', 'TSAsExpression', 'TSTypeAssertion', 'TSNonNullExpression', 'TypeCastExpression'].includes(node.type)) node = node.expression
+  return node
+}
+const parseKeyExpression = value => {
+  try { return vueCompiler.babelParse(`(${value})`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression }
+  catch (error) { throw new Error(`route leaf key expression must parse cleanly: ${error.message}`, { cause: error }) }
+}
+const keyAstContains = (node, predicate) => {
+  if (!node || typeof node !== 'object') return false
+  if (predicate(node)) return true
+  return Object.entries(node).some(([name, value]) => !['loc', 'start', 'end', 'extra'].includes(name) && (Array.isArray(value) ? value.some(item => keyAstContains(item, predicate)) : keyAstContains(value, predicate)))
+}
+const isRouteFullPath = node => {
+  node = unwrapKeyExpression(node)
+  return ['MemberExpression', 'OptionalMemberExpression'].includes(node?.type)
+    && unwrapKeyExpression(node.object)?.type === 'Identifier'
+    && unwrapKeyExpression(node.object).name === 'route'
+    && (node.computed ? node.property?.type === 'StringLiteral' && node.property.value === 'fullPath' : node.property?.name === 'fullPath')
+}
+const keyHelperDefinitions = source => {
+  const parsed = vueCompiler.parse(source, { filename: 'route-transition-contract.vue' })
+  assert.deepEqual(parsed.errors, [], `component SFC must parse cleanly: ${parsed.errors.map(String).join('; ')}`)
+  const helpers = new Map()
+  for (const block of [parsed.descriptor.script, parsed.descriptor.scriptSetup].filter(Boolean)) {
+    let ast
+    try { ast = vueCompiler.babelParse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
+    catch (error) { throw new Error(`route transition script must parse cleanly: ${error.message}`, { cause: error }) }
+    for (const statement of ast.program.body) {
+      const declaration = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement
+      if (declaration?.type === 'FunctionDeclaration' && declaration.id) helpers.set(declaration.id.name, declaration)
+      if (declaration?.type === 'VariableDeclaration') for (const item of declaration.declarations) {
+        if (item.id?.type === 'Identifier' && ['ArrowFunctionExpression', 'FunctionExpression'].includes(item.init?.type)) helpers.set(item.id.name, item.init)
+      }
+    }
+  }
+  return helpers
+}
+const returnedKeyExpressions = node => {
+  node = unwrapKeyExpression(node)
+  if (!node) return []
+  if (node.type === 'ReturnStatement') return node.argument ? [node.argument] : []
+  if (node.type === 'BlockStatement') return node.body.flatMap(returnedKeyExpressions)
+  if (node.type === 'IfStatement') return returnedKeyExpressions(node.consequent).concat(returnedKeyExpressions(node.alternate))
+  if (node.type === 'SwitchStatement') return node.cases.flatMap(branch => branch.consequent.flatMap(returnedKeyExpressions))
+  return /(?:Statement|Declaration)$/.test(node.type) ? [] : [node]
+}
+const mergeContributors = parts => parts.some(part => part === null) ? null : new Set(parts.flatMap(part => [...part]))
+const keyPartContributors = (node, identityName, helpers, parameters = new Map(), resolving = new Set()) => {
+  node = unwrapKeyExpression(node)
+  if (!node) return new Set()
+  if (isRouteFullPath(node)) return new Set(['route'])
+  if (node.type === 'Identifier' && node.name === identityName) return new Set(['identity'])
+  if (node.type === 'Identifier' && parameters.has(node.name)) return new Set(parameters.get(node.name))
+  if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'NullLiteral'].includes(node.type)) return new Set()
+  if (['TemplateLiteral', 'ArrayExpression'].includes(node.type) || (node.type === 'BinaryExpression' && node.operator === '+') || node.type === 'CallExpression' || node.type === 'OptionalCallExpression') {
+    return composedKeyContributors(node, identityName, helpers, parameters, resolving)
+  }
+  return null
+}
+const composedKeyContributors = (node, identityName, helpers, parameters = new Map(), resolving = new Set()) => {
+  node = unwrapKeyExpression(node)
+  if (node?.type === 'TemplateLiteral') return mergeContributors(node.expressions.map(expression => keyPartContributors(expression, identityName, helpers, parameters, resolving)))
+  if (node?.type === 'ArrayExpression') return mergeContributors(node.elements.map(element => element?.type === 'SpreadElement' ? null : keyPartContributors(element, identityName, helpers, parameters, resolving)))
+  if (node?.type === 'BinaryExpression' && node.operator === '+') return mergeContributors([keyPartContributors(node.left, identityName, helpers, parameters, resolving), keyPartContributors(node.right, identityName, helpers, parameters, resolving)])
+  if (['CallExpression', 'OptionalCallExpression'].includes(node?.type) && node.callee?.type === 'Identifier' && helpers.has(node.callee.name) && !resolving.has(node.callee.name)) {
+    const helper = helpers.get(node.callee.name)
+    const mapped = new Map()
+    for (let index = 0; index < helper.params.length; index += 1) {
+      if (helper.params[index]?.type !== 'Identifier') return null
+      const contributors = keyPartContributors(node.arguments[index], identityName, helpers, parameters, resolving)
+      if (contributors === null) return null
+      mapped.set(helper.params[index].name, contributors)
+    }
+    const returns = returnedKeyExpressions(helper.body)
+    if (returns.length === 0) return null
+    const next = new Set(resolving).add(node.callee.name)
+    const results = returns.map(expression => composedKeyContributors(expression, identityName, helpers, mapped, next))
+    return results.some(result => result === null) ? null : mergeContributors(results)
+  }
+  return null
+}
+const keyComposesRouteIdentity = (expression, identityName, source) => {
+  const contributors = composedKeyContributors(expression, identityName, keyHelperDefinitions(source))
+  return Boolean(contributors?.has('route') && contributors.has('identity'))
+}
 const balancedSlice = (source, start, open, close) => {
   if (source[start] !== open) return undefined
   let depth = 1
@@ -327,9 +413,11 @@ test('shared route transition keys leaf views by fullPath and identity epoch', (
   assert.ok(leaf, 'RouterView must render its resolved leaf component')
   const key = boundAttribute(leaf, 'key')
   assert.ok(key, 'rendered leaf component must bind :key')
-  assert.match(key, /\broute\.fullPath\b/, 'rendered leaf :key must directly include route.fullPath')
-  const identityName = key.match(/\b(identityEpoch|identityKey)\b/)?.[1]
+  const keyExpression = parseKeyExpression(key)
+  assert.equal(keyAstContains(keyExpression, isRouteFullPath), true, 'rendered leaf :key must directly include route.fullPath')
+  const identityName = ['identityEpoch', 'identityKey'].find(name => keyAstContains(keyExpression, node => unwrapKeyExpression(node)?.type === 'Identifier' && unwrapKeyExpression(node).name === name))
   assert.ok(identityName, 'rendered leaf :key must directly include identityEpoch or identityKey')
+  assert.equal(keyComposesRouteIdentity(keyExpression, identityName, transition), true, 'rendered leaf :key must compose route.fullPath and identity epoch through a template, array, + chain, or verified helper')
   assert.equal(declaresComponentProp(transition, identityName), true, `${identityName} must be declared as a component prop`)
   assert.doesNotMatch(transition, new RegExp(`\\b(?:const|let|var)\\s+${identityName}\\b`), `${identityName} must come from the declared prop`)
   const mainTransition = elements(mainLayout, 'RouteTransition')[0]
