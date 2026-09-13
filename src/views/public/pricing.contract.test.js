@@ -107,8 +107,12 @@ const staticValue = node => {
   node = unwrapExpression(node)
   if (!node) return unknownStaticValue
   if (['BooleanLiteral', 'NumericLiteral', 'StringLiteral'].includes(node.type)) return node.value
+  if (node.type === 'Identifier' && node.name === 'undefined') return undefined
+  if (node.type === 'Identifier' && node.name === 'NaN') return Number.NaN
   if (node.type === 'NullLiteral') return null
-  if (node.type === 'UnaryExpression' && ['!', '+', '-', '~'].includes(node.operator)) {
+  if (node.type === 'BigIntLiteral') return BigInt(node.value)
+  if (node.type === 'UnaryExpression' && ['!', '+', '-', '~', 'void'].includes(node.operator)) {
+    if (node.operator === 'void') return undefined
     const value = staticValue(node.argument)
     if (value === unknownStaticValue) return unknownStaticValue
     if (node.operator === '!') return !value
@@ -216,7 +220,7 @@ const functionParameters = node => ['ArrowFunctionExpression', 'FunctionExpressi
 const expressionDerivedFrom = (node, origins, definitions = new Map(), path = [], resolving = new Set()) => {
   node = unwrapExpression(node)
   if (!node) return false
-  if (origins(node)) return true
+  if (origins(node)) return path.length === 0 || ['state', 'value'].includes(String(path[0]))
   if (node.type === 'Identifier') {
     if (!definitions.has(node.name)) return false
     const key = `${node.name}:${path.join('.')}`
@@ -228,12 +232,13 @@ const expressionDerivedFrom = (node, origins, definitions = new Map(), path = []
     return property !== undefined && expressionDerivedFrom(node.object, origins, definitions, [property, ...path], resolving)
   }
   if (node.type === 'SequenceExpression') return expressionDerivedFrom(node.expressions.at(-1), origins, definitions, path, resolving)
-  if (node.type === 'ConditionalExpression') return expressionDerivedFrom(node.consequent, origins, definitions, path, resolving) && expressionDerivedFrom(node.alternate, origins, definitions, path, resolving)
+  if (node.type === 'ConditionalExpression') return expressionDerivedFrom(node.test, origins, definitions, [], resolving)
+    || (expressionDerivedFrom(node.consequent, origins, definitions, path, resolving) && expressionDerivedFrom(node.alternate, origins, definitions, path, resolving))
   if (node.type === 'LogicalExpression') return expressionDerivedFrom(node.left, origins, definitions, path, resolving) && expressionDerivedFrom(node.right, origins, definitions, path, resolving)
   if (['CallExpression', 'OptionalCallExpression', 'NewExpression'].includes(node.type)) {
     if (path.length > 0) return false
-    const receiver = ['MemberExpression', 'OptionalMemberExpression'].includes(node.callee?.type) && expressionDerivedFrom(node.callee.object, origins, definitions, [], resolving)
-    return receiver || node.arguments.some(argument => expressionDerivedFrom(argument, origins, definitions, [], resolving))
+    return node.callee?.type === 'Identifier' && node.callee.name === 't'
+      && node.arguments.some(argument => expressionDerivedFrom(argument, origins, definitions, [], resolving))
   }
   if (node.type === 'ObjectExpression') {
     if (path.length === 0) return node.properties.some(property => property.type === 'SpreadElement'
@@ -243,7 +248,12 @@ const expressionDerivedFrom = (node, origins, definitions = new Map(), path = []
       const property = node.properties[index]
       if (property.type === 'SpreadElement') return expressionDerivedFrom(property.argument, origins, definitions, path, resolving)
       const key = property.computed ? staticPropertyKey(property.key) : property.key?.name || property.key?.value
-      if (String(key) === path[0]) return expressionDerivedFrom(property.value, origins, definitions, path.slice(1), resolving)
+      if (String(key) === path[0]) {
+        const derived = expressionDerivedFrom(property.value, origins, definitions, path.slice(1), resolving)
+        if (path.length !== 1 || path[0] !== 'label') return derived
+        const members = directlyReadStateMembers(property.value, origins, definitions)
+        return derived && members.has('state') && members.has('value')
+      }
     }
     return false
   }
@@ -258,6 +268,26 @@ const expressionDerivedFrom = (node, origins, definitions = new Map(), path = []
   if (node.type === 'AwaitExpression') return expressionDerivedFrom(node.argument, origins, definitions, path, resolving)
   if (node.type === 'UnaryExpression') return path.length === 0 && expressionDerivedFrom(node.argument, origins, definitions, [], resolving)
   return false
+}
+const directlyReadStateMembers = (node, origins, definitions, resolving = new Set()) => {
+  node = unwrapExpression(node)
+  const members = new Set()
+  if (!node || typeof node !== 'object') return members
+  if (node.type === 'Identifier' && definitions.has(node.name)) {
+    if (resolving.has(node.name)) return members
+    return directlyReadStateMembers(definitions.get(node.name), origins, definitions, new Set([...resolving, node.name]))
+  }
+  if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+    const property = node.computed ? staticPropertyKey(node.property) : node.property?.name
+    if (['state', 'value'].includes(String(property)) && expressionDerivedFrom(node, origins, definitions)) members.add(String(property))
+  }
+  if (['CallExpression', 'OptionalCallExpression'].includes(node.type) && !(node.callee?.type === 'Identifier' && node.callee.name === 't')) return members
+  for (const [key, value] of Object.entries(node)) {
+    if (['loc', 'start', 'end', 'extra'].includes(key)) continue
+    const children = Array.isArray(value) ? value : [value]
+    for (const child of children) for (const member of directlyReadStateMembers(child, origins, definitions, resolving)) members.add(member)
+  }
+  return members
 }
 const renderedCallPaths = (node, target, path = []) => {
   node = unwrapExpression(node)
@@ -291,16 +321,32 @@ const correctPublicStateCall = (stateCall, component, modelName, binding, render
     : renderedComponent?.type === 'StringLiteral' && renderedComponent.value === component
   return stateModel?.type === 'Identifier' && stateModel.name === modelName && componentMatches
 }
+const transparentlyCarriesState = (node, origins, definitions, resolving = new Set()) => {
+  node = unwrapExpression(node)
+  if (!node) return false
+  if (origins(node)) return true
+  if (node.type === 'Identifier' && definitions.has(node.name)) {
+    if (resolving.has(node.name)) return false
+    return transparentlyCarriesState(definitions.get(node.name), origins, definitions, new Set([...resolving, node.name]))
+  }
+  if (node.type === 'ObjectExpression') return node.properties.some(property => property.type === 'SpreadElement' && transparentlyCarriesState(property.argument, origins, definitions, resolving))
+  if (node.type === 'SequenceExpression') return transparentlyCarriesState(node.expressions.at(-1), origins, definitions, resolving)
+  if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') return [node.consequent || node.left, node.alternate || node.right].every(branch => transparentlyCarriesState(branch, origins, definitions, resolving))
+  if (node.type === 'AwaitExpression') return transparentlyCarriesState(node.argument, origins, definitions, resolving)
+  return false
+}
 const helperReturnsCorrectState = (binding, component, modelName, renderedCall, renderedPaths) => {
   const origins = node => ['CallExpression', 'OptionalCallExpression'].includes(node?.type) && correctPublicStateCall(node, component, modelName, binding, renderedCall)
-  if (binding.body?.type !== 'BlockStatement') return renderedPaths.every(path => expressionDerivedFrom(binding.body, origins, new Map(), path))
+  if (binding.body?.type !== 'BlockStatement') return transparentlyCarriesState(binding.body, origins, new Map())
+    && renderedPaths.every(path => expressionDerivedFrom(binding.body, origins, new Map(), path))
   const returns = []
   const visitStatements = (statements, inherited = new Map()) => {
     const definitions = new Map(inherited)
     for (const statement of statements || []) {
       if (statement.type === 'VariableDeclaration') {
         for (const declaration of statement.declarations) if (declaration.id?.type === 'Identifier' && declaration.init) definitions.set(declaration.id.name, declaration.init)
-      } else if (statement.type === 'ReturnStatement') returns.push(renderedPaths.every(path => expressionDerivedFrom(statement.argument, origins, definitions, path)))
+      } else if (statement.type === 'ReturnStatement') returns.push(transparentlyCarriesState(statement.argument, origins, definitions)
+        && renderedPaths.every(path => expressionDerivedFrom(statement.argument, origins, definitions, path)))
       else if (statement.type === 'BlockStatement') visitStatements(statement.body, definitions)
       else if (statement.type === 'IfStatement') {
         visitStatements(statement.consequent?.type === 'BlockStatement' ? statement.consequent.body : [statement.consequent], definitions)
@@ -373,6 +419,73 @@ const memberReference = node => {
   }
   return node?.type === 'Identifier' ? { name: node.name, path } : undefined
 }
+const cartesian = values => values.reduce((sets, choices) => sets.flatMap(set => choices.map(choice => set.concat([choice]))), [[]])
+const staticPureBindingValues = (name, path, bindings, resolving) => {
+  const resolution = `pure:${name}.${path.join('.')}`
+  if (resolving.has(resolution)) return []
+  const next = new Set(resolving).add(resolution)
+  return (bindings.get(name) || []).flatMap(initializer => staticPureValuesAtPath(initializer, path, bindings, next))
+}
+const staticPureValuesAtPath = (node, path, bindings, resolving) => {
+  node = unwrapExpression(node)
+  if (!node) return []
+  if (node.type === 'Identifier') return staticPureBindingValues(node.name, path, bindings, resolving)
+  if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') return [node.consequent || node.left, node.alternate || node.right].flatMap(branch => staticPureValuesAtPath(branch, path, bindings, resolving))
+  if (node.type === 'SequenceExpression') return staticPureValuesAtPath(node.expressions.at(-1), path, bindings, resolving)
+  if (!path.length) return staticPureValues(node, bindings, resolving)
+  if (node.type === 'ObjectExpression') {
+    const [head, ...tail] = path
+    return node.properties.flatMap(property => property.type === 'SpreadElement'
+      ? staticPureValuesAtPath(property.argument, path, bindings, resolving)
+      : staticPropertyKey(property.key) === head ? staticPureValuesAtPath(propertyExpression(property), tail, bindings, resolving) : [])
+  }
+  if (node.type === 'ArrayExpression') {
+    const [head, ...tail] = path
+    return /^\d+$/.test(head) && node.elements[Number(head)] ? staticPureValuesAtPath(node.elements[Number(head)], tail, bindings, resolving) : []
+  }
+  const reference = memberReference(node)
+  return reference ? staticPureBindingValues(reference.name, reference.path.concat(path), bindings, resolving) : []
+}
+const staticPureMemberCallValues = (node, bindings, resolving) => {
+  if (!['CallExpression', 'OptionalCallExpression'].includes(node?.type) || !['MemberExpression', 'OptionalMemberExpression'].includes(node.callee?.type)) return []
+  const method = node.callee.computed ? staticPropertyKey(node.callee.property) : node.callee.property?.name
+  if (!['join', 'concat', 'toString'].includes(method)) return []
+  const receivers = staticPureValues(node.callee.object, bindings, resolving)
+  const argumentSets = node.arguments.map(argument => staticPureValues(argument, bindings, resolving))
+  if (argumentSets.some(values => values.length === 0)) return []
+  const argumentLists = cartesian(argumentSets)
+  return receivers.flatMap(receiver => argumentLists.flatMap(args => {
+    if (method === 'join' && Array.isArray(receiver) && args.length <= 1 && (args.length === 0 || typeof args[0] === 'string')) return [receiver.map(String).join(args[0] ?? ',')]
+    if (method === 'concat' && typeof receiver === 'string' && args.every(value => typeof value === 'string')) return [receiver.concat(...args)]
+    if (method === 'concat' && Array.isArray(receiver)) return [receiver.concat(...args)]
+    if (method === 'toString' && args.length === 0 && (typeof receiver === 'string' || Array.isArray(receiver))) return [String(receiver)]
+    return []
+  }))
+}
+const staticPureValues = (node, bindings, resolving = new Set()) => {
+  node = unwrapExpression(node)
+  if (!node) return []
+  if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral'].includes(node.type)) return [node.value]
+  if (node.type === 'NullLiteral') return [null]
+  if (node.type === 'Identifier') return staticPureBindingValues(node.name, [], bindings, resolving)
+  if (node.type === 'ArrayExpression') {
+    const items = node.elements.map(element => element ? staticPureValues(element, bindings, resolving) : [undefined])
+    return items.some(values => values.length === 0) ? [] : cartesian(items)
+  }
+  if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
+    const reference = memberReference(node)
+    return reference ? staticPureBindingValues(reference.name, reference.path, bindings, resolving) : []
+  }
+  if (node.type === 'BinaryExpression' && node.operator === '+') {
+    const left = staticPureValues(node.left, bindings, resolving)
+    const right = staticPureValues(node.right, bindings, resolving)
+    return left.flatMap(leftValue => right.map(rightValue => leftValue + rightValue))
+  }
+  if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') return [node.consequent || node.left, node.alternate || node.right].flatMap(branch => staticPureValues(branch, bindings, resolving))
+  if (node.type === 'SequenceExpression') return staticPureValues(node.expressions.at(-1), bindings, resolving)
+  if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression') return staticPureMemberCallValues(node, bindings, resolving)
+  return []
+}
 const staticExpressionPossibilities = (node, bindings, resolving = new Set()) => {
   node = unwrapExpression(node)
   if (node?.type === 'StringLiteral' || node?.type === 'NumericLiteral' || node?.type === 'BooleanLiteral') return [node.value]
@@ -393,6 +506,7 @@ const staticExpressionPossibilities = (node, bindings, resolving = new Set()) =>
   if (node?.type === 'SequenceExpression') return staticExpressionPossibilities(node.expressions.at(-1), bindings, resolving)
   if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node?.type)) return returnedExpressions(node.body).flatMap(expression => staticExpressionPossibilities(expression, bindings, resolving))
   if (node?.type === 'CallExpression' || node?.type === 'OptionalCallExpression' || node?.type === 'NewExpression') {
+    const pure = staticPureMemberCallValues(node, bindings, resolving)
     const reference = memberReference(node.callee)
     const returned = node.callee?.type === 'Identifier' && bindings.has(node.callee.name)
       ? bindingPossibilities(node.callee.name, [], bindings, resolving)
@@ -400,7 +514,7 @@ const staticExpressionPossibilities = (node, bindings, resolving = new Set()) =>
     const receiver = ['MemberExpression', 'OptionalMemberExpression'].includes(node.callee?.type)
       ? staticExpressionPossibilities(node.callee.object, bindings, resolving)
       : []
-    return returned.concat(receiver, node.arguments.flatMap(argument => staticExpressionPossibilities(argument, bindings, resolving)))
+    return pure.concat(returned, receiver, node.arguments.flatMap(argument => staticExpressionPossibilities(argument, bindings, resolving)))
   }
   if (node?.type === 'TemplateLiteral') {
     let values = ['']

@@ -82,44 +82,47 @@ const returnedKeyExpressions = node => {
   if (node.type === 'SwitchStatement') return node.cases.flatMap(branch => branch.consequent.flatMap(returnedKeyExpressions))
   return /(?:Statement|Declaration)$/.test(node.type) ? [] : [node]
 }
-const mergeContributors = parts => parts.some(part => part === null) ? null : new Set(parts.flatMap(part => [...part]))
-const keyPartContributors = (node, identityName, helpers, parameters = new Map(), resolving = new Set()) => {
+const mergeContributorAlternatives = parts => {
+  if (parts.some(part => part === null)) return null
+  return parts.reduce((merged, alternatives) => merged.flatMap(current => alternatives.map(alternative => new Set([...current, ...alternative]))), [new Set()])
+}
+const keyPartContributorAlternatives = (node, identityName, helpers, parameters = new Map(), resolving = new Set()) => {
   node = unwrapKeyExpression(node)
-  if (!node) return new Set()
-  if (isRouteFullPath(node)) return new Set(['route'])
-  if (node.type === 'Identifier' && node.name === identityName) return new Set(['identity'])
-  if (node.type === 'Identifier' && parameters.has(node.name)) return new Set(parameters.get(node.name))
-  if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'NullLiteral'].includes(node.type)) return new Set()
+  if (!node) return [new Set()]
+  if (isRouteFullPath(node)) return [new Set(['route'])]
+  if (node.type === 'Identifier' && node.name === identityName) return [new Set(['identity'])]
+  if (node.type === 'Identifier' && parameters.has(node.name)) return parameters.get(node.name).map(contributors => new Set(contributors))
+  if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'NullLiteral'].includes(node.type)) return [new Set()]
   if (['TemplateLiteral', 'ArrayExpression'].includes(node.type) || (node.type === 'BinaryExpression' && node.operator === '+') || node.type === 'CallExpression' || node.type === 'OptionalCallExpression') {
-    return composedKeyContributors(node, identityName, helpers, parameters, resolving)
+    return composedKeyContributorAlternatives(node, identityName, helpers, parameters, resolving)
   }
   return null
 }
-const composedKeyContributors = (node, identityName, helpers, parameters = new Map(), resolving = new Set()) => {
+const composedKeyContributorAlternatives = (node, identityName, helpers, parameters = new Map(), resolving = new Set()) => {
   node = unwrapKeyExpression(node)
-  if (node?.type === 'TemplateLiteral') return mergeContributors(node.expressions.map(expression => keyPartContributors(expression, identityName, helpers, parameters, resolving)))
-  if (node?.type === 'ArrayExpression') return mergeContributors(node.elements.map(element => element?.type === 'SpreadElement' ? null : keyPartContributors(element, identityName, helpers, parameters, resolving)))
-  if (node?.type === 'BinaryExpression' && node.operator === '+') return mergeContributors([keyPartContributors(node.left, identityName, helpers, parameters, resolving), keyPartContributors(node.right, identityName, helpers, parameters, resolving)])
+  if (node?.type === 'TemplateLiteral') return mergeContributorAlternatives(node.expressions.map(expression => keyPartContributorAlternatives(expression, identityName, helpers, parameters, resolving)))
+  if (node?.type === 'ArrayExpression') return mergeContributorAlternatives(node.elements.map(element => element?.type === 'SpreadElement' ? null : keyPartContributorAlternatives(element, identityName, helpers, parameters, resolving)))
+  if (node?.type === 'BinaryExpression' && node.operator === '+') return mergeContributorAlternatives([keyPartContributorAlternatives(node.left, identityName, helpers, parameters, resolving), keyPartContributorAlternatives(node.right, identityName, helpers, parameters, resolving)])
   if (['CallExpression', 'OptionalCallExpression'].includes(node?.type) && node.callee?.type === 'Identifier' && helpers.has(node.callee.name) && !resolving.has(node.callee.name)) {
     const helper = helpers.get(node.callee.name)
     const mapped = new Map()
     for (let index = 0; index < helper.params.length; index += 1) {
       if (helper.params[index]?.type !== 'Identifier') return null
-      const contributors = keyPartContributors(node.arguments[index], identityName, helpers, parameters, resolving)
-      if (contributors === null) return null
-      mapped.set(helper.params[index].name, contributors)
+      const alternatives = keyPartContributorAlternatives(node.arguments[index], identityName, helpers, parameters, resolving)
+      if (alternatives === null) return null
+      mapped.set(helper.params[index].name, alternatives)
     }
     const returns = returnedKeyExpressions(helper.body)
     if (returns.length === 0) return null
     const next = new Set(resolving).add(node.callee.name)
-    const results = returns.map(expression => composedKeyContributors(expression, identityName, helpers, mapped, next))
-    return results.some(result => result === null) ? null : mergeContributors(results)
+    const results = returns.map(expression => keyPartContributorAlternatives(expression, identityName, helpers, mapped, next))
+    return results.some(result => result === null) ? null : results.flat()
   }
   return null
 }
 const keyComposesRouteIdentity = (expression, identityName, source) => {
-  const contributors = composedKeyContributors(expression, identityName, keyHelperDefinitions(source))
-  return Boolean(contributors?.has('route') && contributors.has('identity'))
+  const alternatives = composedKeyContributorAlternatives(expression, identityName, keyHelperDefinitions(source))
+  return Boolean(alternatives?.length && alternatives.every(contributors => contributors.has('route') && contributors.has('identity')))
 }
 const balancedSlice = (source, start, open, close) => {
   if (source[start] !== open) return undefined
