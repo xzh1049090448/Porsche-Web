@@ -305,11 +305,14 @@ const propertyMap = rules => {
   }
   return result
 }
-const mediaMatchesWidth = (conditions, width) => conditions.every(condition => splitCssTopLevel(condition, ',').some(query => {
+const mediaQueryMatchesScreen = (query, width) => {
+  if (/(?:^|\s|\()print(?:\s|$|\))/i.test(query) && !/not\s+print/i.test(query)) return false
+  if (/not\s+screen/i.test(query)) return false
   const minimums = [...query.matchAll(/min-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
   const maximums = [...query.matchAll(/max-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
   return minimums.every(minimum => width >= minimum) && maximums.every(maximum => width <= maximum)
-}))
+}
+const mediaMatchesScreen = (conditions, width) => conditions.every(condition => splitCssTopLevel(condition, ',').some(query => mediaQueryMatchesScreen(query, width)))
 const rootSelectorSpecificity = selector => (selector.match(/#[\w-]+/g) || []).length * 100 + (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (selector.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
 const selectorTargetsRoot = (selector, targetClass) => {
   const compounds = selector.trim().split(/\s+|[>+~]/).filter(Boolean)
@@ -322,7 +325,7 @@ const selectorTargetsRoot = (selector, targetClass) => {
 const effectiveRootProperties = (rules, targetClass, width) => {
   const winners = new Map()
   for (const rule of rules) {
-    if (!mediaMatchesWidth(rule.media, width)) continue
+    if (!mediaMatchesScreen(rule.media, width)) continue
     const matching = rule.selectors.filter(selector => selectorTargetsRoot(selector, targetClass))
     if (!matching.length) continue
     const specificity = Math.max(...matching.map(rootSelectorSpecificity))
@@ -390,7 +393,7 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
   const filterCss = styleRoot(filters, true)
   const tableCss = styleRoot(table, true)
   const cardsCss = styleRoot(cards, true)
-  const responsiveCss = parseCssRules(`${parseVue(table).styles.map(style => style.content).join('\n')}\n${styles}`)
+  const responsiveCss = parseCssRules(`${parseVue(table).styles.map(style => style.content).join('\n')}\n${parseVue(cards).styles.map(style => style.content).join('\n')}\n${styles}`)
   assert.match(page, /@\/styles\/public-pricing\.scss/)
   assertProperty(pricingCss, '.pricing-page', 'max-width', '1600px', 'pricing page keeps its desktop width')
   assertProperty(pricingCss, '.pricing-layout', 'grid-template-columns', '260px minmax(0, 1fr)', 'pricing layout keeps the approved sidebar grid')
@@ -408,6 +411,7 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
   assertProperty(pricingCss, '.pricing-drawer', 'display', 'block', 'mobile shows the pricing drawer', /max-width\s*:\s*767px/i)
   for (const target of ['pricing-table-wrap', 'pricing-table']) assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, target, 1440)), false, `desktop .${target} root must remain visible at 1440px`)
   assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, 'pricing-table-wrap', 375)), true, 'mobile may hide the table root wrapper at 375px')
+  for (const target of ['pricing-cards', 'pricing-filter-toggle', 'pricing-drawer']) assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, target, 375)), false, `mobile .${target} root must remain visible at 375px`)
   assertControlSize(filterCss, '.pricing-filters input', ['min-height'])
   assertControlSize(filterCss, '.pricing-filters select', ['min-height'])
   assertControlSize(pricingCss, '.pricing-pagination button', ['min-height'])

@@ -156,13 +156,23 @@ const styleRoot = source => {
   assert.ok(styles, 'shared route transition must contain CSS')
   return parseCssRules(styles)
 }
-const mediaMatchesMotion = (conditions, reduced) => conditions.every(condition => splitTopLevel(condition, ',').some(query => {
-  if (/prefers-reduced-motion\s*:\s*no-preference/i.test(query)) return !reduced
-  if (/prefers-reduced-motion\s*:\s*reduce/i.test(query)) return reduced
-  return true
-}))
-const exactApplicableRules = (rules, selector, reduced) => rules.filter(rule => rule.selectors.includes(selector) && mediaMatchesMotion(rule.media, reduced))
-const reducedRuleExists = (rules, selector) => rules.some(rule => rule.selectors.includes(selector) && rule.media.some(condition => /prefers-reduced-motion\s*:\s*reduce/i.test(condition)))
+const mediaQueryMatchesScreen = (query, width, reduced) => {
+  if (/(?:^|\s|\()print(?:\s|$|\))/i.test(query) && !/not\s+print/i.test(query)) return false
+  if (/not\s+screen/i.test(query)) return false
+  if (/prefers-reduced-motion\s*:\s*no-preference/i.test(query) && reduced) return false
+  if (/prefers-reduced-motion\s*:\s*reduce/i.test(query) && !reduced) return false
+  const minimums = [...query.matchAll(/min-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
+  const maximums = [...query.matchAll(/max-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
+  return minimums.every(minimum => width >= minimum) && maximums.every(maximum => width <= maximum)
+}
+const mediaMatchesScreen = (conditions, width, reduced) => conditions.every(condition => splitTopLevel(condition, ',').some(query => mediaQueryMatchesScreen(query, width, reduced)))
+const selectorSpecificity = selector => (selector.match(/#[\w-]+/g) || []).length * 100 + (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (selector.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
+const selectorTargetsClass = (selector, target) => {
+  const lastCompound = selector.trim().split(/\s+|[>+~]/).filter(Boolean).at(-1) || ''
+  return new RegExp(`\\.${target.slice(1)}\\b`).test(lastCompound)
+}
+const applicableRules = (rules, selector, width, reduced) => rules.filter(rule => rule.selectors.some(candidate => selectorTargetsClass(candidate, selector)) && mediaMatchesScreen(rule.media, width, reduced))
+const reducedRuleExists = (rules, selector, width) => applicableRules(rules, selector, width, true).some(rule => rule.media.some(condition => /prefers-reduced-motion\s*:\s*reduce/i.test(condition)))
 const transitionTime = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:ms|s)$/i
 const transitionTiming = /^(?:ease|ease-in|ease-out|ease-in-out|linear|step-start|step-end|allow-discrete|normal|cubic-bezier\(.+\)|steps\(.+\)|linear\(.+\))$/i
 const parseTransitionShorthand = value => {
@@ -181,16 +191,20 @@ const parseTransitionShorthand = value => {
   }
   return { 'transition-property': properties.join(', '), 'transition-duration': durations.join(', '), 'transition-delay': delays.join(', ') }
 }
-const effectiveProperties = (rules, selector, reduced) => {
+const effectiveProperties = (rules, selector, width, reduced) => {
   const winners = new Map()
-  const apply = declaration => {
+  const apply = (declaration, specificity) => {
     const previous = winners.get(declaration.property)
-    if (!previous || Number(declaration.important) > Number(previous.important) || (declaration.important === previous.important && declaration.order > previous.order)) winners.set(declaration.property, declaration)
+    const candidate = { ...declaration, specificity }
+    if (!previous || Number(candidate.important) > Number(previous.important) || (candidate.important === previous.important && (candidate.specificity > previous.specificity || (candidate.specificity === previous.specificity && candidate.order > previous.order)))) winners.set(candidate.property, candidate)
   }
-  for (const rule of exactApplicableRules(rules, selector, reduced)) for (const declaration of rule.declarations) {
-    if (declaration.property === 'transition') {
-      for (const [property, value] of Object.entries(parseTransitionShorthand(declaration.value))) apply({ ...declaration, property, value })
-    } else apply(declaration)
+  for (const rule of applicableRules(rules, selector, width, reduced)) {
+    const specificity = Math.max(...rule.selectors.filter(candidate => selectorTargetsClass(candidate, selector)).map(selectorSpecificity))
+    for (const declaration of rule.declarations) {
+      if (declaration.property === 'transition') {
+        for (const [property, value] of Object.entries(parseTransitionShorthand(declaration.value))) apply({ ...declaration, property, value }, specificity)
+      } else apply(declaration, specificity)
+    }
   }
   return new Map([...winners].map(([property, declaration]) => [property, declaration.value.trim()]))
 }
@@ -200,7 +214,7 @@ const milliseconds = value => {
 }
 const transitionValues = (properties, name, fallback) => splitTopLevel(properties.get(name) || fallback, ',').map(value => value.trim().toLowerCase())
 const assertOpacityTransition = (rules, selector, durationMs) => {
-  const properties = effectiveProperties(rules, selector, false)
+  const properties = effectiveProperties(rules, selector, 1440, false)
   assert.deepEqual(transitionValues(properties, 'transition-property', 'all'), ['opacity'], `${selector} must effectively animate opacity only`)
   const durations = transitionValues(properties, 'transition-duration', '0s').map(milliseconds)
   assert.deepEqual(durations, [durationMs], `${selector} effective duration must be ${durationMs}ms`)
@@ -209,15 +223,17 @@ const assertOpacityTransition = (rules, selector, durationMs) => {
   for (const [property, value] of properties) if (/^animation(?:-|$)/i.test(property)) assert.ok(/^none$|^0m?s$/i.test(value), `${selector} must not use CSS animation`)
 }
 const assertImmediateReducedMotion = (rules, selector) => {
-  assert.equal(reducedRuleExists(rules, selector), true, `reduced motion must target ${selector}`)
-  const properties = effectiveProperties(rules, selector, true)
-  const transitionProperties = transitionValues(properties, 'transition-property', 'all')
-  const durations = transitionValues(properties, 'transition-duration', '0s').map(milliseconds)
-  const delays = transitionValues(properties, 'transition-delay', '0s').map(milliseconds)
-  assert.ok(transitionProperties.every(property => property === 'none') || durations.every(duration => Number.isFinite(duration) && Math.abs(duration) <= 1), `${selector} reduced-motion transition must remain effectively none or near-zero`)
-  assert.ok(delays.every(delay => delay === 0), `${selector} reduced-motion delay must be zero or omitted`)
+  for (const width of [375, 1440]) {
+    assert.equal(reducedRuleExists(rules, selector, width), true, `reduced motion must target ${selector} at ${width}px`)
+    const properties = effectiveProperties(rules, selector, width, true)
+    const transitionProperties = transitionValues(properties, 'transition-property', 'all')
+    const durations = transitionValues(properties, 'transition-duration', '0s').map(milliseconds)
+    const delays = transitionValues(properties, 'transition-delay', '0s').map(milliseconds)
+    assert.ok(transitionProperties.every(property => property === 'none') || durations.every(duration => Number.isFinite(duration) && Math.abs(duration) <= 1), `${selector} reduced-motion transition must remain effectively none or near-zero at ${width}px`)
+    assert.ok(delays.every(delay => delay === 0), `${selector} reduced-motion delay must be zero or omitted at ${width}px`)
+  }
 }
-const effectiveProperty = (rules, selector, property, reduced = false) => effectiveProperties(rules, selector, reduced).get(property)
+const effectiveProperty = (rules, selector, property, reduced = false) => effectiveProperties(rules, selector, 1440, reduced).get(property)
 
 test('shared route transition keys leaf views by fullPath and identity epoch', () => {
   const transition = readRequired('../components/shell/RouteTransition.vue', 'shared route transition component')
