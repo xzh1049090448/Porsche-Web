@@ -25,13 +25,18 @@ const splitTopLevel = (value, delimiter) => {
   parts.push(value.slice(start).trim())
   return parts.filter(Boolean)
 }
-const parseDeclarations = body => splitTopLevel(body, ';').flatMap(entry => {
+const parseDeclarations = (body, nextOrder) => splitTopLevel(body, ';').flatMap(entry => {
   const separator = splitTopLevel(entry, ':')
   if (separator.length < 2) return []
-  return [{ property: separator.shift().trim().toLowerCase(), value: separator.join(':').trim() }]
+  const property = separator.shift().trim().toLowerCase()
+  let value = separator.join(':').trim()
+  const important = /!\s*important\s*$/i.test(value)
+  value = value.replace(/!\s*important\s*$/i, '').trim()
+  return [{ property, value, important, order: nextOrder() }]
 })
 const parseCssRules = source => {
   const rules = []
+  let declarationOrder = 0
   const clean = source.replace(/\/\*[\s\S]*?\*\//g, '')
   const parseScope = (value, media = []) => {
     let cursor = 0
@@ -71,7 +76,7 @@ const parseCssRules = source => {
       const body = value.slice(bodyStart, cursor - 1)
       if (/^@media\b/i.test(header)) parseScope(body, media.concat(header.replace(/^@media\s*/i, '')))
       else if (/^@(?:supports|layer|container)\b/i.test(header)) parseScope(body, media)
-      else if (!header.startsWith('@')) rules.push({ selectors: splitTopLevel(header, ','), declarations: parseDeclarations(body), media })
+      else if (!header.startsWith('@')) rules.push({ selectors: splitTopLevel(header, ','), declarations: parseDeclarations(body, () => declarationOrder++), media })
     }
   }
   parseScope(clean)
@@ -92,13 +97,39 @@ const exactRules = (stylesheet, selector, media) => stylesheet.filter(rule => {
   if (!rule.selectors.includes(selector)) return false
   return media === 'all' || (!media && rule.media.length === 0) || (media instanceof RegExp && rule.media.some(value => media.test(value)))
 })
-const values = (rules, property) => rules.flatMap(rule => rule.declarations
-  .filter(declaration => declaration.property === property)
-  .map(declaration => declaration.value.trim()))
-const declarationValues = (stylesheet, property) => values(stylesheet, property)
-const assertMapping = (stylesheet, selector, property, expected, message, media) => {
-  const actual = values(exactRules(stylesheet, selector, media), property)
-  assert.ok(actual.includes(expected), `${message}; found ${JSON.stringify(actual)}`)
+const mediaQueryMatchesScreen = (query, width) => {
+  if (/(?:^|\s|\()print(?:\s|$|\))/i.test(query) && !/not\s+print/i.test(query)) return false
+  if (/not\s+screen/i.test(query)) return false
+  if (/prefers-reduced-motion\s*:\s*reduce/i.test(query)) return false
+  const minimums = [...query.matchAll(/min-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
+  const maximums = [...query.matchAll(/max-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
+  return minimums.every(minimum => width >= minimum) && maximums.every(maximum => width <= maximum)
+}
+const mediaMatchesScreen = (conditions, width) => conditions.every(condition => splitTopLevel(condition, ',').some(query => mediaQueryMatchesScreen(query, width)))
+const fontSizeFromShorthand = value => value.match(/(?:^|\s)(var\([^)]*\)|(?:\d*\.)?\d+(?:px|rem|em|%|vw|vh)|xx-small|x-small|small|medium|large|x-large|xx-large|smaller|larger)(?:\s*\/|\s|$)/i)?.[1] || value
+const effectiveValue = (stylesheet, selector, property, width) => {
+  let winner
+  const apply = declaration => {
+    if (!winner || Number(declaration.important) > Number(winner.important) || (declaration.important === winner.important && declaration.order > winner.order)) winner = declaration
+  }
+  for (const rule of stylesheet) {
+    if (!rule.selectors.includes(selector) || !mediaMatchesScreen(rule.media, width)) continue
+    for (const declaration of rule.declarations) {
+      if (declaration.property === property) apply(declaration)
+      else if (property === 'font-size' && declaration.property === 'font') apply({ ...declaration, property, value: fontSizeFromShorthand(declaration.value) })
+    }
+  }
+  return winner?.value.trim()
+}
+const assertMapping = (stylesheet, selector, property, expected, message, widths = [375, 1440]) => {
+  for (const width of widths) assert.equal(effectiveValue(stylesheet, selector, property, width), expected, `${message} at ${width}px`)
+}
+const assertMinimumControl = (stylesheet, selector, property, message, widths = [375, 1440]) => {
+  for (const width of widths) {
+    const value = effectiveValue(stylesheet, selector, property, width)
+    const pixels = value === 'var(--control-min-size)' ? 44 : Number(value?.match(/^(\d+(?:\.\d+)?)px$/)?.[1])
+    assert.ok(Number.isFinite(pixels) && pixels >= 44, `${message} at ${width}px; found ${JSON.stringify(value)}`)
+  }
 }
 
 test('semantic typography tokens keep the approved exact pixel scale', () => {
@@ -107,9 +138,7 @@ test('semantic typography tokens keep the approved exact pixel scale', () => {
     'page-title': '20px', 'section-title': '30px', hero: '44px', 'hero-mobile': '34px',
   }
   for (const [name, value] of Object.entries(expected)) {
-    const actual = []
-    actual.push(...declarationValues(tokens, `--font-size-${name}`))
-    assert.deepEqual(actual, [value], `--font-size-${name} must remain ${value}`)
+    assertMapping(tokens, 'html:root', `--font-size-${name}`, value, `--font-size-${name} must remain ${value}`)
   }
 })
 
@@ -118,16 +147,15 @@ test('foundations and global components map body, page and component text to sem
   assertMapping(global, '.page-title', 'font-size', 'var(--font-size-page-title)', 'page titles use the page-title token')
   assertMapping(global, '.el-dialog', '--el-dialog-title-font-size', 'var(--font-size-subtitle)', 'dialog titles use the subtitle token')
   assertMapping(global, '.el-alert', '--el-alert-title-font-size', 'var(--font-size-sm)', 'alert titles use the small token')
-  assertMapping(global, '.page-title', 'font-size', 'var(--font-size-page-title)', 'mobile page titles keep the page-title token', /max-width\s*:\s*768px/i)
 })
 
 test('public pages map hero, section and supporting copy to the shared typography scale', () => {
   assertMapping(publicShell, '.public-brand', 'font-size', 'var(--font-size-subtitle)', 'public brand uses subtitle text')
-  assertMapping(publicShell, '.public-hero h1', 'font-size', 'var(--font-size-hero)', 'desktop hero uses the hero token')
+  assertMapping(publicShell, '.public-hero h1', 'font-size', 'var(--font-size-hero)', 'desktop hero uses the hero token', [1440])
   assertMapping(publicShell, '.public-lead', 'font-size', 'var(--font-size-subtitle)', 'lead copy uses the subtitle token')
   assertMapping(publicShell, '.public-eyebrow', 'font-size', 'var(--font-size-sm)', 'eyebrows use the small token')
   assertMapping(publicContent, '.public-content-section__heading h2', 'font-size', 'var(--font-size-section-title)', 'public section headings use the section-title token')
-  assertMapping(publicShell, '.public-hero h1', 'font-size', 'var(--font-size-hero-mobile)', 'mobile hero uses the hero-mobile token', /max-width\s*:\s*767px/i)
+  assertMapping(publicShell, '.public-hero h1', 'font-size', 'var(--font-size-hero-mobile)', 'mobile hero uses the hero-mobile token', [375])
   assertMapping(publicPricing, '.pricing-heading h1', 'font-size', 'var(--font-size-section-title)', 'pricing headings use the section-title token')
   assertMapping(publicPricing, '.pricing-heading p', 'font-size', 'var(--font-size-body)', 'pricing supporting copy uses the body token')
 })
@@ -170,13 +198,12 @@ test('typography stays at real size and interactive controls retain 44px targets
     }
   }
 
-  const controlSizes = []
-  controlSizes.push(...declarationValues(tokens, '--control-min-size'))
-  assert.deepEqual(controlSizes, ['44px'])
-  assertMapping(publicShell, '.public-locale', 'min-height', 'var(--control-min-size)', 'public header controls keep the shared touch target')
-  assertMapping(publicShell, '.public-button', 'min-height', 'var(--control-min-size)', 'public actions keep the shared touch target')
-  assertMapping(consoleShell, '.user-trigger', 'min-height', 'var(--control-min-size)', 'console user control keeps the shared touch target')
-  const pricingTargets = []
-  pricingTargets.push(...declarationValues(publicPricing, 'min-height'))
-  assert.ok(pricingTargets.some(value => value === '44px' || value === 'var(--control-min-size)'), 'pricing controls retain at least a 44px target')
+  assertMapping(tokens, 'html:root', '--control-min-size', '44px', 'shared controls retain a 44px minimum')
+  assertMinimumControl(publicShell, '.public-locale', 'min-height', 'public header controls keep the shared touch target')
+  assertMinimumControl(publicShell, '.public-button', 'min-height', 'public actions keep the shared touch target')
+  assertMinimumControl(consoleShell, '.user-trigger', 'min-height', 'console user control keeps the shared touch target')
+  for (const selector of ['.pricing-pagination button', '.pricing-pagination select', '.pricing-detail-back', '.pricing-console-cta']) assertMinimumControl(publicPricing, selector, 'min-height', `${selector} keeps a 44px target`)
+  assertMinimumControl(publicPricing, '.pricing-filter-toggle', 'min-height', 'mobile pricing filter keeps a 44px target', [375])
+  assertMinimumControl(publicPricing, '.pricing-drawer > header button', 'min-width', 'mobile drawer close control keeps a 44px width', [375])
+  assertMinimumControl(publicPricing, '.pricing-drawer > header button', 'min-height', 'mobile drawer close control keeps a 44px height', [375])
 })
