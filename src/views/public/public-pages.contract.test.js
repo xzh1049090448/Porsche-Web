@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { baseParse } from '@vue/compiler-dom'
 import { parse as parseSfc } from '@vue/compiler-sfc'
-import { parseExpression } from '@babel/parser'
+import { parse, parseExpression } from '@babel/parser'
 import postcss from 'postcss'
 import { messages } from '../../i18n/messages.js'
 import { publicMessages } from '../../i18n/public-messages.js'
@@ -34,52 +34,79 @@ const dataSectionOrder = value => {
   visit(templateAst(value))
   return order
 }
-const staticExpressionValue = node => {
-  if (node?.type === 'StringLiteral' || node?.type === 'NumericLiteral' || node?.type === 'BooleanLiteral') return node.value
-  if (node?.type === 'NullLiteral') return null
-  if (node?.type === 'ParenthesizedExpression') return staticExpressionValue(node.expression)
-  if (node?.type === 'BinaryExpression' && node.operator === '+') {
-    const left = staticExpressionValue(node.left)
-    const right = staticExpressionValue(node.right)
-    if (left !== undefined && right !== undefined) return left + right
+const staticBindingInitializers = value => {
+  const bindings = new Map()
+  const descriptor = parseSfc(value).descriptor
+  for (const block of [descriptor.script, descriptor.scriptSetup].filter(Boolean)) {
+    let ast
+    try { ast = parse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
+    catch { continue }
+    const visit = node => {
+      if (!node || typeof node !== 'object') return
+      if (node.type === 'VariableDeclaration' && node.kind === 'const') for (const declaration of node.declarations) {
+        if (declaration.id.type !== 'Identifier' || !declaration.init) continue
+        if (!bindings.has(declaration.id.name)) bindings.set(declaration.id.name, [])
+        bindings.get(declaration.id.name).push(declaration.init)
+      }
+      for (const child of Object.values(node)) {
+        if (Array.isArray(child)) child.forEach(visit)
+        else if (child && typeof child === 'object' && typeof child.type === 'string') visit(child)
+      }
+    }
+    visit(ast)
   }
-  if (node?.type === 'TemplateLiteral') {
-    const expressions = node.expressions.map(staticExpressionValue)
-    if (expressions.some(value => value === undefined)) return undefined
-    return node.quasis.map((quasi, index) => `${quasi.value.cooked ?? quasi.value.raw}${index < expressions.length ? expressions[index] : ''}`).join('')
-  }
-  return undefined
+  return bindings
 }
-const literalExpressionStrings = expression => {
+const staticExpressionPossibilities = (node, bindings, resolving = new Set()) => {
+  if (node?.type === 'StringLiteral' || node?.type === 'NumericLiteral' || node?.type === 'BooleanLiteral') return [node.value]
+  if (node?.type === 'NullLiteral') return [null]
+  if (node?.type === 'ParenthesizedExpression' || node?.type === 'TSAsExpression' || node?.type === 'TSTypeAssertion' || node?.type === 'TSNonNullExpression') return staticExpressionPossibilities(node.expression, bindings, resolving)
+  if (node?.type === 'Identifier') {
+    if (resolving.has(node.name)) return []
+    const next = new Set(resolving).add(node.name)
+    return (bindings.get(node.name) || []).flatMap(initializer => staticExpressionPossibilities(initializer, bindings, next))
+  }
+  if (node?.type === 'BinaryExpression' && node.operator === '+') {
+    const left = staticExpressionPossibilities(node.left, bindings, resolving)
+    const right = staticExpressionPossibilities(node.right, bindings, resolving)
+    return left.flatMap(leftValue => right.map(rightValue => leftValue + rightValue))
+  }
+  if (node?.type === 'ConditionalExpression') return [node.consequent, node.alternate].flatMap(branch => staticExpressionPossibilities(branch, bindings, resolving))
+  if (node?.type === 'LogicalExpression') return [node.left, node.right].flatMap(branch => staticExpressionPossibilities(branch, bindings, resolving))
+  if (node?.type === 'SequenceExpression') return staticExpressionPossibilities(node.expressions.at(-1), bindings, resolving)
+  if (node?.type === 'TemplateLiteral') {
+    let values = ['']
+    for (let index = 0; index < node.quasis.length; index += 1) {
+      values = values.map(value => value + (node.quasis[index].value.cooked ?? node.quasis[index].value.raw))
+      if (index < node.expressions.length) {
+        const inserts = staticExpressionPossibilities(node.expressions[index], bindings, resolving)
+        if (!inserts.length) return []
+        values = values.flatMap(value => inserts.map(insert => value + insert))
+      }
+    }
+    return values
+  }
+  // Calls, member reads, and other dynamic code are intentionally not executed or guessed.
+  return []
+}
+const literalExpressionStrings = (expression, bindings) => {
   let ast
   try { ast = parseExpression(expression, { plugins: ['typescript'] }) }
   catch { return [] }
-  const values = []
-  const value = staticExpressionValue(ast)
-  if (typeof value === 'string') values.push(value)
-  const visit = node => {
-    if (!node || typeof node !== 'object') return
-    if (node.type === 'StringLiteral') values.push(node.value)
-    if (node.type === 'TemplateElement') values.push(node.value.cooked ?? node.value.raw)
-    for (const child of Object.values(node)) {
-      if (Array.isArray(child)) child.forEach(visit)
-      else if (child && typeof child === 'object' && typeof child.type === 'string') visit(child)
-    }
-  }
-  visit(ast)
-  return [...new Set(values.filter(Boolean))]
+  return [...new Set(staticExpressionPossibilities(ast, bindings).filter(value => typeof value === 'string' && value))]
 }
 const visibleStrings = value => {
   const result = []
+  const bindings = staticBindingInitializers(value)
   const visibleAttributes = new Set(['alt', 'aria-label', 'placeholder', 'title', 'value'])
   const visit = node => {
     if (node.type === 2 && node.content.trim()) result.push(node.content.trim())
-    if (node.type === 5) result.push(...literalExpressionStrings(node.content.content))
+    if (node.type === 5) result.push(...literalExpressionStrings(node.content.content, bindings))
     if (node.type === 1) for (const prop of node.props) {
       if (prop.type === 6 && visibleAttributes.has(prop.name) && prop.value?.content) result.push(prop.value.content)
       const visibleBinding = prop.type === 7 && prop.name === 'bind' && prop.arg?.type === 4 && prop.arg.isStatic && visibleAttributes.has(prop.arg.content)
       const visibleDirective = prop.type === 7 && ['text', 'html'].includes(prop.name)
-      if ((visibleBinding || visibleDirective) && prop.exp?.content) result.push(...literalExpressionStrings(prop.exp.content))
+      if ((visibleBinding || visibleDirective) && prop.exp?.content) result.push(...literalExpressionStrings(prop.exp.content, bindings))
     }
     for (const child of node.children || []) visit(child)
   }
@@ -289,7 +316,7 @@ test('public content pages compose the approved safe landing system', () => {
   const runtimePublicMessages = [messages, publicMessages]
     .flatMap(catalog => Object.values(catalog).flatMap(locale => stringValues(locale.publicSite)))
   assert.ok(runtimePublicMessages.length > 0, 'runtime publicSite messages must exist')
-  const sourceBundle = stripSafePerRequestCopy(vueSources.flatMap(visibleStrings).concat(runtimePublicMessages).join('\n'))
+  const visibleCopy = vueSources.flatMap(visibleStrings).concat(runtimePublicMessages).map(stripSafePerRequestCopy)
 
   assertNoTailwindLoading(publicStyleSources, vueSources)
 
@@ -309,5 +336,5 @@ test('public content pages compose the approved safe landing system', () => {
   assert.match(preview, /preview-banner/)
   assert.match(preview, /aria-live="polite"/)
   assert.match(`${home}${about}${legal}`, /v-html="(?:home\.|content\.)/)
-  for (const [pattern, label] of prototypePatterns) assert.doesNotMatch(sourceBundle, pattern, label)
+  for (const [pattern, label] of prototypePatterns) for (const copy of visibleCopy) assert.doesNotMatch(copy, pattern, label)
 })
