@@ -448,7 +448,7 @@ const forwardedStateArgument = (argument, definitions, binding, renderedCall, re
   }
   return binding ? forwardedArgument(argument, binding, renderedCall) : undefined
 }
-const correctPublicStateCall = (stateCall, component, modelName, binding, renderedCall, stateNames = new Set(['publicPriceState']), definitions = new Map()) => {
+const correctPublicStateCall = (stateCall, component, modelName, binding, renderedCall, stateNames = new Set(), definitions = new Map()) => {
   if (stateCall.callee?.type !== 'Identifier' || !stateNames.has(stateCall.callee.name)) return false
   const stateModel = normalizedStateArgument(stateCall.arguments[0], definitions, binding, renderedCall)
   const stateComponent = normalizedStateArgument(stateCall.arguments[1], definitions, binding, renderedCall)
@@ -553,7 +553,7 @@ const helperReturnsCorrectStateFromOrigin = (binding, component, modelName, rend
   return returns.length > 0 && returns.every(Boolean)
 }
 const helperReturnsCorrectState = (binding, component, modelName, renderedCall, renderedPaths, bindings) => {
-  const stateNames = bindings.publicPriceStateNames || new Set(['publicPriceState'])
+  const stateNames = bindings.publicPriceStateNames || new Set()
   return helperReturnsCorrectStateFromOrigin(binding, component, modelName, renderedCall, renderedPaths, stateNames)
 }
 const staticRenderedLabel = node => {
@@ -566,7 +566,7 @@ const staticRenderedLabel = node => {
 const renderedPriceStateFor = (expression, component, modelName, bindings, path = []) => {
   const node = unwrapExpression(expression)
   if (!node) return false
-  const stateNames = bindings.publicPriceStateNames || new Set(['publicPriceState'])
+  const stateNames = bindings.publicPriceStateNames || new Set()
   const directOrigins = candidate => ['CallExpression', 'OptionalCallExpression'].includes(candidate?.type)
     && correctPublicStateCall(candidate, component, modelName, undefined, undefined, stateNames)
   if (path.length === 0 && ['ConditionalExpression', 'LogicalExpression'].includes(node.type)
@@ -623,16 +623,22 @@ const renderedPriceLabelFor = (expression, component, modelName, bindings) => {
     && renderedPriceStateFor(node, component, modelName, bindings)
 }
 const vForAlias = node => node?.props?.find(prop => prop.type === 7 && prop.name === 'for')?.exp?.content.match(/^\s*(?:\(\s*)?([A-Za-z_$][\w$]*)/)?.[1]
-const staticBindingInitializers = value => {
+const staticBindingInitializers = (value, importer) => {
   const bindings = new Map()
-  const publicPriceStateNames = new Set(['publicPriceState'])
+  const publicPriceStateNames = new Set()
+  const authoritativeModule = new URL('../../utils/public-pricing-query.js', import.meta.url).pathname
+  const resolvesToAuthoritativeModule = specifier => {
+    if (specifier === '@/utils/public-pricing-query.js') return true
+    if (!importer || !specifier.startsWith('.')) return false
+    return new URL(specifier, new URL(importer, import.meta.url)).pathname === authoritativeModule
+  }
   const descriptor = parseVue(value)
   for (const block of [descriptor.script, descriptor.scriptSetup].filter(Boolean)) {
     let ast
     try { ast = vueCompiler.babelParse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
     catch (error) { throw new Error(`pricing Vue script must parse cleanly: ${error.message}`, { cause: error }) }
     const member = (object, key) => ({ type: 'MemberExpression', object, property: { type: 'StringLiteral', value: String(key) }, computed: true })
-    for (const statement of ast.program.body) if (statement.type === 'ImportDeclaration' && /(?:^|\/)public-pricing-query\.js$/.test(statement.source.value)) {
+    for (const statement of ast.program.body) if (statement.type === 'ImportDeclaration' && resolvesToAuthoritativeModule(statement.source.value)) {
       for (const specifier of statement.specifiers) if ((specifier.imported?.name ?? specifier.imported?.value) === 'publicPriceState') publicPriceStateNames.add(specifier.local.name)
     }
     const selected = (expression, key) => {
@@ -1427,8 +1433,8 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
   const cardModelName = vForAlias(renderedElements(cardsRoot, 'article')[0])
   assert.ok(tableModelName, 'pricing table rows must render from a model iteration')
   assert.ok(cardModelName, 'pricing cards must render from a model iteration')
-  const tableBindings = staticBindingInitializers(table)
-  const cardBindings = staticBindingInitializers(cards)
+  const tableBindings = staticBindingInitializers(table, '../../components/public/PricingTable.vue')
+  const cardBindings = staticBindingInitializers(cards, '../../components/public/PricingCards.vue')
   for (const component of ['input', 'output']) {
     const key = `pricingCatalog.${component}Price`
     const tableHeaders = renderedElements(renderedElements(tableRoot, 'thead')[0], 'th')

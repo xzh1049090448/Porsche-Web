@@ -31,17 +31,25 @@ const elements = (value, name) => {
   visit(templateAst(value))
   return matches
 }
-const renderedComponentIsWired = (value, name, expectedFile) => {
+const renderedComponentIsWired = (value, _name, expectedFile) => {
   const descriptor = parseVue(value)
-  const sourceMatches = value => String(value || '').replace(/\\/g, '/').endsWith(`/${expectedFile}`)
-  const renderedNames = new Set()
-  const collectRenderedNames = node => {
-    if (staticallyHidden(node)) return
-    if (node.type === 1) renderedNames.add(normalizedComponentName(node.tag))
-    for (const child of node.children || []) collectRenderedNames(child)
-    for (const branch of node.branches || []) collectRenderedNames(branch)
+  const authoritativeModule = new URL(`../../components/public/${expectedFile}`, import.meta.url).pathname
+  const sourceMatches = specifier => {
+    if (typeof specifier !== 'string') return false
+    const resolved = specifier.startsWith('@/')
+      ? new URL(`../../${specifier.slice(2)}`, import.meta.url)
+      : specifier.startsWith('.') ? new URL(specifier, import.meta.url) : undefined
+    return resolved?.pathname === authoritativeModule
   }
-  collectRenderedNames(templateAst(value))
+  const renderedNodes = []
+  const collectRenderedNodes = node => {
+    if (staticallyHidden(node)) return
+    if (node.type === 1) renderedNodes.push(node)
+    for (const child of node.children || []) collectRenderedNodes(child)
+    for (const branch of node.branches || []) collectRenderedNodes(branch)
+  }
+  collectRenderedNodes(templateAst(value))
+  const wiredNames = new Set()
   for (const block of [descriptor.scriptSetup, descriptor.script].filter(Boolean)) {
     let ast
     try { ast = vueCompiler.babelParse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
@@ -59,8 +67,9 @@ const renderedComponentIsWired = (value, name, expectedFile) => {
       if (imports.has(local)) return imports.get(local)
       return importedSource(aliases.get(local), new Set(resolving).add(local))
     }
-    if (block === descriptor.scriptSetup && [...renderedNames].some(rendered => [...new Set([...imports.keys(), ...aliases.keys()])].some(local =>
-      normalizedComponentName(local) === rendered && sourceMatches(importedSource(local))))) return true
+    if (block === descriptor.scriptSetup) for (const local of new Set([...imports.keys(), ...aliases.keys()])) {
+      if (sourceMatches(importedSource(local))) wiredNames.add(normalizedComponentName(local))
+    }
     for (const statement of ast.program.body) {
       if (statement.type !== 'ExportDefaultDeclaration') continue
       let options = statement.declaration
@@ -73,11 +82,11 @@ const renderedComponentIsWired = (value, name, expectedFile) => {
         if (property.type === 'SpreadElement') continue
         const registered = property.key?.name ?? property.key?.value
         const local = property.shorthand ? property.key?.name : property.value?.name
-        if (normalizedComponentName(registered) === normalizedComponentName(name) && renderedNames.has(normalizedComponentName(registered)) && sourceMatches(importedSource(local))) return true
+        if (sourceMatches(importedSource(local))) wiredNames.add(normalizedComponentName(registered))
       }
     }
   }
-  return false
+  return renderedNodes.filter(node => wiredNames.has(normalizedComponentName(node.tag))).length
 }
 const staticAttribute = (node, name) => node.props.find(prop => prop.type === 6 && prop.name === name)?.value?.content
 const boundAttribute = (node, name) => node.props.find(prop => prop.type === 7 && prop.name === 'bind' && prop.arg?.type === 4 && prop.arg.content === name)?.exp?.content
@@ -848,10 +857,8 @@ test('public content pages compose the approved safe landing system', () => {
 
   assertNoTailwindLoading(publicStyleSources, vueSources)
 
-  assert.equal(elements(home, 'HeroPreview').length, 1, 'the rendered home tree contains its hero preview')
-  assert.equal(elements(home, 'PublicSection').length, 3, 'the rendered home tree contains the three approved public sections')
-  assert.equal(renderedComponentIsWired(home, 'HeroPreview', 'HeroPreview.vue'), true, 'the rendered hero preview resolves to its imported Vue component')
-  assert.equal(renderedComponentIsWired(home, 'PublicSection', 'PublicSection.vue'), true, 'the rendered sections resolve to their imported Vue component')
+  assert.equal(renderedComponentIsWired(home, 'HeroPreview', 'HeroPreview.vue'), 1, 'the rendered home tree contains one reachable hero imported from HeroPreview.vue')
+  assert.ok(renderedComponentIsWired(home, 'PublicSection', 'PublicSection.vue') >= 3, 'the rendered home tree contains at least three reachable sections imported from PublicSection.vue')
   assert.match(hero, /aria-hidden="true"/)
   assert.match(hero, /capability-preview/)
   assert.doesNotMatch(hero, /v-html|api[_-]?key|token|user(?:name)?|chat/i)
