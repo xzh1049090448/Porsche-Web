@@ -448,8 +448,12 @@ const forwardedStateArgument = (argument, definitions, binding, renderedCall, re
   }
   return binding ? forwardedArgument(argument, binding, renderedCall) : undefined
 }
-const correctPublicStateCall = (stateCall, component, modelName, binding, renderedCall, stateNames = new Set(), definitions = new Map()) => {
-  if (stateCall.callee?.type !== 'Identifier' || !stateNames.has(stateCall.callee.name)) return false
+const correctPublicStateCall = (stateCall, component, modelName, binding, renderedCall, stateAuthority, definitions = new Map()) => {
+  if (stateCall.callee?.type !== 'Identifier') return false
+  const authorized = stateAuthority?.scriptCalls?.has(stateCall)
+    ? stateAuthority.authorizedCalls.has(stateCall)
+    : stateAuthority?.templateNames?.has(stateCall.callee.name)
+  if (!authorized) return false
   const stateModel = normalizedStateArgument(stateCall.arguments[0], definitions, binding, renderedCall)
   const stateComponent = normalizedStateArgument(stateCall.arguments[1], definitions, binding, renderedCall)
   const forwardedComponent = forwardedStateArgument(stateCall.arguments[1], definitions, binding, renderedCall)
@@ -474,10 +478,10 @@ const transparentlyCarriesState = (node, origins, definitions, resolving = new S
   if (node.type === 'AwaitExpression') return transparentlyCarriesState(node.argument, origins, definitions, resolving)
   return false
 }
-const helperReturnsCorrectStateFromOrigin = (binding, component, modelName, renderedCall, renderedPaths, stateNames) => {
+const helperReturnsCorrectStateFromOrigin = (binding, component, modelName, renderedCall, renderedPaths, stateAuthority) => {
   // Repeated calls with the same forwarded model/component are one semantic source; output or unrelated calls are not.
   const originsFor = definitions => node => ['CallExpression', 'OptionalCallExpression'].includes(node?.type)
-    && correctPublicStateCall(node, component, modelName, binding, renderedCall, stateNames, definitions)
+    && correctPublicStateCall(node, component, modelName, binding, renderedCall, stateAuthority, definitions)
   const returnIsValid = (node, definitions, mode, resolving = new Set()) => {
     const origins = originsFor(definitions)
     node = unwrapExpression(node)
@@ -553,8 +557,7 @@ const helperReturnsCorrectStateFromOrigin = (binding, component, modelName, rend
   return returns.length > 0 && returns.every(Boolean)
 }
 const helperReturnsCorrectState = (binding, component, modelName, renderedCall, renderedPaths, bindings) => {
-  const stateNames = bindings.publicPriceStateNames || new Set()
-  return helperReturnsCorrectStateFromOrigin(binding, component, modelName, renderedCall, renderedPaths, stateNames)
+  return helperReturnsCorrectStateFromOrigin(binding, component, modelName, renderedCall, renderedPaths, bindings.publicPriceStateAuthority)
 }
 const staticRenderedLabel = node => {
   node = unwrapExpression(node)
@@ -566,9 +569,9 @@ const staticRenderedLabel = node => {
 const renderedPriceStateFor = (expression, component, modelName, bindings, path = []) => {
   const node = unwrapExpression(expression)
   if (!node) return false
-  const stateNames = bindings.publicPriceStateNames || new Set()
+  const stateAuthority = bindings.publicPriceStateAuthority
   const directOrigins = candidate => ['CallExpression', 'OptionalCallExpression'].includes(candidate?.type)
-    && correctPublicStateCall(candidate, component, modelName, undefined, undefined, stateNames)
+    && correctPublicStateCall(candidate, component, modelName, undefined, undefined, stateAuthority)
   if (path.length === 0 && ['ConditionalExpression', 'LogicalExpression'].includes(node.type)
     && directlyReadStateMembers(node, directOrigins, new Map()).size > 0) {
     return validLabelExpression(node, directOrigins, new Map())
@@ -578,8 +581,8 @@ const renderedPriceStateFor = (expression, component, modelName, bindings, path 
     return property !== undefined && renderedPriceStateFor(node.object, component, modelName, bindings, [property, ...path])
   }
   if (['CallExpression', 'OptionalCallExpression'].includes(node.type)) {
-    if (node.callee?.type === 'Identifier' && stateNames.has(node.callee.name)) {
-      return correctPublicStateCall(node, component, modelName, undefined, undefined, stateNames) && (path.length === 0 || ['state', 'value'].includes(String(path[0])))
+    if (node.callee?.type === 'Identifier' && correctPublicStateCall(node, component, modelName, undefined, undefined, stateAuthority)) {
+      return path.length === 0 || ['state', 'value'].includes(String(path[0]))
     }
     if (node.callee?.type === 'Identifier' && bindings.has(node.callee.name)) {
       return (bindings.get(node.callee.name) || []).some(binding => helperReturnsCorrectState(binding, component, modelName, node, [path], bindings))
@@ -625,7 +628,7 @@ const renderedPriceLabelFor = (expression, component, modelName, bindings) => {
 const vForAlias = node => node?.props?.find(prop => prop.type === 7 && prop.name === 'for')?.exp?.content.match(/^\s*(?:\(\s*)?([A-Za-z_$][\w$]*)/)?.[1]
 const staticBindingInitializers = (value, importer) => {
   const bindings = new Map()
-  const publicPriceStateNames = new Set()
+  const publicPriceStateAuthority = { templateNames: new Set(), scriptCalls: new WeakSet(), authorizedCalls: new WeakSet() }
   const authoritativeModule = new URL('../../utils/public-pricing-query.js', import.meta.url).pathname
   const resolvesToAuthoritativeModule = specifier => {
     if (specifier === '@/utils/public-pricing-query.js') return true
@@ -638,9 +641,67 @@ const staticBindingInitializers = (value, importer) => {
     try { ast = vueCompiler.babelParse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
     catch (error) { throw new Error(`pricing Vue script must parse cleanly: ${error.message}`, { cause: error }) }
     const member = (object, key) => ({ type: 'MemberExpression', object, property: { type: 'StringLiteral', value: String(key) }, computed: true })
+    const authoritativeImports = new Set()
     for (const statement of ast.program.body) if (statement.type === 'ImportDeclaration' && resolvesToAuthoritativeModule(statement.source.value)) {
-      for (const specifier of statement.specifiers) if ((specifier.imported?.name ?? specifier.imported?.value) === 'publicPriceState') publicPriceStateNames.add(specifier.local.name)
+      for (const specifier of statement.specifiers) if ((specifier.imported?.name ?? specifier.imported?.value) === 'publicPriceState') authoritativeImports.add(specifier.local.name)
     }
+    if (block === descriptor.scriptSetup) for (const name of authoritativeImports) publicPriceStateAuthority.templateNames.add(name)
+    const patternNames = (pattern, names = []) => {
+      pattern = unwrapExpression(pattern)
+      if (pattern?.type === 'Identifier') names.push(pattern.name)
+      else if (pattern?.type === 'AssignmentPattern') patternNames(pattern.left, names)
+      else if (pattern?.type === 'RestElement') patternNames(pattern.argument, names)
+      else if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) patternNames(property.type === 'RestElement' ? property.argument : property.value, names)
+      else if (pattern?.type === 'ArrayPattern') for (const element of pattern.elements) if (element) patternNames(element, names)
+      return names
+    }
+    const scopedBindings = (statements, inherited) => {
+      const scope = new Map(inherited)
+      for (const raw of statements || []) {
+        const statement = raw?.type === 'ExportNamedDeclaration' ? raw.declaration : raw
+        if (!statement) continue
+        if (statement.type === 'ImportDeclaration') for (const specifier of statement.specifiers) {
+          scope.set(specifier.local.name, authoritativeImports.has(specifier.local.name))
+        }
+        else if (statement.type === 'VariableDeclaration') for (const declaration of statement.declarations) for (const name of patternNames(declaration.id)) scope.set(name, false)
+        else if ((statement.type === 'FunctionDeclaration' || statement.type === 'ClassDeclaration') && statement.id) scope.set(statement.id.name, false)
+      }
+      return scope
+    }
+    const visitScope = (node, inherited = new Map()) => {
+      if (!node || typeof node !== 'object') return
+      if (node.type === 'Program' || node.type === 'BlockStatement') {
+        const scope = scopedBindings(node.body, inherited)
+        for (const statement of node.body) visitScope(statement, scope)
+        return
+      }
+      if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod', 'ClassMethod'].includes(node.type)) {
+        const scope = new Map(inherited)
+        if (node.id?.name) scope.set(node.id.name, false)
+        for (const parameter of node.params || []) for (const name of patternNames(parameter)) scope.set(name, false)
+        if (node.body?.type === 'BlockStatement') {
+          const bodyScope = scopedBindings(node.body.body, scope)
+          for (const statement of node.body.body) visitScope(statement, bodyScope)
+        } else visitScope(node.body, scope)
+        return
+      }
+      if (node.type === 'CatchClause') {
+        const scope = new Map(inherited)
+        for (const name of patternNames(node.param)) scope.set(name, false)
+        visitScope(node.body, scope)
+        return
+      }
+      if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression') {
+        publicPriceStateAuthority.scriptCalls.add(node)
+        if (node.callee?.type === 'Identifier' && inherited.get(node.callee.name) === true) publicPriceStateAuthority.authorizedCalls.add(node)
+      }
+      for (const [key, child] of Object.entries(node)) {
+        if (key === 'loc' || key === 'start' || key === 'end') continue
+        if (Array.isArray(child)) for (const item of child) visitScope(item, inherited)
+        else if (child && typeof child === 'object' && typeof child.type === 'string') visitScope(child, inherited)
+      }
+    }
+    visitScope(ast.program)
     const selected = (expression, key) => {
       expression = unwrapExpression(expression)
       if (expression?.type === 'ArrayExpression' && /^\d+$/.test(String(key))) return expression.elements[Number(key)]
@@ -691,7 +752,7 @@ const staticBindingInitializers = (value, importer) => {
     }
     process(ast.program.body, bindings)
   }
-  Object.defineProperty(bindings, 'publicPriceStateNames', { value: publicPriceStateNames })
+  Object.defineProperty(bindings, 'publicPriceStateAuthority', { value: publicPriceStateAuthority })
   return bindings
 }
 const unwrapExpression = node => {
