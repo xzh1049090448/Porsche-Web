@@ -895,19 +895,25 @@ const staticBindingInitializers = (value, importer) => {
       for (const name of new Set([...left.keys(), ...right.keys()])) merged.set(name, [...new Set([...(left.get(name) || []), ...(right.get(name) || [])])])
       return merged
     }
-    const expressionMayThrow = node => {
-      let found = false
-      const visit = value => {
-        if (!value || typeof value !== 'object' || found) return
-        if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(value.type)) return
-        if (['CallExpression', 'OptionalCallExpression', 'NewExpression', 'AwaitExpression', 'TaggedTemplateExpression', 'MemberExpression', 'OptionalMemberExpression'].includes(value.type)) { found = true; return }
-        for (const [name, child] of Object.entries(value)) if (!['loc', 'start', 'end', 'extra'].includes(name)) {
-          if (Array.isArray(child)) for (const item of child) visit(item)
-          else visit(child)
-        }
+    const expressionMayThrow = (node, environment, resolving = new Set()) => {
+      node = unwrapExpression(node)
+      if (!node || typeof node !== 'object') return false
+      if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return false
+      if (['CallExpression', 'OptionalCallExpression', 'NewExpression', 'AwaitExpression', 'TaggedTemplateExpression'].includes(node.type)) return true
+      if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+        if (expressionMayThrow(node.object, environment, resolving) || node.computed && expressionMayThrow(node.property, environment, resolving)) return true
+        const key = node.computed ? staticPropertyKey(node.property) : node.property?.name
+        const selectedValue = key === undefined ? { unknown: true } : factorySelection(node.object, key, environment, resolving)
+        return Boolean(selectedValue.unknown)
       }
-      visit(node)
-      return found
+      if (node.type === 'Identifier' && environment.has(node.name) && !resolving.has(node.name)) {
+        return environment.get(node.name).some(value => expressionMayThrow(value, environment, new Set(resolving).add(node.name)))
+      }
+      for (const [name, child] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(name)) {
+        if (Array.isArray(child) && child.some(item => expressionMayThrow(item, environment, resolving))) return true
+        if (!Array.isArray(child) && expressionMayThrow(child, environment, resolving)) return true
+      }
+      return false
     }
     const setupReturns = (body, baseLocal = new Map()) => {
       const unknownThrown = { type: 'Identifier', name: '__unknown_thrown_value__' }
@@ -915,7 +921,7 @@ const staticBindingInitializers = (value, importer) => {
         expression = unwrapExpression(expression)
         if (!['CallExpression', 'OptionalCallExpression'].includes(expression?.type)) return undefined
         const key = expression.callee?.type === 'Identifier' ? expression.callee.name : `iife:${expression.callee?.start ?? expression.start}`
-        if (resolving.has(key)) return [{ kind: 'throw', expression: unknownThrown, replacements }]
+        if (resolving.has(key)) return [{ kind: 'throw', expression: unknownThrown, replacements, environment }]
         const functions = factoryFunctions(expression.callee, environment, resolving)
         if (!functions.length) return undefined
         return functions.flatMap(fn => {
@@ -927,7 +933,10 @@ const staticBindingInitializers = (value, importer) => {
             bindFactoryPattern(parameter, argument, local, bound)
             if (parameter?.type === 'RestElement') break
           }
-          return flow(fn.body, bound, true, local, new Set(resolving).add(key)).map(path => path.kind === 'return' ? { kind: 'normal', replacements } : path)
+          for (const statement of fn.body?.body || []) if (statement.type === 'FunctionDeclaration' && statement.id) local.set(statement.id.name, [statement])
+          return flow(fn.body, bound, true, local, new Set(resolving).add(key)).map(path => path.kind === 'return'
+            ? { kind: 'normal', replacements, environment }
+            : { ...path, replacements, environment })
         })
       }
       const directCall = node => {
@@ -938,20 +947,53 @@ const staticBindingInitializers = (value, importer) => {
         return undefined
       }
       const flowStatements = (statements, replacements, catchesUnknown, environment, resolving) => {
-        let paths = [{ kind: 'normal', replacements }]
-        for (const statement of statements || []) paths = paths.flatMap(path => path.kind === 'normal' ? flow(statement, path.replacements, catchesUnknown, environment, resolving) : [path])
+        let paths = [{ kind: 'normal', replacements, environment }]
+        for (const statement of statements || []) paths = paths.flatMap(path => path.kind === 'normal' ? flow(statement, path.replacements, catchesUnknown, path.environment, resolving) : [path])
         return paths
       }
       const flow = (node, replacements = new Map(), catchesUnknown = false, environment = baseLocal, resolving = new Set()) => {
-        if (!node) return [{ kind: 'normal', replacements }]
+        if (!node) return [{ kind: 'normal', replacements, environment }]
         if (node.type === 'BlockStatement') return flowStatements(node.body, replacements, catchesUnknown, environment, resolving)
         if (node.type === 'ReturnStatement') {
-          const returned = { kind: 'return', expression: node.argument ? substituteFactoryBindings(node.argument, replacements) : undefined, replacements }
+          const returned = { kind: 'return', expression: node.argument ? substituteFactoryBindings(node.argument, replacements) : undefined, replacements, environment }
           const callPaths = localCallPaths(directCall(node.argument), environment, replacements, resolving)
           if (callPaths) return callPaths.map(path => path.kind === 'normal' ? returned : path)
-          return catchesUnknown && expressionMayThrow(node.argument) ? [returned, { kind: 'throw', expression: unknownThrown, replacements }] : [returned]
+          return catchesUnknown && expressionMayThrow(node.argument, environment) ? [returned, { kind: 'throw', expression: unknownThrown, replacements, environment }] : [returned]
         }
-        if (node.type === 'ThrowStatement') return [{ kind: 'throw', expression: substituteFactoryBindings(node.argument, replacements), replacements }]
+        if (node.type === 'ThrowStatement') return [{ kind: 'throw', expression: substituteFactoryBindings(node.argument, replacements), replacements, environment }]
+        if (node.type === 'VariableDeclaration') {
+          let paths = [{ kind: 'normal', replacements, environment }]
+          for (const declaration of node.declarations) paths = paths.flatMap(path => {
+            const calls = localCallPaths(directCall(declaration.init), path.environment, path.replacements, resolving)
+            const completes = !calls || calls.some(candidate => candidate.kind === 'normal')
+            const throws = calls ? calls.some(candidate => candidate.kind === 'throw') : expressionMayThrow(declaration.init, path.environment)
+            const next = []
+            if (completes) {
+              const nextEnvironment = new Map(path.environment)
+              const nextReplacements = new Map(path.replacements)
+              bindFactoryPattern(declaration.id, declaration.init, nextEnvironment, nextReplacements)
+              next.push({ kind: 'normal', replacements: nextReplacements, environment: nextEnvironment })
+            }
+            if (catchesUnknown && throws) next.push({ kind: 'throw', expression: calls?.find(candidate => candidate.kind === 'throw')?.expression || unknownThrown, replacements: path.replacements, environment: path.environment })
+            return next
+          })
+          return paths
+        }
+        if (node.type === 'FunctionDeclaration') {
+          const nextEnvironment = new Map(environment)
+          if (node.id) nextEnvironment.set(node.id.name, [node])
+          return [{ kind: 'normal', replacements, environment: nextEnvironment }]
+        }
+        if (node.type === 'ExpressionStatement' && unwrapExpression(node.expression)?.type === 'AssignmentExpression') {
+          const calls = localCallPaths(directCall(node.expression.right), environment, replacements, resolving)
+          const completes = !calls || calls.some(candidate => candidate.kind === 'normal')
+          const throws = calls ? calls.some(candidate => candidate.kind === 'throw') : expressionMayThrow(node.expression.right, environment)
+          const nextEnvironment = new Map(environment)
+          const nextReplacements = new Map(replacements)
+          bindFactoryPattern(node.expression.left, node.expression.right, nextEnvironment, nextReplacements)
+          const normal = { kind: 'normal', replacements: nextReplacements, environment: nextEnvironment }
+          return [...(completes ? [normal] : []), ...(catchesUnknown && throws ? [{ kind: 'throw', expression: calls?.find(candidate => candidate.kind === 'throw')?.expression || unknownThrown, replacements, environment }] : [])]
+        }
         if (node.type === 'IfStatement') {
           const condition = staticValue(substituteFactoryBindings(node.test, replacements))
           return condition !== unknownStaticValue
@@ -961,20 +1003,20 @@ const staticBindingInitializers = (value, importer) => {
         if (node.type === 'TryStatement') {
           let paths = flow(node.block, replacements, true, environment, resolving).flatMap(path => {
             if (path.kind !== 'throw' || !node.handler) return [path]
-            const catchLocal = new Map(environment)
-            const catchReplacements = new Map(replacements)
+            const catchLocal = new Map(path.environment)
+            const catchReplacements = new Map(path.replacements)
             if (path.expression !== unknownThrown) bindFactoryPattern(node.handler.param, path.expression, catchLocal, catchReplacements)
             return flow(node.handler.body, catchReplacements, false, catchLocal, resolving)
           })
-          if (node.finalizer) paths = paths.flatMap(path => flow(node.finalizer, replacements, true, environment, resolving).flatMap(finalPath => finalPath.kind === 'normal' ? [path] : [finalPath]))
+          if (node.finalizer) paths = paths.flatMap(path => flow(node.finalizer, path.replacements, true, path.environment, resolving).flatMap(finalPath => finalPath.kind === 'normal' ? [{ ...path, replacements: finalPath.replacements, environment: finalPath.environment }] : [finalPath]))
           return paths
         }
         const callPaths = localCallPaths(directCall(node), environment, replacements, resolving)
-        if (callPaths) return callPaths.map(path => path.kind === 'return' ? { kind: 'normal', replacements } : path)
-        const normal = { kind: 'normal', replacements }
-        return catchesUnknown && expressionMayThrow(node) ? [normal, { kind: 'throw', expression: unknownThrown, replacements }] : [normal]
+        if (callPaths) return callPaths.map(path => path.kind === 'return' ? { kind: 'normal', replacements, environment } : path)
+        const normal = { kind: 'normal', replacements, environment }
+        return catchesUnknown && expressionMayThrow(node, environment) ? [normal, { kind: 'throw', expression: unknownThrown, replacements, environment }] : [normal]
       }
-      return flow(body).filter(path => path.kind === 'return' && path.expression).map(path => path.expression)
+      return flow(body, new Map(), false, new Map(baseLocal)).filter(path => path.kind === 'return' && path.expression)
     }
     const resolvedLocalValues = (expression, local, resolving = new Set()) => {
       expression = unwrapExpression(expression)
@@ -993,17 +1035,47 @@ const staticBindingInitializers = (value, importer) => {
     }
     const factoryFunctions = (callee, local, resolving = new Set()) => {
       callee = unwrapExpression(callee)
-      if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(callee?.type)) return [callee]
+      if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(callee?.type)) return [callee]
+      if (['MemberExpression', 'OptionalMemberExpression'].includes(callee?.type)) {
+        const key = callee.computed ? staticPropertyKey(callee.property) : callee.property?.name
+        const selectedValue = key === undefined ? { unknown: true } : factorySelection(callee.object, key, local, resolving)
+        return selectedValue.value ? factoryFunctions(selectedValue.value, local, resolving) : []
+      }
       if (callee?.type !== 'Identifier' || !local.has(callee.name) || resolving.has(callee.name)) return []
       return local.get(callee.name).flatMap(value => factoryFunctions(value, local, new Set(resolving).add(callee.name)))
     }
-    const safeFactoryReturns = (fn, local) => {
+    const safeFactoryReturns = (fn, local, replacements = new Map()) => {
       if (fn.body?.type !== 'BlockStatement') return { values: fn.body ? [fn.body] : [], safe: true }
       const values = []
+      const pureInitializer = (value, resolving = new Set()) => {
+        value = unwrapExpression(value)
+        if (!value || ['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'NullLiteral', 'BigIntLiteral', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(value.type)) return true
+        if (value.type === 'Identifier') {
+          if (!local.has(value.name) || resolving.has(value.name)) return false
+          return local.get(value.name).every(candidate => pureInitializer(candidate, new Set(resolving).add(value.name)))
+        }
+        if (value.type === 'ObjectExpression') return value.properties.every(property => pureInitializer(property.type === 'SpreadElement' ? property.argument : propertyExpression(property), resolving))
+        if (value.type === 'ArrayExpression') return value.elements.every(element => !element || pureInitializer(element.type === 'SpreadElement' ? element.argument : element, resolving))
+        if (value.type === 'ConditionalExpression') return pureInitializer(value.test, resolving) && pureInitializer(value.consequent, resolving) && pureInitializer(value.alternate, resolving)
+        if (value.type === 'UnaryExpression') return pureInitializer(value.argument, resolving)
+        if (['MemberExpression', 'OptionalMemberExpression'].includes(value.type)) {
+          const key = value.computed ? staticPropertyKey(value.property) : value.property?.name
+          return key !== undefined && !factorySelection(value.object, key, local, resolving).unknown
+        }
+        return false
+      }
       const visit = node => {
         if (!node) return true
         if (node.type === 'ReturnStatement') { if (node.argument) values.push(node.argument); return true }
-        if (node.type === 'EmptyStatement') return true
+        if (node.type === 'EmptyStatement' || node.type === 'FunctionDeclaration') { if (node.id) local.set(node.id.name, [node]); return true }
+        if (node.type === 'VariableDeclaration') {
+          let safe = true
+          for (const declaration of node.declarations) {
+            safe = pureInitializer(declaration.init) && safe
+            if (pureInitializer(declaration.init)) bindFactoryPattern(declaration.id, declaration.init, local, replacements)
+          }
+          return safe
+        }
         if (node.type === 'BlockStatement') { let safe = true; for (const statement of node.body) safe = visit(statement) && safe; return safe }
         if (node.type === 'IfStatement') {
           const condition = boundStaticValue(node.test, local)
@@ -1183,7 +1255,7 @@ const staticBindingInitializers = (value, importer) => {
             bindFactoryPattern(parameter, argument, factoryLocal, replacements)
             if (parameter?.type === 'RestElement') break
           }
-          const returned = safeFactoryReturns(factory, factoryLocal)
+          const returned = safeFactoryReturns(factory, factoryLocal, replacements)
           const next = new Set(resolving).add(factory.id?.name || expression.callee?.name || '__iife__')
           const states = returned.values.flatMap(value => objectStates(value, factoryLocal, next).map(state => ({
             ...state,
@@ -1231,10 +1303,11 @@ const staticBindingInitializers = (value, importer) => {
       const exposed = new Map()
       if (!fn?.body) return exposed
       const local = new Map(target)
-      if (fn.body.type === 'BlockStatement') process(fn.body.body, local)
-      const returnedValues = fn.body.type === 'BlockStatement' ? setupReturns(fn.body, local) : [fn.body]
-      const states = returnedValues.flatMap(returned => objectStates(returned, local))
-      for (const key of new Set(states.flatMap(state => [...state.map.keys()]))) exposed.set(key, stateValues(states, key).flatMap(value => resolvedLocalValues(value, local)))
+      for (const statement of fn.body.type === 'BlockStatement' ? fn.body.body : []) if (statement.type === 'FunctionDeclaration' && statement.id) local.set(statement.id.name, [statement])
+      const returnedPaths = fn.body.type === 'BlockStatement' ? setupReturns(fn.body, local) : [{ expression: fn.body, environment: local }]
+      const branches = returnedPaths.map(path => ({ states: objectStates(path.expression, path.environment), environment: path.environment }))
+      const keys = new Set(branches.flatMap(branch => branch.states.flatMap(state => [...state.map.keys()])))
+      for (const key of keys) exposed.set(key, [...new Set(branches.flatMap(branch => stateValues(branch.states, key).flatMap(value => resolvedLocalValues(value, branch.environment))))])
       return exposed
     }
     const reachableOptionValues = (expression, target, resolving = new Set()) => {
