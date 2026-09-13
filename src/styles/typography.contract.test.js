@@ -163,7 +163,9 @@ const typographyEvidenceFromVue = (files = collectProductionSources()) => {
           continue
         }
         const classes = (staticAttribute(tag.attrs, 'class') || '').split(/\s+/).filter(Boolean)
-        const node = { name, classes, id: staticAttribute(tag.attrs, 'id'), parent: stack.at(-1), typography: /(?:^|\s)(?:v-html|v-text)(?:\s|=|$)/i.test(tag.attrs) || name === 'slot' }
+        const dynamicTypography = ['routerview', 'router-view', 'slot'].includes(name)
+          || (name === 'component' && /(?:^|\s):is\s*=/.test(tag.attrs))
+        const node = { name, classes, id: staticAttribute(tag.attrs, 'id'), parent: stack.at(-1), typography: /(?:^|\s)(?:v-html|v-text)(?:\s|=|$)/i.test(tag.attrs) || dynamicTypography }
         nodes.push(node)
         if (!tag.selfClosing && !voidElements.has(name)) stack.push(node)
       }
