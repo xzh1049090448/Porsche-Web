@@ -156,16 +156,40 @@ const styleRoot = source => {
   assert.ok(styles, 'shared route transition must contain CSS')
   return parseCssRules(styles)
 }
-const mediaQueryMatchesScreen = (query, width, reduced) => {
+const mediaQueryIsScreen = query => {
   if (/(?:^|\s|\()print(?:\s|$|\))/i.test(query) && !/not\s+print/i.test(query)) return false
   if (/not\s+screen/i.test(query)) return false
+  if (/(?:^|\s|\()speech(?:\s|$|\))/i.test(query) && !/not\s+speech/i.test(query)) return false
+  return true
+}
+const widthComparison = (width, operator, threshold) => ({ '>': width > threshold, '>=': width >= threshold, '<': width < threshold, '<=': width <= threshold }[operator])
+const mediaQueryMatchesScreen = (query, width, reduced) => {
+  if (!mediaQueryIsScreen(query)) return false
   if (/prefers-reduced-motion\s*:\s*no-preference/i.test(query) && reduced) return false
   if (/prefers-reduced-motion\s*:\s*reduce/i.test(query) && !reduced) return false
   const minimums = [...query.matchAll(/min-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
   const maximums = [...query.matchAll(/max-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
-  return minimums.every(minimum => width >= minimum) && maximums.every(maximum => width <= maximum)
+  const exacts = [...query.matchAll(/(?:^|[\s(])width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
+  const directRanges = [...query.matchAll(/\bwidth\s*(<=|>=|<|>)\s*(\d+(?:\.\d+)?)px/gi)]
+  const reverseRanges = [...query.matchAll(/(\d+(?:\.\d+)?)px\s*(<=|>=|<|>)\s*width\b/gi)]
+  const reverseOperator = { '<': '>', '<=': '>=', '>': '<', '>=': '<=' }
+  return minimums.every(minimum => width >= minimum)
+    && maximums.every(maximum => width <= maximum)
+    && exacts.every(exact => width === exact)
+    && directRanges.every(match => widthComparison(width, match[1], Number(match[2])))
+    && reverseRanges.every(match => widthComparison(width, reverseOperator[match[2]], Number(match[1])))
 }
 const mediaMatchesScreen = (conditions, width, reduced) => conditions.every(condition => splitTopLevel(condition, ',').some(query => mediaQueryMatchesScreen(query, width, reduced)))
+const representativeScreenWidths = rules => {
+  const thresholds = rules.flatMap(rule => rule.media.flatMap(condition => splitTopLevel(condition, ',')))
+    .filter(mediaQueryIsScreen)
+    .flatMap(query => [...query.matchAll(/(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1])))
+  const widths = new Set([375, 767, 768, 1440])
+  for (const threshold of thresholds) for (const candidate of [threshold - 1, threshold - 0.01, threshold, threshold + 0.01, threshold + 1]) {
+    if (candidate >= 1 && candidate <= 4096) widths.add(Number(candidate.toFixed(4)))
+  }
+  return [...widths].sort((left, right) => left - right)
+}
 const selectorSpecificity = selector => (selector.match(/#[\w-]+/g) || []).length * 100 + (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (selector.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
 const selectorTargetsClass = (selector, target) => selector.trim() === target
 const applicableRules = (rules, selector, width, reduced) => rules.filter(rule => rule.selectors.some(candidate => selectorTargetsClass(candidate, selector)) && mediaMatchesScreen(rule.media, width, reduced))
@@ -243,11 +267,11 @@ const selectorSubject = selector => {
   }
   return selector.slice(start).trim()
 }
-const assertEveryPhaseOpacityOnly = (rules, name) => {
+const assertEveryPhaseOpacityOnly = (rules, name, widths) => {
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const phaseClass = new RegExp(`\\.${escapedName}-(enter|leave)-(?:active|from|to)(?![\\w-])`, 'g')
   for (const rule of rules) {
-    if (![375, 1440].some(width => mediaMatchesScreen(rule.media, width, false) || mediaMatchesScreen(rule.media, width, true))) continue
+    if (!widths.some(width => mediaMatchesScreen(rule.media, width, false) || mediaMatchesScreen(rule.media, width, true))) continue
     const targets = rule.selectors.flatMap(selector => [...selectorSubject(selector).matchAll(phaseClass)].map(match => ({ selector, direction: match[1], phase: match[0] })))
     if (targets.length === 0) continue
     const label = targets.map(target => target.selector).join(', ')
@@ -271,17 +295,19 @@ const assertEveryPhaseOpacityOnly = (rules, name) => {
     if (delays.length > 0) assert.ok(delays.every(delay => delay === 0), `${label} transition delay must be zero or omitted`)
   }
 }
-const assertOpacityTransition = (rules, selector, durationMs) => {
-  const properties = effectiveProperties(rules, selector, 1440, false)
-  assert.deepEqual(transitionValues(properties, 'transition-property', 'all'), ['opacity'], `${selector} must effectively animate opacity only`)
-  const durations = transitionValues(properties, 'transition-duration', '0s').map(milliseconds)
-  assert.deepEqual(durations, [durationMs], `${selector} effective duration must be ${durationMs}ms`)
-  const delays = transitionValues(properties, 'transition-delay', '0s').map(milliseconds)
-  assert.deepEqual(delays, [0], `${selector} effective delay must be zero or omitted`)
-  for (const [property, value] of properties) if (/^animation(?:-|$)/i.test(property)) assert.ok(/^none$|^0m?s$/i.test(value), `${selector} must not use CSS animation`)
+const assertOpacityTransition = (rules, selector, durationMs, widths) => {
+  for (const width of widths) {
+    const properties = effectiveProperties(rules, selector, width, false)
+    assert.deepEqual(transitionValues(properties, 'transition-property', 'all'), ['opacity'], `${selector} must effectively animate opacity only at ${width}px`)
+    const durations = transitionValues(properties, 'transition-duration', '0s').map(milliseconds)
+    assert.deepEqual(durations, [durationMs], `${selector} effective duration must be ${durationMs}ms at ${width}px`)
+    const delays = transitionValues(properties, 'transition-delay', '0s').map(milliseconds)
+    assert.deepEqual(delays, [0], `${selector} effective delay must be zero or omitted at ${width}px`)
+    for (const [property, value] of properties) if (/^animation(?:-|$)/i.test(property)) assert.ok(/^none$|^0m?s$/i.test(value), `${selector} must not use CSS animation at ${width}px`)
+  }
 }
-const assertImmediateReducedMotion = (rules, selector) => {
-  for (const width of [375, 1440]) {
+const assertImmediateReducedMotion = (rules, selector, widths) => {
+  for (const width of widths) {
     assert.equal(reducedRuleExists(rules, selector, width), true, `reduced motion must target ${selector} at ${width}px`)
     const properties = effectiveProperties(rules, selector, width, true)
     const transitionProperties = transitionValues(properties, 'transition-property', 'all')
@@ -291,7 +317,7 @@ const assertImmediateReducedMotion = (rules, selector) => {
     assert.ok(delays.every(delay => delay === 0), `${selector} reduced-motion delay must be zero or omitted at ${width}px`)
   }
 }
-const effectiveProperty = (rules, selector, property, reduced = false) => effectiveProperties(rules, selector, 1440, reduced).get(property)
+const effectiveProperty = (rules, selector, property, width, reduced = false) => effectiveProperties(rules, selector, width, reduced).get(property)
 
 test('shared route transition keys leaf views by fullPath and identity epoch', () => {
   const transition = readRequired('../components/shell/RouteTransition.vue', 'shared route transition component')
@@ -320,14 +346,15 @@ test('route transition is opacity-only with approved timings and immediate reduc
   const name = staticAttribute(transitionNode, 'name')
   assert.ok(name, 'Vue Transition must have a static CSS name')
   const root = styleRoot(transition)
-  assertEveryPhaseOpacityOnly(root, name)
-  assertOpacityTransition(root, `.${name}-enter-active`, 350)
-  assertOpacityTransition(root, `.${name}-leave-active`, 200)
-  for (const selector of [`.${name}-enter-from`, `.${name}-leave-to`]) {
-    assert.equal(effectiveProperty(root, selector, 'opacity'), '0', `${selector} must start or end transparent`)
+  const widths = representativeScreenWidths(root)
+  assertEveryPhaseOpacityOnly(root, name, widths)
+  assertOpacityTransition(root, `.${name}-enter-active`, 350, widths)
+  assertOpacityTransition(root, `.${name}-leave-active`, 200, widths)
+  for (const selector of [`.${name}-enter-from`, `.${name}-leave-to`]) for (const width of widths) {
+    assert.equal(effectiveProperty(root, selector, 'opacity', width), '0', `${selector} must start or end transparent at ${width}px`)
   }
-  assertImmediateReducedMotion(root, `.${name}-enter-active`)
-  assertImmediateReducedMotion(root, `.${name}-leave-active`)
+  assertImmediateReducedMotion(root, `.${name}-enter-active`, widths)
+  assertImmediateReducedMotion(root, `.${name}-leave-active`, widths)
 })
 
 test('public and authenticated shells reuse the shared transition component', () => {

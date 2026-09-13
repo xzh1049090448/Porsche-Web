@@ -501,14 +501,38 @@ const propertyMap = rules => {
   }
   return result
 }
-const mediaQueryMatchesScreen = (query, width) => {
+const mediaQueryIsScreen = query => {
   if (/(?:^|\s|\()print(?:\s|$|\))/i.test(query) && !/not\s+print/i.test(query)) return false
   if (/not\s+screen/i.test(query)) return false
+  if (/(?:^|\s|\()speech(?:\s|$|\))/i.test(query) && !/not\s+speech/i.test(query)) return false
+  return true
+}
+const widthComparison = (width, operator, threshold) => ({ '>': width > threshold, '>=': width >= threshold, '<': width < threshold, '<=': width <= threshold }[operator])
+const mediaQueryMatchesScreen = (query, width) => {
+  if (!mediaQueryIsScreen(query)) return false
   const minimums = [...query.matchAll(/min-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
   const maximums = [...query.matchAll(/max-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
-  return minimums.every(minimum => width >= minimum) && maximums.every(maximum => width <= maximum)
+  const exacts = [...query.matchAll(/(?:^|[\s(])width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
+  const directRanges = [...query.matchAll(/\bwidth\s*(<=|>=|<|>)\s*(\d+(?:\.\d+)?)px/gi)]
+  const reverseRanges = [...query.matchAll(/(\d+(?:\.\d+)?)px\s*(<=|>=|<|>)\s*width\b/gi)]
+  const reverseOperator = { '<': '>', '<=': '>=', '>': '<', '>=': '<=' }
+  return minimums.every(minimum => width >= minimum)
+    && maximums.every(maximum => width <= maximum)
+    && exacts.every(exact => width === exact)
+    && directRanges.every(match => widthComparison(width, match[1], Number(match[2])))
+    && reverseRanges.every(match => widthComparison(width, reverseOperator[match[2]], Number(match[1])))
 }
 const mediaMatchesScreen = (conditions, width) => conditions.every(condition => splitCssTopLevel(condition, ',').some(query => mediaQueryMatchesScreen(query, width)))
+const representativeScreenWidths = (...stylesheets) => {
+  const thresholds = stylesheets.flat().flatMap(rule => rule.media.flatMap(condition => splitCssTopLevel(condition, ',')))
+    .filter(mediaQueryIsScreen)
+    .flatMap(query => [...query.matchAll(/(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1])))
+  const widths = new Set([375, 767, 768, 1440])
+  for (const threshold of thresholds) for (const candidate of [threshold - 1, threshold - 0.01, threshold, threshold + 0.01, threshold + 1]) {
+    if (candidate >= 1 && candidate <= 4096) widths.add(Number(candidate.toFixed(4)))
+  }
+  return [...widths].sort((left, right) => left - right)
+}
 const selectorCompounds = selector => {
   const compounds = []
   let start = 0
@@ -555,15 +579,12 @@ const assertNoContextualOverrides = (rules, selector, properties, widths) => {
   }
 }
 const rootSelectorSpecificity = selector => (selector.match(/#[\w-]+/g) || []).length * 100 + (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (selector.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
-const selectorTargetsRoot = (selector, targetClass) => selector.trim() === `.${targetClass}`
-const effectiveRootProperties = (rules, targetClass, width) => {
-  const guarded = ['display', 'visibility', 'opacity', 'min-height', 'min-width']
-  if (targetClass === 'pricing-filter-toggle') guarded.push('height')
-  assertNoContextualOverrides(rules, `.${targetClass}`, guarded, [width])
+const effectiveSelectorProperties = (rules, selector, width, guarded) => {
+  assertNoContextualOverrides(rules, selector, guarded, [width])
   const winners = new Map()
   for (const rule of rules) {
     if (!mediaMatchesScreen(rule.media, width)) continue
-    const matching = rule.selectors.filter(selector => selectorTargetsRoot(selector, targetClass))
+    const matching = rule.selectors.filter(candidate => normalizeSelector(candidate) === normalizeSelector(selector))
     if (!matching.length) continue
     const specificity = Math.max(...matching.map(rootSelectorSpecificity))
     for (const declaration of rule.declarations) {
@@ -574,25 +595,25 @@ const effectiveRootProperties = (rules, targetClass, width) => {
   }
   return new Map([...winners].map(([property, declaration]) => [property, normalizeCssValue(declaration.value).toLowerCase()]))
 }
+const effectiveRootProperties = (rules, targetClass, width) => {
+  const guarded = ['display', 'visibility', 'opacity', 'min-height', 'min-width']
+  if (targetClass === 'pricing-filter-toggle') guarded.push('height')
+  return effectiveSelectorProperties(rules, `.${targetClass}`, width, guarded)
+}
 const rootIsHidden = properties => properties.get('display') === 'none' || ['hidden', 'collapse'].includes(properties.get('visibility')) || /^(?:0(?:\.0+)?|\.0+)$/.test(properties.get('opacity') || '')
 const assertProperty = (root, selector, property, expected, message, context = 'base') => {
   const actual = propertyMap(exactRules(root, selector, context)).get(property) || []
   assert.ok(actual.includes(expected), `${message}; found ${JSON.stringify(actual)}`)
 }
 const controlValueIsAtLeast44 = value => value === 'var(--control-min-size)' || (/^\d+(?:\.\d+)?px$/.test(value) && Number.parseFloat(value) >= 44)
-const assertControlSize = (root, selector, properties, context = 'all') => {
-  const widths = context instanceof RegExp ? [375] : [375, 1440]
+const assertControlSize = (root, selector, properties, widths) => {
   const guarded = new Set(properties)
   if (properties.includes('min-height')) guarded.add('height')
   if (properties.includes('min-width')) guarded.add('width')
-  assertNoContextualOverrides(root, selector, [...guarded], widths)
-  const rules = exactRules(root, selector, context)
-  assert.ok(rules.length > 0, `${selector} must have an exact rule`)
-  const declarations = propertyMap(rules)
-  for (const property of properties) {
-    const values = declarations.get(property) || []
-    assert.ok(values.length > 0, `${selector} must declare ${property}`)
-    assert.equal(values.every(controlValueIsAtLeast44), true, `${selector} ${property} must stay at least 44px`)
+  for (const width of widths) for (const property of properties) {
+    const value = effectiveSelectorProperties(root, selector, width, [...guarded]).get(property)
+    assert.ok(value, `${selector} must effectively declare ${property} at ${width}px`)
+    assert.equal(controlValueIsAtLeast44(value), true, `${selector} ${property} must stay at least 44px at ${width}px; found ${JSON.stringify(value)}`)
   }
 }
 const numericPerRequestOffer = /(?:(?:每(?:次)?请求|每请求|单次(?:请求|调用)|per[-\s]?request)[^.!。；;\n]{0,40}(?:[$¥￥]\s*\d|\d+(?:\.\d+)?\s*(?:USD|CNY|元|美元))|(?:[$¥￥]\s*\d|\d+(?:\.\d+)?\s*(?:USD|CNY|元|美元))[^.!。；;\n]{0,24}(?:每(?:次)?请求|每请求|单次(?:请求|调用)|per[-\s]?request)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request)/i
@@ -641,8 +662,10 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
   assert.ok(results && renderedElements(results, 'PricingCards').length === 1, 'mobile pricing results must render PricingCards')
   const pricingCss = styleRoot(styles)
   const filterCss = styleRoot(filters, true)
-  const cardsCss = styleRoot(cards, true)
   const responsiveCss = parseCssRules(`${parseVue(table).styles.map(style => style.content).join('\n')}\n${parseVue(cards).styles.map(style => style.content).join('\n')}\n${styles}`)
+  const widths = representativeScreenWidths(responsiveCss, filterCss)
+  const mobileWidths = widths.filter(width => width <= 767)
+  const desktopWidths = widths.filter(width => width >= 768)
   assert.match(page, /@\/styles\/public-pricing\.scss/)
   assertProperty(pricingCss, '.pricing-page', 'max-width', '1600px', 'pricing page keeps its desktop width')
   assertProperty(pricingCss, '.pricing-layout', 'grid-template-columns', '260px minmax(0, 1fr)', 'pricing layout keeps the approved sidebar grid')
@@ -673,17 +696,17 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
     assert.ok(cardGroup, `card must render ${key} with the ${component} price value`)
     assert.ok(templateExpressionAsts(cardGroup).some(expression => renderedPriceStateFor(expression, component, cardBindings) && memberUsesState(expression)), `card ${component} price cell must branch on publicPriceState output`)
   }
-  assertProperty(cardsCss, '.pricing-cards', 'display', 'grid', 'mobile shows pricing cards', /max-width\s*:\s*767px/i)
-  assertProperty(pricingCss, '.pricing-drawer', 'display', 'block', 'mobile shows the pricing drawer', /max-width\s*:\s*767px/i)
-  assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, 'pricing-table', 1440)), false, 'desktop .pricing-table root must remain visible at 1440px')
-  for (const target of ['pricing-cards', 'pricing-filter-toggle', 'pricing-drawer']) assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, target, 375)), false, `mobile .${target} root must remain visible at 375px`)
-  assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, 'pricing-table', 375)), true, 'mobile must hide the exact .pricing-table root at 375px')
-  assertControlSize(filterCss, '.pricing-filters input', ['min-height'])
-  assertControlSize(filterCss, '.pricing-filters select', ['min-height'])
-  assertControlSize(pricingCss, '.pricing-pagination button', ['min-height'])
-  assertControlSize(pricingCss, '.pricing-pagination select', ['min-height'])
-  assertControlSize(pricingCss, '.pricing-filter-toggle', ['min-height'], /max-width\s*:\s*767px/i)
-  assertControlSize(pricingCss, '.pricing-drawer > header button', ['min-width', 'min-height'], /max-width\s*:\s*767px/i)
+  for (const width of desktopWidths) assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, 'pricing-table', width)), false, `desktop .pricing-table root must remain visible at ${width}px`)
+  for (const width of mobileWidths) {
+    for (const target of ['pricing-cards', 'pricing-filter-toggle', 'pricing-drawer']) assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, target, width)), false, `mobile .${target} root must remain visible at ${width}px`)
+    assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, 'pricing-table', width)), true, `mobile must hide the exact .pricing-table root at ${width}px`)
+  }
+  assertControlSize(filterCss, '.pricing-filters input', ['min-height'], widths)
+  assertControlSize(filterCss, '.pricing-filters select', ['min-height'], widths)
+  assertControlSize(pricingCss, '.pricing-pagination button', ['min-height'], widths)
+  assertControlSize(pricingCss, '.pricing-pagination select', ['min-height'], widths)
+  assertControlSize(pricingCss, '.pricing-filter-toggle', ['min-height'], mobileWidths)
+  assertControlSize(pricingCss, '.pricing-drawer > header button', ['min-width', 'min-height'], mobileWidths)
   assert.match(styles, /focus-visible/)
 })
 

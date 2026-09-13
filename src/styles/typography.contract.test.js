@@ -98,16 +98,41 @@ const exactRules = (stylesheet, selector, media) => stylesheet.filter(rule => {
   if (!rule.selectors.some(candidate => normalizeSelector(candidate) === normalizeSelector(selector))) return false
   return media === 'all' || (!media && rule.media.length === 0) || (media instanceof RegExp && rule.media.some(value => media.test(value)))
 })
-const mediaQueryMatchesScreen = (query, width, reduced) => {
+const mediaQueryIsScreen = query => {
   if (/(?:^|\s|\()print(?:\s|$|\))/i.test(query) && !/not\s+print/i.test(query)) return false
   if (/not\s+screen/i.test(query)) return false
+  if (/(?:^|\s|\()speech(?:\s|$|\))/i.test(query) && !/not\s+speech/i.test(query)) return false
+  return true
+}
+const widthComparison = (width, operator, threshold) => ({ '>': width > threshold, '>=': width >= threshold, '<': width < threshold, '<=': width <= threshold }[operator])
+const mediaQueryMatchesScreen = (query, width, reduced) => {
+  if (!mediaQueryIsScreen(query)) return false
   if (/prefers-reduced-motion\s*:\s*no-preference/i.test(query) && reduced) return false
   if (/prefers-reduced-motion\s*:\s*reduce/i.test(query) && !reduced) return false
   const minimums = [...query.matchAll(/min-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
   const maximums = [...query.matchAll(/max-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
-  return minimums.every(minimum => width >= minimum) && maximums.every(maximum => width <= maximum)
+  const exacts = [...query.matchAll(/(?:^|[\s(])width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
+  const directRanges = [...query.matchAll(/\bwidth\s*(<=|>=|<|>)\s*(\d+(?:\.\d+)?)px/gi)]
+  const reverseRanges = [...query.matchAll(/(\d+(?:\.\d+)?)px\s*(<=|>=|<|>)\s*width\b/gi)]
+  const reverseOperator = { '<': '>', '<=': '>=', '>': '<', '>=': '<=' }
+  return minimums.every(minimum => width >= minimum)
+    && maximums.every(maximum => width <= maximum)
+    && exacts.every(exact => width === exact)
+    && directRanges.every(match => widthComparison(width, match[1], Number(match[2])))
+    && reverseRanges.every(match => widthComparison(width, reverseOperator[match[2]], Number(match[1])))
 }
 const mediaMatchesScreen = (conditions, width, reduced) => conditions.every(condition => splitTopLevel(condition, ',').some(query => mediaQueryMatchesScreen(query, width, reduced)))
+const representativeScreenWidths = (...stylesheets) => {
+  const thresholds = stylesheets.flat().flatMap(rule => rule.media.flatMap(condition => splitTopLevel(condition, ',')))
+    .filter(mediaQueryIsScreen)
+    .flatMap(query => [...query.matchAll(/(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1])))
+  const widths = new Set([375, 767, 768, 1440])
+  for (const threshold of thresholds) for (const candidate of [threshold - 1, threshold - 0.01, threshold, threshold + 0.01, threshold + 1]) {
+    if (candidate >= 1 && candidate <= 4096) widths.add(Number(candidate.toFixed(4)))
+  }
+  return [...widths].sort((left, right) => left - right)
+}
+const allScreenWidths = representativeScreenWidths(...surfaces)
 const selectorCompounds = selector => {
   const compounds = []
   let start = 0
@@ -168,11 +193,11 @@ const effectiveValue = (stylesheet, selector, property, width, reduced) => {
   }
   return winner?.value.trim()
 }
-const assertMapping = (stylesheet, selector, property, expected, message, widths = [375, 1440]) => {
+const assertMapping = (stylesheet, selector, property, expected, message, widths = allScreenWidths) => {
   assertNoContextualOverrides(stylesheet, selector, property === 'font-size' ? ['font', 'font-size'] : [property], message, widths)
   for (const width of widths) for (const reduced of [false, true]) assert.equal(effectiveValue(stylesheet, selector, property, width, reduced), expected, `${message} at ${width}px with reduced motion ${reduced}`)
 }
-const assertMinimumControl = (stylesheet, selector, property, message, widths = [375, 1440]) => {
+const assertMinimumControl = (stylesheet, selector, property, message, widths = allScreenWidths) => {
   assertNoContextualOverrides(stylesheet, selector, property === 'min-height' ? ['height', 'min-height'] : ['min-width', 'width'], message, widths)
   for (const width of widths) {
     for (const reduced of [false, true]) {
@@ -201,12 +226,14 @@ test('foundations and global components map body, page and component text to sem
 })
 
 test('public pages map hero, section and supporting copy to the shared typography scale', () => {
+  const mobileWidths = allScreenWidths.filter(width => width <= 767)
+  const desktopWidths = allScreenWidths.filter(width => width >= 768)
   assertMapping(publicShell, '.public-brand', 'font-size', 'var(--font-size-subtitle)', 'public brand uses subtitle text')
-  assertMapping(publicShell, '.public-hero h1', 'font-size', 'var(--font-size-hero)', 'desktop hero uses the hero token', [1440])
+  assertMapping(publicShell, '.public-hero h1', 'font-size', 'var(--font-size-hero)', 'desktop hero uses the hero token', desktopWidths)
   assertMapping(publicShell, '.public-lead', 'font-size', 'var(--font-size-subtitle)', 'lead copy uses the subtitle token')
   assertMapping(publicShell, '.public-eyebrow', 'font-size', 'var(--font-size-sm)', 'eyebrows use the small token')
   assertMapping(publicContent, '.public-content-section__heading h2', 'font-size', 'var(--font-size-section-title)', 'public section headings use the section-title token')
-  assertMapping(publicShell, '.public-hero h1', 'font-size', 'var(--font-size-hero-mobile)', 'mobile hero uses the hero-mobile token', [375])
+  assertMapping(publicShell, '.public-hero h1', 'font-size', 'var(--font-size-hero-mobile)', 'mobile hero uses the hero-mobile token', mobileWidths)
   assertMapping(publicPricing, '.pricing-heading h1', 'font-size', 'var(--font-size-section-title)', 'pricing headings use the section-title token')
   assertMapping(publicPricing, '.pricing-heading p', 'font-size', 'var(--font-size-body)', 'pricing supporting copy uses the body token')
 })
@@ -224,6 +251,7 @@ test('console surfaces map brand, navigation, headings and statuses to semantic 
 })
 
 test('typography stays at real size and interactive controls retain 44px targets', () => {
+  const mobileWidths = allScreenWidths.filter(width => width <= 767)
   const semanticSelectors = new Set([
     'body', '.page-title', '.el-dialog', '.el-alert', '.public-brand', '.public-hero h1', '.public-lead', '.public-eyebrow',
     '.public-content-section__heading h2', '.pricing-heading h1', '.pricing-heading p', '.app-brand__copy strong',
@@ -254,7 +282,7 @@ test('typography stays at real size and interactive controls retain 44px targets
   assertMinimumControl(publicShell, '.public-button', 'min-height', 'public actions keep the shared touch target')
   assertMinimumControl(consoleShell, '.user-trigger', 'min-height', 'console user control keeps the shared touch target')
   for (const selector of ['.pricing-pagination button', '.pricing-pagination select', '.pricing-detail-back', '.pricing-console-cta']) assertMinimumControl(publicPricing, selector, 'min-height', `${selector} keeps a 44px target`)
-  assertMinimumControl(publicPricing, '.pricing-filter-toggle', 'min-height', 'mobile pricing filter keeps a 44px target', [375])
-  assertMinimumControl(publicPricing, '.pricing-drawer > header button', 'min-width', 'mobile drawer close control keeps a 44px width', [375])
-  assertMinimumControl(publicPricing, '.pricing-drawer > header button', 'min-height', 'mobile drawer close control keeps a 44px height', [375])
+  assertMinimumControl(publicPricing, '.pricing-filter-toggle', 'min-height', 'mobile pricing filter keeps a 44px target', mobileWidths)
+  assertMinimumControl(publicPricing, '.pricing-drawer > header button', 'min-width', 'mobile drawer close control keeps a 44px width', mobileWidths)
+  assertMinimumControl(publicPricing, '.pricing-drawer > header button', 'min-height', 'mobile drawer close control keeps a 44px height', mobileWidths)
 })
