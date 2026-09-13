@@ -95,11 +95,13 @@ const surfaces = [tokens, foundations, global, publicShell, publicContent, conso
 
 const collectSiteStyleSources = (directory = new URL('../', import.meta.url)) => readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
   const url = new URL(entry.name + (entry.isDirectory() ? '/' : ''), directory)
+  const file = decodeURIComponent(url.pathname)
+  if (/(?:^|\/)(?:__tests__|fixtures?|test-fixtures)(?:\/|$)|\.(?:test|spec)\.[^/]+$/i.test(file)) return []
   if (entry.isDirectory()) return collectSiteStyleSources(url)
-  if (entry.name.endsWith('.scss')) return [{ file: decodeURIComponent(url.pathname), source: readFileSync(url, 'utf8') }]
+  if (/\.(?:css|scss)$/i.test(entry.name)) return [{ file, source: readFileSync(url, 'utf8') }]
   if (!entry.name.endsWith('.vue')) return []
   const source = readFileSync(url, 'utf8')
-  return [...source.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi)].map((match, index) => ({ file: `${decodeURIComponent(url.pathname)}#style-${index + 1}`, source: match[1] }))
+  return [...source.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi)].map((match, index) => ({ file: `${file}#style-${index + 1}`, source: match[1] }))
 })
 const nestedStyleDeclarations = source => {
   const declarations = []
@@ -148,8 +150,13 @@ const auditedSendButtonScale = ({ file, property, value, contexts }) => {
 const assertGlobalNoScaling = styleSources => {
   for (const style of styleSources) for (const declaration of nestedStyleDeclarations(style.source)) {
     assert.notEqual(declaration.property, 'zoom', `zoom is forbidden in ${style.file} (${normalizedStyleContext(declaration.contexts) || 'root'})`)
-    if (/(?:^|-)transform$/.test(declaration.property) && /\bscale(?:x|y|3d)?\s*\(/i.test(declaration.value)) {
-      assert.ok(auditedSendButtonScale({ ...style, ...declaration }), `transform scale is forbidden in ${style.file} (${normalizedStyleContext(declaration.contexts) || 'root'})`)
+    if (declaration.property.startsWith('--') && /\bscale(?:x|y|3d)?\s*\(/i.test(declaration.value)) {
+      assert.fail(`custom-property scale is forbidden in ${style.file} (${normalizedStyleContext(declaration.contexts) || 'root'})`)
+    }
+    if (/(?:^|-)transform$/.test(declaration.property)) {
+      const uncertainVariable = /\bvar\s*\(/i.test(declaration.value)
+      const literalScale = /\bscale(?:x|y|3d)?\s*\(/i.test(declaration.value)
+      if (uncertainVariable || literalScale) assert.ok(auditedSendButtonScale({ ...style, ...declaration }), `${uncertainVariable ? 'variable transform' : 'transform scale'} is forbidden in ${style.file} (${normalizedStyleContext(declaration.contexts) || 'root'})`)
     }
   }
 }
