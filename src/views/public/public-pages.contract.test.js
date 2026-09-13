@@ -156,9 +156,22 @@ test('public content pages compose the approved safe landing system', () => {
   const messages = source('../../i18n/messages.js')
   const publicMessages = source('../../i18n/public-messages.js')
   const runtimePublicMessages = namedObjectBlocks(messages, 'publicSite')
+  const rawPublicStyles = [
+    source('../../styles/public-content.scss'),
+    source('../../styles/public-shell.scss'),
+    source('../../styles/public-pricing.scss'),
+    layout, header, footer, home, hero, section, about, legal, notFound, preview,
+    ...readdirSync(new URL('../../components/public/', import.meta.url))
+      .filter(file => file.endsWith('.vue'))
+      .map(file => source(`../../components/public/${file}`)),
+  ].join('\n')
   const sourceBundle = [layout, header, footer, home, hero, section, about, legal, notFound, preview, publicMessages, ...runtimePublicMessages, ...publicComponents]
     .map(withoutStyles)
     .join('\n')
+
+  assert.doesNotMatch(rawPublicStyles, /\bcdn\.tailwindcss\.com\b/i, 'public styles must not load the Tailwind CDN')
+  assert.doesNotMatch(rawPublicStyles, /(?:@import|@use)\s+(?:url\()?[^;{}\n]*(?:https?:)?\/\/[^;{}\n]*tailwind/i, 'public styles must not import Tailwind from a CDN')
+  assert.doesNotMatch(rawPublicStyles, /<(?:script|link)\b[^>]*(?:src|href)\s*=\s*["'][^"']*(?:https?:)?\/\/[^"']*tailwind/i, 'public Vue sources must not load Tailwind from a remote script or stylesheet')
 
   assert.match(home, /<HeroPreview/)
   assert.equal((home.match(/<PublicSection/g) || []).length, 3)
@@ -181,7 +194,7 @@ test('public content pages compose the approved safe landing system', () => {
     [/(?:>|['"])[^<"']*40\+[^<"']*(?:<|['"])/i, 'prototype model count'],
     [/(?:>|['"])[^<"']*100%[^<"']*(?:<|['"])/i, 'prototype percentage claim'],
     [/MIT License/i, 'prototype license claim'],
-    [/cdn\.tailwindcss\.com|tailwindcss\.com\/[^\s"']*cdn/i, 'Tailwind CDN'],
+    [/Tailwind\s+CDN/i, 'Tailwind CDN claim'],
     [/(?:admin|demo)(?:@[^\s<"']+)?\s*(?:\/|:|：)\s*(?:admin|password|123456)/i, 'demo credentials'],
     [/\b(?:admin|demo)@[A-Z0-9._%+-]+\.[A-Z]{2,}\b/i, 'demo account email'],
     [/(?:password|密码)\s*[:=：]\s*["']?(?:admin\d*|demo\d*|123456(?:78)?)/i, 'demo password'],

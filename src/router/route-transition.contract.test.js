@@ -10,6 +10,42 @@ const readRequired = (path, label) => {
 }
 const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const tag = (source, element, predicate) => (source.match(new RegExp(`<${element}\\b[^>]*>`, 'g')) || []).find(predicate)
+const balancedSlice = (source, start, open, close) => {
+  if (source[start] !== open) return undefined
+  let depth = 1
+  let end = start + 1
+  while (end < source.length && depth > 0) {
+    if (source[end] === open) depth += 1
+    else if (source[end] === close) depth -= 1
+    end += 1
+  }
+  return depth === 0 ? { content: source.slice(start + 1, end - 1), end } : undefined
+}
+const declaresComponentProp = (source, name) => {
+  const objectDeclaration = new RegExp(`\\b${name}\\s*\\??\\s*:`)
+  const arrayDeclaration = new RegExp(`["']${name}["']`)
+  for (const match of source.matchAll(/\bdefineProps\b/g)) {
+    let cursor = match.index + match[0].length
+    while (/\s/.test(source[cursor])) cursor += 1
+    if (source[cursor] === '<') {
+      const generic = balancedSlice(source, cursor, '<', '>')
+      if (generic && objectDeclaration.test(generic.content)) return true
+      cursor = generic?.end ?? cursor
+      while (/\s/.test(source[cursor])) cursor += 1
+    }
+    const argumentsList = balancedSlice(source, cursor, '(', ')')
+    const argumentsSource = argumentsList?.content.trim()
+    if (argumentsSource?.startsWith('{') && objectDeclaration.test(argumentsSource)) return true
+    if (argumentsSource?.startsWith('[') && arrayDeclaration.test(argumentsSource)) return true
+  }
+  for (const match of source.matchAll(/\bprops\s*:\s*/g)) {
+    const object = balancedSlice(source, match.index + match[0].length, '{', '}')
+    if (object && objectDeclaration.test(object.content)) return true
+    const array = balancedSlice(source, match.index + match[0].length, '[', ']')
+    if (array && arrayDeclaration.test(array.content)) return true
+  }
+  return false
+}
 const declarations = (source, selector) => {
   const styleBlocks = [...source.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map(match => match[1])
   const css = styleBlocks.length ? styleBlocks.join('\n') : source
@@ -83,13 +119,29 @@ const assertImmediate = block => {
 
 test('shared route transition keys leaf views by fullPath and identity epoch', () => {
   const transition = readRequired('../components/shell/RouteTransition.vue', 'shared route transition component')
+  const mainLayout = read('../layouts/MainLayout.vue')
   assert.match(transition, /<RouterView\b[^>]*v-slot=/)
   const leaf = tag(transition, 'component', value => /:is\s*=\s*["']Component["']/.test(value))
   assert.ok(leaf, 'RouterView must render its resolved leaf component')
   const key = leaf.match(/:key\s*=\s*(["'])(.*?)\1/s)?.[2]
   assert.ok(key, 'rendered leaf component must bind :key')
   assert.match(key, /route\.fullPath/, 'rendered leaf :key must directly include route.fullPath')
-  assert.match(key, /identity(?:Epoch|Key)/, 'rendered leaf :key must directly include identityEpoch or identityKey')
+  const identityName = key.match(/\b(identityEpoch|identityKey)\b/)?.[1]
+  assert.ok(identityName, 'rendered leaf :key must directly include identityEpoch or identityKey')
+  assert.equal(declaresComponentProp(transition, identityName), true, `${identityName} must be declared as a component prop`)
+  assert.doesNotMatch(
+    transition,
+    new RegExp(`\\b(?:const|let|var)\\s+${identityName}\\b`),
+    `${identityName} must come from the declared prop rather than a local key`,
+  )
+  const mainTransition = tag(mainLayout, 'RouteTransition', () => true)
+  assert.ok(mainTransition, 'console layout must render the shared route transition')
+  const identityAttribute = identityName === 'identityKey' ? 'identity-key' : 'identity-epoch'
+  assert.match(
+    mainTransition,
+    new RegExp(`:${identityAttribute}\\s*=\\s*(["'])userStore\\.identityEpoch\\1`),
+    `console layout must pass userStore.identityEpoch into ${identityName}`,
+  )
 })
 
 test('route transition is opacity-only with approved timings and immediate reduced motion', () => {
@@ -121,7 +173,7 @@ test('public and authenticated shells reuse the shared transition component', ()
   }
   assert.match(publicLayout, /h\(RouteTransition/, 'public child outlet uses the shared transition in its render function')
   assert.match(authEntry, /<RouteTransition\b/, 'authenticated entry uses the shared transition')
-  assert.match(mainLayout, /<RouteTransition\b[^>]*identity-epoch/i, 'console content transition receives the existing identity epoch')
+  assert.match(mainLayout, /<RouteTransition\b/, 'console content uses the shared transition')
 })
 
 test('router preserves guarded cross-bootstrap handoff and explicit scroll behavior', () => {
