@@ -356,9 +356,9 @@ const safePerRequestExplanation = value => perRequestTopic.test(value)
   && !numericPerRequestOffer.test(value)
   && (/(?:不|未|无|非)[^。；;.!?\n]{0,24}(?:提供|展示|显示|计价|定价|收费|价格|请求)|(?:每(?:次)?请求|每请求|单次(?:请求|调用))[^。；;.!?\n]{0,18}(?:不|未|无|非)/.test(value)
     || /\b(?:no|not|without|unavailable|isn['’]?t|doesn['’]?t|is\s+not|does\s+not)\b[^.!?\n]{0,50}\bper[-\s]?request\b|\bper[-\s]?request\b[^.!?\n]{0,50}\b(?:not|unavailable|isn['’]?t|doesn['’]?t|is\s+not|does\s+not)\b/i.test(value))
-const copyWithoutSafePerRequestClauses = value => value.split(/(?:[。；;!?]+|(?<!\d)\.(?!\d)|\n)+/u)
-  .map(clause => clause.trim())
-  .filter(clause => clause && !safePerRequestExplanation(clause))
+const copyWithPositivePerRequestContexts = value => value.split(/(?:[。；;!?，,]+|(?<!\d)\.(?!\d)|\n|\b(?:and|but|or|nor|while|however)\b|(?:但是|并且|而且|或者|不过|然而|但|或|且))+/iu)
+  .map(context => context.trim())
+  .filter(context => context && !safePerRequestExplanation(context))
   .join(' ')
 const perRequestPriceClaim = /(?:单次调用价|每次请求(?:价格|价)|每请求(?:价格|价)|per[- ]request\s+(?:price|pricing)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request\b)/i
 const prototypePatterns = [
@@ -429,7 +429,7 @@ test('pricing presentation rejects prototype counts, multipliers and per-request
   assert.ok(pricingMessages.length > 0, 'runtime pricingCatalog messages must exist')
   const presentation = [page, detail, filters, table, cards].flatMap(visibleStrings).concat(pricingMessages)
   for (const [pattern, label] of prototypePatterns) for (const copy of presentation) {
-    const inspected = pattern === perRequestPriceClaim ? copyWithoutSafePerRequestClauses(copy) : copy
+    const inspected = pattern === perRequestPriceClaim ? copyWithPositivePerRequestContexts(copy) : copy
     assert.doesNotMatch(inspected, pattern, label)
   }
 })
