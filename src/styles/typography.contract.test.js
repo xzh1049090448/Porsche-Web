@@ -618,24 +618,26 @@ const typographyEvidenceFromVue = (files = collectProductionSources()) => {
     ...node.classes.map(className => `.${className}`),
     node.id ? `#${node.id}` : undefined,
   ].filter(Boolean))
-  const ancestorIdentities = node => {
-    const identities = new Set(['html', ':root', 'body', '#app'])
-    for (let current = node?.parent; current; current = current.parent) for (const identity of nodeIdentities(current)) identities.add(identity)
-    return identities
+  const localAncestorPath = node => {
+    const path = []
+    for (let current = node?.parent; current; current = current.parent) path.unshift(nodeIdentities(current))
+    return path
   }
-  const componentContexts = new Map([...graphs.keys()].map(file => [file, [new Set(['html', ':root', 'body', '#app'])]]))
+  const documentPath = [new Set(['html', ':root']), new Set(['body']), new Set(['#app'])]
+  const pathKey = path => path.map(group => [...group].sort().join('|')).join('\0')
+  const componentContexts = new Map([...graphs.keys()].map(file => [file, [documentPath]]))
   let contextsChanged = true
   while (contextsChanged) {
     contextsChanged = false
     for (const [file, graph] of graphs) for (const node of graph.nodes) {
       const child = graph.imports.get(componentKey(node.name))
       if (!child || !graphs.has(child)) continue
-      const local = new Set([...ancestorIdentities(node), ...nodeIdentities(node)])
+      const local = [...localAncestorPath(node), nodeIdentities(node)]
       for (const parentContext of componentContexts.get(file) || []) {
-        const context = new Set([...parentContext, ...local])
-        const key = [...context].sort().join('\0')
+        const context = [...parentContext, ...local]
+        const key = pathKey(context)
         const childContexts = componentContexts.get(child)
-        if (!childContexts.some(candidate => [...candidate].sort().join('\0') === key) && childContexts.length < 128) {
+        if (!childContexts.some(candidate => pathKey(candidate) === key) && childContexts.length < 128) {
           childContexts.push(context)
           contextsChanged = true
         }
@@ -644,8 +646,8 @@ const typographyEvidenceFromVue = (files = collectProductionSources()) => {
   }
   const recordPath = (identity, ancestors) => {
     const paths = ancestorPaths.get(identity) || []
-    const key = [...ancestors].sort().join('\0')
-    if (!paths.some(candidate => [...candidate].sort().join('\0') === key)) paths.push(ancestors)
+    const key = pathKey(ancestors)
+    if (!paths.some(candidate => pathKey(candidate) === key)) paths.push(ancestors)
     ancestorPaths.set(identity, paths)
   }
   for (const [file, graph] of graphs) for (const node of graph.nodes) {
@@ -653,11 +655,14 @@ const typographyEvidenceFromVue = (files = collectProductionSources()) => {
     if (!node.typography && !(child && componentRendersTypography(child))) continue
     for (let current = node; current; current = current.parent) {
       addNode(current)
-      const local = ancestorIdentities(current)
-      for (const context of componentContexts.get(file) || []) for (const identity of nodeIdentities(current)) recordPath(identity, new Set([...context, ...local]))
+      const local = localAncestorPath(current)
+      for (const context of componentContexts.get(file) || []) for (const identity of nodeIdentities(current)) recordPath(identity, [...context, ...local])
     }
   }
-  for (const identity of ['html', ':root', 'body', '#app']) recordPath(identity, new Set(['html', ':root', 'body', '#app']))
+  recordPath('html', [])
+  recordPath(':root', [])
+  recordPath('body', [documentPath[0]])
+  recordPath('#app', documentPath.slice(0, 2))
   Object.defineProperty(evidence, 'ancestorPaths', { value: ancestorPaths })
   return evidence
 }
@@ -815,8 +820,7 @@ const effectiveStyleSelectors = contexts => contexts.filter(context => !context.
 const selectorTargetsTypography = (selector, evidence) => {
   const compounds = selectorCompounds(selector)
   const rightmost = compounds.at(-1) || ''
-  const relational = functionalPseudoArguments(rightmost, new Set(['has'])).some(value => splitTopLevel(value, ',').some(branch => selectorTargetsTypography(branch, evidence)))
-  if (relational) return selectorLeadingCompoundsAreKnown(compounds.slice(0, -1), evidence)
+  if (functionalPseudoArguments(rightmost, new Set(['has'])).length) return relationalTypographySelectorMatches(selector, evidence)
   return [...evidence].some(target => compoundMayTarget(rightmost, target) && selectorLeadingCompoundsAreKnown(compounds.slice(0, -1), evidence, target))
 }
 const scopeHeaders = declaration => declaration.contexts.filter(context => !context.startsWith('@')).map(context => normalizeSelector(context))
@@ -1008,11 +1012,41 @@ const compoundMayTarget = (candidate, target) => {
     }))
   })
 }
+const compoundsMatchKnownPath = (compounds, path) => {
+  let cursor = 0
+  for (const compound of compounds) {
+    while (cursor < path.length && ![...path[cursor]].some(identity => compoundMayTarget(compound, identity))) cursor += 1
+    if (cursor >= path.length) return false
+    cursor += 1
+  }
+  return true
+}
 const selectorLeadingCompoundsAreKnown = (compounds, evidence, target) => {
   if (compounds.length === 0) return true
   const paths = target ? evidence.ancestorPaths?.get(target.toLowerCase()) : undefined
-  const candidates = paths?.length ? paths : [evidence]
-  return candidates.some(path => compounds.every(compound => [...path].some(identity => compoundMayTarget(compound, identity))))
+  const candidates = paths?.length ? paths : [[new Set(evidence)]]
+  return candidates.some(path => compoundsMatchKnownPath(compounds, path))
+}
+const relationalTypographySelectorMatches = (selector, evidence) => {
+  const compounds = selectorCompounds(selector)
+  const subject = compounds.at(-1) || ''
+  const argumentsByPseudo = functionalPseudoArguments(subject, new Set(['has'])).map(value => splitTopLevel(value, ','))
+  const subjectCandidates = [...evidence].filter(identity => compoundMayTarget(subject, identity))
+  return subjectCandidates.some(identity => (evidence.ancestorPaths?.get(identity) || []).some(subjectPath => {
+    if (!selectorLeadingCompoundsAreKnown(compounds.slice(0, -1), evidence, identity)) return false
+    return argumentsByPseudo.every(branches => branches.some(branch => {
+      const branchCompounds = selectorCompounds(branch)
+      const branchTarget = branchCompounds.at(-1) || ''
+      return [...evidence].some(descendant => compoundMayTarget(branchTarget, descendant) && (evidence.ancestorPaths?.get(descendant) || []).some(descendantPath => {
+        for (let subjectIndex = 0; subjectIndex < descendantPath.length; subjectIndex += 1) {
+          if (!descendantPath[subjectIndex].has(identity)) continue
+          const relativePath = [...descendantPath.slice(subjectIndex + 1), new Set([descendant])]
+          if (compoundsMatchKnownPath(branchCompounds, relativePath)) return true
+        }
+        return false
+      }))
+    }))
+  }))
 }
 const selectorTargetsContract = (selector, target, evidence) => {
   const candidateCompounds = selectorCompounds(selector)
@@ -1137,8 +1171,10 @@ test('typography stays at real size and interactive controls retain 44px targets
 
   assertMapping(tokens, 'html:root', '--control-min-size', '44px', 'shared controls retain a 44px minimum')
   for (const selector of ['.public-locale', '.public-theme', '.public-nav-toggle', '.public-button']) assert.equal(siteTypographyEvidence.has(selector), true, `${selector} must be rendered by a production public component before it can satisfy the control contract`)
-  for (const selector of ['.public-locale', '.public-theme', '.public-nav-toggle']) assertMinimumControl(publicShell, selector, 'min-height', `${selector} keeps the shared touch target`)
-  assertMinimumControl(publicShell, '.public-button', 'min-height', 'public actions keep the shared touch target')
+  for (const selector of ['.public-locale', '.public-theme', '.public-nav-toggle', '.public-button']) {
+    assertMinimumControl(publicShell, selector, 'min-width', `${selector} keeps the shared touch target width`)
+    assertMinimumControl(publicShell, selector, 'min-height', `${selector} keeps the shared touch target height`)
+  }
   assertMinimumControl(consoleShell, '.user-trigger', 'min-height', 'console user control keeps the shared touch target')
   for (const selector of ['.pricing-pagination button', '.pricing-pagination select', '.pricing-detail-back', '.pricing-console-cta']) assertMinimumControl(publicPricing, selector, 'min-height', `${selector} keeps a 44px target`)
   assertMinimumControl(publicPricing, '.pricing-filter-toggle', 'min-height', 'mobile pricing filter keeps a 44px target', mobileWidths)

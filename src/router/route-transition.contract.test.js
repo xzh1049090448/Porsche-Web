@@ -220,6 +220,23 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
       }
     }
   }
+  const functionBindings = new Map()
+  walkScriptAst(ast.program, node => {
+    if (node.type === 'FunctionDeclaration' && node.id) functionBindings.set(node.id.name, node)
+    if (node.type === 'VariableDeclarator' && node.id?.type === 'Identifier' && ['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapScriptExpression(node.init)?.type)) functionBindings.set(node.id.name, unwrapScriptExpression(node.init))
+  })
+  const nearestFunction = node => {
+    for (let current = parents.get(node); current; current = parents.get(current)) if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(current.type)) return current
+    return undefined
+  }
+  for (const scope of [...componentScopes]) walkScriptAst(scope?.body, node => {
+    if (node.type !== 'ReturnStatement' || nearestFunction(node) !== scope || !node.argument) return
+    walkScriptAst(node.argument, candidate => {
+      const value = unwrapScriptExpression(candidate)
+      if (['ArrowFunctionExpression', 'FunctionExpression'].includes(value?.type)) componentScopes.add(value)
+      if (value?.type === 'Identifier' && functionBindings.has(value.name)) componentScopes.add(functionBindings.get(value.name))
+    })
+  })
   if (!componentName) return false
   const staticValue = node => {
     node = unwrapScriptExpression(node)

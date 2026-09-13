@@ -1016,19 +1016,53 @@ const compoundMayTarget = (candidate, target) => {
     }))
   })
 }
-const pricingAncestorEvidence = new Set([
-  'html', 'body', '#app', '.public-layout', '.public-shell', 'main', '#public-content',
-  '.pricing-page', '.pricing-layout', '.pricing-results', '.pricing-table-wrap',
-  '.pricing-toolbar', '.pricing-drawer-backdrop', 'div', 'section', 'aside', 'header', 'nav',
+const selectorGroup = (...identities) => new Set(identities)
+const publicContentPath = [selectorGroup('html', ':root'), selectorGroup('body'), selectorGroup('#app'), selectorGroup('.public-layout', '.public-shell', '.shell'), selectorGroup('main', '#public-content')]
+const publicPricingPath = [...publicContentPath, selectorGroup('.pricing-page')]
+const resultsPath = [...publicPricingPath, selectorGroup('.pricing-layout'), selectorGroup('.pricing-results')]
+const detailPath = [...publicContentPath, selectorGroup('.pricing-detail')]
+const pricingRenderPaths = new Map([
+  ['.pricing-page', [publicPricingPath.slice(0, -1)]],
+  ['.pricing-layout', [[...publicPricingPath]]],
+  ['.pricing-results', [[...publicPricingPath, selectorGroup('.pricing-layout')]]],
+  ['.pricing-table-wrap', [[...resultsPath]]],
+  ['.pricing-table', [[...resultsPath, selectorGroup('.pricing-table-wrap')]]],
+  ['.pricing-cards', [[...resultsPath]]],
+  ['.pricing-toolbar', [[...publicPricingPath]]],
+  ['.pricing-filter-toggle', [[...publicPricingPath, selectorGroup('.pricing-toolbar')]]],
+  ['.pricing-drawer-backdrop', [[...publicPricingPath]]],
+  ['.pricing-drawer', [[...publicPricingPath, selectorGroup('.pricing-drawer-backdrop')]]],
+  ['.pricing-pagination button', [[...resultsPath, selectorGroup('.pricing-pagination')]]],
+  ['.pricing-pagination select', [[...resultsPath, selectorGroup('.pricing-pagination')]]],
+  ['.pricing-detail-back', [[...detailPath]]],
+  ['.pricing-console-cta', [[...detailPath]]],
+  ['.pricing-drawer > header button', [[...publicPricingPath, selectorGroup('.pricing-drawer-backdrop'), selectorGroup('.pricing-drawer'), selectorGroup('header')]]],
 ])
-const leadingCompoundsAreKnown = compounds => compounds.every(compound => [...pricingAncestorEvidence].some(target => compoundMayTarget(compound, target)))
+const compoundsMatchPricingPath = (compounds, path) => {
+  let cursor = 0
+  for (const compound of compounds) {
+    while (cursor < path.length && ![...path[cursor]].some(identity => compoundMayTarget(compound, identity))) cursor += 1
+    if (cursor >= path.length) return false
+    cursor += 1
+  }
+  return true
+}
+const leadingCompoundsAreKnown = (compounds, target) => compounds.length === 0 || (pricingRenderPaths.get(normalizeSelector(target)) || []).some(path => compoundsMatchPricingPath(compounds, path))
 const selectorTargetsContract = (selector, target) => {
   const candidateCompounds = selectorCompounds(selector)
   const targetCompounds = selectorCompounds(target)
   if (candidateCompounds.length < targetCompounds.length) return false
   const offset = candidateCompounds.length - targetCompounds.length
-  return leadingCompoundsAreKnown(candidateCompounds.slice(0, offset))
+  return leadingCompoundsAreKnown(candidateCompounds.slice(0, offset), target)
     && targetCompounds.every((compound, index) => compoundMayTarget(candidateCompounds[offset + index], compound))
+}
+const relationalSelectorTargetsRoot = (selector, target) => {
+  const compounds = selectorCompounds(selector)
+  const subject = compounds.at(-1) || ''
+  const argumentsByPseudo = functionalPseudoArguments(subject, new Set(['has'])).map(value => splitCssTopLevel(value, ','))
+  if (!argumentsByPseudo.length || !argumentsByPseudo.every(branches => branches.some(branch => selectorTargetsContract(branch, target)))) return false
+  return (pricingRenderPaths.get(normalizeSelector(target)) || []).some(path => path.some((group, subjectIndex) => [...group].some(identity => compoundMayTarget(subject, identity))
+    && compoundsMatchPricingPath(compounds.slice(0, -1), path.slice(0, subjectIndex))))
 }
 const rootSelectorSpecificity = selector => {
   let score = 0
@@ -1076,9 +1110,7 @@ const effectiveRootProperties = (rules, targetClass, width) => {
   }[targetClass] || []
   const hidden = value => value.get('display') === 'none' || ['hidden', 'collapse'].includes(value.get('visibility')) || /^(?:0(?:\.0+)?|\.0+)$/.test(value.get('opacity') || '')
   if (ancestors.some(ancestor => hidden(effectiveSelectorProperties(rules, ancestor, width)))) return new Map(properties).set('display', 'none')
-  const relationalAncestors = new Set(rules.flatMap(rule => rule.selectors.filter(selector => functionalPseudoArguments(selectorCompounds(selector).at(-1) || '', new Set(['has']))
-    .flatMap(value => splitCssTopLevel(value, ','))
-    .some(argument => selectorTargetsContract(argument, `.${targetClass}`)))))
+  const relationalAncestors = new Set(rules.flatMap(rule => rule.selectors.filter(selector => relationalSelectorTargetsRoot(selector, `.${targetClass}`))))
   if ([...relationalAncestors].some(selector => hidden(effectiveSelectorProperties(rules, selector, width, true)))) return new Map(properties).set('display', 'none')
   return properties
 }
