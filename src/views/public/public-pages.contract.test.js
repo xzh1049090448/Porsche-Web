@@ -372,6 +372,69 @@ const staticBindingInitializers = value => {
       return expression ? [expression] : []
     }
     const unknownObjectValue = { type: 'Identifier', name: '__unknown_object_value__' }
+    const boundStaticValue = (expression, local, resolving = new Set()) => {
+      expression = unwrapExpression(expression)
+      const direct = staticValue(expression)
+      if (direct !== unknownStaticValue) return direct
+      if (expression?.type !== 'Identifier' || !local.has(expression.name) || resolving.has(expression.name)) return unknownStaticValue
+      const values = local.get(expression.name).map(value => boundStaticValue(value, local, new Set(resolving).add(expression.name)))
+      return values.length && values.every(value => value !== unknownStaticValue && Object.is(value, values[0])) ? values[0] : unknownStaticValue
+    }
+    const factoryFunctions = (callee, local, resolving = new Set()) => {
+      callee = unwrapExpression(callee)
+      if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(callee?.type)) return [callee]
+      if (callee?.type !== 'Identifier' || !local.has(callee.name) || resolving.has(callee.name)) return []
+      return local.get(callee.name).flatMap(value => factoryFunctions(value, local, new Set(resolving).add(callee.name)))
+    }
+    const safeFactoryReturns = (fn, local) => {
+      if (fn.body?.type !== 'BlockStatement') return { values: fn.body ? [fn.body] : [], safe: true }
+      const values = []
+      const visit = node => {
+        if (!node) return true
+        if (node.type === 'ReturnStatement') { if (node.argument) values.push(node.argument); return true }
+        if (node.type === 'EmptyStatement') return true
+        if (node.type === 'BlockStatement') { let safe = true; for (const statement of node.body) safe = visit(statement) && safe; return safe }
+        if (node.type === 'IfStatement') {
+          const condition = boundStaticValue(node.test, local)
+          return condition !== unknownStaticValue
+            ? visit(condition ? node.consequent : node.alternate)
+            : [node.consequent, node.alternate].map(visit).every(Boolean)
+        }
+        return false
+      }
+      return { values, safe: visit(fn.body) }
+    }
+    const substituteFactoryBindings = (node, replacements, shadowed = new Set(), parent, key) => {
+      if (!node || typeof node !== 'object') return node
+      if (replacements.size === 0) return node
+      if (Array.isArray(node)) {
+        const values = node.map(value => substituteFactoryBindings(value, replacements, shadowed, parent, key))
+        return values.some((value, index) => value !== node[index]) ? values : node
+      }
+      if (node.type === 'Identifier' && replacements.has(node.name) && !shadowed.has(node.name)) {
+        const isStaticKey = (parent?.type === 'ObjectProperty' || parent?.type === 'ObjectMethod' || parent?.type === 'MemberExpression') && key === 'key' || parent?.type === 'MemberExpression' && key === 'property' && !parent.computed
+        if (!isStaticKey) return replacements.get(node.name)
+      }
+      let nestedShadowed = shadowed
+      if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) {
+        nestedShadowed = new Set(shadowed)
+        const addPattern = pattern => {
+          pattern = unwrapExpression(pattern)
+          if (pattern?.type === 'Identifier') nestedShadowed.add(pattern.name)
+          else if (pattern?.type === 'AssignmentPattern') addPattern(pattern.left)
+          else if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) addPattern(property.type === 'RestElement' ? property.argument : property.value)
+          else if (pattern?.type === 'ArrayPattern') for (const element of pattern.elements) if (element) addPattern(element.type === 'RestElement' ? element.argument : element)
+        }
+        for (const parameter of node.params || []) addPattern(parameter)
+      }
+      let changed = false
+      const copy = {}
+      for (const [childKey, value] of Object.entries(node)) {
+        copy[childKey] = ['loc', 'start', 'end', 'extra'].includes(childKey) ? value : substituteFactoryBindings(value, replacements, nestedShadowed, node, childKey)
+        if (copy[childKey] !== value) changed = true
+      }
+      return changed ? copy : node
+    }
     const objectStates = (expression, local, resolving = new Set()) => {
       expression = unwrapExpression(expression)
       if (!expression || resolving.size > 32) return [{ map: new Map(), unknown: true }]
@@ -380,7 +443,33 @@ const staticBindingInitializers = value => {
         return local.get(expression.name).flatMap(value => objectStates(value, local, new Set(resolving).add(expression.name)))
       }
       if (['CallExpression', 'OptionalCallExpression'].includes(expression.type) && expression.callee?.type === 'Identifier' && expression.callee.name === 'defineComponent') return objectStates(expression.arguments[0], local, resolving)
-      if (expression.type === 'ConditionalExpression') return [...objectStates(expression.consequent, local, resolving), ...objectStates(expression.alternate, local, resolving)]
+      if (['CallExpression', 'OptionalCallExpression'].includes(expression.type)) {
+        const factories = factoryFunctions(expression.callee, local, resolving)
+        if (!factories.length) return [{ map: new Map(), unknown: true }]
+        return factories.flatMap(factory => {
+          const factoryLocal = new Map(local)
+          const replacements = new Map()
+          for (let index = 0; index < factory.params.length; index += 1) {
+            const parameter = unwrapExpression(factory.params[index])
+            const argument = expression.arguments[index] || (parameter?.type === 'AssignmentPattern' ? parameter.right : undefined)
+            bindPattern(parameter?.type === 'AssignmentPattern' ? parameter.left : parameter, argument, factoryLocal)
+            if ((parameter?.type === 'Identifier' || parameter?.type === 'AssignmentPattern' && parameter.left?.type === 'Identifier') && argument) replacements.set(parameter.type === 'Identifier' ? parameter.name : parameter.left.name, argument)
+          }
+          const returned = safeFactoryReturns(factory, factoryLocal)
+          const next = new Set(resolving).add(factory.id?.name || expression.callee?.name || '__iife__')
+          const states = returned.values.flatMap(value => objectStates(value, factoryLocal, next).map(state => ({
+            ...state,
+            map: new Map([...state.map].map(([name, property]) => [name, substituteFactoryBindings(property, replacements)])),
+          })))
+          return returned.safe && states.length ? states : states.concat({ map: new Map(), unknown: true })
+        })
+      }
+      if (expression.type === 'ConditionalExpression') {
+        const condition = boundStaticValue(expression.test, local)
+        return condition !== unknownStaticValue
+          ? objectStates(condition ? expression.consequent : expression.alternate, local, resolving)
+          : [...objectStates(expression.consequent, local, resolving), ...objectStates(expression.alternate, local, resolving)]
+      }
       if (expression.type === 'SequenceExpression') return objectStates(expression.expressions.at(-1), local, resolving)
       if (expression.type !== 'ObjectExpression') return [{ map: new Map(), unknown: true }]
       let states = [{ map: new Map(), unknown: false }]
@@ -407,22 +496,38 @@ const staticBindingInitializers = value => {
         else if (state.unknown) uncertain = true
         else if (states.some(candidate => candidate.map.has(key))) uncertain = true
       }
-      if (uncertain || values.includes(unknownObjectValue)) return [unknownObjectValue]
-      const unique = [...new Set(values)]
-      if (unique.length <= 1) return unique
-      return [unique.slice(1).reduce((alternate, consequent) => ({ type: 'ConditionalExpression', test: { type: 'Identifier', name: '__dynamic_object__' }, consequent, alternate }), unique[0])]
+      const unique = [...new Set(values.filter(value => value !== unknownObjectValue))]
+      return uncertain || values.includes(unknownObjectValue) ? unique.concat(unknownObjectValue) : unique
     }
-    const exposeReturnedObject = (fn, target) => {
-      if (!fn?.body) return
+    const returnedObjectBindings = (fn, target) => {
+      const exposed = new Map()
+      if (!fn?.body) return exposed
       const local = new Map(target)
       if (fn.body.type === 'BlockStatement') process(fn.body.body, local)
       const returnedValues = fn.body.type === 'BlockStatement' ? setupReturns(fn.body) : [fn.body]
       const states = returnedValues.flatMap(returned => objectStates(returned, local))
-      for (const key of new Set(states.flatMap(state => [...state.map.keys()]))) target.set(key, stateValues(states, key).flatMap(value => resolvedLocalValues(value, local)))
+      for (const key of new Set(states.flatMap(state => [...state.map.keys()]))) exposed.set(key, stateValues(states, key).flatMap(value => resolvedLocalValues(value, local)))
+      return exposed
+    }
+    const reachableOptionValues = (expression, target, resolving = new Set()) => {
+      expression = unwrapExpression(expression)
+      if (expression?.type === 'Identifier' && target.has(expression.name) && !resolving.has(expression.name)) return target.get(expression.name).flatMap(value => reachableOptionValues(value, target, new Set(resolving).add(expression.name)))
+      if (expression?.type === 'ConditionalExpression') {
+        const condition = boundStaticValue(expression.test, target)
+        return condition !== unknownStaticValue
+          ? reachableOptionValues(condition ? expression.consequent : expression.alternate, target, resolving)
+          : [...reachableOptionValues(expression.consequent, target, resolving), ...reachableOptionValues(expression.alternate, target, resolving)]
+      }
+      if (expression?.type === 'SequenceExpression') return reachableOptionValues(expression.expressions.at(-1), target, resolving)
+      return expression ? [expression] : []
     }
     const exposeOptions = (declaration, target) => {
       const options = objectStates(declaration, target)
-      for (const name of ['setup', 'data']) for (const fn of stateValues(options, name)) exposeReturnedObject(unwrapExpression(fn), target)
+      for (const name of ['setup', 'data']) {
+        const functions = stateValues(options, name).flatMap(value => reachableOptionValues(value, target))
+        const branches = functions.map(fn => returnedObjectBindings(unwrapExpression(fn), target))
+        for (const key of new Set(branches.flatMap(branch => [...branch.keys()]))) target.set(key, [...new Set(branches.flatMap(branch => branch.get(key) || [unknownObjectValue]))])
+      }
       for (const name of ['computed', 'methods']) {
         const registries = stateValues(options, name).flatMap(value => objectStates(value, target))
         for (const key of new Set(registries.flatMap(state => [...state.map.keys()]))) target.set(key, stateValues(registries, key).flatMap(value => resolvedLocalValues(value, target)))
