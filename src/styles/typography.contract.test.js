@@ -140,14 +140,19 @@ const propertyName = node => {
   if (!key || (node.computed && !['StringLiteral', 'NumericLiteral'].includes(key.type))) return undefined
   return key.name ?? key.value
 }
-const staticStrings = node => {
+const staticStrings = (node, environment = new Map(), bindings = new Map(), resolving = new Set()) => {
   node = unwrapJavaScript(node)
   if (!node) return []
+  if (node.type === 'Identifier') {
+    const value = environment.get(node.name) ?? bindings.get(node.name)
+    if (!value || resolving.has(node.name)) return []
+    return staticStrings(value, environment, bindings, new Set(resolving).add(node.name))
+  }
   if (node.type === 'StringLiteral') return [node.value]
   if (node.type === 'TemplateLiteral' && node.expressions.length === 0) return [node.quasis.map(part => part.value.cooked ?? part.value.raw).join('')]
-  if (node.type === 'ArrayExpression') return node.elements.flatMap(staticStrings)
-  if (node.type === 'ConditionalExpression') return staticStrings(node.consequent).concat(staticStrings(node.alternate))
-  if (node.type === 'LogicalExpression') return staticStrings(node.left).concat(staticStrings(node.right))
+  if (node.type === 'ArrayExpression') return node.elements.flatMap(value => staticStrings(value, environment, bindings, resolving))
+  if (node.type === 'ConditionalExpression') return staticStrings(node.consequent, environment, bindings, resolving).concat(staticStrings(node.alternate, environment, bindings, resolving))
+  if (node.type === 'LogicalExpression') return staticStrings(node.left, environment, bindings, resolving).concat(staticStrings(node.right, environment, bindings, resolving))
   if (node.type === 'ObjectExpression') return node.properties.flatMap(property => property.type === 'ObjectProperty' && !property.computed && property.value?.type === 'BooleanLiteral' && property.value.value ? [String(propertyName(property))] : [])
   return []
 }
@@ -183,18 +188,49 @@ const renderNodesFromScripts = (descriptor, file) => {
         else if (value && typeof value === 'object' && typeof value.type === 'string') walk(value, visit)
       }
     }
-    const propsFrom = expression => {
-      const props = unwrapJavaScript(expression)
-      if (props?.type !== 'ObjectExpression') return { classes: [], id: undefined }
-      const classes = []
-      let id
-      for (const property of props.properties) {
+    const bindings = new Map()
+    const helpers = new Map()
+    walk(ast.program, node => {
+      if (node.type === 'FunctionDeclaration' && node.id) helpers.set(node.id.name, node)
+      if (node.type !== 'VariableDeclarator' || node.id?.type !== 'Identifier' || !node.init) return
+      bindings.set(node.id.name, node.init)
+      if (['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapJavaScript(node.init)?.type)) helpers.set(node.id.name, unwrapJavaScript(node.init))
+    })
+    const dereference = (expression, environment, resolving = new Set()) => {
+      expression = unwrapJavaScript(expression)
+      if (expression?.type !== 'Identifier' || resolving.has(expression.name)) return expression
+      const value = environment.get(expression.name) ?? bindings.get(expression.name)
+      return value ? dereference(value, environment, new Set(resolving).add(expression.name)) : expression
+    }
+    const objectProperties = (expression, environment, resolving = new Set()) => {
+      expression = unwrapJavaScript(expression)
+      if (expression?.type === 'Identifier') {
+        if (resolving.has(expression.name)) return { known: false, values: new Map() }
+        const value = environment.get(expression.name) ?? bindings.get(expression.name)
+        return value ? objectProperties(value, environment, new Set(resolving).add(expression.name)) : { known: false, values: new Map() }
+      }
+      if (expression?.type !== 'ObjectExpression') return { known: false, values: new Map() }
+      const values = new Map()
+      let known = true
+      for (const property of expression.properties) {
+        if (property.type === 'SpreadElement') {
+          const spread = objectProperties(property.argument, environment, resolving)
+          if (!spread.known) { known = false; values.delete('class'); values.delete('id') }
+          else for (const [name, value] of spread.values) values.set(name, value)
+          continue
+        }
         if (property.type !== 'ObjectProperty') continue
         const name = propertyName(property)
-        if (name === 'class') classes.push(...staticStrings(property.value).flatMap(value => value.split(/\s+/).filter(Boolean)))
-        if (name === 'id') id = staticStrings(property.value)[0]
+        if (name !== undefined) values.set(String(name), property.value)
+        else { known = false; values.delete('class'); values.delete('id') }
       }
-      return { classes: [...new Set(classes)], id }
+      return { known, values }
+    }
+    const propsFrom = (expression, environment) => {
+      const props = objectProperties(expression, environment)
+      const classes = staticStrings(props.values.get('class'), environment, bindings).flatMap(value => value.split(/\s+/).filter(Boolean))
+      const id = staticStrings(props.values.get('id'), environment, bindings)[0]
+      return { known: props.known, classes: [...new Set(classes)], id }
     }
     const returnExpressions = body => {
       body = unwrapJavaScript(body)
@@ -204,45 +240,69 @@ const renderNodesFromScripts = (descriptor, file) => {
       walk(body, node => { if (node.type === 'ReturnStatement' && node.argument) values.push(node.argument) })
       return values
     }
-    const parseRenderCall = (call, parent) => {
+    const parseRenderCall = (call, parent, environment = new Map(), helperStack = new Set(), depth = 0, instantiated = false) => {
       call = unwrapJavaScript(call)
       if (!isCall(call) || !renderCalls.has(calleeName(call.callee))) return undefined
-      if (seen.has(call)) return undefined
-      seen.add(call)
-      const type = unwrapJavaScript(call.arguments[0])
+      if (!instantiated && seen.has(call)) return undefined
+      if (!instantiated) seen.add(call)
+      if (depth > 24) { if (parent) parent.typography = true; return undefined }
+      const type = dereference(call.arguments[0], environment)
       const name = type?.type === 'StringLiteral' ? type.value : type?.type === 'Identifier' ? type.name : 'component'
-      const propsIndex = unwrapJavaScript(call.arguments[1])?.type === 'ObjectExpression' || unwrapJavaScript(call.arguments[1])?.type === 'NullLiteral' ? 1 : -1
-      const props = propsFrom(propsIndex === 1 ? call.arguments[1] : undefined)
+      const candidateProps = propsFrom(call.arguments[1], environment)
+      const propsIndex = call.arguments.length > 2 || candidateProps.known || unwrapJavaScript(call.arguments[1])?.type === 'NullLiteral' ? 1 : -1
+      const props = propsIndex === 1 ? candidateProps : { classes: [], id: undefined }
       const dynamicType = (type?.type === 'Identifier' && routerViews.has(type.name))
         || (type?.type === 'StringLiteral' && /^(?:router-view|slot|component)$/i.test(type.value))
         || (isCall(type) && dynamicResolvers.has(calleeName(type.callee)))
       const node = { name, ...props, parent, typography: dynamicType }
       nodes.push(node)
-      const markVisibleChild = expression => {
+      const analyzeHelper = (expression, activeEnvironment, activeStack, activeDepth) => {
+        const name = calleeName(expression.callee)
+        const helper = helpers.get(name)
+        if (!helper) return false
+        if (activeStack.has(name) || activeDepth >= 24) { node.typography = true; return true }
+        const nestedEnvironment = new Map(activeEnvironment)
+        for (let index = 0; index < helper.params.length; index += 1) {
+          const parameter = unwrapJavaScript(helper.params[index])
+          const target = parameter?.type === 'AssignmentPattern' ? parameter.left : parameter
+          const argument = expression.arguments[index] ?? (parameter?.type === 'AssignmentPattern' ? parameter.right : undefined)
+          if (target?.type === 'Identifier' && argument) nestedEnvironment.set(target.name, dereference(argument, activeEnvironment))
+        }
+        const nestedStack = new Set(activeStack).add(name)
+        for (const returned of returnExpressions(helper.body)) markVisibleChild(returned, nestedEnvironment, nestedStack, activeDepth + 1, true)
+        return true
+      }
+      const markVisibleChild = (expression, activeEnvironment = environment, activeStack = helperStack, activeDepth = depth, activeInstantiation = instantiated) => {
         expression = unwrapJavaScript(expression)
         if (!expression) return
-        if (isCall(expression) && renderCalls.has(calleeName(expression.callee))) { parseRenderCall(expression, node); return }
+        if (isCall(expression) && renderCalls.has(calleeName(expression.callee))) { parseRenderCall(expression, node, activeEnvironment, activeStack, activeDepth, activeInstantiation); return }
         if (['StringLiteral', 'NumericLiteral', 'BigIntLiteral'].includes(expression.type)) { if (String(expression.value ?? '').trim()) node.typography = true; return }
         if (expression.type === 'TemplateLiteral') {
           if (expression.quasis.some(part => (part.value.cooked ?? part.value.raw).trim()) || expression.expressions.length) node.typography = true
           return
         }
-        if (['Identifier', 'MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) { node.typography = true; return }
-        if (['ArrowFunctionExpression', 'FunctionExpression'].includes(expression.type)) { for (const returned of returnExpressions(expression.body)) markVisibleChild(returned); return }
-        if (expression.type === 'BlockStatement') { for (const returned of returnExpressions(expression)) markVisibleChild(returned); return }
-        if (expression.type === 'ArrayExpression') { for (const child of expression.elements) markVisibleChild(child); return }
-        if (expression.type === 'ObjectExpression') { for (const property of expression.properties) if (property.type === 'ObjectProperty' || property.type === 'ObjectMethod') markVisibleChild(property.value ?? property.body); return }
+        if (expression.type === 'Identifier') {
+          const resolved = dereference(expression, activeEnvironment)
+          if (resolved !== expression) markVisibleChild(resolved, activeEnvironment, activeStack, activeDepth, activeInstantiation)
+          else node.typography = true
+          return
+        }
+        if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) { node.typography = true; return }
+        if (['ArrowFunctionExpression', 'FunctionExpression'].includes(expression.type)) { for (const returned of returnExpressions(expression.body)) markVisibleChild(returned, activeEnvironment, activeStack, activeDepth, activeInstantiation); return }
+        if (expression.type === 'BlockStatement') { for (const returned of returnExpressions(expression)) markVisibleChild(returned, activeEnvironment, activeStack, activeDepth, activeInstantiation); return }
+        if (expression.type === 'ArrayExpression') { for (const child of expression.elements) markVisibleChild(child, activeEnvironment, activeStack, activeDepth, activeInstantiation); return }
+        if (expression.type === 'ObjectExpression') { for (const property of expression.properties) if (property.type === 'ObjectProperty' || property.type === 'ObjectMethod') markVisibleChild(property.value ?? property.body, activeEnvironment, activeStack, activeDepth, activeInstantiation); return }
         if (isCall(expression)) {
           const called = calleeName(expression.callee)
           const member = unwrapJavaScript(expression.callee)
           if (called === 't' || renderSlots.has(called) || (member?.type === 'MemberExpression' && /^(?:slots?|\$slots)$/.test(member.object?.name || ''))) node.typography = true
-          else for (const argument of expression.arguments) markVisibleChild(argument)
+          else if (!analyzeHelper(expression, activeEnvironment, activeStack, activeDepth)) for (const argument of expression.arguments) markVisibleChild(argument, activeEnvironment, activeStack, activeDepth, activeInstantiation)
           return
         }
-        if (expression.type === 'ConditionalExpression') { markVisibleChild(expression.consequent); markVisibleChild(expression.alternate); return }
-        if (expression.type === 'LogicalExpression' || expression.type === 'BinaryExpression') { markVisibleChild(expression.left); markVisibleChild(expression.right); return }
-        if (expression.type === 'SequenceExpression') { markVisibleChild(expression.expressions.at(-1)); return }
-        if (expression.type === 'SpreadElement' || expression.type === 'AwaitExpression') { markVisibleChild(expression.argument) }
+        if (expression.type === 'ConditionalExpression') { markVisibleChild(expression.consequent, activeEnvironment, activeStack, activeDepth, activeInstantiation); markVisibleChild(expression.alternate, activeEnvironment, activeStack, activeDepth, activeInstantiation); return }
+        if (expression.type === 'LogicalExpression' || expression.type === 'BinaryExpression') { markVisibleChild(expression.left, activeEnvironment, activeStack, activeDepth, activeInstantiation); markVisibleChild(expression.right, activeEnvironment, activeStack, activeDepth, activeInstantiation); return }
+        if (expression.type === 'SequenceExpression') { markVisibleChild(expression.expressions.at(-1), activeEnvironment, activeStack, activeDepth, activeInstantiation); return }
+        if (expression.type === 'SpreadElement' || expression.type === 'AwaitExpression') { markVisibleChild(expression.argument, activeEnvironment, activeStack, activeDepth, activeInstantiation) }
       }
       const children = call.arguments.length > 2 ? call.arguments.slice(2) : propsIndex === -1 ? call.arguments.slice(1) : []
       for (const child of children) markVisibleChild(child)
