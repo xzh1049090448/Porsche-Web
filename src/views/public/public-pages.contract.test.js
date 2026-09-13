@@ -254,6 +254,10 @@ const safePerRequestExplanation = value => perRequestTopic.test(value)
   && !numericPerRequestOffer.test(value)
   && (/(?:不|未|无|非)[^。；;.!?\n]{0,24}(?:提供|展示|显示|计价|定价|收费|价格|请求)|(?:每(?:次)?请求|每请求|单次(?:请求|调用))[^。；;.!?\n]{0,18}(?:不|未|无|非)/.test(value)
     || /\b(?:no|not|without|unavailable|isn['’]?t|doesn['’]?t|is\s+not|does\s+not)\b[^.!?\n]{0,50}\bper[-\s]?request\b|\bper[-\s]?request\b[^.!?\n]{0,50}\b(?:not|unavailable|isn['’]?t|doesn['’]?t|is\s+not|does\s+not)\b/i.test(value))
+const copyWithoutSafePerRequestClauses = value => value.split(/(?:[。；;!?]+|(?<!\d)\.(?!\d)|\n)+/u)
+  .map(clause => clause.trim())
+  .filter(clause => clause && !safePerRequestExplanation(clause))
+  .join(' ')
 const prototypePatterns = [
   [/ModelHub/i, 'prototype product name'],
   [/40\+/i, 'prototype model count'],
@@ -427,7 +431,7 @@ test('public content pages compose the approved safe landing system', () => {
     .flatMap(catalog => Object.values(catalog).flatMap(locale => stringValues(locale.publicSite)))
   assert.ok(runtimePublicMessages.length > 0, 'runtime publicSite messages must exist')
   const visibleCopy = vueSources.flatMap(visibleStrings).concat(runtimePublicMessages)
-    .filter(copy => !safePerRequestExplanation(copy))
+    .map(copyWithoutSafePerRequestClauses)
 
   assertNoTailwindLoading(publicStyleSources, vueSources)
 

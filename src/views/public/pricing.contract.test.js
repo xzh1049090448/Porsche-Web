@@ -356,6 +356,10 @@ const safePerRequestExplanation = value => perRequestTopic.test(value)
   && !numericPerRequestOffer.test(value)
   && (/(?:不|未|无|非)[^。；;.!?\n]{0,24}(?:提供|展示|显示|计价|定价|收费|价格|请求)|(?:每(?:次)?请求|每请求|单次(?:请求|调用))[^。；;.!?\n]{0,18}(?:不|未|无|非)/.test(value)
     || /\b(?:no|not|without|unavailable|isn['’]?t|doesn['’]?t|is\s+not|does\s+not)\b[^.!?\n]{0,50}\bper[-\s]?request\b|\bper[-\s]?request\b[^.!?\n]{0,50}\b(?:not|unavailable|isn['’]?t|doesn['’]?t|is\s+not|does\s+not)\b/i.test(value))
+const copyWithoutSafePerRequestClauses = value => value.split(/(?:[。；;!?]+|(?<!\d)\.(?!\d)|\n)+/u)
+  .map(clause => clause.trim())
+  .filter(clause => clause && !safePerRequestExplanation(clause))
+  .join(' ')
 const prototypePatterns = [
   [/ModelHub/i, 'prototype product name'],
   [/40\+|\b\d+\+?\s*(?:个\s*)?(?:模型|供应商)|\b\d+\+?\s*(?:models?|providers?)\b/i, 'hard-coded prototype model or provider count'],
@@ -423,7 +427,7 @@ test('pricing presentation rejects prototype counts, multipliers and per-request
   const pricingMessages = Object.values(messages).flatMap(locale => stringValues(locale.publicSite?.pricingCatalog))
   assert.ok(pricingMessages.length > 0, 'runtime pricingCatalog messages must exist')
   const presentation = [page, detail, filters, table, cards].flatMap(visibleStrings).concat(pricingMessages)
-    .filter(copy => !safePerRequestExplanation(copy))
+    .map(copyWithoutSafePerRequestClauses)
   for (const [pattern, label] of prototypePatterns) for (const copy of presentation) assert.doesNotMatch(copy, pattern, label)
 })
 
