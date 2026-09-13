@@ -649,13 +649,29 @@ const helperReturnsCorrectStateFromOrigin = (binding, component, modelName, rend
       } else if (statement.type === 'SwitchStatement') {
         const origins = originsFor(definitions)
         const switchesOnState = expressionDerivedFrom(statement.discriminant, origins, definitions, ['state'])
-        const hasPublished = statement.cases.some(branch => staticValue(branch.test) === 'published')
-        for (const branch of statement.cases) {
-          const caseValue = branch.test ? staticValue(branch.test) : undefined
-          const branchMode = switchesOnState
-            ? caseValue === 'published' ? 'published' : (caseValue !== unknownStaticValue && (branch.test || hasPublished)) ? 'nonpublished' : mode
+        const caseValues = statement.cases.map(branch => branch.test ? staticValue(branch.test) : undefined)
+        const hasPublished = caseValues.some(value => value === 'published')
+        const fallback = statement.cases.findIndex(branch => !branch.test)
+        const discriminant = switchesOnState ? unknownStaticValue : staticValue(statement.discriminant)
+        const casesKnown = caseValues.every((value, index) => index === fallback || value !== unknownStaticValue)
+        const matched = discriminant !== unknownStaticValue && casesKnown
+          ? caseValues.findIndex((value, index) => index !== fallback && Object.is(value, discriminant))
+          : -1
+        const entries = discriminant !== unknownStaticValue && casesKnown
+          ? [matched >= 0 ? matched : fallback].filter(index => index >= 0)
+          : statement.cases.map((_, index) => index)
+        for (const entry of entries) {
+          const entryValue = caseValues[entry]
+          const entryMode = switchesOnState
+            ? entryValue === 'published' ? 'published' : (entryValue !== unknownStaticValue && (statement.cases[entry].test || hasPublished)) ? 'nonpublished' : mode
             : mode
-          visitStatements(branch.consequent, definitions, branchMode)
+          const pathDefinitions = new Map(definitions)
+          for (let index = entry; index < statement.cases.length; index += 1) {
+            const consequent = statement.cases[index].consequent
+            const abrupt = consequent.findIndex(child => ['BreakStatement', 'ThrowStatement'].includes(child.type))
+            const path = abrupt < 0 ? consequent : consequent.slice(0, abrupt)
+            if (visitStatements(path, pathDefinitions, entryMode, true) || abrupt >= 0) break
+          }
         }
       }
       else if (statement.type === 'TryStatement') {
@@ -1202,12 +1218,24 @@ const bindTemplatePattern = (pattern, values, target) => {
     return
   }
   if (pattern?.type === 'RestElement') { bindTemplatePattern(pattern.argument, values, target); return }
-  if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) {
-    if (property.type === 'RestElement') bindTemplatePattern(property.argument, [], target)
-    else bindTemplatePattern(property.value, values.map(value => selected(value, staticPropertyKey(property.key))), target)
+  if (pattern?.type === 'ObjectPattern') {
+    const excluded = new Set(pattern.properties.filter(property => property.type !== 'RestElement').map(property => staticPropertyKey(property.key)))
+    for (const property of pattern.properties) {
+      if (property.type === 'RestElement') bindTemplatePattern(property.argument, values.map(value => {
+        value = unwrapExpression(value)
+        return value?.type === 'ObjectExpression'
+          ? { type: 'ObjectExpression', properties: value.properties.filter(candidate => candidate.type === 'SpreadElement' || !excluded.has(staticPropertyKey(candidate.key))) }
+          : value
+      }), target)
+      else bindTemplatePattern(property.value, values.map(value => selected(value, staticPropertyKey(property.key))), target)
+    }
   }
   if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]) {
-    bindTemplatePattern(pattern.elements[index], values.map(value => selected(value, index)), target)
+    const element = pattern.elements[index]
+    bindTemplatePattern(element, element.type === 'RestElement' ? values.map(value => {
+      value = unwrapExpression(value)
+      return value?.type === 'ArrayExpression' ? { type: 'ArrayExpression', elements: value.elements.slice(index) } : value
+    }) : values.map(value => selected(value, index)), target)
   }
 }
 const bindingsForElement = (node, bindings) => {

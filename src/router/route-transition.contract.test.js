@@ -342,22 +342,47 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (node.type === 'SequenceExpression') return isComponentReference(node.expressions.at(-1), resolving)
     return false
   }
-  const resolvedVNodeType = (node, resolving = new Set()) => {
+  const resolvedVNodeOutcomes = (node, resolving = new Set()) => {
     node = unwrapScriptExpression(node)
-    if (!node || resolving.size > 32) return undefined
-    if (node.type === 'StringLiteral') return node
-    if (node.type === 'Identifier' && bindings.has(node.name) && !resolving.has(node.name)) return resolvedVNodeType(bindings.get(node.name), new Set(resolving).add(node.name))
+    if (!node || resolving.size > 32) return []
+    if (node.type === 'StringLiteral') return [{ node, truthy: Boolean(node.value) }]
+    if (node.type === 'Identifier') {
+      if (bindings.has(node.name) && !resolving.has(node.name)) return resolvedVNodeOutcomes(bindings.get(node.name), new Set(resolving).add(node.name))
+      return [{ node, truthy: undefined }]
+    }
     if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
       const value = memberValue(node.object, memberName(node), resolving)
-      return value ? resolvedVNodeType(value, resolving) : undefined
+      return value ? resolvedVNodeOutcomes(value, resolving) : [{ node, truthy: undefined }]
     }
     if (node.type === 'ConditionalExpression') {
       const condition = staticValue(node.test)
-      return condition.known ? resolvedVNodeType(condition.value ? node.consequent : node.alternate, resolving) : undefined
+      return condition.known
+        ? resolvedVNodeOutcomes(condition.value ? node.consequent : node.alternate, resolving)
+        : [...resolvedVNodeOutcomes(node.consequent, resolving), ...resolvedVNodeOutcomes(node.alternate, resolving)]
     }
-    if (node.type === 'SequenceExpression') return resolvedVNodeType(node.expressions.at(-1), resolving)
-    return undefined
+    if (node.type === 'LogicalExpression') {
+      const left = staticValue(node.left)
+      if (left.known) {
+        const usesRight = node.operator === '&&' ? Boolean(left.value) : node.operator === '||' ? !left.value : left.value == null
+        return resolvedVNodeOutcomes(usesRight ? node.right : node.left, resolving)
+      }
+      const right = resolvedVNodeOutcomes(node.right, resolving)
+      return resolvedVNodeOutcomes(node.left, resolving).flatMap(outcome => {
+        if (node.operator === '??') return [outcome, ...right]
+        const usesRight = node.operator === '&&' ? outcome.truthy === true : outcome.truthy === false
+        const keepsLeft = node.operator === '&&' ? outcome.truthy === false : outcome.truthy === true
+        if (usesRight) return right
+        if (keepsLeft) return [outcome]
+        return node.operator === '&&'
+          ? [{ ...outcome, truthy: false }, ...right]
+          : [{ ...outcome, truthy: true }, ...right]
+      })
+    }
+    if (node.type === 'SequenceExpression') return resolvedVNodeOutcomes(node.expressions.at(-1), resolving)
+    const value = staticValue(node)
+    return [{ node, truthy: value.known ? Boolean(value.value) : undefined }]
   }
+  const resolvedVNodeTypes = node => resolvedVNodeOutcomes(node).map(outcome => outcome.node)
   const returns = body => {
     body = unwrapScriptExpression(body)
     if (!body) return []
@@ -396,8 +421,8 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (!['CallExpression', 'OptionalCallExpression'].includes(node.type)) return false
     if (unwrapScriptExpression(node.callee)?.type === 'Identifier' && renderNames.has(node.callee.name)) {
       if (isComponentReference(node.arguments[0])) return true
-      const vnodeType = resolvedVNodeType(node.arguments[0])
-      const componentVNode = vnodeType?.type !== 'StringLiteral'
+      const vnodeTypes = resolvedVNodeTypes(node.arguments[0])
+      const componentVNode = vnodeTypes.length === 0 || vnodeTypes.some(type => type.type !== 'StringLiteral')
       const children = node.arguments.length >= 3 ? node.arguments.slice(2) : node.arguments.slice(1)
       const inspectRenderedChild = child => {
         child = unwrapScriptExpression(child)

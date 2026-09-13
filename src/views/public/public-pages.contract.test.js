@@ -390,17 +390,47 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
       }
       return false
     }
-    const resolvedVNodeType = (node, resolving = new Set()) => {
+    const resolvedVNodeOutcomes = (node, resolving = new Set()) => {
       node = unwrapExpression(node)
-      if (!node || resolving.size > 32) return undefined
-      if (node.type === 'StringLiteral') return node
-      if (node.type === 'Identifier' && aliases.has(node.name) && !resolving.has(node.name)) return resolvedVNodeType(aliases.get(node.name), new Set(resolving).add(node.name))
+      if (!node || resolving.size > 32) return []
+      if (node.type === 'StringLiteral') return [{ node, truthy: Boolean(node.value) }]
+      if (node.type === 'Identifier') {
+        if (aliases.has(node.name) && !resolving.has(node.name)) return resolvedVNodeOutcomes(aliases.get(node.name), new Set(resolving).add(node.name))
+        return [{ node, truthy: undefined }]
+      }
       if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
         const value = memberValue(node.object, memberName(node), resolving)
-        return value ? resolvedVNodeType(value, resolving) : undefined
+        return value ? resolvedVNodeOutcomes(value, resolving) : [{ node, truthy: undefined }]
       }
-      return undefined
+      if (node.type === 'ConditionalExpression') {
+        const condition = staticValue(node.test)
+        return condition !== unknownStaticValue
+          ? resolvedVNodeOutcomes(condition ? node.consequent : node.alternate, resolving)
+          : [...resolvedVNodeOutcomes(node.consequent, resolving), ...resolvedVNodeOutcomes(node.alternate, resolving)]
+      }
+      if (node.type === 'LogicalExpression') {
+        const left = staticValue(node.left)
+        if (left !== unknownStaticValue) {
+          const usesRight = node.operator === '&&' ? Boolean(left) : node.operator === '||' ? !left : left == null
+          return resolvedVNodeOutcomes(usesRight ? node.right : node.left, resolving)
+        }
+        const right = resolvedVNodeOutcomes(node.right, resolving)
+        return resolvedVNodeOutcomes(node.left, resolving).flatMap(outcome => {
+          if (node.operator === '??') return [outcome, ...right]
+          const usesRight = node.operator === '&&' ? outcome.truthy === true : outcome.truthy === false
+          const keepsLeft = node.operator === '&&' ? outcome.truthy === false : outcome.truthy === true
+          if (usesRight) return right
+          if (keepsLeft) return [outcome]
+          return node.operator === '&&'
+            ? [{ ...outcome, truthy: false }, ...right]
+            : [{ ...outcome, truthy: true }, ...right]
+        })
+      }
+      if (node.type === 'SequenceExpression') return resolvedVNodeOutcomes(node.expressions.at(-1), resolving)
+      const value = staticValue(node)
+      return [{ node, truthy: value === unknownStaticValue ? undefined : Boolean(value) }]
     }
+    const resolvedVNodeTypes = node => resolvedVNodeOutcomes(node).map(outcome => outcome.node)
     const returns = body => {
       body = unwrapExpression(body)
       if (!body) return []
@@ -454,7 +484,8 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
       if (!['CallExpression', 'OptionalCallExpression'].includes(node.type)) return false
       if (node.callee?.type === 'Identifier' && renderNames.has(node.callee.name)) {
         if (resolvesTarget(node.arguments[0])) return true
-        const componentVNode = resolvedVNodeType(node.arguments[0])?.type !== 'StringLiteral'
+        const vnodeTypes = resolvedVNodeTypes(node.arguments[0])
+        const componentVNode = vnodeTypes.length === 0 || vnodeTypes.some(type => type.type !== 'StringLiteral')
         const children = node.arguments.length >= 3 ? node.arguments.slice(2) : node.arguments.slice(1)
         const inspectRenderedChild = child => {
           child = unwrapExpression(child)
@@ -775,12 +806,24 @@ const bindTemplatePattern = (pattern, values, target) => {
     return
   }
   if (pattern?.type === 'RestElement') { bindTemplatePattern(pattern.argument, values, target); return }
-  if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) {
-    if (property.type === 'RestElement') bindTemplatePattern(property.argument, [], target)
-    else bindTemplatePattern(property.value, values.map(value => selected(value, staticPropertyKey(property.key))), target)
+  if (pattern?.type === 'ObjectPattern') {
+    const excluded = new Set(pattern.properties.filter(property => property.type !== 'RestElement').map(property => staticPropertyKey(property.key)))
+    for (const property of pattern.properties) {
+      if (property.type === 'RestElement') bindTemplatePattern(property.argument, values.map(value => {
+        value = unwrapExpression(value)
+        return value?.type === 'ObjectExpression'
+          ? { type: 'ObjectExpression', properties: value.properties.filter(candidate => candidate.type === 'SpreadElement' || !excluded.has(staticPropertyKey(candidate.key))) }
+          : value
+      }), target)
+      else bindTemplatePattern(property.value, values.map(value => selected(value, staticPropertyKey(property.key))), target)
+    }
   }
   if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]) {
-    bindTemplatePattern(pattern.elements[index], values.map(value => selected(value, index)), target)
+    const element = pattern.elements[index]
+    bindTemplatePattern(element, element.type === 'RestElement' ? values.map(value => {
+      value = unwrapExpression(value)
+      return value?.type === 'ArrayExpression' ? { type: 'ArrayExpression', elements: value.elements.slice(index) } : value
+    }) : values.map(value => selected(value, index)), target)
   }
 }
 const bindingsForElement = (node, bindings) => {
