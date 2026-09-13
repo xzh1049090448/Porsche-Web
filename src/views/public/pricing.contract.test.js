@@ -541,7 +541,17 @@ const renderedPriceStateFor = (expression, component, modelName, bindings, path 
     && correctPublicStateCall(candidate, component, modelName)
   if (path.length === 0 && ['ConditionalExpression', 'LogicalExpression'].includes(node.type)
     && directlyReadStateMembers(node, directOrigins, new Map()).size > 0) {
-    return validLabelExpression(node, directOrigins, new Map())
+    const origins = []
+    const collect = candidate => {
+      candidate = unwrapExpression(candidate)
+      if (!candidate || typeof candidate !== 'object') return
+      if (directOrigins(candidate)) origins.push(candidate)
+      for (const [key, value] of Object.entries(candidate)) if (!['loc', 'start', 'end', 'extra'].includes(key)) {
+        for (const child of Array.isArray(value) ? value : [value]) if (child?.type) collect(child)
+      }
+    }
+    collect(node)
+    return origins.some(origin => validLabelExpression(node, candidate => candidate === origin, new Map()))
   }
   if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
     const property = node.computed ? staticPropertyKey(node.property) : node.property?.name
@@ -1131,7 +1141,12 @@ const compoundMayTarget = (candidate, target) => {
       }
     }
     const identities = compoundTokens(subject).filter(token => token !== '*' && !token.startsWith(':'))
-    return identities.length === 0 || (targetIdentities.length > 0 && identities.every(token => targetTokens.has(token)))
+    const targetTags = targetIdentities.filter(token => !/^(?:[.#]|\[)/.test(token))
+    const subjectTags = identities.filter(token => !/^(?:[.#]|\[)/.test(token))
+    const subjectQualifiers = identities.filter(token => /^(?:[.#]|\[)/.test(token))
+    return identities.length === 0 || (targetIdentities.length > 0
+      && !(subjectTags.length && targetTags.length === 0 && subjectQualifiers.length === 0)
+      && identities.every(token => /^(?:[.#]|\[)/.test(token) ? targetTokens.has(token) : targetTags.length === 0 || targetTags.includes(token)))
   }
   return matches(candidate)
 }

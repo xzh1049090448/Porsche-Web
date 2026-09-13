@@ -1034,7 +1034,12 @@ const compoundMayTarget = (candidate, target) => {
       }
     }
     const identities = compoundTokens(subject).filter(token => token !== '*' && !token.startsWith(':'))
-    return identities.length === 0 || (targetIdentities.length > 0 && identities.every(token => targetTokens.has(token)))
+    const targetTags = targetIdentities.filter(token => !/^(?:[.#]|\[)/.test(token))
+    const subjectTags = identities.filter(token => !/^(?:[.#]|\[)/.test(token))
+    const subjectQualifiers = identities.filter(token => /^(?:[.#]|\[)/.test(token))
+    return identities.length === 0 || (targetIdentities.length > 0
+      && !(subjectTags.length && targetTags.length === 0 && subjectQualifiers.length === 0)
+      && identities.every(token => /^(?:[.#]|\[)/.test(token) ? targetTokens.has(token) : targetTags.length === 0 || targetTags.includes(token)))
   }
   return matches(candidate)
 }
