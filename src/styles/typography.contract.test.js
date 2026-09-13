@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 import test from 'node:test'
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8')
@@ -126,42 +127,73 @@ const staticAttribute = (attrs, name) => attrs.match(new RegExp(`(?:^|\\s)${name
 const typographyEvidenceFromVue = (files = collectProductionSources()) => {
   const evidence = new Set(['html', ':root', 'body', '#app'])
   const voidElements = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'])
+  const vueFiles = files.filter(entry => entry.file.endsWith('.vue'))
+  const sourceRoot = vueFiles.map(entry => entry.file.match(/^(.*\/src)(?:\/|$)/)?.[1]).find(Boolean)
+  const componentKey = name => name.replace(/-/g, '').toLowerCase()
   const addNode = node => {
     if (node.name !== 'template') evidence.add(node.name.toLowerCase())
     for (const className of node.classes) evidence.add(`.${className}`)
     if (node.id) evidence.add(`#${node.id}`)
   }
-  for (const { file, source } of files.filter(entry => entry.file.endsWith('.vue'))) {
-    const opening = /<template\b[^>]*>/i.exec(source)
-    if (!opening) continue
-    const stack = []
-    const nodes = []
-    let cursor = opening.index + opening[0].length
-    let textStart = cursor
-    while (cursor < source.length) {
-      const start = source.indexOf('<', cursor)
-      if (start < 0) break
-      if (stack.length && /\S/.test(source.slice(textStart, start))) stack.at(-1).typography = true
-      const tag = readMarkupTag(source, start)
-      cursor = tag.end
-      textStart = cursor
-      if (tag.comment || !tag.name) continue
-      const name = tag.name.toLowerCase()
-      if (tag.closing) {
-        if (name === 'template' && stack.length === 0) break
-        stack.pop()
-        continue
-      }
-      const classes = (staticAttribute(tag.attrs, 'class') || '').split(/\s+/).filter(Boolean)
-      const node = { name, classes, id: staticAttribute(tag.attrs, 'id'), parent: stack.at(-1), typography: /(?:^|\s)(?:v-html|v-text)(?:\s|=|$)/i.test(tag.attrs) || name === 'slot' }
-      nodes.push(node)
-      if (!tag.selfClosing && !voidElements.has(name)) stack.push(node)
+  const graphs = new Map()
+  for (const { file, source } of vueFiles) {
+    const imports = new Map()
+    for (const match of source.matchAll(/\bimport\s+([A-Za-z_$][\w$]*)\s+from\s*(["'])([^"']+\.vue)\2/g)) {
+      const target = match[3].startsWith('@/') && sourceRoot ? resolve(sourceRoot, match[3].slice(2)) : resolve(dirname(file), match[3])
+      imports.set(componentKey(match[1]), target)
     }
-    for (const node of nodes.filter(candidate => candidate.typography)) for (let current = node; current; current = current.parent) addNode(current)
+    const nodes = []
+    const opening = /<template\b[^>]*>/i.exec(source)
+    if (opening) {
+      const stack = []
+      let cursor = opening.index + opening[0].length
+      let textStart = cursor
+      while (cursor < source.length) {
+        const start = source.indexOf('<', cursor)
+        if (start < 0) break
+        if (stack.length && /\S/.test(source.slice(textStart, start))) stack.at(-1).typography = true
+        const tag = readMarkupTag(source, start)
+        cursor = tag.end
+        textStart = cursor
+        if (tag.comment || !tag.name) continue
+        const name = tag.name.toLowerCase()
+        if (tag.closing) {
+          if (name === 'template' && stack.length === 0) break
+          stack.pop()
+          continue
+        }
+        const classes = (staticAttribute(tag.attrs, 'class') || '').split(/\s+/).filter(Boolean)
+        const node = { name, classes, id: staticAttribute(tag.attrs, 'id'), parent: stack.at(-1), typography: /(?:^|\s)(?:v-html|v-text)(?:\s|=|$)/i.test(tag.attrs) || name === 'slot' }
+        nodes.push(node)
+        if (!tag.selfClosing && !voidElements.has(name)) stack.push(node)
+      }
+    }
+    graphs.set(file, { imports, nodes })
     if (/(?:^|\/)(?:App|AuthApp|[^/]*Layout)\.vue$/.test(file) && /\b(?:RouterView|router-view)\b/.test(source)) {
       for (const match of source.matchAll(/\bclass\s*:\s*(["'])(.*?)\1/g)) for (const name of match[2].split(/\s+/).filter(Boolean)) evidence.add(`.${name}`)
       for (const match of source.matchAll(/\bid\s*:\s*(["'])(.*?)\1/g)) evidence.add(`#${match[2]}`)
     }
+  }
+  // A memoized fixed point propagates text through arbitrary component depth while pure cycles settle at false.
+  // Missing local Vue targets stay conservative because their rendering cannot be inspected.
+  const renderMemo = new Map([...graphs].map(([file, graph]) => [file, graph.nodes.some(node => node.typography)]))
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const [file, graph] of graphs) {
+      if (renderMemo.get(file)) continue
+      const renders = graph.nodes.some(node => {
+        const child = graph.imports.get(componentKey(node.name))
+        return child ? !graphs.has(child) || renderMemo.get(child) : false
+      })
+      if (renders) { renderMemo.set(file, true); changed = true }
+    }
+  }
+  const componentRendersTypography = file => !graphs.has(file) || renderMemo.get(file)
+  for (const graph of graphs.values()) for (const node of graph.nodes) {
+    const child = graph.imports.get(componentKey(node.name))
+    if (!node.typography && !(child && componentRendersTypography(child))) continue
+    for (let current = node; current; current = current.parent) addNode(current)
   }
   return evidence
 }
