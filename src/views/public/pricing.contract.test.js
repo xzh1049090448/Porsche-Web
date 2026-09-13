@@ -915,21 +915,32 @@ const staticBindingInitializers = (value, importer) => {
       if (expression?.type === 'SequenceExpression') return resolvedLocalValues(expression.expressions.at(-1), local, resolving)
       return expression ? [expression] : []
     }
-    const exposeSetup = (declaration, target) => {
-      let options = unwrapExpression(declaration)
-      if (['CallExpression', 'OptionalCallExpression'].includes(options?.type) && options.callee?.type === 'Identifier' && options.callee.name === 'defineComponent') options = unwrapExpression(options.arguments[0])
-      if (options?.type !== 'ObjectExpression') return
-      const setupProperty = options.properties.find(property => staticPropertyKey(property.key) === 'setup')
-      const setup = setupProperty?.type === 'ObjectMethod' ? setupProperty : unwrapExpression(setupProperty?.value)
-      if (!setup?.body) return
+    const exposeReturnedObject = (fn, target) => {
+      if (!fn?.body) return
       const local = new Map(target)
-      if (setup.body.type === 'BlockStatement') process(setup.body.body, local)
-      const returnedValues = setup.body.type === 'BlockStatement' ? setupReturns(setup.body) : [setup.body]
+      if (fn.body.type === 'BlockStatement') process(fn.body.body, local)
+      const returnedValues = fn.body.type === 'BlockStatement' ? setupReturns(fn.body) : [fn.body]
       for (const returned of returnedValues) for (const object of resolvedLocalValues(returned, local)) if (object?.type === 'ObjectExpression') {
         for (const property of object.properties) {
           if (property.type === 'SpreadElement') {
             for (const spread of resolvedLocalValues(property.argument, local)) if (spread?.type === 'ObjectExpression') for (const item of spread.properties) if (item.type !== 'SpreadElement') target.set(staticPropertyKey(item.key), resolvedLocalValues(propertyExpression(item), local))
           } else target.set(staticPropertyKey(property.key), resolvedLocalValues(propertyExpression(property), local))
+        }
+      }
+    }
+    const exposeOptions = (declaration, target) => {
+      const candidates = resolvedLocalValues(declaration, target).flatMap(candidate => ['CallExpression', 'OptionalCallExpression'].includes(candidate?.type) && candidate.callee?.type === 'Identifier' && candidate.callee.name === 'defineComponent' ? resolvedLocalValues(candidate.arguments[0], target) : [candidate])
+      for (const options of candidates) if (options?.type === 'ObjectExpression') {
+        for (const name of ['setup', 'data']) {
+          const property = options.properties.find(candidate => staticPropertyKey(candidate.key) === name)
+          exposeReturnedObject(property?.type === 'ObjectMethod' ? property : unwrapExpression(property?.value), target)
+        }
+        for (const name of ['computed', 'methods']) {
+          const property = options.properties.find(candidate => staticPropertyKey(candidate.key) === name)
+          for (const registry of resolvedLocalValues(propertyExpression(property || {}), target)) if (registry?.type === 'ObjectExpression') for (const item of registry.properties) {
+            if (item.type === 'SpreadElement') continue
+            target.set(staticPropertyKey(item.key), resolvedLocalValues(propertyExpression(item), target))
+          }
         }
       }
     }
@@ -939,7 +950,7 @@ const staticBindingInitializers = (value, importer) => {
         if (!node) continue
         if (node.type === 'FunctionDeclaration' && node.id) target.set(node.id.name, [node])
         else if (node.type === 'VariableDeclaration') for (const declaration of node.declarations) bindPattern(declaration.id, declaration.init, target)
-        else if (node.type === 'ExportDefaultDeclaration') exposeSetup(node.declaration, target)
+        else if (node.type === 'ExportDefaultDeclaration') exposeOptions(node.declaration, target)
         else if (node.type === 'ExpressionStatement') applyExpression(node.expression, target)
         else if (node.type === 'BlockStatement') process(node.body, target)
         else if (node.type === 'IfStatement') {

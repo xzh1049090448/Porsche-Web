@@ -96,35 +96,93 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
     try { ast = vueCompiler.babelParse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
     catch (error) { throw new Error(`home component wiring must parse cleanly: ${error.message}`, { cause: error }) }
     const imports = new Map()
-    const aliases = new Map()
+    const bindings = new Map()
     for (const statement of ast.program.body) if (statement.type === 'ImportDeclaration') {
       for (const specifier of statement.specifiers) imports.set(specifier.local.name, statement.source.value)
     }
-    for (const statement of ast.program.body) if (statement.type === 'VariableDeclaration') for (const declaration of statement.declarations) {
-      if (declaration.id?.type === 'Identifier' && declaration.init?.type === 'Identifier') aliases.set(declaration.id.name, declaration.init.name)
-    }
-    const importedSource = (local, resolving = new Set()) => {
-      if (!local || resolving.has(local)) return undefined
-      if (imports.has(local)) return imports.get(local)
-      return importedSource(aliases.get(local), new Set(resolving).add(local))
-    }
-    if (block === descriptor.scriptSetup) for (const local of new Set([...imports.keys(), ...aliases.keys()])) {
-      if (sourceMatches(importedSource(local))) wiredNames.add(normalizedComponentName(local))
-    }
-    for (const statement of ast.program.body) {
-      if (statement.type !== 'ExportDefaultDeclaration') continue
-      let options = statement.declaration
-      if (['CallExpression', 'OptionalCallExpression'].includes(options?.type) && options.callee?.type === 'Identifier' && options.callee.name === 'defineComponent') options = options.arguments[0]
-      if (options?.type !== 'ObjectExpression') continue
-      const components = options.properties.find(property => (property.key?.name ?? property.key?.value) === 'components')
-      const registry = components?.type === 'ObjectMethod' ? undefined : components?.value
-      if (registry?.type !== 'ObjectExpression') continue
-      for (const property of registry.properties) {
-        if (property.type === 'SpreadElement') continue
-        const registered = property.key?.name ?? property.key?.value
-        const local = property.shorthand ? property.key?.name : property.value?.name
-        if (sourceMatches(importedSource(local))) wiredNames.add(normalizedComponentName(registered))
+    const member = (object, key) => ({ type: 'MemberExpression', object, property: { type: 'StringLiteral', value: String(key) }, computed: true })
+    const select = (expression, key) => {
+      expression = unwrapExpression(expression)
+      if (expression?.type === 'ArrayExpression') return expression.elements[Number(key)]
+      if (expression?.type === 'ObjectExpression') {
+        let found
+        for (const property of expression.properties) {
+          if (property.type === 'SpreadElement') {
+            const spread = select(property.argument, key)
+            if (spread) found = spread
+          } else if (staticPropertyKey(property.key) === String(key)) found = propertyExpression(property)
+        }
+        if (found) return found
       }
+      return member(expression, key)
+    }
+    const bind = (pattern, expression, target) => {
+      pattern = unwrapExpression(pattern)
+      if (pattern?.type === 'Identifier') { target.set(pattern.name, expression); return }
+      if (pattern?.type === 'AssignmentPattern') { bind(pattern.left, expression || pattern.right, target); return }
+      if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bind(property.value, select(expression, staticPropertyKey(property.key)), target)
+      if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bind(pattern.elements[index], select(expression, index), target)
+    }
+    const merged = (left, right) => {
+      const result = new Map()
+      for (const name of new Set([...left.keys(), ...right.keys()])) {
+        const before = left.get(name); const after = right.get(name)
+        result.set(name, before === after ? before : { type: 'ConditionalExpression', test: { type: 'Identifier', name: '__dynamic_branch__' }, consequent: after || { type: 'Identifier', name: 'undefined' }, alternate: before || { type: 'Identifier', name: 'undefined' } })
+      }
+      return result
+    }
+    let exported
+    const process = (statements, target) => {
+      for (const statement of statements || []) {
+        if (!statement) continue
+        if (statement.type === 'VariableDeclaration') {
+          for (const declaration of statement.declarations) if (declaration.init) bind(declaration.id, declaration.init, target)
+        } else if (statement.type === 'ExpressionStatement') {
+          const expression = unwrapExpression(statement.expression)
+          if (expression?.type === 'AssignmentExpression' && expression.operator === '=') bind(expression.left, expression.right, target)
+        } else if (statement.type === 'IfStatement') {
+          const condition = staticValue(statement.test)
+          if (condition !== unknownStaticValue) process((condition ? statement.consequent : statement.alternate)?.type === 'BlockStatement' ? (condition ? statement.consequent : statement.alternate).body : [condition ? statement.consequent : statement.alternate], target)
+          else {
+            const left = new Map(target); const right = new Map(target)
+            process(statement.consequent?.type === 'BlockStatement' ? statement.consequent.body : [statement.consequent], left)
+            process(statement.alternate?.type === 'BlockStatement' ? statement.alternate.body : [statement.alternate], right)
+            target.clear(); for (const [name, expression] of merged(left, right)) target.set(name, expression)
+          }
+        } else if (statement.type === 'ExportDefaultDeclaration') exported = statement.declaration
+      }
+    }
+    process(ast.program.body, bindings)
+    const possibilities = (expression, resolving = new Set()) => {
+      expression = unwrapExpression(expression)
+      if (!expression || resolving.size > 32) return []
+      if (expression.type === 'Identifier' && bindings.has(expression.name) && !resolving.has(expression.name)) return possibilities(bindings.get(expression.name), new Set(resolving).add(expression.name))
+      if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) {
+        const key = expression.computed ? staticPropertyKey(expression.property) : expression.property?.name
+        return possibilities(expression.object, resolving).flatMap(object => ['ObjectExpression', 'ArrayExpression'].includes(object?.type) ? possibilities(select(object, key), resolving) : [])
+      }
+      if (expression.type === 'ConditionalExpression') return [...possibilities(expression.consequent, resolving), ...possibilities(expression.alternate, resolving)]
+      if (expression.type === 'SequenceExpression') return possibilities(expression.expressions.at(-1), resolving)
+      return [expression]
+    }
+    const authoritative = expression => {
+      const candidates = possibilities(expression)
+      return candidates.length > 0 && candidates.every(candidate => candidate.type === 'Identifier' && sourceMatches(imports.get(candidate.name)))
+    }
+    if (block === descriptor.scriptSetup) for (const local of new Set([...imports.keys(), ...bindings.keys()])) if (authoritative({ type: 'Identifier', name: local })) wiredNames.add(normalizedComponentName(local))
+    const objectMaps = (expression, resolving = new Set()) => possibilities(expression, resolving).flatMap(candidate => {
+      if (['CallExpression', 'OptionalCallExpression'].includes(candidate?.type) && candidate.callee?.type === 'Identifier' && candidate.callee.name === 'defineComponent') return objectMaps(candidate.arguments[0], resolving)
+      if (candidate?.type !== 'ObjectExpression') return []
+      const map = new Map()
+      for (const property of candidate.properties) {
+        if (property.type === 'SpreadElement') for (const spread of objectMaps(property.argument, resolving)) for (const [name, value] of spread) map.set(name, value)
+        else map.set(staticPropertyKey(property.key), propertyExpression(property))
+      }
+      return [map]
+    })
+    const registries = objectMaps(exported).flatMap(options => objectMaps(options.get('components')))
+    for (const registered of new Set(registries.flatMap(registry => [...registry.keys()]))) {
+      if (registries.length > 0 && registries.every(registry => registry.has(registered) && authoritative(registry.get(registered)))) wiredNames.add(normalizedComponentName(registered))
     }
   }
   const renderedCount = node => {
@@ -313,21 +371,32 @@ const staticBindingInitializers = value => {
       if (expression?.type === 'SequenceExpression') return resolvedLocalValues(expression.expressions.at(-1), local, resolving)
       return expression ? [expression] : []
     }
-    const exposeSetup = (declaration, target) => {
-      let options = unwrapExpression(declaration)
-      if (['CallExpression', 'OptionalCallExpression'].includes(options?.type) && options.callee?.type === 'Identifier' && options.callee.name === 'defineComponent') options = unwrapExpression(options.arguments[0])
-      if (options?.type !== 'ObjectExpression') return
-      const setupProperty = options.properties.find(property => staticPropertyKey(property.key) === 'setup')
-      const setup = setupProperty?.type === 'ObjectMethod' ? setupProperty : unwrapExpression(setupProperty?.value)
-      if (!setup?.body) return
+    const exposeReturnedObject = (fn, target) => {
+      if (!fn?.body) return
       const local = new Map(target)
-      if (setup.body.type === 'BlockStatement') process(setup.body.body, local)
-      const returnedValues = setup.body.type === 'BlockStatement' ? setupReturns(setup.body) : [setup.body]
+      if (fn.body.type === 'BlockStatement') process(fn.body.body, local)
+      const returnedValues = fn.body.type === 'BlockStatement' ? setupReturns(fn.body) : [fn.body]
       for (const returned of returnedValues) for (const object of resolvedLocalValues(returned, local)) if (object?.type === 'ObjectExpression') {
         for (const property of object.properties) {
           if (property.type === 'SpreadElement') {
             for (const spread of resolvedLocalValues(property.argument, local)) if (spread?.type === 'ObjectExpression') for (const item of spread.properties) if (item.type !== 'SpreadElement') target.set(staticPropertyKey(item.key), resolvedLocalValues(propertyExpression(item), local))
           } else target.set(staticPropertyKey(property.key), resolvedLocalValues(propertyExpression(property), local))
+        }
+      }
+    }
+    const exposeOptions = (declaration, target) => {
+      const candidates = resolvedLocalValues(declaration, target).flatMap(candidate => ['CallExpression', 'OptionalCallExpression'].includes(candidate?.type) && candidate.callee?.type === 'Identifier' && candidate.callee.name === 'defineComponent' ? resolvedLocalValues(candidate.arguments[0], target) : [candidate])
+      for (const options of candidates) if (options?.type === 'ObjectExpression') {
+        for (const name of ['setup', 'data']) {
+          const property = options.properties.find(candidate => staticPropertyKey(candidate.key) === name)
+          exposeReturnedObject(property?.type === 'ObjectMethod' ? property : unwrapExpression(property?.value), target)
+        }
+        for (const name of ['computed', 'methods']) {
+          const property = options.properties.find(candidate => staticPropertyKey(candidate.key) === name)
+          for (const registry of resolvedLocalValues(propertyExpression(property || {}), target)) if (registry?.type === 'ObjectExpression') for (const item of registry.properties) {
+            if (item.type === 'SpreadElement') continue
+            target.set(staticPropertyKey(item.key), resolvedLocalValues(propertyExpression(item), target))
+          }
         }
       }
     }
@@ -337,7 +406,7 @@ const staticBindingInitializers = value => {
         if (!node) continue
         if (node.type === 'FunctionDeclaration' && node.id) target.set(node.id.name, [node])
         else if (node.type === 'VariableDeclaration') for (const declaration of node.declarations) bindPattern(declaration.id, declaration.init, target)
-        else if (node.type === 'ExportDefaultDeclaration') exposeSetup(node.declaration, target)
+        else if (node.type === 'ExportDefaultDeclaration') exposeOptions(node.declaration, target)
         else if (node.type === 'ExpressionStatement') applyExpression(node.expression, target)
         else if (node.type === 'BlockStatement') process(node.body, target)
         else if (node.type === 'IfStatement') {
@@ -649,12 +718,13 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
         const vnodeTypes = resolvedVNodeOutcomes(node.arguments[0])
         const rendersChildren = vnodeTypes.length === 0 || vnodeTypes.some(type => ['native', 'component', 'unknown', 'fragment'].includes(type.kind))
         const executesSlots = vnodeTypes.length === 0 || vnodeTypes.some(type => ['component', 'unknown'].includes(type.kind))
+        const executesDirectFunction = vnodeTypes.length === 0 || vnodeTypes.some(type => ['native', 'component', 'unknown'].includes(type.kind))
         const children = node.arguments.length >= 3 ? node.arguments.slice(2) : node.arguments.slice(1)
-        const inspectRenderedChild = child => {
+        const inspectRenderedChild = (child, arrayValue = false) => {
           child = unwrapExpression(child)
           if (!child) return false
-          if (child.type === 'ArrayExpression') return rendersChildren && child.elements.some(inspectRenderedChild)
-          if (['ArrowFunctionExpression', 'FunctionExpression'].includes(child.type)) return executesSlots && returns(child.body).some(result => inspect(result, resolving))
+          if (child.type === 'ArrayExpression') return rendersChildren && child.elements.some(value => inspectRenderedChild(value, true))
+          if (['ArrowFunctionExpression', 'FunctionExpression'].includes(child.type)) return !arrayValue && executesDirectFunction && returns(child.body).some(result => inspect(result, resolving))
           if (child.type === 'ObjectExpression') return executesSlots && child.properties.some(property => inspect(property.type === 'ObjectMethod' ? property : property.value, resolving))
           return rendersChildren && inspect(child, resolving)
         }

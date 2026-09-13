@@ -453,12 +453,13 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
       const vnodeTypes = resolvedVNodeOutcomes(node.arguments[0])
       const rendersChildren = vnodeTypes.length === 0 || vnodeTypes.some(type => ['native', 'component', 'unknown', 'fragment'].includes(type.kind))
       const executesSlots = vnodeTypes.length === 0 || vnodeTypes.some(type => ['component', 'unknown'].includes(type.kind))
+      const executesDirectFunction = vnodeTypes.length === 0 || vnodeTypes.some(type => ['native', 'component', 'unknown'].includes(type.kind))
       const children = node.arguments.length >= 3 ? node.arguments.slice(2) : node.arguments.slice(1)
-      const inspectRenderedChild = child => {
+      const inspectRenderedChild = (child, arrayValue = false) => {
         child = unwrapScriptExpression(child)
         if (!child) return false
-        if (child.type === 'ArrayExpression') return rendersChildren && child.elements.some(inspectRenderedChild)
-        if (['ArrowFunctionExpression', 'FunctionExpression'].includes(child.type)) return executesSlots && returns(child.body).some(value => inspect(value, resolving))
+        if (child.type === 'ArrayExpression') return rendersChildren && child.elements.some(value => inspectRenderedChild(value, true))
+        if (['ArrowFunctionExpression', 'FunctionExpression'].includes(child.type)) return !arrayValue && executesDirectFunction && returns(child.body).some(value => inspect(value, resolving))
         if (child.type === 'ObjectExpression') {
           if (!executesSlots) return false
           return child.properties.some(property => property.type === 'SpreadElement'
