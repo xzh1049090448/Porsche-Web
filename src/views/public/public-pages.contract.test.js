@@ -11,7 +11,7 @@ test('public shell and homepage preserve the published-content contract', () => 
   const footer = source('../../components/public/PublicFooter.vue')
   assert.match(layout, /h\(PublicHeader/)
   assert.match(layout, /h\(PublicFooter/)
-  assert.deepEqual([...home.matchAll(/data-section="([^"]+)"/g)].map(match => match[1]), ['hero', 'advantages', 'models', 'announcements-faq', 'cta'])
+  assert.deepEqual([...home.matchAll(/data-section="([^"]+)"/g)].map(match => match[1]), ['hero', 'proof', 'advantages', 'models', 'announcements-faq', 'cta'])
   assert.match(home, /演示|demo/i)
   assert.match(home, /releaseVersion/)
   assert.match(home, /localStorage/)
@@ -27,6 +27,8 @@ test('public shell and homepage preserve the published-content contract', () => 
   assert.match(home, /const load = \(\) => loadHome\(\)/)
   assert.match(home, /@retry="load"/)
   assert.match(home, /to=["']\/chat["']/)
+  assert.match(home, /<RouterLink\b[^>]*\bto=["']\/chat["']/)
+  assert.match(home, /<RouterLink\b[^>]*\bto=["']\/pricing["']/)
   assert.doesNotMatch(`${layout}${home}${header}${footer}`, /href=["']#["']/)
   assert.doesNotMatch(`${layout}${home}${header}${footer}`, /(?:>|['"])(?:40\+|100%|MIT|永久免费)(?:<|['"])/)
 })
@@ -144,7 +146,18 @@ test('public content pages compose the approved safe landing system', () => {
   assert.match(preview, /preview-banner/)
   assert.match(preview, /aria-live="polite"/)
   assert.match(`${home}${about}${legal}`, /v-html="(?:home\.|content\.)/)
-  for (const forbidden of ['ModelHub', '40+', '100%', 'MIT License']) {
-    assert.doesNotMatch(sourceBundle, new RegExp(forbidden.replace('+', '\\+')))
+  const forbiddenClaims = [
+    [/ModelHub/i, 'prototype product name'],
+    [/(?:>|['"])[^<"']*40\+[^<"']*(?:<|['"])/i, 'prototype model count'],
+    [/(?:>|['"])[^<"']*100%[^<"']*(?:<|['"])/i, 'prototype percentage claim'],
+    [/MIT License/i, 'prototype license claim'],
+    [/cdn\.tailwindcss\.com|tailwindcss\.com\/[^\s"']*cdn/i, 'Tailwind CDN'],
+    [/(?:admin|demo)(?:@[^\s<"']+)?\s*(?:\/|:|：)\s*(?:admin|password|123456)/i, 'demo credentials'],
+    [/(?:API[_ -]?KEY\s*[=:]|sk-[A-Za-z0-9_-]{8,})/i, 'demo API credential'],
+    [/(?:>|['"])[^<"']*\d+(?:\.\d+)?\s*(?:x|×|倍)[^<"']*(?:<|['"])/i, 'prototype multiplier'],
+    [/(?:单次调用价|(?:每次请求|每请求)[^<\n]{0,20}(?:价|[$¥￥]\s*\d)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request\b|per[- ]request\s+(?:price|pricing))/i, 'per-request pricing'],
+  ]
+  for (const [pattern, label] of forbiddenClaims) {
+    assert.doesNotMatch(sourceBundle, pattern, label)
   }
 })

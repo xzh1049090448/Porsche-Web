@@ -18,14 +18,38 @@ test('pricing routes load real lazy pages and preserve encoded stable modelKey',
 test('catalog exposes desktop filters/table, mobile drawer/cards and accessible controls', async () => {
   const [page, filters, table, cards, styles] = await Promise.all([read('./Pricing.vue'), read('../../components/public/PricingFilters.vue'), read('../../components/public/PricingTable.vue'), read('../../components/public/PricingCards.vue'), read('../../styles/public-pricing.scss')])
   assert.match(page, /@\/styles\/public-pricing\.scss/)
-  assert.match(styles, /max-width:\s*1600px/); assert.match(styles, /grid-template-columns:\s*260px/); assert.match(styles, /@media\s*\(max-width:\s*767px\)/)
+  assert.match(styles, /max-width:\s*1600px/); assert.match(styles, /\.pricing-layout\s*\{[^}]*grid-template-columns:\s*260px\s+minmax\(0,\s*1fr\)/s); assert.match(styles, /@media\s*\(max-width:\s*767px\)/)
   assert.match(page, /PricingFilters/); assert.match(page, /PricingTable/); assert.match(page, /PricingCards/)
-  assert.match(page, /class="pricing-toolbar"/); assert.match(page, /class="pricing-results-count"/)
+  for (const className of ['pricing-layout', 'pricing-sidebar', 'pricing-toolbar']) assert.match(page, new RegExp(`class="${className}"`))
+  assert.match(page, /class="pricing-results-count"/)
   assert.match(page, /role="dialog"/); assert.match(page, /aria-modal="true"/)
   assert.match(page, /aria-controls="pricing-filter-drawer"/); assert.match(page, /:aria-expanded="drawerOpen"/)
   for (const field of ['search', 'provider', 'capability', 'endpoint', 'group', 'sort']) assert.match(filters, new RegExp(`name="${field}"`))
   assert.match(table, /publicPriceState/); assert.match(cards, /publicPriceState/)
+  assert.match(table, /pricingCatalog\.inputPrice/); assert.match(table, /pricingCatalog\.outputPrice/)
+  assert.match(cards, /price\(model,['"]input['"]\)/); assert.match(cards, /price\(model,['"]output['"]\)/)
+  assert.match(table, /class="pricing-table"/); assert.match(cards, /class="pricing-cards"/)
+  assert.match(styles, /\.pricing-page \.pricing-table-wrap\s*\{\s*display:\s*none/s)
+  assert.match(cards, /@media\s*\(\s*max-width:\s*767px\s*\)\s*\{\s*\.pricing-cards\s*\{\s*display:\s*grid/s)
+  assert.match(styles, /\.pricing-drawer\s*\{[^}]*display:\s*block/s)
   assert.match(styles, /min-height:\s*44px/); assert.match(styles, /focus-visible/)
+})
+
+test('pricing presentation rejects prototype counts, multipliers and per-request prices', async () => {
+  const presentation = (await Promise.all([
+    read('./Pricing.vue'),
+    read('./ModelPricingDetail.vue'),
+    read('../../components/public/PricingFilters.vue'),
+    read('../../components/public/PricingTable.vue'),
+    read('../../components/public/PricingCards.vue'),
+    read('../../styles/public-pricing.scss'),
+  ])).join('\n')
+  const forbidden = [
+    [/40\+|\b\d+\+\s*(?:个|款|models?)/i, 'hard-coded prototype model count'],
+    [/(?:>|['"])[^<"']*\d+(?:\.\d+)?\s*(?:x|×|倍)[^<"']*(?:<|['"])/i, 'prototype multiplier'],
+    [/(?:单次调用价|(?:每次请求|每请求)[^<\n]{0,20}(?:价|[$¥￥]\s*\d)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request\b|per[- ]request\s+(?:price|pricing))/i, 'per-request price'],
+  ]
+  for (const [pattern, label] of forbidden) assert.doesNotMatch(presentation, pattern, label)
 })
 
 test('detail presents stable identity, two token price cards, metadata, disclaimer and console action', async () => {
