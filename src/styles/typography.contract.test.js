@@ -123,13 +123,18 @@ const mediaQueryMatchesScreen = (query, width, reduced) => {
 }
 const mediaMatchesScreen = (conditions, width, reduced) => conditions.every(condition => splitTopLevel(condition, ',').some(query => mediaQueryMatchesScreen(query, width, reduced)))
 const representativeScreenWidths = (...stylesheets) => {
-  const thresholds = stylesheets.flat().flatMap(rule => rule.media.flatMap(condition => splitTopLevel(condition, ',')))
+  const thresholds = [...new Set(stylesheets.flat().flatMap(rule => rule.media.flatMap(condition => splitTopLevel(condition, ',')))
     .filter(mediaQueryIsScreen)
-    .flatMap(query => [...query.matchAll(/(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1])))
+    .flatMap(query => [...query.matchAll(/(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))))]
+    .filter(threshold => Number.isFinite(threshold) && threshold > 0 && threshold <= Number.MAX_SAFE_INTEGER)
+    .sort((left, right) => left - right)
   const widths = new Set([375, 767, 768, 1440])
-  for (const threshold of thresholds) for (const candidate of [threshold - 1, threshold - 0.01, threshold, threshold + 0.01, threshold + 1]) {
-    if (candidate >= 1 && candidate <= 4096) widths.add(Number(candidate.toFixed(4)))
+  const add = candidate => { if (Number.isFinite(candidate) && candidate > 0 && candidate <= Number.MAX_SAFE_INTEGER) widths.add(candidate) }
+  for (const threshold of thresholds) {
+    const delta = Math.max(0.01, Math.abs(threshold) * Number.EPSILON * 8)
+    for (const candidate of [threshold - 1, threshold - delta, threshold, threshold + delta, threshold + 1]) add(candidate)
   }
+  for (let index = 1; index < thresholds.length; index += 1) add(thresholds[index - 1] + (thresholds[index] - thresholds[index - 1]) / 2)
   return [...widths].sort((left, right) => left - right)
 }
 const allScreenWidths = representativeScreenWidths(...surfaces)
