@@ -212,6 +212,15 @@ const assertMinimumControl = (stylesheet, selector, property, message, widths = 
     }
   }
 }
+const assertNoTypographyScaling = (stylesheet, selector, widths = allScreenWidths) => {
+  for (const width of widths) for (const reduced of [false, true]) for (const rule of stylesheet) {
+    if (!mediaMatchesScreen(rule.media, width, reduced) || !rule.selectors.some(candidate => selectorTargetsContract(candidate, selector))) continue
+    for (const declaration of rule.declarations) {
+      assert.notEqual(declaration.property, 'zoom', `${selector} must not resize typography with zoom through ${rule.selectors.join(', ')} at ${width}px`)
+      if (declaration.property === 'transform') assert.doesNotMatch(declaration.value, /\bscale(?:x|y|3d)?\s*\(/i, `${selector} must not resize typography with transform scale through ${rule.selectors.join(', ')} at ${width}px`)
+    }
+  }
+}
 
 test('semantic typography tokens keep the approved exact pixel scale', () => {
   const expected = {
@@ -271,15 +280,7 @@ test('typography stays at real size and interactive controls retain 44px targets
         if (!/(?:^|[-_])icon(?:$|[-_\s.:>])|\bsvg\b|spinner/i.test(selector)) typographySelectors.add(selector.trim())
       }
     }
-    for (const selector of typographySelectors) {
-      for (const rule of exactRules(stylesheet, selector, 'all')) {
-        if (/:hover|:active|:focus/.test(selector)) continue
-        for (const node of rule.declarations) {
-          assert.notEqual(node.property, 'zoom', `${selector} must not resize typography with zoom`)
-          if (node.property === 'transform') assert.doesNotMatch(node.value, /\bscale(?:x|y|3d)?\s*\(/i, `${selector} must not resize typography with transform scale`)
-        }
-      }
-    }
+    for (const selector of typographySelectors) assertNoTypographyScaling(stylesheet, selector)
   }
 
   assertMapping(tokens, 'html:root', '--control-min-size', '44px', 'shared controls retain a 44px minimum')

@@ -289,6 +289,71 @@ const directlyReadStateMembers = (node, origins, definitions, resolving = new Se
   }
   return members
 }
+const derivedStateMember = (node, origins, definitions, resolving = new Set()) => {
+  node = unwrapExpression(node)
+  if (!node) return undefined
+  if (node.type === 'Identifier' && definitions.has(node.name)) {
+    if (resolving.has(node.name)) return undefined
+    return derivedStateMember(definitions.get(node.name), origins, definitions, new Set([...resolving, node.name]))
+  }
+  if (!['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) return undefined
+  const property = node.computed ? staticPropertyKey(node.property) : node.property?.name
+  return ['state', 'value'].includes(String(property)) && expressionDerivedFrom(node, origins, definitions) ? String(property) : undefined
+}
+const labelConditionModes = (node, origins, definitions, inherited = 'unknown') => {
+  node = unwrapExpression(node)
+  if (node?.type !== 'BinaryExpression' || !['===', '==', '!==', '!='].includes(node.operator)) return [inherited, inherited]
+  const pairs = [[node.left, node.right], [node.right, node.left]]
+  const pair = pairs.find(([member, literal]) => derivedStateMember(member, origins, definitions) === 'state' && literal?.type === 'StringLiteral')
+  if (!pair) return [inherited, inherited]
+  const status = pair[1].value
+  const equal = ['===', '=='].includes(node.operator)
+  if (status === 'published') return equal ? ['published', 'nonpublished'] : ['nonpublished', 'published']
+  return equal ? ['nonpublished', inherited] : [inherited, 'nonpublished']
+}
+const legitimateFallback = (node, origins, definitions, mode) => {
+  node = unwrapExpression(node)
+  if (mode !== 'nonpublished' || !node) return false
+  if (node.type === 'StringLiteral') return /^(?:—|-|N\/A)$/i.test(node.value.trim())
+  if (!['CallExpression', 'OptionalCallExpression'].includes(node.type) || node.callee?.type !== 'Identifier' || node.callee.name !== 't') return false
+  const members = directlyReadStateMembers(node.arguments, origins, definitions)
+  const knownFallbackKey = node.arguments.some(argument => argument?.type === 'StringLiteral' && /(?:unpublished|login.?required|missing|unavailable)/i.test(argument.value))
+  return members.has('state') || knownFallbackKey
+}
+const validLabelExpression = (node, origins, definitions, mode = 'unknown', resolving = new Set()) => {
+  node = unwrapExpression(node)
+  if (!node) return false
+  if (node.type === 'Identifier' && definitions.has(node.name)) {
+    if (resolving.has(node.name)) return false
+    return validLabelExpression(definitions.get(node.name), origins, definitions, mode, new Set([...resolving, node.name]))
+  }
+  if (node.type === 'ConditionalExpression') {
+    const [consequentMode, alternateMode] = labelConditionModes(node.test, origins, definitions, mode)
+    if (consequentMode === mode && alternateMode === mode) return false
+    return validLabelExpression(node.consequent, origins, definitions, consequentMode, resolving)
+      && validLabelExpression(node.alternate, origins, definitions, alternateMode, resolving)
+  }
+  if (mode === 'published') return derivedStateMember(node, origins, definitions, resolving) === 'value'
+  return legitimateFallback(node, origins, definitions, mode)
+}
+const returnedLabelExpressions = (node, definitions, resolving = new Set()) => {
+  node = unwrapExpression(node)
+  if (!node) return []
+  if (node.type === 'Identifier' && definitions.has(node.name)) {
+    if (resolving.has(node.name)) return []
+    return returnedLabelExpressions(definitions.get(node.name), definitions, new Set([...resolving, node.name]))
+  }
+  if (node.type === 'SequenceExpression') return returnedLabelExpressions(node.expressions.at(-1), definitions, resolving)
+  if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') return [node.consequent || node.left, node.alternate || node.right].flatMap(branch => returnedLabelExpressions(branch, definitions, resolving))
+  if (node.type !== 'ObjectExpression') return []
+  for (let index = node.properties.length - 1; index >= 0; index -= 1) {
+    const property = node.properties[index]
+    if (property.type === 'SpreadElement') continue
+    const key = property.computed ? staticPropertyKey(property.key) : property.key?.name || property.key?.value
+    if (String(key) === 'label') return [property.value]
+  }
+  return []
+}
 const forwardedArgument = (argument, binding, renderedCall) => {
   argument = unwrapExpression(argument)
   if (argument?.type !== 'Identifier') return undefined
@@ -322,27 +387,52 @@ const transparentlyCarriesState = (node, origins, definitions, resolving = new S
 }
 const helperReturnsCorrectState = (binding, component, modelName, renderedCall, renderedPaths) => {
   const origins = node => ['CallExpression', 'OptionalCallExpression'].includes(node?.type) && correctPublicStateCall(node, component, modelName, binding, renderedCall)
-  if (binding.body?.type !== 'BlockStatement') return transparentlyCarriesState(binding.body, origins, new Map())
-    && renderedPaths.every(path => expressionDerivedFrom(binding.body, origins, new Map(), path))
+  const returnIsValid = (node, definitions, mode, resolving = new Set()) => {
+    node = unwrapExpression(node)
+    if (!node) return false
+    if (node.type === 'Identifier' && definitions.has(node.name)) {
+      if (resolving.has(node.name)) return false
+      return returnIsValid(definitions.get(node.name), definitions, mode, new Set([...resolving, node.name]))
+    }
+    if (node.type === 'SequenceExpression') return returnIsValid(node.expressions.at(-1), definitions, mode, resolving)
+    if (node.type === 'ConditionalExpression') {
+      const [consequentMode, alternateMode] = labelConditionModes(node.test, origins, definitions, mode)
+      return returnIsValid(node.consequent, definitions, consequentMode, resolving)
+        && returnIsValid(node.alternate, definitions, alternateMode, resolving)
+    }
+    const labels = returnedLabelExpressions(node, definitions)
+    return transparentlyCarriesState(node, origins, definitions)
+      && renderedPaths.every(path => path[0] === 'label'
+        ? labels.length > 0 && labels.every(label => validLabelExpression(label, origins, definitions, mode))
+        : expressionDerivedFrom(node, origins, definitions, path))
+  }
+  if (binding.body?.type !== 'BlockStatement') return returnIsValid(binding.body, new Map(), 'unknown')
   const returns = []
-  const visitStatements = (statements, inherited = new Map()) => {
+  const alwaysReturns = statement => statement?.type === 'ReturnStatement'
+    || (statement?.type === 'BlockStatement' && alwaysReturns(statement.body.at(-1)))
+    || (statement?.type === 'IfStatement' && statement.alternate && alwaysReturns(statement.consequent) && alwaysReturns(statement.alternate))
+  const visitStatements = (statements, inherited = new Map(), inheritedMode = 'unknown') => {
     const definitions = new Map(inherited)
+    let mode = inheritedMode
     for (const statement of statements || []) {
       if (statement.type === 'VariableDeclaration') {
         for (const declaration of statement.declarations) if (declaration.id?.type === 'Identifier' && declaration.init) definitions.set(declaration.id.name, declaration.init)
-      } else if (statement.type === 'ReturnStatement') returns.push(transparentlyCarriesState(statement.argument, origins, definitions)
-        && renderedPaths.every(path => expressionDerivedFrom(statement.argument, origins, definitions, path)))
-      else if (statement.type === 'BlockStatement') visitStatements(statement.body, definitions)
+      } else if (statement.type === 'ReturnStatement') { returns.push(returnIsValid(statement.argument, definitions, mode)); return true }
+      else if (statement.type === 'BlockStatement') { if (visitStatements(statement.body, definitions, mode)) return true }
       else if (statement.type === 'IfStatement') {
-        visitStatements(statement.consequent?.type === 'BlockStatement' ? statement.consequent.body : [statement.consequent], definitions)
-        if (statement.alternate) visitStatements(statement.alternate.type === 'BlockStatement' ? statement.alternate.body : [statement.alternate], definitions)
-      } else if (statement.type === 'SwitchStatement') for (const branch of statement.cases) visitStatements(branch.consequent, definitions)
+        const [consequentMode, alternateMode] = labelConditionModes(statement.test, origins, definitions, mode)
+        visitStatements(statement.consequent?.type === 'BlockStatement' ? statement.consequent.body : [statement.consequent], definitions, consequentMode)
+        if (statement.alternate) visitStatements(statement.alternate.type === 'BlockStatement' ? statement.alternate.body : [statement.alternate], definitions, alternateMode)
+        if (statement.alternate && alwaysReturns(statement.consequent) && alwaysReturns(statement.alternate)) return true
+        if (!statement.alternate && alwaysReturns(statement.consequent)) mode = alternateMode
+      } else if (statement.type === 'SwitchStatement') for (const branch of statement.cases) visitStatements(branch.consequent, definitions, mode)
       else if (statement.type === 'TryStatement') {
-        visitStatements(statement.block?.body, definitions)
-        visitStatements(statement.handler?.body?.body, definitions)
-        visitStatements(statement.finalizer?.body, definitions)
+        visitStatements(statement.block?.body, definitions, mode)
+        visitStatements(statement.handler?.body?.body, definitions, mode)
+        visitStatements(statement.finalizer?.body, definitions, mode)
       }
     }
+    return false
   }
   visitStatements(binding.body.body)
   return returns.length > 0 && returns.every(Boolean)
@@ -350,9 +440,9 @@ const helperReturnsCorrectState = (binding, component, modelName, renderedCall, 
 const staticRenderedLabel = node => {
   node = unwrapExpression(node)
   if (!node) return false
-  if (staticValue(node) !== unknownStaticValue) return true
-  if (node.type === 'TemplateLiteral') return node.expressions.length === 0
-  return ['CallExpression', 'OptionalCallExpression'].includes(node.type) && node.callee?.type === 'Identifier' && node.callee.name === 't' && node.arguments.every(staticRenderedLabel)
+  if (node.type === 'StringLiteral') return /^(?:—|-|N\/A|.*(?:unpublished|login.?required|missing|unavailable).*)$/i.test(node.value.trim())
+  return ['CallExpression', 'OptionalCallExpression'].includes(node.type) && node.callee?.type === 'Identifier' && node.callee.name === 't'
+    && node.arguments.length > 0 && node.arguments.every(staticRenderedLabel)
 }
 const renderedPriceStateFor = (expression, component, modelName, bindings, path = []) => {
   const node = unwrapExpression(expression)
