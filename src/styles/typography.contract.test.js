@@ -93,16 +93,78 @@ const consolePages = root('./console-pages.scss')
 const publicPricing = root('./public-pricing.scss')
 const surfaces = [tokens, foundations, global, publicShell, publicContent, consoleShell, consolePages, publicPricing]
 
-const collectSiteStyleSources = (directory = new URL('../', import.meta.url)) => readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+const collectProductionSources = (directory = new URL('../', import.meta.url)) => readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
   const url = new URL(entry.name + (entry.isDirectory() ? '/' : ''), directory)
   const file = decodeURIComponent(url.pathname)
   if (/(?:^|\/)(?:__tests__|fixtures?|test-fixtures)(?:\/|$)|\.(?:test|spec)\.[^/]+$/i.test(file)) return []
-  if (entry.isDirectory()) return collectSiteStyleSources(url)
-  if (/\.(?:css|scss)$/i.test(entry.name)) return [{ file, source: readFileSync(url, 'utf8') }]
-  if (!entry.name.endsWith('.vue')) return []
-  const source = readFileSync(url, 'utf8')
+  if (entry.isDirectory()) return collectProductionSources(url)
+  return /\.(?:css|scss|vue)$/i.test(entry.name) ? [{ file, source: readFileSync(url, 'utf8') }] : []
+})
+const collectSiteStyleSources = (directory = new URL('../', import.meta.url)) => collectProductionSources(directory).flatMap(({ file, source }) => {
+  if (/\.(?:css|scss)$/i.test(file)) return [{ file, source }]
   return [...source.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi)].map((match, index) => ({ file: `${file}#style-${index + 1}`, source: match[1] }))
 })
+const readMarkupTag = (source, start) => {
+  if (source.startsWith('<!--', start)) {
+    const end = source.indexOf('-->', start + 4)
+    return { start, end: end < 0 ? source.length : end + 3, comment: true }
+  }
+  let cursor = start + 1
+  let quote = ''
+  while (cursor < source.length) {
+    const character = source[cursor]
+    if (quote) { if (character === quote && source[cursor - 1] !== '\\') quote = '' }
+    else if (character === '"' || character === "'") quote = character
+    else if (character === '>') break
+    cursor += 1
+  }
+  const raw = source.slice(start + 1, cursor)
+  const match = raw.match(/^\s*(\/?)\s*([\w.-]+)/)
+  return { start, end: Math.min(cursor + 1, source.length), closing: Boolean(match?.[1]), name: match?.[2], attrs: match ? raw.slice(match[0].length) : '', selfClosing: /\/\s*$/.test(raw) }
+}
+const staticAttribute = (attrs, name) => attrs.match(new RegExp(`(?:^|\\s)${name}\\s*=\\s*(["'])(.*?)\\1`, 'i'))?.[2]
+const typographyEvidenceFromVue = (files = collectProductionSources()) => {
+  const evidence = new Set(['html', ':root', 'body', '#app'])
+  const voidElements = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'])
+  const addNode = node => {
+    if (node.name !== 'template') evidence.add(node.name.toLowerCase())
+    for (const className of node.classes) evidence.add(`.${className}`)
+    if (node.id) evidence.add(`#${node.id}`)
+  }
+  for (const { file, source } of files.filter(entry => entry.file.endsWith('.vue'))) {
+    const opening = /<template\b[^>]*>/i.exec(source)
+    if (!opening) continue
+    const stack = []
+    const nodes = []
+    let cursor = opening.index + opening[0].length
+    let textStart = cursor
+    while (cursor < source.length) {
+      const start = source.indexOf('<', cursor)
+      if (start < 0) break
+      if (stack.length && /\S/.test(source.slice(textStart, start))) stack.at(-1).typography = true
+      const tag = readMarkupTag(source, start)
+      cursor = tag.end
+      textStart = cursor
+      if (tag.comment || !tag.name) continue
+      const name = tag.name.toLowerCase()
+      if (tag.closing) {
+        if (name === 'template' && stack.length === 0) break
+        stack.pop()
+        continue
+      }
+      const classes = (staticAttribute(tag.attrs, 'class') || '').split(/\s+/).filter(Boolean)
+      const node = { name, classes, id: staticAttribute(tag.attrs, 'id'), parent: stack.at(-1), typography: /(?:^|\s)(?:v-html|v-text)(?:\s|=|$)/i.test(tag.attrs) || name === 'slot' }
+      nodes.push(node)
+      if (!tag.selfClosing && !voidElements.has(name)) stack.push(node)
+    }
+    for (const node of nodes.filter(candidate => candidate.typography)) for (let current = node; current; current = current.parent) addNode(current)
+    if (/(?:^|\/)(?:App|AuthApp|[^/]*Layout)\.vue$/.test(file) && /\b(?:RouterView|router-view)\b/.test(source)) {
+      for (const match of source.matchAll(/\bclass\s*:\s*(["'])(.*?)\1/g)) for (const name of match[2].split(/\s+/).filter(Boolean)) evidence.add(`.${name}`)
+      for (const match of source.matchAll(/\bid\s*:\s*(["'])(.*?)\1/g)) evidence.add(`#${match[2]}`)
+    }
+  }
+  return evidence
+}
 const nestedStyleDeclarations = source => {
   const declarations = []
   const clean = source.replace(/\/\*[\s\S]*?\*\//g, '')
@@ -114,8 +176,8 @@ const nestedStyleDeclarations = source => {
     let parentheses = 0
     const record = end => {
       const statement = clean.slice(statementStart, end).trim()
-      const match = statement.match(/^([\w-]+)\s*:\s*([\s\S]+)$/)
-      if (match) declarations.push({ property: match[1].toLowerCase(), value: match[2].trim(), contexts })
+      const match = statement.match(/^((?:--|\$)?[\w-]+)\s*:\s*([\s\S]+)$/)
+      if (match) declarations.push({ property: match[1].startsWith('$') || match[1].startsWith('--') ? match[1] : match[1].toLowerCase(), value: match[2].trim(), contexts })
     }
     while (cursor < clean.length) {
       const character = clean[cursor]
@@ -140,23 +202,67 @@ const nestedStyleDeclarations = source => {
   return declarations
 }
 const normalizedStyleContext = contexts => contexts.filter(context => !context.startsWith('@')).map(context => context.replace(/\s+/g, ' ').trim()).join(' ')
-const auditedSendButtonScale = ({ file, property, value, contexts }) => {
-  if (property !== 'transform' || !file.endsWith('/src/components/chat/ChatInput.vue#style-1')) return false
-  const context = normalizedStyleContext(contexts)
-  if (['.send-btn &:hover:not(:disabled)', '.send-btn:hover:not(:disabled)'].includes(context)) return /^scale\(\s*1\.06\s*\)$/i.test(value)
-  if (['.send-btn &:active:not(:disabled)', '.send-btn:active:not(:disabled)'].includes(context)) return /^scale\(\s*0\.96\s*\)$/i.test(value)
-  return false
+const effectiveStyleSelectors = contexts => contexts.filter(context => !context.startsWith('@')).reduce((parents, context) => {
+  const children = splitTopLevel(context, ',')
+  return parents.flatMap(parent => children.map(child => child.includes('&') ? child.replaceAll('&', parent) : parent ? `${parent} ${child}` : child))
+}, ['']).map(selector => normalizeSelector(selector))
+const selectorTargetsTypography = (selector, evidence) => {
+  const compounds = selectorCompounds(selector)
+  const rightmost = compounds.at(-1) || ''
+  const tokens = compoundTokens(rightmost)
+  const identities = tokens.filter(token => /^[.#]/.test(token) && !token.startsWith(':'))
+  if (identities.length ? identities.some(token => evidence.has(token.toLowerCase())) : tokens.some(token => evidence.has(token.toLowerCase()))) return true
+  return /(^|[^\w-])\*/.test(rightmost) && (compounds.length === 1 || compounds.slice(0, -1).some(compound => compoundTokens(compound).some(token => evidence.has(token.toLowerCase()))))
 }
-const assertGlobalNoScaling = styleSources => {
-  for (const style of styleSources) for (const declaration of nestedStyleDeclarations(style.source)) {
-    assert.notEqual(declaration.property, 'zoom', `zoom is forbidden in ${style.file} (${normalizedStyleContext(declaration.contexts) || 'root'})`)
-    if (declaration.property.startsWith('--') && /\bscale(?:x|y|3d)?\s*\(/i.test(declaration.value)) {
-      assert.fail(`custom-property scale is forbidden in ${style.file} (${normalizedStyleContext(declaration.contexts) || 'root'})`)
-    }
+const scopeHeaders = declaration => declaration.contexts.filter(context => !context.startsWith('@')).map(context => normalizeSelector(context))
+const scopeContains = (outer, inner) => outer.length <= inner.length && outer.every((value, index) => value === inner[index])
+const cssVariableCandidates = (name, declaration, declarations) => declarations.filter(candidate => candidate.property === name && (
+  (candidate.file === declaration.file && scopeContains(scopeHeaders(candidate), scopeHeaders(declaration)))
+  || effectiveStyleSelectors(candidate.contexts).some(candidateSelector => /^(?::root|html|body|#app)$/.test(candidateSelector)
+    || effectiveStyleSelectors(declaration.contexts).some(selector => selector === candidateSelector || selector.startsWith(`${candidateSelector} `)))
+)).map(candidate => candidate.value)
+const sassVariableCandidates = (name, declaration, declarations) => declarations.filter(candidate => candidate.file === declaration.file && candidate.property === name && scopeContains(scopeHeaders(candidate), scopeHeaders(declaration))).map(candidate => candidate.value)
+const variableReference = value => {
+  const sass = /\$[A-Za-z_-][\w-]*/g
+  const sassMatch = sass.exec(value)
+  const varStart = value.search(/\bvar\s*\(/i)
+  if (sassMatch && (varStart < 0 || sassMatch.index < varStart)) return { start: sassMatch.index, end: sassMatch.index + sassMatch[0].length, name: sassMatch[0], fallback: undefined }
+  if (varStart < 0) return undefined
+  const open = value.indexOf('(', varStart)
+  let depth = 1
+  let cursor = open + 1
+  let quote = ''
+  for (; cursor < value.length && depth > 0; cursor += 1) {
+    const character = value[cursor]
+    if (quote) { if (character === quote && value[cursor - 1] !== '\\') quote = '' }
+    else if (character === '"' || character === "'") quote = character
+    else if (character === '(') depth += 1
+    else if (character === ')') depth -= 1
+  }
+  if (depth !== 0) return { start: varStart, end: value.length, unresolved: true }
+  const [name, ...fallback] = splitTopLevel(value.slice(open + 1, cursor - 1), ',')
+  return { start: varStart, end: cursor, name: name?.trim(), fallback: fallback.length ? fallback.join(',').trim() : undefined }
+}
+const resolvedTransformValues = (value, declaration, declarations, resolving = new Set()) => {
+  const reference = variableReference(value)
+  if (!reference) return [value]
+  if (reference.unresolved || !reference.name || resolving.has(reference.name)) return [undefined]
+  const candidates = reference.name.startsWith('$') ? sassVariableCandidates(reference.name, declaration, declarations) : cssVariableCandidates(reference.name, declaration, declarations)
+  if (candidates.length === 0) return [undefined]
+  const replacements = reference.fallback === undefined ? candidates : candidates.concat(reference.fallback)
+  return replacements.flatMap(replacement => resolvedTransformValues(replacement, declaration, declarations, new Set(resolving).add(reference.name)))
+    .flatMap(replacement => replacement === undefined ? [undefined] : resolvedTransformValues(`${value.slice(0, reference.start)}${replacement}${value.slice(reference.end)}`, declaration, declarations, resolving))
+}
+const assertTypographyScalingPolicy = (styleSources, evidence) => {
+  const declarations = styleSources.flatMap(style => nestedStyleDeclarations(style.source).map(declaration => ({ ...declaration, file: style.file })))
+  for (const declaration of declarations) {
+    const targetsTypography = effectiveStyleSelectors(declaration.contexts).some(selector => selectorTargetsTypography(selector, evidence))
+    if (!targetsTypography) continue
+    if (declaration.property === 'zoom') assert.fail(`zoom is forbidden on typography in ${declaration.file} (${normalizedStyleContext(declaration.contexts) || 'root'})`)
     if (/(?:^|-)transform$/.test(declaration.property)) {
-      const uncertainVariable = /\bvar\s*\(/i.test(declaration.value)
-      const literalScale = /\bscale(?:x|y|3d)?\s*\(/i.test(declaration.value)
-      if (uncertainVariable || literalScale) assert.ok(auditedSendButtonScale({ ...style, ...declaration }), `${uncertainVariable ? 'variable transform' : 'transform scale'} is forbidden in ${style.file} (${normalizedStyleContext(declaration.contexts) || 'root'})`)
+      const resolved = resolvedTransformValues(declaration.value, declaration, declarations)
+      assert.ok(resolved.length > 0 && resolved.every(value => value !== undefined), `transform variables must resolve on typography in ${declaration.file} (${normalizedStyleContext(declaration.contexts) || 'root'})`)
+      for (const value of resolved) assert.doesNotMatch(value, /\bscale(?:x|y|3d)?\s*\(/i, `transform scale is forbidden on typography in ${declaration.file} (${normalizedStyleContext(declaration.contexts) || 'root'})`)
     }
   }
 }
@@ -280,16 +386,6 @@ const assertMinimumControl = (stylesheet, selector, property, message, widths = 
     }
   }
 }
-const assertNoTypographyScaling = (stylesheet, selector, widths = allScreenWidths) => {
-  for (const width of widths) for (const reduced of [false, true]) for (const rule of stylesheet) {
-    if (!mediaMatchesScreen(rule.media, width, reduced) || !rule.selectors.some(candidate => selectorTargetsContract(candidate, selector))) continue
-    for (const declaration of rule.declarations) {
-      assert.notEqual(declaration.property, 'zoom', `${selector} must not resize typography with zoom through ${rule.selectors.join(', ')} at ${width}px`)
-      if (declaration.property === 'transform') assert.doesNotMatch(declaration.value, /\bscale(?:x|y|3d)?\s*\(/i, `${selector} must not resize typography with transform scale through ${rule.selectors.join(', ')} at ${width}px`)
-    }
-  }
-}
-
 test('semantic typography tokens keep the approved exact pixel scale', () => {
   const expected = {
     xs: '11px', sm: '12px', body: '14px', subtitle: '16px',
@@ -334,23 +430,7 @@ test('console surfaces map brand, navigation, headings and statuses to semantic 
 
 test('typography stays at real size and interactive controls retain 44px targets', () => {
   const mobileWidths = allScreenWidths.filter(width => width <= 767)
-  const semanticSelectors = new Set([
-    'body', '.page-title', '.el-dialog', '.el-alert', '.public-brand', '.public-hero h1', '.public-lead', '.public-eyebrow',
-    '.public-content-section__heading h2', '.pricing-heading h1', '.pricing-heading p', '.app-brand__copy strong',
-    '.app-brand__copy small', '.token-stat', '.console-sidebar__group', '.page-header h1', '.page-header__eyebrow',
-    '.page-header__description', '.status-badge', '.auth-brand h1',
-  ])
-  for (const stylesheet of surfaces) {
-    const typographySelectors = new Set(semanticSelectors)
-    for (const rule of stylesheet) {
-      const hasFontSize = rule.declarations.some(declaration => ['font', 'font-size'].includes(declaration.property))
-      if (hasFontSize) for (const selector of rule.selectors) {
-        if (!/(?:^|[-_])icon(?:$|[-_\s.:>])|\bsvg\b|spinner/i.test(selector)) typographySelectors.add(selector.trim())
-      }
-    }
-    for (const selector of typographySelectors) assertNoTypographyScaling(stylesheet, selector)
-  }
-  assertGlobalNoScaling(collectSiteStyleSources())
+  assertTypographyScalingPolicy(collectSiteStyleSources(), typographyEvidenceFromVue())
 
   assertMapping(tokens, 'html:root', '--control-min-size', '44px', 'shared controls retain a 44px minimum')
   assertMinimumControl(publicShell, '.public-locale', 'min-height', 'public header controls keep the shared touch target')
