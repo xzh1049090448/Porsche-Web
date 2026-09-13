@@ -248,17 +248,18 @@ const routerLinkTargets = value => elements(value, 'RouterLink').flatMap(node =>
   const name = binding?.match(/(?:^|\{|,)\s*name\s*:\s*["']([^"']+)["']/)?.[1]
   return name && routePathsByName.has(name) ? [routePathsByName.get(name)] : []
 })
-const perRequestTopic = /(?:每(?:次)?请求|每请求|单次(?:请求|调用)|per[-\s]?request)/i
 const numericPerRequestOffer = /(?:(?:每(?:次)?请求|每请求|单次(?:请求|调用)|per[-\s]?request)[^.!。；;\n]{0,40}(?:[$¥￥]\s*\d|\d+(?:\.\d+)?\s*(?:USD|CNY|元|美元))|(?:[$¥￥]\s*\d|\d+(?:\.\d+)?\s*(?:USD|CNY|元|美元))[^.!。；;\n]{0,24}(?:每(?:次)?请求|每请求|单次(?:请求|调用)|per[-\s]?request)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request)/i
-const safePerRequestExplanation = value => perRequestTopic.test(value)
-  && !numericPerRequestOffer.test(value)
-  && (/(?:不|未|无|非)[^。；;.!?\n]{0,24}(?:提供|展示|显示|计价|定价|收费|价格|请求)|(?:每(?:次)?请求|每请求|单次(?:请求|调用))[^。；;.!?\n]{0,18}(?:不|未|无|非)/.test(value)
-    || /\b(?:no|not|without|unavailable|isn['’]?t|doesn['’]?t|is\s+not|does\s+not)\b[^.!?\n]{0,50}\bper[-\s]?request\b|\bper[-\s]?request\b[^.!?\n]{0,50}\b(?:not|unavailable|isn['’]?t|doesn['’]?t|is\s+not|does\s+not)\b/i.test(value))
-const copyWithPositivePerRequestContexts = value => value.split(/(?:[。；;!?，,]+|(?<!\d)\.(?!\d)|\n|\b(?:and|but|or|nor|while|however)\b|(?:但是|并且|而且|或者|不过|然而|但|或|且))+/iu)
-  .map(context => context.trim())
-  .filter(context => context && !safePerRequestExplanation(context))
-  .join(' ')
-const perRequestPriceClaim = /(?:单次调用价|每次请求(?:价格|价)|每请求(?:价格|价)|per[- ]request\s+(?:price|pricing)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request\b)/i
+const perRequestPriceClaim = /(?:单次调用价|每次请求(?:价格|价)|每请求(?:价格|价)|per[- ]request\s+(?:price|pricing))/gi
+const locallyNegatedPerRequestClaim = (value, match) => {
+  const before = value.slice(Math.max(0, match.index - 48), match.index)
+  const after = value.slice(match.index + match[0].length, match.index + match[0].length + 48)
+  const negativeBefore = /(?:\bno\s+|(?:不|未)\s*(?:单独\s*)?(?:提供|展示|显示|公布|采用|支持)\s*)$/iu.test(before)
+  const negativeAfter = /^(?:\s*(?:(?:is|are)\s+)?(?:not|never)\s+(?:offered|provided|available|displayed|shown)\b|\s*(?:is|are)\s+unavailable\b|\s*(?:不|未)\s*(?:单独\s*)?(?:计价|定价|收费|提供|展示|显示|公布|可用)|\s*不可用)/iu.test(after)
+  return negativeBefore || negativeAfter
+}
+const positivePerRequestClaims = value => [...value.matchAll(perRequestPriceClaim)]
+  .filter(match => !locallyNegatedPerRequestClaim(value, match))
+  .map(match => match[0])
 const prototypePatterns = [
   [/ModelHub/i, 'prototype product name'],
   [/40\+/i, 'prototype model count'],
@@ -271,7 +272,6 @@ const prototypePatterns = [
   [/(?:API[_ -]?KEY\s*[=:]\s*["']?(?:sk-)?[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{8,})/i, 'demo API credential'],
   [/\d+(?:\.\d+)?\s*(?:x|×|倍)(?![\w-])/i, 'prototype multiplier'],
   [numericPerRequestOffer, 'numeric per-request price offer'],
-  [perRequestPriceClaim, 'per-request pricing'],
 ]
 const tailwindUrl = /(?:https?:)?\/\/[^\s"')]*(?:cdn\.tailwindcss\.com|tailwind)[^\s"')]*/i
 const assertNoTailwindLoading = (cssSources, vueSources) => {
@@ -451,8 +451,6 @@ test('public content pages compose the approved safe landing system', () => {
   assert.match(preview, /preview-banner/)
   assert.match(preview, /aria-live="polite"/)
   assert.match(`${home}${about}${legal}`, /v-html="(?:home\.|content\.)/)
-  for (const [pattern, label] of prototypePatterns) for (const copy of visibleCopy) {
-    const inspected = pattern === perRequestPriceClaim ? copyWithPositivePerRequestContexts(copy) : copy
-    assert.doesNotMatch(inspected, pattern, label)
-  }
+  for (const [pattern, label] of prototypePatterns) for (const copy of visibleCopy) assert.doesNotMatch(copy, pattern, label)
+  for (const copy of visibleCopy) assert.deepEqual(positivePerRequestClaims(copy), [], 'positive per-request pricing claim')
 })
