@@ -703,7 +703,9 @@ const selectorMayTarget = (selector, target) => {
     }
     const classes = [...subject.matchAll(/\.[\w-]+/g)].map(value => value[0])
     const tags = [...subject.matchAll(/(?:^|[^\w.#:-])([a-z][\w-]*)/gi)].map(value => value[1])
-    return (classes.length === 0 && tags.length === 0) || (classes.length > 0 && classes.every(value => value === targetClass) && tags.length <= 1)
+    return (classes.length === 0 && tags.length === 0) || (classes.length > 0
+      && classes.every(value => value === targetClass)
+      && (tags.length === 0 || (tags.length === 1 && tags[0].toLowerCase() === 'div')))
   }
   return matches(selectorSubject(selector))
 }

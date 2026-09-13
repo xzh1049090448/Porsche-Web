@@ -350,6 +350,20 @@ const labelConditionModes = (node, origins, definitions, inherited = 'unknown') 
   if (status === 'published') return equal ? ['published', 'nonpublished', true] : ['nonpublished', 'published', true]
   return equal ? ['nonpublished', inherited, true] : [inherited, 'nonpublished', true]
 }
+const everyStateMemberUsesOrigin = (node, origins, definitions, resolving = new Set()) => {
+  node = unwrapExpression(node)
+  if (!node || typeof node !== 'object') return true
+  if (node.type === 'Identifier' && definitions.has(node.name)) {
+    if (resolving.has(node.name)) return false
+    return everyStateMemberUsesOrigin(definitions.get(node.name), origins, definitions, new Set(resolving).add(node.name))
+  }
+  if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+    const property = node.computed ? staticPropertyKey(node.property) : node.property?.name
+    if (['state', 'value'].includes(String(property)) && !expressionDerivedFrom(node, origins, definitions)) return false
+  }
+  return Object.entries(node).every(([key, value]) => ['loc', 'start', 'end', 'extra'].includes(key)
+    || (Array.isArray(value) ? value.every(child => everyStateMemberUsesOrigin(child, origins, definitions, resolving)) : everyStateMemberUsesOrigin(value, origins, definitions, resolving)))
+}
 const legitimateFallback = (node, origins, definitions, mode) => {
   node = unwrapExpression(node)
   if (mode !== 'nonpublished' || !node) return false
@@ -357,7 +371,7 @@ const legitimateFallback = (node, origins, definitions, mode) => {
   if (!['CallExpression', 'OptionalCallExpression'].includes(node.type) || node.callee?.type !== 'Identifier' || node.callee.name !== 't') return false
   const members = directlyReadStateMembers(node.arguments, origins, definitions)
   const knownFallbackKey = node.arguments.some(argument => argument?.type === 'StringLiteral' && /(?:unpublished|login.?required|missing|unavailable)/i.test(argument.value))
-  return members.has('state') || knownFallbackKey
+  return everyStateMemberUsesOrigin(node.arguments, origins, definitions) && (members.has('state') || knownFallbackKey)
 }
 const validLabelExpression = (node, origins, definitions, mode = 'unknown', resolving = new Set()) => {
   node = unwrapExpression(node)
@@ -1117,7 +1131,7 @@ const functionalPseudoArguments = (compound, names) => {
   return matches
 }
 const compoundMayTarget = (candidate, target) => {
-  const targetTokens = new Set(compoundTokens(target))
+  const targetTokens = target instanceof Set ? new Set(target) : new Set(compoundTokens(target))
   const targetIdentities = [...targetTokens].filter(token => !token.startsWith(':'))
   const matches = subject => {
     const match = /:([\w-]+)\s*\(/.exec(subject)
@@ -1172,7 +1186,17 @@ const pricingRenderPaths = new Map([
   ['.pricing-console-cta', [[...detailPath]]],
   ['.pricing-drawer > header button', [[...publicPricingPath, selectorGroup('.pricing-drawer-backdrop'), selectorGroup('.pricing-drawer'), selectorGroup('header')]]],
 ])
-const targetIdentityGroup = target => new Set(compoundTokens(selectorCompounds(target).at(-1) || target).filter(token => token === '*' || !token.startsWith(':')))
+const pricingTargetTags = new Map([
+  ['.pricing-page', 'div'], ['.pricing-layout', 'div'], ['.pricing-results', 'div'], ['.pricing-table-wrap', 'div'],
+  ['.pricing-table', 'table'], ['.pricing-cards', 'div'], ['.pricing-toolbar', 'div'], ['.pricing-filter-toggle', 'button'],
+  ['.pricing-drawer-backdrop', 'div'], ['.pricing-drawer', 'section'], ['.pricing-detail-back', 'button'], ['.pricing-console-cta', 'a'],
+])
+const targetIdentityGroup = target => {
+  const group = new Set(compoundTokens(selectorCompounds(target).at(-1) || target).filter(token => token === '*' || !token.startsWith(':')))
+  const tag = pricingTargetTags.get(normalizeSelector(target))
+  if (tag) group.add(tag)
+  return group
+}
 const structureMatchesPricingPath = (structure, path, depth = 0) => {
   const { compounds, combinators, leading } = structure
   if (!compounds.length || !path.length || ['+', '~'].some(value => combinators.includes(value) || leading === value)) return false
@@ -1196,7 +1220,8 @@ const pricingHasDescendants = (compound, subjectIdentity, depth = 0) => {
       && structureMatchesPricingPath(selectorStructure(branch), fullPath.slice(subjectIndex + 1), depth + 1))
   }))))
 }
-const compoundMatchesPricingGroup = (compound, group, depth = 0) => [...group].some(identity => compoundMayTarget(compound, identity) && pricingHasDescendants(compound, identity, depth))
+const compoundMatchesPricingGroup = (compound, group, depth = 0) => compoundMayTarget(compound, group)
+  && [...group].some(identity => pricingHasDescendants(compound, identity, depth))
 const compoundsMatchPricingPath = (compounds, path, depth = 0) => {
   let cursor = 0
   for (const compound of compounds) {
