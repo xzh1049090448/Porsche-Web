@@ -405,6 +405,16 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
     const vueNamespaces = new Set()
     const helpers = new Map()
     const aliases = new Map()
+    const walkScriptAst = (node, visit, parent) => {
+      if (!node || typeof node !== 'object') return
+      visit(node, parent)
+      for (const [key, child] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(key)) {
+        for (const item of Array.isArray(child) ? child : [child]) if (item?.type) walkScriptAst(item, visit, node)
+      }
+    }
+    const parents = new WeakMap()
+    walkScriptAst(ast.program, (node, parent) => { if (parent) parents.set(node, parent) })
+    const componentScopes = new Set()
     for (const statement of ast.program.body) {
       if (statement.type === 'ImportDeclaration') for (const specifier of statement.specifiers) {
         if (statement.source.value === 'vue' && specifier.type === 'ImportNamespaceSpecifier') vueNamespaces.add(specifier.local.name)
@@ -416,26 +426,75 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
         if (String(statement.source.value).replace(/\\/g, '/').endsWith(`/${expectedFile}`)) targets.add(specifier.local.name)
       }
       if (statement.type === 'FunctionDeclaration' && statement.id) helpers.set(statement.id.name, statement)
+      if (statement.type === 'ExportDefaultDeclaration') {
+        let options = unwrapExpression(statement.declaration)
+        if (['CallExpression', 'OptionalCallExpression'].includes(options?.type) && options.callee?.type === 'Identifier' && options.callee.name === 'defineComponent') options = unwrapExpression(options.arguments[0])
+        if (options?.type === 'ObjectExpression') for (const property of options.properties.filter(candidate => ['setup', 'render'].includes(String(staticPropertyKey(candidate.key))))) componentScopes.add(property.type === 'ObjectMethod' ? property : unwrapExpression(property.value))
+      }
+    }
+    const functionBindings = new Map()
+    walkScriptAst(ast.program, node => {
+      if (node.type === 'FunctionDeclaration' && node.id) functionBindings.set(node.id.name, node)
+      if (node.type === 'VariableDeclarator' && node.id?.type === 'Identifier' && ['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapExpression(node.init)?.type)) functionBindings.set(node.id.name, unwrapExpression(node.init))
+    })
+    const nearestFunction = node => {
+      for (let current = parents.get(node); current; current = parents.get(current)) if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(current.type)) return current
+      return undefined
+    }
+    for (const scope of [...componentScopes]) walkScriptAst(scope?.body, node => {
+      if (node.type !== 'ReturnStatement' || nearestFunction(node) !== scope || !node.argument) return
+      walkScriptAst(node.argument, candidate => {
+        const expression = unwrapExpression(candidate)
+        if (['ArrowFunctionExpression', 'FunctionExpression'].includes(expression?.type)) componentScopes.add(expression)
+        if (expression?.type === 'Identifier' && functionBindings.has(expression.name)) componentScopes.add(functionBindings.get(expression.name))
+      })
+    })
+    const reachability = node => {
+      let uncertain = false
+      for (let current = node, parent = parents.get(current); parent; current = parent, parent = parents.get(parent)) {
+        if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(parent.type) && !componentScopes.has(parent)) return false
+        if (parent.type === 'IfStatement' && (current === parent.consequent || current === parent.alternate)) {
+          const condition = staticValue(parent.test)
+          if (condition !== unknownStaticValue && Boolean(condition) !== (current === parent.consequent)) return false
+          if (condition === unknownStaticValue) uncertain = true
+        }
+        if (parent.type === 'ConditionalExpression' && (current === parent.consequent || current === parent.alternate)) {
+          const condition = staticValue(parent.test)
+          if (condition !== unknownStaticValue && Boolean(condition) !== (current === parent.consequent)) return false
+          if (condition === unknownStaticValue) uncertain = true
+        }
+        if (parent.type === 'LogicalExpression' && current === parent.right) {
+          const left = staticValue(parent.left)
+          if (left !== unknownStaticValue && ((parent.operator === '&&' && !left) || (parent.operator === '||' && left))) return false
+          if (left === unknownStaticValue) uncertain = true
+        }
+      }
+      return uncertain ? 'maybe' : true
     }
     const aliasMember = (object, key) => ({ type: 'MemberExpression', object, property: { type: 'StringLiteral', value: String(key) }, computed: true })
-    const bindAliasPattern = (pattern, value) => {
+    const bindAliasPattern = (pattern, value, certainty = true) => {
       pattern = unwrapExpression(pattern)
-      if (pattern?.type === 'Identifier') { aliases.set(pattern.name, value); return }
-      if (pattern?.type === 'AssignmentPattern') { bindAliasPattern(pattern.left, value || pattern.right); return }
-      if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bindAliasPattern(property.value, aliasMember(value, staticPropertyKey(property.key)))
-      if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bindAliasPattern(pattern.elements[index], aliasMember(value, index))
+      if (!pattern || certainty === false) return
+      if (pattern.type === 'Identifier') {
+        const previous = aliases.get(pattern.name)
+        aliases.set(pattern.name, certainty === 'maybe' && previous
+          ? { type: 'ConditionalExpression', test: { type: 'Identifier', name: '__dynamic_branch__' }, consequent: value, alternate: previous }
+          : value)
+        return
+      }
+      if (pattern.type === 'AssignmentPattern') { bindAliasPattern(pattern.left, value || pattern.right, certainty); return }
+      if (pattern.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bindAliasPattern(property.value, aliasMember(value, staticPropertyKey(property.key)), certainty)
+      if (pattern.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bindAliasPattern(pattern.elements[index], aliasMember(value, index), certainty)
     }
-    const registerBindings = node => {
-      if (!node || typeof node !== 'object') return
+    walkScriptAst(ast.program, node => {
+      if (node.type === 'FunctionDeclaration' && node.id) helpers.set(node.id.name, node)
       if (node.type === 'VariableDeclarator' && node.init) {
-        bindAliasPattern(node.id, node.init)
-        if (node.id?.type === 'Identifier' && ['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapExpression(node.init)?.type)) helpers.set(node.id.name, unwrapExpression(node.init))
+        const certainty = reachability(node)
+        bindAliasPattern(node.id, node.init, certainty)
+        if (certainty !== false && node.id?.type === 'Identifier' && ['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapExpression(node.init)?.type)) helpers.set(node.id.name, unwrapExpression(node.init))
       }
-      for (const [key, child] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(key)) {
-        for (const item of Array.isArray(child) ? child : [child]) if (item?.type) registerBindings(item)
-      }
-    }
-    registerBindings(ast.program)
+      if (node.type === 'AssignmentExpression' && node.operator === '=' && ['Identifier', 'ObjectPattern', 'ArrayPattern'].includes(node.left?.type)) bindAliasPattern(node.left, node.right, reachability(node))
+    })
     const memberName = node => {
       const property = unwrapExpression(node?.property)
       if (!node?.computed && property?.type === 'Identifier') return property.name
