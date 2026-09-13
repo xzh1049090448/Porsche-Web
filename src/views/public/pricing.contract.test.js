@@ -344,23 +344,34 @@ const validLabelExpression = (node, origins, definitions, mode = 'unknown', reso
   if (mode === 'published') return derivedStateMember(node, origins, definitions, resolving) === 'value'
   return legitimateFallback(node, origins, definitions, mode)
 }
-const returnedLabelExpressions = (node, definitions, resolving = new Set()) => {
+const absentObjectLabel = Symbol('absent object label')
+const unknownObjectLabel = Symbol('unknown object label')
+const effectiveObjectLabel = (node, definitions, resolving = new Set()) => {
   node = unwrapExpression(node)
-  if (!node) return []
+  if (!node) return { knownObject: false, labels: [unknownObjectLabel] }
   if (node.type === 'Identifier' && definitions.has(node.name)) {
-    if (resolving.has(node.name)) return []
-    return returnedLabelExpressions(definitions.get(node.name), definitions, new Set([...resolving, node.name]))
+    if (resolving.has(node.name)) return { knownObject: false, labels: [unknownObjectLabel] }
+    return effectiveObjectLabel(definitions.get(node.name), definitions, new Set([...resolving, node.name]))
   }
-  if (node.type === 'SequenceExpression') return returnedLabelExpressions(node.expressions.at(-1), definitions, resolving)
-  if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') return [node.consequent || node.left, node.alternate || node.right].flatMap(branch => returnedLabelExpressions(branch, definitions, resolving))
-  if (node.type !== 'ObjectExpression') return []
-  for (let index = node.properties.length - 1; index >= 0; index -= 1) {
-    const property = node.properties[index]
-    if (property.type === 'SpreadElement') continue
+  if (node.type === 'SequenceExpression') return effectiveObjectLabel(node.expressions.at(-1), definitions, resolving)
+  if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') {
+    const branches = [node.consequent || node.left, node.alternate || node.right].map(branch => effectiveObjectLabel(branch, definitions, resolving))
+    return { knownObject: branches.every(branch => branch.knownObject), labels: branches.flatMap(branch => branch.labels) }
+  }
+  if (node.type !== 'ObjectExpression') return { knownObject: false, labels: [unknownObjectLabel] }
+  let labels = [absentObjectLabel]
+  for (const property of node.properties) {
+    if (property.type === 'SpreadElement') {
+      const spread = effectiveObjectLabel(property.argument, definitions, resolving)
+      if (!spread.knownObject) labels = [unknownObjectLabel]
+      else labels = labels.flatMap(current => spread.labels.map(candidate => candidate === absentObjectLabel ? current : candidate))
+      continue
+    }
     const key = property.computed ? staticPropertyKey(property.key) : property.key?.name || property.key?.value
-    if (String(key) === 'label') return [property.value]
+    if (key === undefined) labels = [unknownObjectLabel]
+    else if (String(key) === 'label') labels = [property.value]
   }
-  return []
+  return { knownObject: true, labels }
 }
 const forwardedArgument = (argument, binding, renderedCall) => {
   argument = unwrapExpression(argument)
@@ -408,10 +419,10 @@ const helperReturnsCorrectState = (binding, component, modelName, renderedCall, 
       return returnIsValid(node.consequent, definitions, consequentMode, resolving)
         && returnIsValid(node.alternate, definitions, alternateMode, resolving)
     }
-    const labels = returnedLabelExpressions(node, definitions)
+    const labelResult = effectiveObjectLabel(node, definitions)
     return transparentlyCarriesState(node, origins, definitions)
       && renderedPaths.every(path => path[0] === 'label'
-        ? labels.length > 0 && labels.every(label => validLabelExpression(label, origins, definitions, mode))
+        ? labelResult.labels.length > 0 && labelResult.labels.every(label => label !== absentObjectLabel && label !== unknownObjectLabel && validLabelExpression(label, origins, definitions, mode))
         : expressionDerivedFrom(node, origins, definitions, path))
   }
   if (binding.body?.type !== 'BlockStatement') return returnIsValid(binding.body, new Map(), 'unknown')

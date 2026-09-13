@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import test from 'node:test'
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8')
@@ -92,6 +92,67 @@ const consoleShell = root('./console-shell.scss')
 const consolePages = root('./console-pages.scss')
 const publicPricing = root('./public-pricing.scss')
 const surfaces = [tokens, foundations, global, publicShell, publicContent, consoleShell, consolePages, publicPricing]
+
+const collectSiteStyleSources = (directory = new URL('../', import.meta.url)) => readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+  const url = new URL(entry.name + (entry.isDirectory() ? '/' : ''), directory)
+  if (entry.isDirectory()) return collectSiteStyleSources(url)
+  if (entry.name.endsWith('.scss')) return [{ file: decodeURIComponent(url.pathname), source: readFileSync(url, 'utf8') }]
+  if (!entry.name.endsWith('.vue')) return []
+  const source = readFileSync(url, 'utf8')
+  return [...source.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi)].map((match, index) => ({ file: `${decodeURIComponent(url.pathname)}#style-${index + 1}`, source: match[1] }))
+})
+const nestedStyleDeclarations = source => {
+  const declarations = []
+  const clean = source.replace(/\/\*[\s\S]*?\*\//g, '')
+  const parseScope = (start, contexts) => {
+    let statementStart = start
+    let cursor = start
+    let quote = ''
+    let escaped = false
+    let parentheses = 0
+    const record = end => {
+      const statement = clean.slice(statementStart, end).trim()
+      const match = statement.match(/^([\w-]+)\s*:\s*([\s\S]+)$/)
+      if (match) declarations.push({ property: match[1].toLowerCase(), value: match[2].trim(), contexts })
+    }
+    while (cursor < clean.length) {
+      const character = clean[cursor]
+      if (escaped) escaped = false
+      else if (quote) { if (character === '\\') escaped = true; else if (character === quote) quote = '' }
+      else if (character === '"' || character === "'") quote = character
+      else if (character === '(' || character === '[') parentheses += 1
+      else if (character === ')' || character === ']') parentheses -= 1
+      else if (parentheses === 0 && character === ';') { record(cursor); statementStart = cursor + 1 }
+      else if (parentheses === 0 && character === '{') {
+        const header = clean.slice(statementStart, cursor).trim()
+        cursor = parseScope(cursor + 1, contexts.concat(header))
+        statementStart = cursor
+        continue
+      } else if (parentheses === 0 && character === '}') { record(cursor); return cursor + 1 }
+      cursor += 1
+    }
+    record(cursor)
+    return cursor
+  }
+  parseScope(0, [])
+  return declarations
+}
+const normalizedStyleContext = contexts => contexts.filter(context => !context.startsWith('@')).map(context => context.replace(/\s+/g, ' ').trim()).join(' ')
+const auditedSendButtonScale = ({ file, property, value, contexts }) => {
+  if (property !== 'transform' || !file.endsWith('/src/components/chat/ChatInput.vue#style-1')) return false
+  const context = normalizedStyleContext(contexts)
+  if (['.send-btn &:hover:not(:disabled)', '.send-btn:hover:not(:disabled)'].includes(context)) return /^scale\(\s*1\.06\s*\)$/i.test(value)
+  if (['.send-btn &:active:not(:disabled)', '.send-btn:active:not(:disabled)'].includes(context)) return /^scale\(\s*0\.96\s*\)$/i.test(value)
+  return false
+}
+const assertGlobalNoScaling = styleSources => {
+  for (const style of styleSources) for (const declaration of nestedStyleDeclarations(style.source)) {
+    assert.notEqual(declaration.property, 'zoom', `zoom is forbidden in ${style.file} (${normalizedStyleContext(declaration.contexts) || 'root'})`)
+    if (/(?:^|-)transform$/.test(declaration.property) && /\bscale(?:x|y|3d)?\s*\(/i.test(declaration.value)) {
+      assert.ok(auditedSendButtonScale({ ...style, ...declaration }), `transform scale is forbidden in ${style.file} (${normalizedStyleContext(declaration.contexts) || 'root'})`)
+    }
+  }
+}
 
 const normalizeSelector = selector => selector.trim().replace(/\s*([>+~])\s*/g, '$1').replace(/\s+/g, ' ')
 const exactRules = (stylesheet, selector, media) => stylesheet.filter(rule => {
@@ -272,13 +333,6 @@ test('typography stays at real size and interactive controls retain 44px targets
     '.app-brand__copy small', '.token-stat', '.console-sidebar__group', '.page-header h1', '.page-header__eyebrow',
     '.page-header__description', '.status-badge', '.auth-brand h1',
   ])
-  // These audited roots come from App/AuthApp, MainLayout, PublicLayout, the public page roots,
-  // and the login/register templates. Scaling any of them scales their descendant typography.
-  const typographyAncestorSelectors = [
-    'html', 'body', '#app', '.public-layout', '.public-shell', '#public-content', '.public-home', '.public-document',
-    '.pricing-layout', '.pricing-results', '.main-layout', '.console-shell', '.console-body', '.console-workspace',
-    '.console-page', '.auth-page', '.auth-card', '.login-page', '.register-page',
-  ]
   for (const stylesheet of surfaces) {
     const typographySelectors = new Set(semanticSelectors)
     for (const rule of stylesheet) {
@@ -288,8 +342,8 @@ test('typography stays at real size and interactive controls retain 44px targets
       }
     }
     for (const selector of typographySelectors) assertNoTypographyScaling(stylesheet, selector)
-    for (const selector of typographyAncestorSelectors) assertNoTypographyScaling(stylesheet, selector)
   }
+  assertGlobalNoScaling(collectSiteStyleSources())
 
   assertMapping(tokens, 'html:root', '--control-min-size', '44px', 'shared controls retain a 44px minimum')
   assertMinimumControl(publicShell, '.public-locale', 'min-height', 'public header controls keep the shared touch target')
