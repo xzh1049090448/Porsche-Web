@@ -366,36 +366,66 @@ const staticBindingInitializers = value => {
     }
     const setupReturns = (body, baseLocal = new Map()) => {
       const unknownThrown = { type: 'Identifier', name: '__unknown_thrown_value__' }
-      const flowStatements = (statements, replacements, catchesUnknown) => {
+      const localCallPaths = (expression, environment, replacements, resolving) => {
+        expression = unwrapExpression(expression)
+        if (!['CallExpression', 'OptionalCallExpression'].includes(expression?.type)) return undefined
+        const key = expression.callee?.type === 'Identifier' ? expression.callee.name : `iife:${expression.callee?.start ?? expression.start}`
+        if (resolving.has(key)) return [{ kind: 'throw', expression: unknownThrown, replacements }]
+        const functions = factoryFunctions(expression.callee, environment, resolving)
+        if (!functions.length) return undefined
+        return functions.flatMap(fn => {
+          const local = new Map(environment)
+          const bound = new Map(replacements)
+          for (let index = 0; index < fn.params.length; index += 1) {
+            const parameter = unwrapExpression(fn.params[index])
+            const argument = parameter?.type === 'RestElement' ? { type: 'ArrayExpression', elements: expression.arguments.slice(index) } : expression.arguments[index]
+            bindFactoryPattern(parameter, argument, local, bound)
+            if (parameter?.type === 'RestElement') break
+          }
+          return flow(fn.body, bound, true, local, new Set(resolving).add(key)).map(path => path.kind === 'return' ? { kind: 'normal', replacements } : path)
+        })
+      }
+      const directCall = node => {
+        node = unwrapExpression(node)
+        if (['CallExpression', 'OptionalCallExpression'].includes(node?.type)) return node
+        if (node?.type === 'ExpressionStatement') return directCall(node.expression)
+        if (node?.type === 'AwaitExpression') return directCall(node.argument)
+        return undefined
+      }
+      const flowStatements = (statements, replacements, catchesUnknown, environment, resolving) => {
         let paths = [{ kind: 'normal', replacements }]
-        for (const statement of statements || []) paths = paths.flatMap(path => path.kind === 'normal' ? flow(statement, path.replacements, catchesUnknown) : [path])
+        for (const statement of statements || []) paths = paths.flatMap(path => path.kind === 'normal' ? flow(statement, path.replacements, catchesUnknown, environment, resolving) : [path])
         return paths
       }
-      const flow = (node, replacements = new Map(), catchesUnknown = false) => {
+      const flow = (node, replacements = new Map(), catchesUnknown = false, environment = baseLocal, resolving = new Set()) => {
         if (!node) return [{ kind: 'normal', replacements }]
-        if (node.type === 'BlockStatement') return flowStatements(node.body, replacements, catchesUnknown)
+        if (node.type === 'BlockStatement') return flowStatements(node.body, replacements, catchesUnknown, environment, resolving)
         if (node.type === 'ReturnStatement') {
           const returned = { kind: 'return', expression: node.argument ? substituteFactoryBindings(node.argument, replacements) : undefined, replacements }
+          const callPaths = localCallPaths(directCall(node.argument), environment, replacements, resolving)
+          if (callPaths) return callPaths.map(path => path.kind === 'normal' ? returned : path)
           return catchesUnknown && expressionMayThrow(node.argument) ? [returned, { kind: 'throw', expression: unknownThrown, replacements }] : [returned]
         }
         if (node.type === 'ThrowStatement') return [{ kind: 'throw', expression: substituteFactoryBindings(node.argument, replacements), replacements }]
         if (node.type === 'IfStatement') {
           const condition = staticValue(substituteFactoryBindings(node.test, replacements))
           return condition !== unknownStaticValue
-            ? flow(condition ? node.consequent : node.alternate, replacements, catchesUnknown)
-            : [...flow(node.consequent, replacements, catchesUnknown), ...flow(node.alternate, replacements, catchesUnknown)]
+            ? flow(condition ? node.consequent : node.alternate, replacements, catchesUnknown, environment, resolving)
+            : [...flow(node.consequent, replacements, catchesUnknown, environment, resolving), ...flow(node.alternate, replacements, catchesUnknown, environment, resolving)]
         }
         if (node.type === 'TryStatement') {
-          let paths = flow(node.block, replacements, true).flatMap(path => {
+          let paths = flow(node.block, replacements, true, environment, resolving).flatMap(path => {
             if (path.kind !== 'throw' || !node.handler) return [path]
-            const catchLocal = new Map(baseLocal)
+            const catchLocal = new Map(environment)
             const catchReplacements = new Map(replacements)
             if (path.expression !== unknownThrown) bindFactoryPattern(node.handler.param, path.expression, catchLocal, catchReplacements)
-            return flow(node.handler.body, catchReplacements, false)
+            return flow(node.handler.body, catchReplacements, false, catchLocal, resolving)
           })
-          if (node.finalizer) paths = paths.flatMap(path => flow(node.finalizer, replacements, true).flatMap(finalPath => finalPath.kind === 'normal' ? [path] : [finalPath]))
+          if (node.finalizer) paths = paths.flatMap(path => flow(node.finalizer, replacements, true, environment, resolving).flatMap(finalPath => finalPath.kind === 'normal' ? [path] : [finalPath]))
           return paths
         }
+        const callPaths = localCallPaths(directCall(node), environment, replacements, resolving)
+        if (callPaths) return callPaths.map(path => path.kind === 'return' ? { kind: 'normal', replacements } : path)
         const normal = { kind: 'normal', replacements }
         return catchesUnknown && expressionMayThrow(node) ? [normal, { kind: 'throw', expression: unknownThrown, replacements }] : [normal]
       }
