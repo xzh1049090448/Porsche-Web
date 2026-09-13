@@ -895,20 +895,56 @@ const staticBindingInitializers = (value, importer) => {
       for (const name of new Set([...left.keys(), ...right.keys()])) merged.set(name, [...new Set([...(left.get(name) || []), ...(right.get(name) || [])])])
       return merged
     }
-    const setupReturns = body => {
-      const values = []
-      const visit = node => {
-        if (!node) return
-        if (node.type === 'ReturnStatement') { if (node.argument) values.push(node.argument); return }
-        if (node.type === 'BlockStatement') { for (const statement of node.body) visit(statement); return }
-        if (node.type === 'IfStatement') {
-          const condition = staticValue(node.test)
-          if (condition !== unknownStaticValue) visit(condition ? node.consequent : node.alternate)
-          else { visit(node.consequent); visit(node.alternate) }
+    const expressionMayThrow = node => {
+      let found = false
+      const visit = value => {
+        if (!value || typeof value !== 'object' || found) return
+        if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(value.type)) return
+        if (['CallExpression', 'OptionalCallExpression', 'NewExpression', 'AwaitExpression', 'TaggedTemplateExpression', 'MemberExpression', 'OptionalMemberExpression'].includes(value.type)) { found = true; return }
+        for (const [name, child] of Object.entries(value)) if (!['loc', 'start', 'end', 'extra'].includes(name)) {
+          if (Array.isArray(child)) for (const item of child) visit(item)
+          else visit(child)
         }
       }
-      visit(body)
-      return values
+      visit(node)
+      return found
+    }
+    const setupReturns = (body, baseLocal = new Map()) => {
+      const unknownThrown = { type: 'Identifier', name: '__unknown_thrown_value__' }
+      const flowStatements = (statements, replacements, catchesUnknown) => {
+        let paths = [{ kind: 'normal', replacements }]
+        for (const statement of statements || []) paths = paths.flatMap(path => path.kind === 'normal' ? flow(statement, path.replacements, catchesUnknown) : [path])
+        return paths
+      }
+      const flow = (node, replacements = new Map(), catchesUnknown = false) => {
+        if (!node) return [{ kind: 'normal', replacements }]
+        if (node.type === 'BlockStatement') return flowStatements(node.body, replacements, catchesUnknown)
+        if (node.type === 'ReturnStatement') {
+          const returned = { kind: 'return', expression: node.argument ? substituteFactoryBindings(node.argument, replacements) : undefined, replacements }
+          return catchesUnknown && expressionMayThrow(node.argument) ? [returned, { kind: 'throw', expression: unknownThrown, replacements }] : [returned]
+        }
+        if (node.type === 'ThrowStatement') return [{ kind: 'throw', expression: substituteFactoryBindings(node.argument, replacements), replacements }]
+        if (node.type === 'IfStatement') {
+          const condition = staticValue(substituteFactoryBindings(node.test, replacements))
+          return condition !== unknownStaticValue
+            ? flow(condition ? node.consequent : node.alternate, replacements, catchesUnknown)
+            : [...flow(node.consequent, replacements, catchesUnknown), ...flow(node.alternate, replacements, catchesUnknown)]
+        }
+        if (node.type === 'TryStatement') {
+          let paths = flow(node.block, replacements, true).flatMap(path => {
+            if (path.kind !== 'throw' || !node.handler) return [path]
+            const catchLocal = new Map(baseLocal)
+            const catchReplacements = new Map(replacements)
+            if (path.expression !== unknownThrown) bindFactoryPattern(node.handler.param, path.expression, catchLocal, catchReplacements)
+            return flow(node.handler.body, catchReplacements, false)
+          })
+          if (node.finalizer) paths = paths.flatMap(path => flow(node.finalizer, replacements, true).flatMap(finalPath => finalPath.kind === 'normal' ? [path] : [finalPath]))
+          return paths
+        }
+        const normal = { kind: 'normal', replacements }
+        return catchesUnknown && expressionMayThrow(node) ? [normal, { kind: 'throw', expression: unknownThrown, replacements }] : [normal]
+      }
+      return flow(body).filter(path => path.kind === 'return' && path.expression).map(path => path.expression)
     }
     const resolvedLocalValues = (expression, local, resolving = new Set()) => {
       expression = unwrapExpression(expression)
@@ -958,18 +994,68 @@ const staticBindingInitializers = (value, importer) => {
       else if (pattern?.type === 'ArrayPattern') for (const element of pattern.elements) if (element) factoryPatternNames(element, names)
       return names
     }
-    const factorySelected = (expression, key, local) => {
-      const container = staticContainer(expression, local)
-      if (container?.type === 'ArrayExpression' && /^\d+$/.test(String(key))) return container.elements[Number(key)]
-      if (container?.type === 'ObjectExpression') {
-        for (let index = container.properties.length - 1; index >= 0; index -= 1) {
-          const property = container.properties[index]
-          if (property.type === 'SpreadElement') break
-          if (staticPropertyKey(property.key) === String(key)) return propertyExpression(property)
-        }
-        if (!container.properties.some(property => property.type === 'SpreadElement')) return undefined
+    const factorySelection = (expression, key, local, resolving = new Set()) => {
+      expression = unwrapExpression(expression)
+      if (!expression || resolving.size > 32) return { unknown: true }
+      if (expression.type === 'Identifier') {
+        if (!local.has(expression.name) || resolving.has(expression.name)) return { unknown: true }
+        const choices = local.get(expression.name).map(value => factorySelection(value, key, local, new Set(resolving).add(expression.name)))
+        if (choices.length === 1) return choices[0]
+        if (choices.length && choices.every(choice => choice.missing)) return { missing: true }
+        return { unknown: true }
       }
-      return member(expression, key)
+      if (expression.type === 'ConditionalExpression') {
+        const condition = boundStaticValue(expression.test, local)
+        if (condition !== unknownStaticValue) return factorySelection(condition ? expression.consequent : expression.alternate, key, local, resolving)
+        const branches = [factorySelection(expression.consequent, key, local, resolving), factorySelection(expression.alternate, key, local, resolving)]
+        if (branches.every(branch => branch.missing)) return { missing: true }
+        return { unknown: true }
+      }
+      if (expression.type === 'ArrayExpression' && /^\d+$/.test(String(key))) {
+        const items = []
+        for (const element of expression.elements) {
+          if (element?.type !== 'SpreadElement') { items.push(element); continue }
+          const spread = factoryArrayElements(element.argument, local, resolving)
+          if (!spread) return { unknown: true }
+          items.push(...spread)
+        }
+        return Number(key) < items.length ? { value: items[Number(key)] } : { missing: true }
+      }
+      if (expression.type !== 'ObjectExpression') return { unknown: true }
+      for (let index = expression.properties.length - 1; index >= 0; index -= 1) {
+        const property = expression.properties[index]
+        if (property.type === 'SpreadElement') {
+          const spread = factorySelection(property.argument, key, local, resolving)
+          if (!spread.missing) return spread
+          continue
+        }
+        const propertyKey = staticPropertyKey(property.key)
+        if (property.computed && propertyKey === undefined) return { unknown: true }
+        if (propertyKey === String(key)) return { value: propertyExpression(property) }
+      }
+      return { missing: true }
+    }
+    const factoryArrayElements = (expression, local, resolving = new Set()) => {
+      expression = unwrapExpression(expression)
+      if (expression?.type === 'Identifier' && local.has(expression.name) && !resolving.has(expression.name)) {
+        const choices = local.get(expression.name).map(value => factoryArrayElements(value, local, new Set(resolving).add(expression.name)))
+        return choices.length === 1 ? choices[0] : undefined
+      }
+      if (expression?.type !== 'ArrayExpression') return undefined
+      const elements = []
+      for (const element of expression.elements) {
+        if (element?.type !== 'SpreadElement') elements.push(element)
+        else {
+          const spread = factoryArrayElements(element.argument, local, resolving)
+          if (!spread) return undefined
+          elements.push(...spread)
+        }
+      }
+      return elements
+    }
+    const factorySelected = (expression, key, local) => {
+      const selected = factorySelection(expression, key, local)
+      return selected.value ?? (selected.missing ? undefined : member(expression, key))
     }
     const bindFactoryPattern = (pattern, expression, target, replacements) => {
       pattern = unwrapExpression(pattern)
@@ -991,7 +1077,8 @@ const staticBindingInitializers = (value, importer) => {
       }
       if (pattern.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]) {
         const element = pattern.elements[index]
-        bindFactoryPattern(element.type === 'RestElement' ? element.argument : element, element.type === 'RestElement' ? arrayRest(expression, index, target) : factorySelected(expression, index, target), target, replacements)
+        const elements = element.type === 'RestElement' ? factoryArrayElements(expression, target) : undefined
+        bindFactoryPattern(element.type === 'RestElement' ? element.argument : element, element.type === 'RestElement' && elements ? { type: 'ArrayExpression', elements: elements.slice(index) } : element.type === 'RestElement' ? arrayRest(expression, index, target) : factorySelected(expression, index, target), target, replacements)
       }
     }
     const functionVarNames = node => {
@@ -1115,7 +1202,7 @@ const staticBindingInitializers = (value, importer) => {
       if (!fn?.body) return exposed
       const local = new Map(target)
       if (fn.body.type === 'BlockStatement') process(fn.body.body, local)
-      const returnedValues = fn.body.type === 'BlockStatement' ? setupReturns(fn.body) : [fn.body]
+      const returnedValues = fn.body.type === 'BlockStatement' ? setupReturns(fn.body, local) : [fn.body]
       const states = returnedValues.flatMap(returned => objectStates(returned, local))
       for (const key of new Set(states.flatMap(state => [...state.map.keys()]))) exposed.set(key, stateValues(states, key).flatMap(value => resolvedLocalValues(value, local)))
       return exposed
@@ -1199,13 +1286,67 @@ const unwrapExpression = node => {
   return node
 }
 const returnedExpressions = node => {
-  node = unwrapExpression(node)
-  if (!node) return []
-  if (node.type === 'ReturnStatement') return node.argument ? [node.argument] : []
-  if (node.type === 'IfStatement') return returnedExpressions(node.consequent).concat(returnedExpressions(node.alternate))
-  if (node.type === 'SwitchStatement') return node.cases.flatMap(branch => branch.consequent.flatMap(returnedExpressions))
-  if (node.type === 'BlockStatement') return node.body.flatMap(returnedExpressions)
-  return [node]
+  const replace = (value, replacements, parent, key) => {
+    value = unwrapExpression(value)
+    if (!value || typeof value !== 'object') return value
+    if (value.type === 'Identifier' && replacements.has(value.name)) {
+      const staticKey = (parent?.type === 'ObjectProperty' || parent?.type === 'ObjectMethod') && key === 'key' && !parent.computed || parent?.type === 'MemberExpression' && key === 'property' && !parent.computed
+      if (!staticKey) return replacements.get(value.name)
+    }
+    if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(value.type) && value.params?.some(parameter => parameter.type === 'Identifier' && replacements.has(parameter.name))) return value
+    let changed = false
+    const copy = {}
+    for (const [childKey, child] of Object.entries(value)) {
+      copy[childKey] = ['loc', 'start', 'end', 'extra'].includes(childKey) ? child : Array.isArray(child) ? child.map(item => replace(item, replacements, value, childKey)) : replace(child, replacements, value, childKey)
+      if (copy[childKey] !== child && (!Array.isArray(child) || copy[childKey].some((item, index) => item !== child[index]))) changed = true
+    }
+    return changed ? copy : value
+  }
+  const mayThrow = value => {
+    let found = false
+    const visit = current => {
+      if (!current || typeof current !== 'object' || found) return
+      if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(current.type)) return
+      if (['CallExpression', 'OptionalCallExpression', 'NewExpression', 'AwaitExpression', 'TaggedTemplateExpression', 'MemberExpression', 'OptionalMemberExpression'].includes(current.type)) { found = true; return }
+      for (const [name, child] of Object.entries(current)) if (!['loc', 'start', 'end', 'extra'].includes(name)) Array.isArray(child) ? child.forEach(visit) : visit(child)
+    }
+    visit(value)
+    return found
+  }
+  const flowStatements = (statements, replacements, catchesUnknown) => {
+    let paths = [{ kind: 'normal', replacements }]
+    for (const statement of statements || []) paths = paths.flatMap(path => path.kind === 'normal' ? flow(statement, path.replacements, catchesUnknown) : [path])
+    return paths
+  }
+  const flow = (value, replacements = new Map(), catchesUnknown = false) => {
+    value = unwrapExpression(value)
+    if (!value) return [{ kind: 'normal', replacements }]
+    if (!/(?:Statement|Declaration)$/.test(value.type)) return [{ kind: 'return', expression: replace(value, replacements), replacements }]
+    if (value.type === 'BlockStatement') return flowStatements(value.body, replacements, catchesUnknown)
+    if (value.type === 'ReturnStatement') {
+      const returned = { kind: 'return', expression: value.argument ? replace(value.argument, replacements) : undefined, replacements }
+      return catchesUnknown && mayThrow(value.argument) ? [returned, { kind: 'throw', replacements }] : [returned]
+    }
+    if (value.type === 'ThrowStatement') return [{ kind: 'throw', expression: replace(value.argument, replacements), replacements }]
+    if (value.type === 'IfStatement') {
+      const condition = staticValue(replace(value.test, replacements))
+      return condition !== unknownStaticValue ? flow(condition ? value.consequent : value.alternate, replacements, catchesUnknown) : [...flow(value.consequent, replacements, catchesUnknown), ...flow(value.alternate, replacements, catchesUnknown)]
+    }
+    if (value.type === 'SwitchStatement') return value.cases.flatMap(branch => flowStatements(branch.consequent, replacements, catchesUnknown))
+    if (value.type === 'TryStatement') {
+      let paths = flow(value.block, replacements, true).flatMap(path => {
+        if (path.kind !== 'throw' || !value.handler) return [path]
+        const caught = new Map(replacements)
+        if (value.handler.param?.type === 'Identifier' && path.expression && staticValue(path.expression) !== unknownStaticValue) caught.set(value.handler.param.name, path.expression)
+        return flow(value.handler.body, caught, false)
+      })
+      if (value.finalizer) paths = paths.flatMap(path => flow(value.finalizer, replacements, true).flatMap(finalPath => finalPath.kind === 'normal' ? [path] : [finalPath]))
+      return paths
+    }
+    const normal = { kind: 'normal', replacements }
+    return catchesUnknown && mayThrow(value) ? [normal, { kind: 'throw', replacements }] : [normal]
+  }
+  return flow(node).filter(path => path.kind === 'return' && path.expression).map(path => path.expression)
 }
 const staticPropertyKey = node => {
   node = unwrapExpression(node)
