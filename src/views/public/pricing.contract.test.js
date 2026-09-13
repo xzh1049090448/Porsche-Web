@@ -182,7 +182,7 @@ const renderedElements = (root, name) => {
   const matches = []
   const visit = (node, inherited) => {
     if (staticallyHidden(node)) return
-    const scoped = node.type === 1 ? new Set([...inherited, ...vForBindingNames(node)]) : inherited
+    const scoped = node.type === 1 ? new Set([...inherited, ...vForBindingNames(node), ...slotBindingNames(node)]) : inherited
     templateNodeScopes.set(node, scoped)
     if (node.type === 1 && node.tag === name) matches.push(node)
     for (const child of node.children || []) visit(child, scoped)
@@ -192,6 +192,24 @@ const renderedElements = (root, name) => {
   return matches
 }
 const templateExpressionScopes = new WeakMap()
+const templatePatternBindingNames = (pattern, label) => {
+  const parameters = String(pattern || '').trim().replace(/^\(([\s\S]*)\)$/, '$1')
+  if (!parameters) return []
+  let ast
+  try { ast = vueCompiler.babelParse(`(${parameters}) => 0`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression }
+  catch (error) { throw new Error(`${label} bindings must parse cleanly: ${error.message}`, { cause: error }) }
+  const names = []
+  const collect = value => {
+    if (!value) return
+    if (value.type === 'Identifier') names.push(value.name)
+    else if (value.type === 'AssignmentPattern') collect(value.left)
+    else if (value.type === 'RestElement') collect(value.argument)
+    else if (value.type === 'ObjectPattern') for (const property of value.properties) collect(property.type === 'RestElement' ? property.argument : property.value)
+    else if (value.type === 'ArrayPattern') for (const element of value.elements) collect(element)
+  }
+  for (const parameter of ast?.params || []) collect(parameter)
+  return names
+}
 const vForParts = node => {
   const expression = node?.props?.find(prop => prop.type === 7 && prop.name === 'for')?.exp?.content
   const match = expression?.match(/^\s*(.*?)\s+(?:in|of)\s+([\s\S]+)$/)
@@ -200,22 +218,11 @@ const vForParts = node => {
 const vForBindingNames = node => {
   const parts = vForParts(node)
   if (!parts) return []
-  const parameters = parts.bindings.trim().replace(/^\(([\s\S]*)\)$/, '$1')
-  let ast
-  try { ast = vueCompiler.babelParse(`(${parameters}) => 0`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression }
-  catch (error) { throw new Error(`pricing v-for aliases must parse cleanly: ${error.message}`, { cause: error }) }
-  const names = []
-  const collect = pattern => {
-    if (!pattern) return
-    if (pattern.type === 'Identifier') names.push(pattern.name)
-    else if (pattern.type === 'AssignmentPattern') collect(pattern.left)
-    else if (pattern.type === 'RestElement') collect(pattern.argument)
-    else if (pattern.type === 'ObjectPattern') for (const property of pattern.properties) collect(property.type === 'RestElement' ? property.argument : property.value)
-    else if (pattern.type === 'ArrayPattern') for (const element of pattern.elements) collect(element)
-  }
-  for (const parameter of ast?.params || []) collect(parameter)
-  return names
+  return templatePatternBindingNames(parts.bindings, 'pricing v-for aliases')
 }
+const slotBindingNames = node => (node?.props || [])
+  .filter(prop => prop.type === 7 && prop.name === 'slot' && prop.exp?.content)
+  .flatMap(prop => templatePatternBindingNames(prop.exp.content, 'pricing slot props'))
 const templateExpressionAsts = root => {
   const expressions = []
   const add = (content, locals) => {
@@ -238,9 +245,9 @@ const templateExpressionAsts = root => {
   }
   const visit = (node, inherited = new Set()) => {
     if (staticallyHidden(node)) return
-    const scoped = node.type === 1 ? new Set([...inherited, ...vForBindingNames(node)]) : inherited
+    const scoped = node.type === 1 ? new Set([...inherited, ...vForBindingNames(node), ...slotBindingNames(node)]) : inherited
     if (node.type === 5) add(node.content.content, scoped)
-    if (node.type === 1) for (const prop of node.props || []) if (prop.type === 7 && prop.exp?.content) {
+    if (node.type === 1) for (const prop of node.props || []) if (prop.type === 7 && prop.exp?.content && prop.name !== 'slot') {
       add(prop.name === 'for' ? vForParts(node)?.source : prop.exp.content, prop.name === 'for' ? inherited : scoped)
     }
     for (const child of node.children || []) visit(child, scoped)
