@@ -169,7 +169,23 @@ const mediaMatchesScreen = (conditions, width, reduced) => conditions.every(cond
 const selectorSpecificity = selector => (selector.match(/#[\w-]+/g) || []).length * 100 + (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (selector.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
 const selectorTargetsClass = (selector, target) => {
   const lastCompound = selector.trim().split(/\s+|[>+~]/).filter(Boolean).at(-1) || ''
-  return new RegExp(`\\.${target.slice(1)}\\b`).test(lastCompound)
+  const targetClass = target.slice(1)
+  const classes = [...lastCompound.matchAll(/\.([\w-]+)/g)].map(match => match[1])
+  if (!classes.includes(targetClass)) return false
+  const phase = targetClass.match(/^(.*)-(enter|leave)-(active|from|to)$/)
+  const simultaneous = new Set([targetClass])
+  if (phase) {
+    const [, prefix, direction, state] = phase
+    if (state === 'active') {
+      const from = `${prefix}-${direction}-from`
+      const to = `${prefix}-${direction}-to`
+      if (classes.includes(from) && classes.includes(to)) return false
+      simultaneous.add(from).add(to)
+    }
+    else simultaneous.add(`${prefix}-${direction}-active`)
+  }
+  if (classes.some(className => !simultaneous.has(className))) return false
+  return lastCompound.replace(/\.[\w-]+/g, '') === ''
 }
 const applicableRules = (rules, selector, width, reduced) => rules.filter(rule => rule.selectors.some(candidate => selectorTargetsClass(candidate, selector)) && mediaMatchesScreen(rule.media, width, reduced))
 const reducedRuleExists = (rules, selector, width) => applicableRules(rules, selector, width, true).some(rule => rule.media.some(condition => /prefers-reduced-motion\s*:\s*reduce/i.test(condition)))

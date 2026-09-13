@@ -223,19 +223,38 @@ const literalExpressionStrings = (expression, bindings) => {
   catch (error) { throw new Error(`visible Vue expression must parse cleanly: ${error.message}`, { cause: error }) }
   return [...new Set(staticLiteralLeaves(ast, bindings))]
 }
-const staticIterationValues = (node, bindings, resolving = new Set()) => {
+const staticIterationBindingValues = (name, path, bindings, resolving) => {
+  const resolution = `${name}.${path.join('.')}`
+  if (resolving.has(resolution)) return []
+  const next = new Set(resolving).add(resolution)
+  return (bindings.get(name) || []).flatMap(initializer => staticIterationValues(initializer, bindings, next, path))
+}
+const staticIterationValues = (node, bindings, resolving = new Set(), path = []) => {
   node = unwrapExpression(node)
   if (!node) return []
-  if (node.type === 'Identifier') {
-    if (resolving.has(node.name)) return []
-    const next = new Set(resolving).add(node.name)
-    return (bindings.get(node.name) || []).flatMap(initializer => staticIterationValues(initializer, bindings, next))
+  if (node.type === 'Identifier') return staticIterationBindingValues(node.name, path, bindings, resolving)
+  if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
+    const reference = memberReference(node)
+    return reference ? staticIterationBindingValues(reference.name, reference.path.concat(path), bindings, resolving) : []
+  }
+  if (node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression') return returnedExpressions(node.body).flatMap(expression => staticIterationValues(expression, bindings, resolving, path))
+  if (node.type === 'ConditionalExpression') return staticIterationValues(node.consequent, bindings, resolving, path).concat(staticIterationValues(node.alternate, bindings, resolving, path))
+  if (node.type === 'LogicalExpression') return staticIterationValues(node.left, bindings, resolving, path).concat(staticIterationValues(node.right, bindings, resolving, path))
+  if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression') {
+    const remaining = path[0] === 'value' ? path.slice(1) : path
+    return node.arguments.flatMap(argument => staticIterationValues(argument, bindings, resolving, remaining))
+  }
+  if (path.length) {
+    const [head, ...tail] = path
+    if (node.type === 'ArrayExpression') return /^\d+$/.test(head) && node.elements[Number(head)] ? staticIterationValues(node.elements[Number(head)], bindings, resolving, tail) : []
+    if (node.type === 'ObjectExpression') return node.properties.flatMap(property => {
+      if (property.type === 'SpreadElement') return staticIterationValues(property.argument, bindings, resolving, path)
+      return staticPropertyKey(property.key) === head ? staticIterationValues(property.value, bindings, resolving, tail) : []
+    })
+    return []
   }
   if (node.type === 'ArrayExpression') return node.elements.filter(Boolean)
   if (node.type === 'ObjectExpression') return node.properties.flatMap(property => property.type === 'SpreadElement' ? staticIterationValues(property.argument, bindings, resolving) : [property.value])
-  if (node.type === 'ConditionalExpression') return staticIterationValues(node.consequent, bindings, resolving).concat(staticIterationValues(node.alternate, bindings, resolving))
-  if (node.type === 'LogicalExpression') return staticIterationValues(node.left, bindings, resolving).concat(staticIterationValues(node.right, bindings, resolving))
-  if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression') return node.arguments.flatMap(argument => staticIterationValues(argument, bindings, resolving))
   return []
 }
 const bindingsForElement = (node, bindings) => {
