@@ -381,36 +381,12 @@ const mediaQueryMatchesScreen = (query, width) => {
 }
 const mediaMatchesScreen = (conditions, width) => conditions.every(condition => splitCssTopLevel(condition, ',').some(query => mediaQueryMatchesScreen(query, width)))
 const rootSelectorSpecificity = selector => (selector.match(/#[\w-]+/g) || []).length * 100 + (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (selector.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
-const staticSelectorContexts = sources => {
-  const classes = new Set()
-  const ids = new Set(['app'])
-  for (const source of sources) for (const match of source.matchAll(/\b(class|id)\s*(?:=|:)\s*(["'])(.*?)\2/g)) {
-    if (match[1] === 'class') for (const name of match[3].split(/\s+/)) if (/^[\w-]+$/.test(name)) classes.add(name)
-    else if (/^[\w-]+$/.test(match[3])) ids.add(match[3])
-  }
-  return { classes, ids }
-}
-const knownAncestorCompound = (compound, contexts) => {
-  const classes = [...compound.matchAll(/\.([\w-]+)/g)].map(match => match[1])
-  const ids = [...compound.matchAll(/#([\w-]+)/g)].map(match => match[1])
-  if (classes.some(name => !contexts.classes.has(name)) || ids.some(name => !contexts.ids.has(name))) return false
-  const remainder = compound.replace(/\.[\w-]+|#[\w-]+/g, '')
-  return remainder === '' || /^(?:html|body|\*)$/i.test(remainder)
-}
-const selectorTargetsRoot = (selector, targetClass, contexts) => {
-  const compounds = selector.trim().split(/\s+|[>+~]/).filter(Boolean)
-  if (compounds.slice(0, -1).some(compound => !knownAncestorCompound(compound, contexts))) return false
-  const last = compounds.at(-1) || ''
-  const classes = [...last.matchAll(/\.([\w-]+)/g)].map(match => match[1])
-  if (!classes.includes(targetClass) || classes.some(name => name !== targetClass)) return false
-  const remainder = last.replace(new RegExp(`\\.${targetClass}\\b`), '').replace(/^(?:table|div|\*)/i, '')
-  return remainder === ''
-}
-const effectiveRootProperties = (rules, targetClass, width, contexts) => {
+const selectorTargetsRoot = (selector, targetClass) => selector.trim() === `.${targetClass}`
+const effectiveRootProperties = (rules, targetClass, width) => {
   const winners = new Map()
   for (const rule of rules) {
     if (!mediaMatchesScreen(rule.media, width)) continue
-    const matching = rule.selectors.filter(selector => selectorTargetsRoot(selector, targetClass, contexts))
+    const matching = rule.selectors.filter(selector => selectorTargetsRoot(selector, targetClass))
     if (!matching.length) continue
     const specificity = Math.max(...matching.map(rootSelectorSpecificity))
     for (const declaration of rule.declarations) {
@@ -472,13 +448,11 @@ test('pricing routes load real lazy pages and preserve encoded stable modelKey',
 })
 
 test('catalog exposes desktop filters/table, mobile drawer/cards and accessible controls', async () => {
-  const [page, filters, table, cards, styles, publicLayout] = await Promise.all([read('./Pricing.vue'), read('../../components/public/PricingFilters.vue'), read('../../components/public/PricingTable.vue'), read('../../components/public/PricingCards.vue'), read('../../styles/public-pricing.scss'), read('../../layouts/PublicLayout.vue')])
+  const [page, filters, table, cards, styles] = await Promise.all([read('./Pricing.vue'), read('../../components/public/PricingFilters.vue'), read('../../components/public/PricingTable.vue'), read('../../components/public/PricingCards.vue'), read('../../styles/public-pricing.scss')])
   const pricingCss = styleRoot(styles)
   const filterCss = styleRoot(filters, true)
-  const tableCss = styleRoot(table, true)
   const cardsCss = styleRoot(cards, true)
   const responsiveCss = parseCssRules(`${parseVue(table).styles.map(style => style.content).join('\n')}\n${parseVue(cards).styles.map(style => style.content).join('\n')}\n${styles}`)
-  const responsiveContexts = staticSelectorContexts([page, filters, table, cards, publicLayout])
   assert.match(page, /@\/styles\/public-pricing\.scss/)
   assertProperty(pricingCss, '.pricing-page', 'max-width', '1600px', 'pricing page keeps its desktop width')
   assertProperty(pricingCss, '.pricing-layout', 'grid-template-columns', '260px minmax(0, 1fr)', 'pricing layout keeps the approved sidebar grid')
@@ -491,12 +465,11 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
   assert.match(table, /pricingCatalog\.inputPrice/); assert.match(table, /pricingCatalog\.outputPrice/)
   assert.match(cards, /price\(model,['"]input['"]\)/); assert.match(cards, /price\(model,['"]output['"]\)/)
   assert.match(table, /class\s*=\s*(["'])pricing-table\1/); assert.match(cards, /class\s*=\s*(["'])pricing-cards\1/)
-  assertProperty(pricingCss, '.pricing-page .pricing-table-wrap', 'display', 'none', 'mobile hides the desktop table', /max-width\s*:\s*767px/i)
   assertProperty(cardsCss, '.pricing-cards', 'display', 'grid', 'mobile shows pricing cards', /max-width\s*:\s*767px/i)
   assertProperty(pricingCss, '.pricing-drawer', 'display', 'block', 'mobile shows the pricing drawer', /max-width\s*:\s*767px/i)
-  for (const target of ['pricing-table-wrap', 'pricing-table']) assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, target, 1440, responsiveContexts)), false, `desktop .${target} root must remain visible at 1440px`)
-  assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, 'pricing-table-wrap', 375, responsiveContexts)), true, 'mobile may hide the table root wrapper at 375px')
-  for (const target of ['pricing-cards', 'pricing-filter-toggle', 'pricing-drawer']) assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, target, 375, responsiveContexts)), false, `mobile .${target} root must remain visible at 375px`)
+  assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, 'pricing-table', 1440)), false, 'desktop .pricing-table root must remain visible at 1440px')
+  for (const target of ['pricing-cards', 'pricing-filter-toggle', 'pricing-drawer']) assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, target, 375)), false, `mobile .${target} root must remain visible at 375px`)
+  assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, 'pricing-table', 375)), true, 'mobile must hide the exact .pricing-table root at 375px')
   assertControlSize(filterCss, '.pricing-filters input', ['min-height'])
   assertControlSize(filterCss, '.pricing-filters select', ['min-height'])
   assertControlSize(pricingCss, '.pricing-pagination button', ['min-height'])

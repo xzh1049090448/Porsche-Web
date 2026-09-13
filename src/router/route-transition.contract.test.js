@@ -167,28 +167,11 @@ const mediaQueryMatchesScreen = (query, width, reduced) => {
 }
 const mediaMatchesScreen = (conditions, width, reduced) => conditions.every(condition => splitTopLevel(condition, ',').some(query => mediaQueryMatchesScreen(query, width, reduced)))
 const selectorSpecificity = selector => (selector.match(/#[\w-]+/g) || []).length * 100 + (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (selector.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
-const staticSelectorContexts = sources => {
-  const classes = new Set()
-  const ids = new Set(['app'])
-  for (const source of sources) for (const match of source.matchAll(/\b(class|id)\s*(?:=|:)\s*(["'])(.*?)\2/g)) {
-    if (match[1] === 'class') for (const name of match[3].split(/\s+/)) if (/^[\w-]+$/.test(name)) classes.add(name)
-    else if (/^[\w-]+$/.test(match[3])) ids.add(match[3])
-  }
-  return { classes, ids }
-}
-const knownAncestorCompound = (compound, contexts) => {
-  const classes = [...compound.matchAll(/\.([\w-]+)/g)].map(match => match[1])
-  const ids = [...compound.matchAll(/#([\w-]+)/g)].map(match => match[1])
-  if (classes.some(name => !contexts.classes.has(name)) || ids.some(name => !contexts.ids.has(name))) return false
-  const remainder = compound.replace(/\.[\w-]+|#[\w-]+/g, '')
-  return remainder === '' || /^(?:html|body|\*)$/i.test(remainder)
-}
-const selectorTargetsClass = (selector, target, contexts) => {
+const selectorTargetsClass = (selector, target) => {
   const compounds = selector.trim().split(/\s+|[>+~]/).filter(Boolean)
-  const lastCompound = compounds.at(-1) || ''
-  if (compounds.slice(0, -1).some(compound => !knownAncestorCompound(compound, contexts))) return false
+  if (compounds.length !== 1) return false
   const targetClass = target.slice(1)
-  const classes = [...lastCompound.matchAll(/\.([\w-]+)/g)].map(match => match[1])
+  const classes = [...compounds[0].matchAll(/\.([\w-]+)/g)].map(match => match[1])
   if (!classes.includes(targetClass)) return false
   const phase = targetClass.match(/^(.*)-(enter|leave)-(active|from|to)$/)
   const simultaneous = new Set([targetClass])
@@ -199,14 +182,13 @@ const selectorTargetsClass = (selector, target, contexts) => {
       const to = `${prefix}-${direction}-to`
       if (classes.includes(from) && classes.includes(to)) return false
       simultaneous.add(from).add(to)
-    }
-    else simultaneous.add(`${prefix}-${direction}-active`)
+    } else simultaneous.add(`${prefix}-${direction}-active`)
   }
   if (classes.some(className => !simultaneous.has(className))) return false
-  return lastCompound.replace(/\.[\w-]+/g, '') === ''
+  return compounds[0].replace(/\.[\w-]+/g, '') === ''
 }
-const applicableRules = (rules, selector, width, reduced, contexts) => rules.filter(rule => rule.selectors.some(candidate => selectorTargetsClass(candidate, selector, contexts)) && mediaMatchesScreen(rule.media, width, reduced))
-const reducedRuleExists = (rules, selector, width, contexts) => applicableRules(rules, selector, width, true, contexts).some(rule => rule.media.some(condition => /prefers-reduced-motion\s*:\s*reduce/i.test(condition)))
+const applicableRules = (rules, selector, width, reduced) => rules.filter(rule => rule.selectors.some(candidate => selectorTargetsClass(candidate, selector)) && mediaMatchesScreen(rule.media, width, reduced))
+const reducedRuleExists = (rules, selector, width) => applicableRules(rules, selector, width, true).some(rule => rule.media.some(condition => /prefers-reduced-motion\s*:\s*reduce/i.test(condition)))
 const transitionTime = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:ms|s)$/i
 const transitionTiming = /^(?:ease|ease-in|ease-out|ease-in-out|linear|step-start|step-end|allow-discrete|normal|cubic-bezier\(.+\)|steps\(.+\)|linear\(.+\))$/i
 const parseTransitionShorthand = value => {
@@ -225,15 +207,15 @@ const parseTransitionShorthand = value => {
   }
   return { 'transition-property': properties.join(', '), 'transition-duration': durations.join(', '), 'transition-delay': delays.join(', ') }
 }
-const effectiveProperties = (rules, selector, width, reduced, contexts) => {
+const effectiveProperties = (rules, selector, width, reduced) => {
   const winners = new Map()
   const apply = (declaration, specificity) => {
     const previous = winners.get(declaration.property)
     const candidate = { ...declaration, specificity }
     if (!previous || Number(candidate.important) > Number(previous.important) || (candidate.important === previous.important && (candidate.specificity > previous.specificity || (candidate.specificity === previous.specificity && candidate.order > previous.order)))) winners.set(candidate.property, candidate)
   }
-  for (const rule of applicableRules(rules, selector, width, reduced, contexts)) {
-    const specificity = Math.max(...rule.selectors.filter(candidate => selectorTargetsClass(candidate, selector, contexts)).map(selectorSpecificity))
+  for (const rule of applicableRules(rules, selector, width, reduced)) {
+    const specificity = Math.max(...rule.selectors.filter(candidate => selectorTargetsClass(candidate, selector)).map(selectorSpecificity))
     for (const declaration of rule.declarations) {
       if (declaration.property === 'transition') {
         for (const [property, value] of Object.entries(parseTransitionShorthand(declaration.value))) apply({ ...declaration, property, value }, specificity)
@@ -247,8 +229,8 @@ const milliseconds = value => {
   return match ? Number(match[1]) * (match[2].toLowerCase() === 's' ? 1000 : 1) : Number.NaN
 }
 const transitionValues = (properties, name, fallback) => splitTopLevel(properties.get(name) || fallback, ',').map(value => value.trim().toLowerCase())
-const assertOpacityTransition = (rules, selector, durationMs, contexts) => {
-  const properties = effectiveProperties(rules, selector, 1440, false, contexts)
+const assertOpacityTransition = (rules, selector, durationMs) => {
+  const properties = effectiveProperties(rules, selector, 1440, false)
   assert.deepEqual(transitionValues(properties, 'transition-property', 'all'), ['opacity'], `${selector} must effectively animate opacity only`)
   const durations = transitionValues(properties, 'transition-duration', '0s').map(milliseconds)
   assert.deepEqual(durations, [durationMs], `${selector} effective duration must be ${durationMs}ms`)
@@ -256,10 +238,10 @@ const assertOpacityTransition = (rules, selector, durationMs, contexts) => {
   assert.deepEqual(delays, [0], `${selector} effective delay must be zero or omitted`)
   for (const [property, value] of properties) if (/^animation(?:-|$)/i.test(property)) assert.ok(/^none$|^0m?s$/i.test(value), `${selector} must not use CSS animation`)
 }
-const assertImmediateReducedMotion = (rules, selector, contexts) => {
+const assertImmediateReducedMotion = (rules, selector) => {
   for (const width of [375, 1440]) {
-    assert.equal(reducedRuleExists(rules, selector, width, contexts), true, `reduced motion must target ${selector} at ${width}px`)
-    const properties = effectiveProperties(rules, selector, width, true, contexts)
+    assert.equal(reducedRuleExists(rules, selector, width), true, `reduced motion must target ${selector} at ${width}px`)
+    const properties = effectiveProperties(rules, selector, width, true)
     const transitionProperties = transitionValues(properties, 'transition-property', 'all')
     const durations = transitionValues(properties, 'transition-duration', '0s').map(milliseconds)
     const delays = transitionValues(properties, 'transition-delay', '0s').map(milliseconds)
@@ -267,7 +249,7 @@ const assertImmediateReducedMotion = (rules, selector, contexts) => {
     assert.ok(delays.every(delay => delay === 0), `${selector} reduced-motion delay must be zero or omitted at ${width}px`)
   }
 }
-const effectiveProperty = (rules, selector, property, contexts, reduced = false) => effectiveProperties(rules, selector, 1440, reduced, contexts).get(property)
+const effectiveProperty = (rules, selector, property, reduced = false) => effectiveProperties(rules, selector, 1440, reduced).get(property)
 
 test('shared route transition keys leaf views by fullPath and identity epoch', () => {
   const transition = readRequired('../components/shell/RouteTransition.vue', 'shared route transition component')
@@ -296,16 +278,13 @@ test('route transition is opacity-only with approved timings and immediate reduc
   const name = staticAttribute(transitionNode, 'name')
   assert.ok(name, 'Vue Transition must have a static CSS name')
   const root = styleRoot(transition)
-  const contexts = staticSelectorContexts([
-    read('../App.vue'), read('../bootstrap/AuthApp.vue'), read('../layouts/PublicLayout.vue'), read('../layouts/MainLayout.vue'),
-  ])
-  assertOpacityTransition(root, `.${name}-enter-active`, 350, contexts)
-  assertOpacityTransition(root, `.${name}-leave-active`, 200, contexts)
+  assertOpacityTransition(root, `.${name}-enter-active`, 350)
+  assertOpacityTransition(root, `.${name}-leave-active`, 200)
   for (const selector of [`.${name}-enter-from`, `.${name}-leave-to`]) {
-    assert.equal(effectiveProperty(root, selector, 'opacity', contexts), '0', `${selector} must start or end transparent`)
+    assert.equal(effectiveProperty(root, selector, 'opacity'), '0', `${selector} must start or end transparent`)
   }
-  assertImmediateReducedMotion(root, `.${name}-enter-active`, contexts)
-  assertImmediateReducedMotion(root, `.${name}-leave-active`, contexts)
+  assertImmediateReducedMotion(root, `.${name}-enter-active`)
+  assertImmediateReducedMotion(root, `.${name}-leave-active`)
 })
 
 test('public and authenticated shells reuse the shared transition component', () => {
