@@ -235,7 +235,6 @@ const callsFunction = (node, name, argument) => reachableAstContains(node, candi
   if (argument === undefined) return true
   return candidate.arguments.some(value => value?.type === 'StringLiteral' && value.value === argument)
 })
-const memberUsesState = node => astContains(node, candidate => ['MemberExpression', 'OptionalMemberExpression'].includes(candidate.type) && !candidate.computed && candidate.property?.name === 'state')
 const functionParameters = node => ['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node?.type) ? node.params || [] : []
 const knownObjectOmitsProperty = (node, propertyName, definitions, resolving = new Set()) => {
   node = unwrapExpression(node)
@@ -432,15 +431,33 @@ const forwardedArgument = (argument, binding, renderedCall) => {
   const parameterIndex = functionParameters(binding).findIndex(parameter => parameter.type === 'Identifier' && parameter.name === argument.name)
   return parameterIndex >= 0 ? unwrapExpression(renderedCall.arguments[parameterIndex]) : undefined
 }
-const correctPublicStateCall = (stateCall, component, modelName, binding, renderedCall) => {
-  if (stateCall.callee?.type !== 'Identifier' || stateCall.callee.name !== 'publicPriceState') return false
-  const stateModel = binding ? forwardedArgument(stateCall.arguments[0], binding, renderedCall) : unwrapExpression(stateCall.arguments[0])
-  const stateComponent = unwrapExpression(stateCall.arguments[1])
-  const renderedComponent = binding ? forwardedArgument(stateComponent, binding, renderedCall) : stateComponent
+const normalizedStateArgument = (argument, definitions, binding, renderedCall, resolving = new Set()) => {
+  argument = unwrapExpression(argument)
+  if (argument?.type === 'Identifier' && definitions?.has(argument.name) && !resolving.has(argument.name)) {
+    return normalizedStateArgument(definitions.get(argument.name), definitions, binding, renderedCall, new Set(resolving).add(argument.name))
+  }
+  const forwarded = binding ? forwardedArgument(argument, binding, renderedCall) : undefined
+  if (forwarded) return normalizedStateArgument(forwarded, definitions, undefined, undefined, resolving)
+  if (argument?.type === 'TemplateLiteral' && argument.expressions.length === 0) return { type: 'StringLiteral', value: argument.quasis.map(part => part.value.cooked ?? part.value.raw).join('') }
+  return argument
+}
+const forwardedStateArgument = (argument, definitions, binding, renderedCall, resolving = new Set()) => {
+  argument = unwrapExpression(argument)
+  if (argument?.type === 'Identifier' && definitions?.has(argument.name) && !resolving.has(argument.name)) {
+    return forwardedStateArgument(definitions.get(argument.name), definitions, binding, renderedCall, new Set(resolving).add(argument.name))
+  }
+  return binding ? forwardedArgument(argument, binding, renderedCall) : undefined
+}
+const correctPublicStateCall = (stateCall, component, modelName, binding, renderedCall, stateNames = new Set(['publicPriceState']), definitions = new Map()) => {
+  if (stateCall.callee?.type !== 'Identifier' || !stateNames.has(stateCall.callee.name)) return false
+  const stateModel = normalizedStateArgument(stateCall.arguments[0], definitions, binding, renderedCall)
+  const stateComponent = normalizedStateArgument(stateCall.arguments[1], definitions, binding, renderedCall)
+  const forwardedComponent = forwardedStateArgument(stateCall.arguments[1], definitions, binding, renderedCall)
+  const renderedComponent = forwardedComponent ? normalizedStateArgument(forwardedComponent, definitions) : undefined
   const rendersAComponentArgument = binding && renderedCall.arguments.some(argument => argument?.type === 'StringLiteral' && ['input', 'output'].includes(argument.value))
-  const componentMatches = stateComponent?.type === 'StringLiteral'
-    ? stateComponent.value === component && !rendersAComponentArgument
-    : renderedComponent?.type === 'StringLiteral' && renderedComponent.value === component
+  const componentMatches = renderedComponent
+    ? renderedComponent.type === 'StringLiteral' && renderedComponent.value === component
+    : stateComponent?.type === 'StringLiteral' && stateComponent.value === component && !rendersAComponentArgument
   return stateModel?.type === 'Identifier' && stateModel.name === modelName && componentMatches
 }
 const transparentlyCarriesState = (node, origins, definitions, resolving = new Set()) => {
@@ -457,9 +474,12 @@ const transparentlyCarriesState = (node, origins, definitions, resolving = new S
   if (node.type === 'AwaitExpression') return transparentlyCarriesState(node.argument, origins, definitions, resolving)
   return false
 }
-const helperReturnsCorrectStateFromOrigin = (binding, component, modelName, renderedCall, renderedPaths, origin) => {
-  const origins = node => node === origin
+const helperReturnsCorrectStateFromOrigin = (binding, component, modelName, renderedCall, renderedPaths, stateNames) => {
+  // Repeated calls with the same forwarded model/component are one semantic source; output or unrelated calls are not.
+  const originsFor = definitions => node => ['CallExpression', 'OptionalCallExpression'].includes(node?.type)
+    && correctPublicStateCall(node, component, modelName, binding, renderedCall, stateNames, definitions)
   const returnIsValid = (node, definitions, mode, resolving = new Set()) => {
+    const origins = originsFor(definitions)
     node = unwrapExpression(node)
     if (!node) return false
     if (node.type === 'Identifier' && definitions.has(node.name)) {
@@ -515,7 +535,7 @@ const helperReturnsCorrectStateFromOrigin = (binding, component, modelName, rend
           if (branch && visitStatements(branch.type === 'BlockStatement' ? branch.body : [branch], definitions, mode, true)) return true
           continue
         }
-        const [consequentMode, alternateMode] = labelConditionModes(statement.test, origins, definitions, mode)
+        const [consequentMode, alternateMode] = labelConditionModes(statement.test, originsFor(definitions), definitions, mode)
         visitStatements(statement.consequent?.type === 'BlockStatement' ? statement.consequent.body : [statement.consequent], definitions, consequentMode)
         if (statement.alternate) visitStatements(statement.alternate.type === 'BlockStatement' ? statement.alternate.body : [statement.alternate], definitions, alternateMode)
         if (statement.alternate && alwaysReturns(statement.consequent) && alwaysReturns(statement.alternate)) return true
@@ -532,18 +552,9 @@ const helperReturnsCorrectStateFromOrigin = (binding, component, modelName, rend
   visitStatements(binding.body.body)
   return returns.length > 0 && returns.every(Boolean)
 }
-const helperReturnsCorrectState = (binding, component, modelName, renderedCall, renderedPaths) => {
-  const origins = []
-  const collect = node => {
-    node = unwrapExpression(node)
-    if (!node || typeof node !== 'object') return
-    if (['CallExpression', 'OptionalCallExpression'].includes(node.type) && correctPublicStateCall(node, component, modelName, binding, renderedCall)) origins.push(node)
-    for (const [key, value] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(key)) {
-      for (const child of Array.isArray(value) ? value : [value]) if (child?.type) collect(child)
-    }
-  }
-  collect(binding)
-  return origins.some(origin => helperReturnsCorrectStateFromOrigin(binding, component, modelName, renderedCall, renderedPaths, origin))
+const helperReturnsCorrectState = (binding, component, modelName, renderedCall, renderedPaths, bindings) => {
+  const stateNames = bindings.publicPriceStateNames || new Set(['publicPriceState'])
+  return helperReturnsCorrectStateFromOrigin(binding, component, modelName, renderedCall, renderedPaths, stateNames)
 }
 const staticRenderedLabel = node => {
   node = unwrapExpression(node)
@@ -555,32 +566,23 @@ const staticRenderedLabel = node => {
 const renderedPriceStateFor = (expression, component, modelName, bindings, path = []) => {
   const node = unwrapExpression(expression)
   if (!node) return false
+  const stateNames = bindings.publicPriceStateNames || new Set(['publicPriceState'])
   const directOrigins = candidate => ['CallExpression', 'OptionalCallExpression'].includes(candidate?.type)
-    && correctPublicStateCall(candidate, component, modelName)
+    && correctPublicStateCall(candidate, component, modelName, undefined, undefined, stateNames)
   if (path.length === 0 && ['ConditionalExpression', 'LogicalExpression'].includes(node.type)
     && directlyReadStateMembers(node, directOrigins, new Map()).size > 0) {
-    const origins = []
-    const collect = candidate => {
-      candidate = unwrapExpression(candidate)
-      if (!candidate || typeof candidate !== 'object') return
-      if (directOrigins(candidate)) origins.push(candidate)
-      for (const [key, value] of Object.entries(candidate)) if (!['loc', 'start', 'end', 'extra'].includes(key)) {
-        for (const child of Array.isArray(value) ? value : [value]) if (child?.type) collect(child)
-      }
-    }
-    collect(node)
-    return origins.some(origin => validLabelExpression(node, candidate => candidate === origin, new Map()))
+    return validLabelExpression(node, directOrigins, new Map())
   }
   if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
     const property = node.computed ? staticPropertyKey(node.property) : node.property?.name
     return property !== undefined && renderedPriceStateFor(node.object, component, modelName, bindings, [property, ...path])
   }
   if (['CallExpression', 'OptionalCallExpression'].includes(node.type)) {
-    if (node.callee?.type === 'Identifier' && node.callee.name === 'publicPriceState') {
-      return correctPublicStateCall(node, component, modelName) && (path.length === 0 || ['state', 'value'].includes(String(path[0])))
+    if (node.callee?.type === 'Identifier' && stateNames.has(node.callee.name)) {
+      return correctPublicStateCall(node, component, modelName, undefined, undefined, stateNames) && (path.length === 0 || ['state', 'value'].includes(String(path[0])))
     }
     if (node.callee?.type === 'Identifier' && bindings.has(node.callee.name)) {
-      return (bindings.get(node.callee.name) || []).some(binding => helperReturnsCorrectState(binding, component, modelName, node, [path]))
+      return (bindings.get(node.callee.name) || []).some(binding => helperReturnsCorrectState(binding, component, modelName, node, [path], bindings))
     }
     if (path.length > 0 || node.callee?.type !== 'Identifier' || node.callee.name !== 't') return false
     return node.arguments.some(argument => renderedPriceStateFor(argument, component, modelName, bindings))
@@ -610,15 +612,29 @@ const renderedPriceStateFor = (expression, component, modelName, bindings, path 
   if (node.type === 'UnaryExpression') return path.length === 0 && renderedPriceStateFor(node.argument, component, modelName, bindings)
   return false
 }
+const renderedPriceLabelFor = (expression, component, modelName, bindings) => {
+  const node = unwrapExpression(expression)
+  if (!node) return false
+  if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+    const property = node.computed ? staticPropertyKey(node.property) : node.property?.name
+    return property === 'label' && renderedPriceStateFor(node, component, modelName, bindings)
+  }
+  return ['ConditionalExpression', 'LogicalExpression'].includes(node.type)
+    && renderedPriceStateFor(node, component, modelName, bindings)
+}
 const vForAlias = node => node?.props?.find(prop => prop.type === 7 && prop.name === 'for')?.exp?.content.match(/^\s*(?:\(\s*)?([A-Za-z_$][\w$]*)/)?.[1]
 const staticBindingInitializers = value => {
   const bindings = new Map()
+  const publicPriceStateNames = new Set(['publicPriceState'])
   const descriptor = parseVue(value)
   for (const block of [descriptor.script, descriptor.scriptSetup].filter(Boolean)) {
     let ast
     try { ast = vueCompiler.babelParse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
     catch (error) { throw new Error(`pricing Vue script must parse cleanly: ${error.message}`, { cause: error }) }
     const member = (object, key) => ({ type: 'MemberExpression', object, property: { type: 'StringLiteral', value: String(key) }, computed: true })
+    for (const statement of ast.program.body) if (statement.type === 'ImportDeclaration' && /(?:^|\/)public-pricing-query\.js$/.test(statement.source.value)) {
+      for (const specifier of statement.specifiers) if ((specifier.imported?.name ?? specifier.imported?.value) === 'publicPriceState') publicPriceStateNames.add(specifier.local.name)
+    }
     const selected = (expression, key) => {
       expression = unwrapExpression(expression)
       if (expression?.type === 'ArrayExpression' && /^\d+$/.test(String(key))) return expression.elements[Number(key)]
@@ -669,6 +685,7 @@ const staticBindingInitializers = value => {
     }
     process(ast.program.body, bindings)
   }
+  Object.defineProperty(bindings, 'publicPriceStateNames', { value: publicPriceStateNames })
   return bindings
 }
 const unwrapExpression = node => {
@@ -1214,6 +1231,17 @@ const structureMatchesPricingPath = (structure, path, depth = 0) => {
   }
   return matchFrom(compounds.length - 1, path.length - 1)
 }
+const pricingSiblingPaths = new Map([
+  ['.pricing-cards', [{ group: targetIdentityGroup('.pricing-table-wrap'), ancestors: resultsPath, adjacent: true }]],
+])
+const pricingSiblingSelectorMatches = (structure, target) => {
+  const siblingIndex = structure.combinators.findLastIndex(combinator => combinator === '+' || combinator === '~')
+  if (siblingIndex < 0 || siblingIndex !== structure.combinators.length - 1 || !compoundMatchesPricingGroup(structure.compounds.at(-1), targetIdentityGroup(target))) return false
+  const relation = structure.combinators[siblingIndex]
+  const prefix = { compounds: structure.compounds.slice(0, -1), combinators: structure.combinators.slice(0, -1), leading: structure.leading }
+  return (pricingSiblingPaths.get(normalizeSelector(target)) || []).some(sibling => (relation === '~' || sibling.adjacent)
+    && structureMatchesPricingPath(prefix, [...sibling.ancestors, sibling.group]))
+}
 const pricingHasDescendants = (compound, subjectIdentity, depth = 0) => {
   const argumentsByPseudo = functionalPseudoArguments(compound, new Set(['has'])).map(value => splitCssTopLevel(value, ','))
   if (!argumentsByPseudo.length) return true
@@ -1243,6 +1271,7 @@ const selectorTargetsContract = (selector, target) => {
   if (candidateCompounds.length < targetCompounds.length) return false
   if (targetCompounds.length === 1) {
     const paths = pricingRenderPaths.get(normalizeSelector(target)) || []
+    if (candidateStructure.combinators.some(combinator => combinator === '+' || combinator === '~')) return pricingSiblingSelectorMatches(candidateStructure, target)
     return paths.length
       ? paths.some(path => structureMatchesPricingPath(candidateStructure, [...path, targetIdentityGroup(target)]))
       : candidateCompounds.length === 1 && compoundMayTarget(candidateCompounds[0], targetCompounds[0])
@@ -1409,13 +1438,13 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
     const tableCell = tableCells[headerIndex - 1]
     assert.ok(tableHeader && tableCell, `table must render ${key} beside the ${component} price cell`)
     assert.ok(templateExpressionAsts(tableCell).some(expression => renderedPriceStateFor(expression, component, tableModelName, tableBindings)), `table ${key} column must render publicPriceState for ${component}`)
-    assert.ok(templateExpressionAsts(tableCell).some(expression => renderedPriceStateFor(expression, component, tableModelName, tableBindings) && memberUsesState(expression)), `table ${component} price cell must branch on publicPriceState output`)
+    assert.ok(templateExpressionAsts(tableCell).some(expression => renderedPriceLabelFor(expression, component, tableModelName, tableBindings)), `table ${component} price cell must render a state-aware publicPriceState label`)
     const cardGroup = renderedElements(cardsRoot, 'dl').flatMap(node => renderedElements(node, 'div')).find(node => {
       const expressions = templateExpressionAsts(node)
       return expressions.some(expression => callsFunction(expression, 't', key)) && expressions.some(expression => renderedPriceStateFor(expression, component, cardModelName, cardBindings))
     })
     assert.ok(cardGroup, `card must render ${key} with the ${component} price value`)
-    assert.ok(templateExpressionAsts(cardGroup).some(expression => renderedPriceStateFor(expression, component, cardModelName, cardBindings) && memberUsesState(expression)), `card ${component} price cell must branch on publicPriceState output`)
+    assert.ok(templateExpressionAsts(cardGroup).some(expression => renderedPriceLabelFor(expression, component, cardModelName, cardBindings)), `card ${component} price cell must render a state-aware publicPriceState label`)
   }
   for (const width of desktopWidths) assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, 'pricing-table', width)), false, `desktop .pricing-table root must remain visible at ${width}px`)
   for (const width of mobileWidths) {

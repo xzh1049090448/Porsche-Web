@@ -546,10 +546,13 @@ const renderNodesFromScripts = (descriptor, file) => {
   }
   return nodes
 }
+const identityGroupKey = group => [...group].sort().join('|')
 const typographyEvidenceFromVue = (files = collectProductionSources()) => {
   const evidence = new Set(['html', ':root', 'body', '#app'])
   const ancestorPaths = new Map()
   const identityGroups = new Map()
+  const groupAncestorPaths = new Map()
+  const siblingPaths = new Map()
   const voidElements = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'])
   const vueFiles = files.filter(entry => entry.file.endsWith('.vue'))
   const sourceRoot = vueFiles.map(entry => entry.file.match(/^(.*\/src)(?:\/|$)/)?.[1]).find(Boolean)
@@ -634,6 +637,12 @@ const typographyEvidenceFromVue = (files = collectProductionSources()) => {
       identityGroups.set(identity, groups)
     }
   }
+  const recordGroupPath = (group, ancestors) => {
+    const key = pathKey([group])
+    const paths = groupAncestorPaths.get(key) || []
+    if (!paths.some(candidate => pathKey(candidate) === pathKey(ancestors))) paths.push(ancestors)
+    groupAncestorPaths.set(key, paths)
+  }
   const componentContexts = new Map([...graphs.keys()].map(file => [file, [documentPath]]))
   let contextsChanged = true
   while (contextsChanged) {
@@ -659,6 +668,12 @@ const typographyEvidenceFromVue = (files = collectProductionSources()) => {
     if (!paths.some(candidate => pathKey(candidate) === key)) paths.push(ancestors)
     ancestorPaths.set(identity, paths)
   }
+  const recordSibling = (identity, sibling) => {
+    const entries = siblingPaths.get(identity) || []
+    const key = `${pathKey(sibling.ancestors)}\0${pathKey([sibling.group])}\0${sibling.adjacent}`
+    if (!entries.some(candidate => `${pathKey(candidate.ancestors)}\0${pathKey([candidate.group])}\0${candidate.adjacent}` === key)) entries.push(sibling)
+    siblingPaths.set(identity, entries)
+  }
   for (const [file, graph] of graphs) for (const node of graph.nodes) {
     const child = graph.imports.get(componentKey(node.name))
     if (!node.typography && !(child && componentRendersTypography(child))) continue
@@ -667,18 +682,37 @@ const typographyEvidenceFromVue = (files = collectProductionSources()) => {
       const local = localAncestorPath(current)
       const group = nodeIdentities(current)
       recordIdentityGroup(group)
-      for (const context of componentContexts.get(file) || []) for (const identity of group) recordPath(identity, [...context, ...local])
+      for (const context of componentContexts.get(file) || []) {
+        recordGroupPath(group, [...context, ...local])
+        for (const identity of group) recordPath(identity, [...context, ...local])
+      }
+    }
+  }
+  for (const [file, graph] of graphs) for (const node of graph.nodes) {
+    if (![...nodeIdentities(node)].some(identity => evidence.has(identity))) continue
+    const siblings = graph.nodes.filter(candidate => candidate.parent === node.parent)
+    const index = siblings.indexOf(node)
+    if (index <= 0) continue
+    const ancestors = localAncestorPath(node)
+    for (const context of componentContexts.get(file) || []) for (let siblingIndex = 0; siblingIndex < index; siblingIndex += 1) {
+      const entry = { group: nodeIdentities(siblings[siblingIndex]), ancestors: [...context, ...ancestors], adjacent: siblingIndex === index - 1 }
+      for (const identity of nodeIdentities(node)) recordSibling(identity, entry)
     }
   }
   recordIdentityGroup(documentPath[0])
   recordIdentityGroup(documentPath[1])
   recordIdentityGroup(documentPath[2])
+  recordGroupPath(documentPath[0], [])
+  recordGroupPath(documentPath[1], [documentPath[0]])
+  recordGroupPath(documentPath[2], documentPath.slice(0, 2))
   recordPath('html', [])
   recordPath(':root', [])
   recordPath('body', [documentPath[0]])
   recordPath('#app', documentPath.slice(0, 2))
   Object.defineProperty(evidence, 'ancestorPaths', { value: ancestorPaths })
   Object.defineProperty(evidence, 'identityGroups', { value: identityGroups })
+  Object.defineProperty(evidence, 'groupAncestorPaths', { value: groupAncestorPaths })
+  Object.defineProperty(evidence, 'siblingPaths', { value: siblingPaths })
   return evidence
 }
 const siteTypographyEvidence = typographyEvidenceFromVue()
@@ -833,6 +867,8 @@ const effectiveStyleSelectors = contexts => contexts.filter(context => !context.
   return parents.flatMap(parent => children.map(child => child.includes('&') ? child.replaceAll('&', parent) : parent ? `${parent} ${child}` : child))
 }, ['']).map(selector => normalizeSelector(selector))
 const selectorTargetsTypography = (selector, evidence) => {
+  const structure = selectorStructure(selector)
+  if (structure.combinators.some(combinator => combinator === '+' || combinator === '~')) return siblingTypographySelectorMatches(structure, evidence)
   const rightmost = selectorCompounds(selector).at(-1) || ''
   if (functionalPseudoArguments(rightmost, new Set(['has'])).length) return relationalTypographySelectorMatches(selector, evidence)
   return [...evidence].some(target => (evidence.ancestorPaths?.get(target) || []).some(path =>
@@ -1068,6 +1104,16 @@ const structureMatchesKnownPath = (structure, path) => {
   }
   return matchFrom(compounds.length - 1, path.length - 1)
 }
+const siblingTypographySelectorMatches = (structure, evidence) => {
+  const siblingIndex = structure.combinators.findLastIndex(combinator => combinator === '+' || combinator === '~')
+  if (siblingIndex < 0 || siblingIndex !== structure.combinators.length - 1) return false
+  const relation = structure.combinators[siblingIndex]
+  const target = structure.compounds.at(-1)
+  const prefix = { compounds: structure.compounds.slice(0, -1), combinators: structure.combinators.slice(0, -1), leading: structure.leading }
+  return [...evidence].some(identity => (evidence.identityGroups?.get(identity) || [new Set([identity])]).some(group => compoundMayTarget(target, group))
+    && (evidence.siblingPaths?.get(identity) || []).some(sibling => (relation === '~' || sibling.adjacent)
+      && structureMatchesKnownPath(prefix, [...sibling.ancestors, sibling.group])))
+}
 const compoundsMatchKnownPath = (compounds, path) => structureMatchesKnownPath({ compounds, combinators: compounds.slice(1).map(() => ' ') }, path)
 const selectorLeadingCompoundsAreKnown = (compounds, evidence, target) => {
   if (compounds.length === 0) return true
@@ -1079,29 +1125,40 @@ const relationalTypographySelectorMatches = (selector, evidence) => {
   const structure = selectorStructure(selector)
   const subject = structure.compounds.at(-1) || ''
   const argumentsByPseudo = functionalPseudoArguments(subject, new Set(['has'])).map(value => splitTopLevel(value, ','))
-  const subjectCandidates = [...evidence].filter(identity => (evidence.identityGroups?.get(identity) || [new Set([identity])]).some(group => compoundMayTarget(subject, group)))
-  return subjectCandidates.some(identity => (evidence.ancestorPaths?.get(identity) || []).some(subjectPath => (evidence.identityGroups?.get(identity) || [new Set([identity])]).some(subjectGroup => {
+  const subjectCandidates = [...evidence].flatMap(identity => (evidence.identityGroups?.get(identity) || [new Set([identity])])
+    .filter(group => compoundMayTarget(subject, group)).map(group => ({ identity, group })))
+  return subjectCandidates.some(({ identity, group: subjectGroup }) => (evidence.groupAncestorPaths?.get(identityGroupKey(subjectGroup)) || evidence.ancestorPaths?.get(identity) || []).some(subjectPath => {
     if (!structureMatchesKnownPath(structure, [...subjectPath, subjectGroup])) return false
     return argumentsByPseudo.every(branches => branches.some(branch => {
       const branchStructure = selectorStructure(branch)
       const branchTarget = branchStructure.compounds.at(-1) || ''
-      return [...evidence].some(descendant => (evidence.identityGroups?.get(descendant) || [new Set([descendant])]).some(descendantGroup => compoundMayTarget(branchTarget, descendantGroup)) && (evidence.ancestorPaths?.get(descendant) || []).some(descendantPath => {
-        for (let subjectIndex = 0; subjectIndex < descendantPath.length; subjectIndex += 1) {
-          if (!descendantPath[subjectIndex].has(identity)) continue
-          for (const descendantGroup of evidence.identityGroups?.get(descendant) || [new Set([descendant])]) {
+      return [...evidence].some(descendant => (evidence.identityGroups?.get(descendant) || [new Set([descendant])]).some(descendantGroup => compoundMayTarget(branchTarget, descendantGroup)
+        && (evidence.groupAncestorPaths?.get(identityGroupKey(descendantGroup)) || evidence.ancestorPaths?.get(descendant) || []).some(descendantPath => {
+          if (branchStructure.leading === '>' && branchStructure.compounds.length === 1) {
+            return descendantPath.length > 0 && compoundMayTarget(subject, descendantPath.at(-1))
+          }
+          for (let subjectIndex = 0; subjectIndex < descendantPath.length; subjectIndex += 1) {
+            if (!compoundMayTarget(subject, descendantPath[subjectIndex])) continue
             const relativePath = [...descendantPath.slice(subjectIndex + 1), descendantGroup]
             if (structureMatchesKnownPath(branchStructure, relativePath)) return true
           }
-        }
-        return false
-      }))
+          return false
+        })))
     }))
-  })))
+  }))
 }
 const selectorTargetsContract = (selector, target, evidence = siteTypographyEvidence) => {
   const candidate = selectorStructure(selector)
   const required = selectorStructure(target)
   const rightmostTarget = required.compounds.at(-1) || target
+  if (functionalPseudoArguments(candidate.compounds.at(-1) || '', new Set(['has'])).length) {
+    return relationalTypographySelectorMatches(selector, evidence)
+      && [...(evidence || [])].some(identity => (evidence.identityGroups?.get(identity) || [new Set([identity])]).some(group => compoundMayTarget(rightmostTarget, group) && compoundMayTarget(candidate.compounds.at(-1), group)))
+  }
+  if (candidate.combinators.some(combinator => combinator === '+' || combinator === '~')) {
+    return siblingTypographySelectorMatches(candidate, evidence)
+      && [...(evidence || [])].some(identity => (evidence.identityGroups?.get(identity) || [new Set([identity])]).some(group => compoundMayTarget(rightmostTarget, group) && compoundMayTarget(candidate.compounds.at(-1), group)))
+  }
   if (candidate.compounds.length === 1 && required.compounds.length === 1) {
     if (normalizeSelector(selector) === normalizeSelector(target)) return true
     return [...(evidence || [])].some(identity => (evidence.identityGroups?.get(identity) || [new Set([identity])]).some(group =>

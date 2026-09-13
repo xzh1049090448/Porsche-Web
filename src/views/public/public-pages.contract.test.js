@@ -19,11 +19,12 @@ const parseVue = (value, label = 'public Vue component') => {
   return parsed.descriptor
 }
 const templateAst = value => parseVue(value).template?.ast || { children: [] }
+const normalizedComponentName = value => String(value || '').replace(/-/g, '').toLowerCase()
 const elements = (value, name) => {
   const matches = []
   const visit = node => {
     if (staticallyHidden(node)) return
-    if (node.type === 1 && node.tag === name) matches.push(node)
+    if (node.type === 1 && normalizedComponentName(node.tag) === normalizedComponentName(name)) matches.push(node)
     for (const child of node.children || []) visit(child)
     for (const branch of node.branches || []) visit(branch)
   }
@@ -31,19 +32,35 @@ const elements = (value, name) => {
   return matches
 }
 const renderedComponentIsWired = (value, name, expectedFile) => {
-  if (elements(value, name).length === 0) return false
   const descriptor = parseVue(value)
-  const normalized = value => String(value || '').replace(/-/g, '').toLowerCase()
   const sourceMatches = value => String(value || '').replace(/\\/g, '/').endsWith(`/${expectedFile}`)
+  const renderedNames = new Set()
+  const collectRenderedNames = node => {
+    if (staticallyHidden(node)) return
+    if (node.type === 1) renderedNames.add(normalizedComponentName(node.tag))
+    for (const child of node.children || []) collectRenderedNames(child)
+    for (const branch of node.branches || []) collectRenderedNames(branch)
+  }
+  collectRenderedNames(templateAst(value))
   for (const block of [descriptor.scriptSetup, descriptor.script].filter(Boolean)) {
     let ast
     try { ast = vueCompiler.babelParse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
     catch (error) { throw new Error(`home component wiring must parse cleanly: ${error.message}`, { cause: error }) }
     const imports = new Map()
+    const aliases = new Map()
     for (const statement of ast.program.body) if (statement.type === 'ImportDeclaration') {
       for (const specifier of statement.specifiers) imports.set(specifier.local.name, statement.source.value)
     }
-    if (block === descriptor.scriptSetup && [...imports].some(([local, source]) => normalized(local) === normalized(name) && sourceMatches(source))) return true
+    for (const statement of ast.program.body) if (statement.type === 'VariableDeclaration') for (const declaration of statement.declarations) {
+      if (declaration.id?.type === 'Identifier' && declaration.init?.type === 'Identifier') aliases.set(declaration.id.name, declaration.init.name)
+    }
+    const importedSource = (local, resolving = new Set()) => {
+      if (!local || resolving.has(local)) return undefined
+      if (imports.has(local)) return imports.get(local)
+      return importedSource(aliases.get(local), new Set(resolving).add(local))
+    }
+    if (block === descriptor.scriptSetup && [...renderedNames].some(rendered => [...new Set([...imports.keys(), ...aliases.keys()])].some(local =>
+      normalizedComponentName(local) === rendered && sourceMatches(importedSource(local))))) return true
     for (const statement of ast.program.body) {
       if (statement.type !== 'ExportDefaultDeclaration') continue
       let options = statement.declaration
@@ -56,7 +73,7 @@ const renderedComponentIsWired = (value, name, expectedFile) => {
         if (property.type === 'SpreadElement') continue
         const registered = property.key?.name ?? property.key?.value
         const local = property.shorthand ? property.key?.name : property.value?.name
-        if (normalized(registered) === normalized(name) && sourceMatches(imports.get(local))) return true
+        if (normalizedComponentName(registered) === normalizedComponentName(name) && renderedNames.has(normalizedComponentName(registered)) && sourceMatches(importedSource(local))) return true
       }
     }
   }
@@ -225,6 +242,96 @@ const returnedExpressions = node => {
   if (node.type === 'SwitchStatement') return node.cases.flatMap(branch => branch.consequent.flatMap(returnedExpressions))
   if (node.type === 'BlockStatement') return node.body.flatMap(returnedExpressions)
   return [node]
+}
+const renderFunctionUsesImportedComponent = (value, expectedFile) => {
+  const descriptor = parseVue(value, 'public layout render')
+  for (const block of [descriptor.scriptSetup, descriptor.script].filter(Boolean)) {
+    let ast
+    try { ast = vueCompiler.babelParse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
+    catch (error) { throw new Error(`public layout render must parse cleanly: ${error.message}`, { cause: error }) }
+    const targets = new Set()
+    const renderNames = new Set(['h', 'createVNode'])
+    const helpers = new Map()
+    const aliases = new Map()
+    for (const statement of ast.program.body) {
+      if (statement.type === 'ImportDeclaration') for (const specifier of statement.specifiers) {
+        const imported = specifier.imported?.name ?? specifier.imported?.value
+        if (statement.source.value === 'vue' && ['h', 'createVNode'].includes(imported)) renderNames.add(specifier.local.name)
+        if (String(statement.source.value).replace(/\\/g, '/').endsWith(`/${expectedFile}`)) targets.add(specifier.local.name)
+      }
+      if (statement.type === 'FunctionDeclaration' && statement.id) helpers.set(statement.id.name, statement)
+    }
+    const registerBindings = node => {
+      if (!node || typeof node !== 'object') return
+      if (node.type === 'VariableDeclarator' && node.id?.type === 'Identifier' && node.init) {
+        aliases.set(node.id.name, node.init)
+        if (['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapExpression(node.init)?.type)) helpers.set(node.id.name, unwrapExpression(node.init))
+      }
+      for (const [key, child] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(key)) {
+        for (const item of Array.isArray(child) ? child : [child]) if (item?.type) registerBindings(item)
+      }
+    }
+    registerBindings(ast.program)
+    const resolvesTarget = (node, resolving = new Set()) => {
+      node = unwrapExpression(node)
+      if (node?.type !== 'Identifier' || resolving.has(node.name)) return false
+      if (targets.has(node.name)) return true
+      return aliases.has(node.name) && resolvesTarget(aliases.get(node.name), new Set(resolving).add(node.name))
+    }
+    const returns = body => {
+      body = unwrapExpression(body)
+      if (!body) return []
+      if (body.type !== 'BlockStatement') return [body]
+      const values = []
+      const visit = statement => {
+        if (!statement) return
+        if (statement.type === 'ReturnStatement') { if (statement.argument) values.push(statement.argument); return }
+        if (statement.type === 'IfStatement') {
+          const condition = staticValue(statement.test)
+          if (condition !== unknownStaticValue) visit(condition ? statement.consequent : statement.alternate)
+          else { visit(statement.consequent); visit(statement.alternate) }
+          return
+        }
+        if (statement.type === 'BlockStatement') for (const child of statement.body) visit(child)
+      }
+      visit(body)
+      return values
+    }
+    const inspect = (node, resolving = new Set()) => {
+      node = unwrapExpression(node)
+      if (!node) return false
+      if (node.type === 'Identifier' && helpers.has(node.name) && !resolving.has(node.name)) return returns(helpers.get(node.name).body).some(result => inspect(result, new Set(resolving).add(node.name)))
+      if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(node.type)) return returns(node.body).some(result => inspect(result, resolving))
+      if (node.type === 'ConditionalExpression') {
+        const condition = staticValue(node.test)
+        return condition !== unknownStaticValue ? inspect(condition ? node.consequent : node.alternate, resolving) : inspect(node.consequent, resolving) || inspect(node.alternate, resolving)
+      }
+      if (node.type === 'LogicalExpression') {
+        const left = staticValue(node.left)
+        if (left !== unknownStaticValue) return inspect(node.left, resolving) || ((node.operator === '&&' ? Boolean(left) : node.operator === '||' ? !left : left == null) && inspect(node.right, resolving))
+        return inspect(node.left, resolving) || inspect(node.right, resolving)
+      }
+      if (node.type === 'SequenceExpression') return inspect(node.expressions.at(-1), resolving)
+      if (node.type === 'ArrayExpression') return node.elements.some(item => inspect(item, resolving))
+      if (!['CallExpression', 'OptionalCallExpression'].includes(node.type)) return false
+      if (node.callee?.type === 'Identifier' && renderNames.has(node.callee.name)) {
+        if (resolvesTarget(node.arguments[0])) return true
+        return node.arguments.slice(1).some(child => inspect(child, resolving))
+      }
+      return node.callee?.type === 'Identifier' && helpers.has(node.callee.name) && !resolving.has(node.callee.name)
+        && returns(helpers.get(node.callee.name).body).some(result => inspect(result, new Set(resolving).add(node.callee.name)))
+    }
+    for (const statement of ast.program.body) if (statement.type === 'ExportDefaultDeclaration') {
+      let options = unwrapExpression(statement.declaration)
+      if (['CallExpression', 'OptionalCallExpression'].includes(options?.type) && options.callee?.name === 'defineComponent') options = unwrapExpression(options.arguments[0])
+      if (options?.type !== 'ObjectExpression') continue
+      for (const property of options.properties) if (['setup', 'render'].includes(String(property.key?.name ?? property.key?.value))) {
+        const fn = property.type === 'ObjectMethod' ? property : unwrapExpression(property.value)
+        if (returns(fn?.body).some(result => inspect(result))) return true
+      }
+    }
+  }
+  return false
 }
 const staticPropertyKey = node => {
   node = unwrapExpression(node)
@@ -604,8 +711,8 @@ test('public shell and homepage preserve the published-content contract', () => 
   const home = source('./Home.vue')
   const header = source('../../components/public/PublicHeader.vue')
   const footer = source('../../components/public/PublicFooter.vue')
-  assert.match(layout, /h\(PublicHeader/)
-  assert.match(layout, /h\(PublicFooter/)
+  assert.equal(renderFunctionUsesImportedComponent(layout, 'PublicHeader.vue'), true, 'public layout renders its imported header from a reachable render root')
+  assert.equal(renderFunctionUsesImportedComponent(layout, 'PublicFooter.vue'), true, 'public layout renders its imported footer from a reachable render root')
   assert.deepEqual(dataSectionOrder(home), ['hero', 'proof', 'advantages', 'models', 'announcements-faq', 'cta'])
   assert.match(home, /演示|demo/i)
   assert.match(home, /releaseVersion/)
