@@ -2,6 +2,13 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import test from 'node:test'
+import vuePlugin from '@vitejs/plugin-vue'
+
+const vueCompiler = (() => {
+  const plugin = vuePlugin()
+  plugin.buildStart()
+  return plugin.api.options.compiler
+})()
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8')
 const splitTopLevel = (value, delimiter) => {
@@ -124,6 +131,130 @@ const readMarkupTag = (source, start) => {
   return { start, end: Math.min(cursor + 1, source.length), closing: Boolean(match?.[1]), name: match?.[2], attrs: match ? raw.slice(match[0].length) : '', selfClosing: /\/\s*$/.test(raw) }
 }
 const staticAttribute = (attrs, name) => attrs.match(new RegExp(`(?:^|\\s)${name}\\s*=\\s*(["'])(.*?)\\1`, 'i'))?.[2]
+const unwrapJavaScript = node => {
+  while (node && ['ParenthesizedExpression', 'TSAsExpression', 'TSTypeAssertion', 'TSNonNullExpression', 'TypeCastExpression'].includes(node.type)) node = node.expression
+  return node
+}
+const propertyName = node => {
+  const key = unwrapJavaScript(node?.key)
+  if (!key || (node.computed && !['StringLiteral', 'NumericLiteral'].includes(key.type))) return undefined
+  return key.name ?? key.value
+}
+const staticStrings = node => {
+  node = unwrapJavaScript(node)
+  if (!node) return []
+  if (node.type === 'StringLiteral') return [node.value]
+  if (node.type === 'TemplateLiteral' && node.expressions.length === 0) return [node.quasis.map(part => part.value.cooked ?? part.value.raw).join('')]
+  if (node.type === 'ArrayExpression') return node.elements.flatMap(staticStrings)
+  if (node.type === 'ConditionalExpression') return staticStrings(node.consequent).concat(staticStrings(node.alternate))
+  if (node.type === 'LogicalExpression') return staticStrings(node.left).concat(staticStrings(node.right))
+  if (node.type === 'ObjectExpression') return node.properties.flatMap(property => property.type === 'ObjectProperty' && !property.computed && property.value?.type === 'BooleanLiteral' && property.value.value ? [String(propertyName(property))] : [])
+  return []
+}
+const renderNodesFromScripts = (descriptor, file) => {
+  const nodes = []
+  for (const block of [descriptor.script, descriptor.scriptSetup].filter(Boolean)) {
+    let ast
+    try { ast = vueCompiler.babelParse(block.content, { sourceType: 'module', plugins: block.lang === 'ts' || block.lang === 'tsx' ? ['typescript'] : [] }) }
+    catch (error) { throw new Error(`${file} render script must parse cleanly: ${error.message}`, { cause: error }) }
+    const renderCalls = new Set(['h', 'createVNode'])
+    const routerViews = new Set(['RouterView'])
+    const dynamicResolvers = new Set(['resolveDynamicComponent'])
+    const renderSlots = new Set(['renderSlot'])
+    for (const statement of ast.program.body) {
+      if (statement.type !== 'ImportDeclaration') continue
+      for (const specifier of statement.specifiers) {
+        const imported = specifier.imported?.name ?? specifier.imported?.value
+        if (statement.source.value === 'vue' && ['h', 'createVNode'].includes(imported)) renderCalls.add(specifier.local.name)
+        if (statement.source.value === 'vue' && imported === 'resolveDynamicComponent') dynamicResolvers.add(specifier.local.name)
+        if (statement.source.value === 'vue' && imported === 'renderSlot') renderSlots.add(specifier.local.name)
+        if (statement.source.value === 'vue-router' && imported === 'RouterView') routerViews.add(specifier.local.name)
+      }
+    }
+    const seen = new WeakSet()
+    const isCall = node => ['CallExpression', 'OptionalCallExpression'].includes(unwrapJavaScript(node)?.type)
+    const calleeName = node => unwrapJavaScript(node)?.type === 'Identifier' ? unwrapJavaScript(node).name : undefined
+    const walk = (node, visit) => {
+      if (!node || typeof node !== 'object') return
+      visit(node)
+      for (const [key, value] of Object.entries(node)) {
+        if (['loc', 'start', 'end', 'extra'].includes(key)) continue
+        if (Array.isArray(value)) for (const child of value) walk(child, visit)
+        else if (value && typeof value === 'object' && typeof value.type === 'string') walk(value, visit)
+      }
+    }
+    const propsFrom = expression => {
+      const props = unwrapJavaScript(expression)
+      if (props?.type !== 'ObjectExpression') return { classes: [], id: undefined }
+      const classes = []
+      let id
+      for (const property of props.properties) {
+        if (property.type !== 'ObjectProperty') continue
+        const name = propertyName(property)
+        if (name === 'class') classes.push(...staticStrings(property.value).flatMap(value => value.split(/\s+/).filter(Boolean)))
+        if (name === 'id') id = staticStrings(property.value)[0]
+      }
+      return { classes: [...new Set(classes)], id }
+    }
+    const returnExpressions = body => {
+      body = unwrapJavaScript(body)
+      if (!body) return []
+      if (body.type !== 'BlockStatement') return [body]
+      const values = []
+      walk(body, node => { if (node.type === 'ReturnStatement' && node.argument) values.push(node.argument) })
+      return values
+    }
+    const parseRenderCall = (call, parent) => {
+      call = unwrapJavaScript(call)
+      if (!isCall(call) || !renderCalls.has(calleeName(call.callee))) return undefined
+      if (seen.has(call)) return undefined
+      seen.add(call)
+      const type = unwrapJavaScript(call.arguments[0])
+      const name = type?.type === 'StringLiteral' ? type.value : type?.type === 'Identifier' ? type.name : 'component'
+      const propsIndex = unwrapJavaScript(call.arguments[1])?.type === 'ObjectExpression' || unwrapJavaScript(call.arguments[1])?.type === 'NullLiteral' ? 1 : -1
+      const props = propsFrom(propsIndex === 1 ? call.arguments[1] : undefined)
+      const dynamicType = (type?.type === 'Identifier' && routerViews.has(type.name))
+        || (type?.type === 'StringLiteral' && /^(?:router-view|slot|component)$/i.test(type.value))
+        || (isCall(type) && dynamicResolvers.has(calleeName(type.callee)))
+      const node = { name, ...props, parent, typography: dynamicType }
+      nodes.push(node)
+      const markVisibleChild = expression => {
+        expression = unwrapJavaScript(expression)
+        if (!expression) return
+        if (isCall(expression) && renderCalls.has(calleeName(expression.callee))) { parseRenderCall(expression, node); return }
+        if (['StringLiteral', 'NumericLiteral', 'BigIntLiteral'].includes(expression.type)) { if (String(expression.value ?? '').trim()) node.typography = true; return }
+        if (expression.type === 'TemplateLiteral') {
+          if (expression.quasis.some(part => (part.value.cooked ?? part.value.raw).trim()) || expression.expressions.length) node.typography = true
+          return
+        }
+        if (['Identifier', 'MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) { node.typography = true; return }
+        if (['ArrowFunctionExpression', 'FunctionExpression'].includes(expression.type)) { for (const returned of returnExpressions(expression.body)) markVisibleChild(returned); return }
+        if (expression.type === 'BlockStatement') { for (const returned of returnExpressions(expression)) markVisibleChild(returned); return }
+        if (expression.type === 'ArrayExpression') { for (const child of expression.elements) markVisibleChild(child); return }
+        if (expression.type === 'ObjectExpression') { for (const property of expression.properties) if (property.type === 'ObjectProperty' || property.type === 'ObjectMethod') markVisibleChild(property.value ?? property.body); return }
+        if (isCall(expression)) {
+          const called = calleeName(expression.callee)
+          const member = unwrapJavaScript(expression.callee)
+          if (called === 't' || renderSlots.has(called) || (member?.type === 'MemberExpression' && /^(?:slots?|\$slots)$/.test(member.object?.name || ''))) node.typography = true
+          else for (const argument of expression.arguments) markVisibleChild(argument)
+          return
+        }
+        if (expression.type === 'ConditionalExpression') { markVisibleChild(expression.consequent); markVisibleChild(expression.alternate); return }
+        if (expression.type === 'LogicalExpression' || expression.type === 'BinaryExpression') { markVisibleChild(expression.left); markVisibleChild(expression.right); return }
+        if (expression.type === 'SequenceExpression') { markVisibleChild(expression.expressions.at(-1)); return }
+        if (expression.type === 'SpreadElement' || expression.type === 'AwaitExpression') { markVisibleChild(expression.argument) }
+      }
+      const children = call.arguments.length > 2 ? call.arguments.slice(2) : propsIndex === -1 ? call.arguments.slice(1) : []
+      for (const child of children) markVisibleChild(child)
+      return node
+    }
+    // Only syntax is inspected: render helpers, slots, and component bodies are never invoked.
+    walk(ast.program, node => {
+      if (isCall(node) && renderCalls.has(calleeName(node.callee)) && !seen.has(node)) parseRenderCall(node, undefined)
+    })
+  }
+  return nodes
+}
 const typographyEvidenceFromVue = (files = collectProductionSources()) => {
   const evidence = new Set(['html', ':root', 'body', '#app'])
   const voidElements = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'])
@@ -137,12 +268,14 @@ const typographyEvidenceFromVue = (files = collectProductionSources()) => {
   }
   const graphs = new Map()
   for (const { file, source } of vueFiles) {
+    const parsed = vueCompiler.parse(source, { filename: file })
+    if (parsed.errors.length) throw new Error(`${file} Vue SFC must parse cleanly: ${parsed.errors.map(String).join('; ')}`)
     const imports = new Map()
     for (const match of source.matchAll(/\bimport\s+([A-Za-z_$][\w$]*)\s+from\s*(["'])([^"']+\.vue)\2/g)) {
       const target = match[3].startsWith('@/') && sourceRoot ? resolve(sourceRoot, match[3].slice(2)) : resolve(dirname(file), match[3])
       imports.set(componentKey(match[1]), target)
     }
-    const nodes = []
+    const nodes = renderNodesFromScripts(parsed.descriptor, file)
     const opening = /<template\b[^>]*>/i.exec(source)
     if (opening) {
       const stack = []
@@ -171,10 +304,6 @@ const typographyEvidenceFromVue = (files = collectProductionSources()) => {
       }
     }
     graphs.set(file, { imports, nodes })
-    if (/(?:^|\/)(?:App|AuthApp|[^/]*Layout)\.vue$/.test(file) && /\b(?:RouterView|router-view)\b/.test(source)) {
-      for (const match of source.matchAll(/\bclass\s*:\s*(["'])(.*?)\1/g)) for (const name of match[2].split(/\s+/).filter(Boolean)) evidence.add(`.${name}`)
-      for (const match of source.matchAll(/\bid\s*:\s*(["'])(.*?)\1/g)) evidence.add(`#${match[2]}`)
-    }
   }
   // A memoized fixed point propagates text through arbitrary component depth while pure cycles settle at false.
   // Missing local Vue targets stay conservative because their rendering cannot be inspected.
