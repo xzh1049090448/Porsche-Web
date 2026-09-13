@@ -210,6 +210,56 @@ const milliseconds = value => {
   return match ? Number(match[1]) * (match[2].toLowerCase() === 's' ? 1000 : 1) : Number.NaN
 }
 const transitionValues = (properties, name, fallback) => splitTopLevel(properties.get(name) || fallback, ',').map(value => value.trim().toLowerCase())
+const ruleProperties = rule => {
+  const winners = new Map()
+  const apply = declaration => {
+    const previous = winners.get(declaration.property)
+    if (!previous || Number(declaration.important) > Number(previous.important) || (declaration.important === previous.important && declaration.order > previous.order)) winners.set(declaration.property, declaration)
+  }
+  for (const declaration of rule.declarations) {
+    if (declaration.property === 'transition') {
+      for (const [property, value] of Object.entries(parseTransitionShorthand(declaration.value))) apply({ ...declaration, property, value })
+    } else apply(declaration)
+  }
+  return new Map([...winners].map(([property, declaration]) => [property, declaration.value.trim()]))
+}
+const selectorSubject = selector => {
+  let start = 0
+  let quote = ''
+  let escaped = false
+  let depth = 0
+  for (let index = 0; index < selector.length; index += 1) {
+    const character = selector[index]
+    if (escaped) { escaped = false; continue }
+    if (quote) {
+      if (character === '\\') escaped = true
+      else if (character === quote) quote = ''
+      continue
+    }
+    if (character === '"' || character === "'") quote = character
+    else if (character === '(' || character === '[') depth += 1
+    else if (character === ')' || character === ']') depth -= 1
+    else if (depth === 0 && (/\s/.test(character) || /[>+~]/.test(character))) start = index + 1
+  }
+  return selector.slice(start).trim()
+}
+const assertEveryPhaseOpacityOnly = (rules, name) => {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const phaseClass = new RegExp(`\\.${escapedName}-(?:enter|leave)-(?:active|from|to)(?![\\w-])`)
+  const geometryProperties = /^(?:transform|translate|scale|rotate|filter|width|height|top|left|right|bottom)$/i
+  for (const rule of rules) {
+    const selectors = rule.selectors.filter(selector => phaseClass.test(selectorSubject(selector)))
+    if (selectors.length === 0) continue
+    const label = selectors.join(', ')
+    const properties = ruleProperties(rule)
+    for (const property of properties.keys()) assert.doesNotMatch(property, geometryProperties, `${label} must not declare ${property}; route phases may change opacity only`)
+    const transitionProperties = transitionValues(properties, 'transition-property', '')
+    if (transitionProperties.length > 0) assert.ok(transitionProperties.every(property => property === 'opacity' || property === 'none'), `${label} transition-property must be opacity or none; found ${transitionProperties.join(', ')}`)
+    for (const [property, value] of properties) {
+      if (/^animation(?:-|$)/i.test(property)) assert.ok(/^none$|^0m?s$/i.test(value.trim()), `${label} must not create CSS animation through ${property}`)
+    }
+  }
+}
 const assertOpacityTransition = (rules, selector, durationMs) => {
   const properties = effectiveProperties(rules, selector, 1440, false)
   assert.deepEqual(transitionValues(properties, 'transition-property', 'all'), ['opacity'], `${selector} must effectively animate opacity only`)
@@ -259,6 +309,7 @@ test('route transition is opacity-only with approved timings and immediate reduc
   const name = staticAttribute(transitionNode, 'name')
   assert.ok(name, 'Vue Transition must have a static CSS name')
   const root = styleRoot(transition)
+  assertEveryPhaseOpacityOnly(root, name)
   assertOpacityTransition(root, `.${name}-enter-active`, 350)
   assertOpacityTransition(root, `.${name}-leave-active`, 200)
   for (const selector of [`.${name}-enter-from`, `.${name}-leave-to`]) {
