@@ -111,6 +111,14 @@ const staticValue = node => {
   if (node.type === 'Identifier' && node.name === 'NaN') return Number.NaN
   if (node.type === 'NullLiteral') return null
   if (node.type === 'BigIntLiteral') return BigInt(node.value)
+  if (['CallExpression', 'OptionalCallExpression'].includes(node.type) && node.callee?.type === 'Identifier' && ['Boolean', 'Number', 'String'].includes(node.callee.name) && node.arguments.length <= 1) {
+    if (node.arguments.length === 0) return node.callee.name === 'Boolean' ? false : node.callee.name === 'Number' ? 0 : ''
+    const value = staticValue(node.arguments[0])
+    if (value === unknownStaticValue) return unknownStaticValue
+    if (node.callee.name === 'Boolean') return Boolean(value)
+    if (node.callee.name === 'Number') return Number(value)
+    return String(value)
+  }
   if (node.type === 'UnaryExpression' && ['!', '+', '-', '~', 'void'].includes(node.operator)) {
     if (node.operator === 'void') return undefined
     const value = staticValue(node.argument)
@@ -208,14 +216,6 @@ const callsFunction = (node, name, argument) => astContains(node, candidate => {
   return candidate.arguments.some(value => value?.type === 'StringLiteral' && value.value === argument)
 })
 const memberUsesState = node => astContains(node, candidate => ['MemberExpression', 'OptionalMemberExpression'].includes(candidate.type) && !candidate.computed && candidate.property?.name === 'state')
-const callExpressions = (node, name) => {
-  const calls = []
-  astContains(node, candidate => {
-    if (['CallExpression', 'OptionalCallExpression'].includes(candidate.type) && candidate.callee?.type === 'Identifier' && (!name || candidate.callee.name === name)) calls.push(candidate)
-    return false
-  })
-  return calls
-}
 const functionParameters = node => ['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node?.type) ? node.params || [] : []
 const expressionDerivedFrom = (node, origins, definitions = new Map(), path = [], resolving = new Set()) => {
   node = unwrapExpression(node)
@@ -289,21 +289,6 @@ const directlyReadStateMembers = (node, origins, definitions, resolving = new Se
   }
   return members
 }
-const renderedCallPaths = (node, target, path = []) => {
-  node = unwrapExpression(node)
-  if (!node || typeof node !== 'object') return []
-  if (node === target) return [path]
-  if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
-    const property = node.computed ? staticPropertyKey(node.property) : node.property?.name
-    return property === undefined ? [] : renderedCallPaths(node.object, target, [property, ...path])
-  }
-  if (node.type === 'SequenceExpression') return renderedCallPaths(node.expressions.at(-1), target, path)
-  if (node.type === 'ConditionalExpression') return renderedCallPaths(node.consequent, target, path).concat(renderedCallPaths(node.alternate, target, path))
-  return Object.entries(node).flatMap(([key, value]) => {
-    if (['loc', 'start', 'end', 'extra'].includes(key)) return []
-    return Array.isArray(value) ? value.flatMap(item => renderedCallPaths(item, target)) : renderedCallPaths(value, target)
-  })
-}
 const forwardedArgument = (argument, binding, renderedCall) => {
   argument = unwrapExpression(argument)
   if (argument?.type !== 'Identifier') return undefined
@@ -362,12 +347,55 @@ const helperReturnsCorrectState = (binding, component, modelName, renderedCall, 
   visitStatements(binding.body.body)
   return returns.length > 0 && returns.every(Boolean)
 }
-const renderedPriceStateFor = (expression, component, modelName, bindings) => callExpressions(expression).some(call => {
-  const renderedPaths = renderedCallPaths(expression, call)
-  if (renderedPaths.length === 0) return false
-  if (call.callee.name === 'publicPriceState') return correctPublicStateCall(call, component, modelName)
-  return (bindings.get(call.callee.name) || []).some(binding => helperReturnsCorrectState(binding, component, modelName, call, renderedPaths))
-})
+const staticRenderedLabel = node => {
+  node = unwrapExpression(node)
+  if (!node) return false
+  if (staticValue(node) !== unknownStaticValue) return true
+  if (node.type === 'TemplateLiteral') return node.expressions.length === 0
+  return ['CallExpression', 'OptionalCallExpression'].includes(node.type) && node.callee?.type === 'Identifier' && node.callee.name === 't' && node.arguments.every(staticRenderedLabel)
+}
+const renderedPriceStateFor = (expression, component, modelName, bindings, path = []) => {
+  const node = unwrapExpression(expression)
+  if (!node) return false
+  if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+    const property = node.computed ? staticPropertyKey(node.property) : node.property?.name
+    return property !== undefined && renderedPriceStateFor(node.object, component, modelName, bindings, [property, ...path])
+  }
+  if (['CallExpression', 'OptionalCallExpression'].includes(node.type)) {
+    if (node.callee?.type === 'Identifier' && node.callee.name === 'publicPriceState') {
+      return correctPublicStateCall(node, component, modelName) && (path.length === 0 || ['state', 'value'].includes(String(path[0])))
+    }
+    if (node.callee?.type === 'Identifier' && bindings.has(node.callee.name)) {
+      return (bindings.get(node.callee.name) || []).some(binding => helperReturnsCorrectState(binding, component, modelName, node, [path]))
+    }
+    if (path.length > 0 || node.callee?.type !== 'Identifier' || node.callee.name !== 't') return false
+    return node.arguments.some(argument => renderedPriceStateFor(argument, component, modelName, bindings))
+  }
+  if (node.type === 'SequenceExpression') return renderedPriceStateFor(node.expressions.at(-1), component, modelName, bindings, path)
+  if (node.type === 'ConditionalExpression') {
+    const condition = staticValue(node.test)
+    if (condition !== unknownStaticValue) return renderedPriceStateFor(condition ? node.consequent : node.alternate, component, modelName, bindings, path)
+    const testDerived = renderedPriceStateFor(node.test, component, modelName, bindings)
+    const branches = [node.consequent, node.alternate]
+    const derived = branches.map(branch => renderedPriceStateFor(branch, component, modelName, bindings, path))
+    return derived.every(Boolean) || (testDerived && branches.every((branch, index) => derived[index] || staticRenderedLabel(branch)))
+  }
+  if (node.type === 'LogicalExpression') {
+    const leftValue = staticValue(node.left)
+    if (leftValue !== unknownStaticValue) {
+      const useRight = node.operator === '&&' ? Boolean(leftValue) : node.operator === '||' ? !leftValue : leftValue === null || leftValue === undefined
+      return renderedPriceStateFor(useRight ? node.right : node.left, component, modelName, bindings, path)
+    }
+    const leftDerived = renderedPriceStateFor(node.left, component, modelName, bindings, path)
+    const rightDerived = renderedPriceStateFor(node.right, component, modelName, bindings, path)
+    return leftDerived && (rightDerived || staticRenderedLabel(node.right))
+  }
+  if (node.type === 'TemplateLiteral') return path.length === 0 && node.expressions.some(value => renderedPriceStateFor(value, component, modelName, bindings))
+  if (node.type === 'BinaryExpression') return path.length === 0 && (renderedPriceStateFor(node.left, component, modelName, bindings) || renderedPriceStateFor(node.right, component, modelName, bindings))
+  if (node.type === 'AwaitExpression') return renderedPriceStateFor(node.argument, component, modelName, bindings, path)
+  if (node.type === 'UnaryExpression') return path.length === 0 && renderedPriceStateFor(node.argument, component, modelName, bindings)
+  return false
+}
 const vForAlias = node => node?.props?.find(prop => prop.type === 7 && prop.name === 'for')?.exp?.content.match(/^\s*(?:\(\s*)?([A-Za-z_$][\w$]*)/)?.[1]
 const staticBindingInitializers = value => {
   const bindings = new Map()

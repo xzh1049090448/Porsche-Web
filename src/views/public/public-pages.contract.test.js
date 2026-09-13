@@ -41,6 +41,14 @@ const staticValue = node => {
   if (node.type === 'Identifier' && node.name === 'NaN') return Number.NaN
   if (node.type === 'NullLiteral') return null
   if (node.type === 'BigIntLiteral') return BigInt(node.value)
+  if (['CallExpression', 'OptionalCallExpression'].includes(node.type) && node.callee?.type === 'Identifier' && ['Boolean', 'Number', 'String'].includes(node.callee.name) && node.arguments.length <= 1) {
+    if (node.arguments.length === 0) return node.callee.name === 'Boolean' ? false : node.callee.name === 'Number' ? 0 : ''
+    const value = staticValue(node.arguments[0])
+    if (value === unknownStaticValue) return unknownStaticValue
+    if (node.callee.name === 'Boolean') return Boolean(value)
+    if (node.callee.name === 'Number') return Number(value)
+    return String(value)
+  }
   if (node.type === 'UnaryExpression' && ['!', '+', '-', '~', 'void'].includes(node.operator)) {
     if (node.operator === 'void') return undefined
     const value = staticValue(node.argument)

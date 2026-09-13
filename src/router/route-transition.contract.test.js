@@ -93,7 +93,7 @@ const keyPartContributorAlternatives = (node, identityName, helpers, parameters 
   if (node.type === 'Identifier' && node.name === identityName) return [new Set(['identity'])]
   if (node.type === 'Identifier' && parameters.has(node.name)) return parameters.get(node.name).map(contributors => new Set(contributors))
   if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'NullLiteral'].includes(node.type)) return [new Set()]
-  if (['TemplateLiteral', 'ArrayExpression'].includes(node.type) || (node.type === 'BinaryExpression' && node.operator === '+') || node.type === 'CallExpression' || node.type === 'OptionalCallExpression') {
+  if (node.type === 'TemplateLiteral' || (node.type === 'BinaryExpression' && node.operator === '+') || node.type === 'CallExpression' || node.type === 'OptionalCallExpression') {
     return composedKeyContributorAlternatives(node, identityName, helpers, parameters, resolving)
   }
   return null
@@ -101,7 +101,6 @@ const keyPartContributorAlternatives = (node, identityName, helpers, parameters 
 const composedKeyContributorAlternatives = (node, identityName, helpers, parameters = new Map(), resolving = new Set()) => {
   node = unwrapKeyExpression(node)
   if (node?.type === 'TemplateLiteral') return mergeContributorAlternatives(node.expressions.map(expression => keyPartContributorAlternatives(expression, identityName, helpers, parameters, resolving)))
-  if (node?.type === 'ArrayExpression') return mergeContributorAlternatives(node.elements.map(element => element?.type === 'SpreadElement' ? null : keyPartContributorAlternatives(element, identityName, helpers, parameters, resolving)))
   if (node?.type === 'BinaryExpression' && node.operator === '+') return mergeContributorAlternatives([keyPartContributorAlternatives(node.left, identityName, helpers, parameters, resolving), keyPartContributorAlternatives(node.right, identityName, helpers, parameters, resolving)])
   if (['CallExpression', 'OptionalCallExpression'].includes(node?.type) && node.callee?.type === 'Identifier' && helpers.has(node.callee.name) && !resolving.has(node.callee.name)) {
     const helper = helpers.get(node.callee.name)
@@ -115,8 +114,10 @@ const composedKeyContributorAlternatives = (node, identityName, helpers, paramet
     const returns = returnedKeyExpressions(helper.body)
     if (returns.length === 0) return null
     const next = new Set(resolving).add(node.callee.name)
-    const results = returns.map(expression => keyPartContributorAlternatives(expression, identityName, helpers, mapped, next))
-    return results.some(result => result === null) ? null : results.flat()
+    const results = returns.map(expression => composedKeyContributorAlternatives(expression, identityName, helpers, mapped, next))
+    if (results.some(result => result === null)) return null
+    const alternatives = results.flat()
+    return alternatives.every(contributors => contributors.has('route') && contributors.has('identity')) ? alternatives : null
   }
   return null
 }
