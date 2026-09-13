@@ -19,17 +19,66 @@ const parseVue = (value, label = 'public Vue component') => {
   return parsed.descriptor
 }
 const templateAst = value => parseVue(value).template?.ast || { children: [] }
+const reachableVueBranches = node => {
+  if (node.type !== 9) return node.branches || []
+  const branches = []
+  for (const branch of node.branches || []) {
+    if (!branch.condition) { branches.push(branch); break }
+    let expression
+    try { expression = vueCompiler.babelParse(`(${branch.condition.content})`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression }
+    catch (error) { throw new Error(`public v-if branch must parse cleanly: ${error.message}`, { cause: error }) }
+    const condition = staticValue(expression)
+    if (condition === unknownStaticValue) branches.push(branch)
+    else if (condition) { branches.push(branch); break }
+  }
+  return branches
+}
+const conditionalDirective = node => node?.type === 1
+  ? node.props?.find(prop => prop.type === 7 && ['if', 'else-if', 'else'].includes(prop.name))
+  : undefined
+const reachableChildPaths = node => {
+  const children = node.children || []
+  let paths = [[]]
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index]
+    const directive = conditionalDirective(child)
+    if (directive?.name !== 'if') { paths = paths.map(path => [...path, child]); continue }
+    const chain = [child]
+    let cursor = index + 1
+    while (cursor < children.length) {
+      while (cursor < children.length && ((children[cursor].type === 2 && !children[cursor].content.trim()) || children[cursor].type === 3)) cursor += 1
+      const next = conditionalDirective(children[cursor])
+      if (!next || !['else-if', 'else'].includes(next.name)) break
+      chain.push(children[cursor]); cursor += 1
+    }
+    index = cursor - 1
+    const alternatives = []
+    let guaranteed = false
+    for (const branch of chain) {
+      const branchDirective = conditionalDirective(branch)
+      if (branchDirective.name === 'else') { alternatives.push(branch); guaranteed = true; break }
+      let expression
+      try { expression = vueCompiler.babelParse(`(${branchDirective.exp?.content})`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression }
+      catch (error) { throw new Error(`public v-if branch must parse cleanly: ${error.message}`, { cause: error }) }
+      const condition = staticValue(expression)
+      if (condition === unknownStaticValue) alternatives.push(branch)
+      else if (condition) { alternatives.push(branch); guaranteed = true; break }
+    }
+    if (!guaranteed) alternatives.push(undefined)
+    paths = paths.flatMap(path => alternatives.map(branch => branch ? [...path, branch] : path))
+  }
+  return paths
+}
 const normalizedComponentName = value => String(value || '').replace(/-/g, '').toLowerCase()
 const elements = (value, name) => {
-  const matches = []
-  const visit = node => {
-    if (staticallyHidden(node)) return
-    if (node.type === 1 && normalizedComponentName(node.tag) === normalizedComponentName(name)) matches.push(node)
-    for (const child of node.children || []) visit(child)
-    for (const branch of node.branches || []) visit(branch)
+  const collect = node => {
+    if (staticallyHidden(node)) return []
+    if (node.type === 9) return reachableVueBranches(node).map(collect).sort((left, right) => right.length - left.length)[0] || []
+    const own = node.type === 1 && normalizedComponentName(node.tag) === normalizedComponentName(name) ? [node] : []
+    const children = reachableChildPaths(node).map(path => path.flatMap(collect)).sort((left, right) => right.length - left.length)[0] || []
+    return [...own, ...children, ...reachableVueBranches(node).flatMap(collect)]
   }
-  visit(templateAst(value))
-  return matches
+  return collect(templateAst(value))
 }
 const renderedComponentIsWired = (value, _name, expectedFile) => {
   const descriptor = parseVue(value)
@@ -41,14 +90,6 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
       : specifier.startsWith('.') ? new URL(specifier, import.meta.url) : undefined
     return resolved?.pathname === authoritativeModule
   }
-  const renderedNodes = []
-  const collectRenderedNodes = node => {
-    if (staticallyHidden(node)) return
-    if (node.type === 1) renderedNodes.push(node)
-    for (const child of node.children || []) collectRenderedNodes(child)
-    for (const branch of node.branches || []) collectRenderedNodes(branch)
-  }
-  collectRenderedNodes(templateAst(value))
   const wiredNames = new Set()
   for (const block of [descriptor.scriptSetup, descriptor.script].filter(Boolean)) {
     let ast
@@ -86,7 +127,15 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
       }
     }
   }
-  return renderedNodes.filter(node => wiredNames.has(normalizedComponentName(node.tag))).length
+  const renderedCount = node => {
+    if (staticallyHidden(node)) return 0
+    if (node.type === 9) return Math.max(0, ...reachableVueBranches(node).map(renderedCount))
+    const own = node.type === 1 && wiredNames.has(normalizedComponentName(node.tag)) ? 1 : 0
+    const childCount = Math.max(0, ...reachableChildPaths(node).map(path => path.reduce((count, child) => count + renderedCount(child), 0)))
+    return own + childCount
+      + (node.type === 9 ? 0 : reachableVueBranches(node).reduce((count, branch) => count + renderedCount(branch), 0))
+  }
+  return renderedCount(templateAst(value))
 }
 const staticAttribute = (node, name) => node.props.find(prop => prop.type === 6 && prop.name === name)?.value?.content
 const boundAttribute = (node, name) => node.props.find(prop => prop.type === 7 && prop.name === 'bind' && prop.arg?.type === 4 && prop.arg.content === name)?.exp?.content
@@ -166,18 +215,20 @@ const directiveIsStaticallyFalse = prop => {
 }
 const staticallyHidden = node => node.type === 1 && node.props?.some(directiveIsStaticallyFalse)
 const dataSectionOrder = value => {
-  const order = []
   const visit = node => {
-    if (staticallyHidden(node)) return
+    if (staticallyHidden(node)) return []
+    if (node.type === 9) return reachableVueBranches(node).map(visit).sort((left, right) => right.length - left.length)[0] || []
+    const order = []
     if (node.type === 1) {
       const section = staticAttribute(node, 'data-section')
       if (section) order.push(section)
     }
-    for (const child of node.children || []) visit(child)
-    for (const branch of node.branches || []) visit(branch)
+    const childOrder = reachableChildPaths(node).map(path => path.flatMap(visit)).sort((left, right) => right.length - left.length)[0] || []
+    order.push(...childOrder)
+    for (const branch of reachableVueBranches(node)) order.push(...visit(branch))
+    return order
   }
-  visit(templateAst(value))
-  return order
+  return visit(templateAst(value))
 }
 const staticBindingInitializers = value => {
   const bindings = new Map()
@@ -232,6 +283,30 @@ const staticBindingInitializers = value => {
             process(node.alternate?.type === 'BlockStatement' ? node.alternate.body : [node.alternate], right)
             target.clear(); for (const [name, values] of merge(left, right)) target.set(name, values)
           }
+        } else if (node.type === 'SwitchStatement') {
+          const discriminant = staticValue(node.discriminant)
+          const caseValues = node.cases.map(branch => branch.test ? staticValue(branch.test) : undefined)
+          const defaultIndex = node.cases.findIndex(branch => !branch.test)
+          let entries
+          if (discriminant !== unknownStaticValue && caseValues.every((value, index) => index === defaultIndex || value !== unknownStaticValue)) {
+            const matched = caseValues.findIndex((value, index) => index !== defaultIndex && Object.is(value, discriminant))
+            entries = [matched >= 0 ? matched : defaultIndex].filter(index => index >= 0)
+          } else entries = node.cases.map((_, index) => index).concat(defaultIndex < 0 ? [-1] : [])
+          const states = entries.map(entry => {
+            const state = new Map(target)
+            if (entry < 0) return state
+            for (let index = entry; index < node.cases.length; index += 1) {
+              const statements = node.cases[index].consequent
+              const stop = statements.findIndex(statement => statement.type === 'BreakStatement')
+              process(stop < 0 ? statements : statements.slice(0, stop), state)
+              if (stop >= 0) break
+            }
+            return state
+          })
+          if (states.length) {
+            const merged = states.reduce((left, right) => merge(left, right))
+            target.clear(); for (const [name, values] of merged) target.set(name, values)
+          }
         }
       }
     }
@@ -281,11 +356,50 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
       }
     }
     registerBindings(ast.program)
+    const memberName = node => {
+      const property = unwrapExpression(node?.property)
+      if (!node?.computed && property?.type === 'Identifier') return property.name
+      return node?.computed && ['StringLiteral', 'NumericLiteral'].includes(property?.type) ? String(property.value) : undefined
+    }
+    const memberValue = (object, name, resolving = new Set()) => {
+      object = unwrapExpression(object)
+      if (!object || resolving.size > 32) return undefined
+      if (object.type === 'Identifier' && aliases.has(object.name) && !resolving.has(object.name)) return memberValue(aliases.get(object.name), name, new Set(resolving).add(object.name))
+      if (object.type === 'ArrayExpression') return object.elements[Number(name)]
+      if (object.type !== 'ObjectExpression') return undefined
+      let found
+      for (const property of object.properties) {
+        if (property.type === 'SpreadElement') {
+          const spread = memberValue(property.argument, name, resolving)
+          if (spread) found = spread
+        } else if (String(property.key?.name ?? property.key?.value) === String(name)) found = property.type === 'ObjectMethod' ? property : property.value
+      }
+      return found
+    }
     const resolvesTarget = (node, resolving = new Set()) => {
       node = unwrapExpression(node)
-      if (node?.type !== 'Identifier' || resolving.has(node.name)) return false
-      if (targets.has(node.name)) return true
-      return aliases.has(node.name) && resolvesTarget(aliases.get(node.name), new Set(resolving).add(node.name))
+      if (!node || resolving.size > 32) return false
+      if (node.type === 'Identifier') {
+        if (resolving.has(node.name)) return false
+        if (targets.has(node.name)) return true
+        return aliases.has(node.name) && resolvesTarget(aliases.get(node.name), new Set(resolving).add(node.name))
+      }
+      if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+        const value = memberValue(node.object, memberName(node), resolving)
+        return value ? resolvesTarget(value, resolving) : false
+      }
+      return false
+    }
+    const resolvedVNodeType = (node, resolving = new Set()) => {
+      node = unwrapExpression(node)
+      if (!node || resolving.size > 32) return undefined
+      if (node.type === 'StringLiteral') return node
+      if (node.type === 'Identifier' && aliases.has(node.name) && !resolving.has(node.name)) return resolvedVNodeType(aliases.get(node.name), new Set(resolving).add(node.name))
+      if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+        const value = memberValue(node.object, memberName(node), resolving)
+        return value ? resolvedVNodeType(value, resolving) : undefined
+      }
+      return undefined
     }
     const returns = body => {
       body = unwrapExpression(body)
@@ -299,6 +413,21 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
           const condition = staticValue(statement.test)
           if (condition !== unknownStaticValue) visit(condition ? statement.consequent : statement.alternate)
           else { visit(statement.consequent); visit(statement.alternate) }
+          return
+        }
+        if (statement.type === 'SwitchStatement') {
+          const discriminant = staticValue(statement.discriminant)
+          const caseValues = statement.cases.map(branch => branch.test ? staticValue(branch.test) : undefined)
+          const fallback = statement.cases.findIndex(branch => !branch.test)
+          const known = discriminant !== unknownStaticValue && caseValues.every((value, index) => index === fallback || value !== unknownStaticValue)
+          const matched = known ? caseValues.findIndex((value, index) => index !== fallback && Object.is(value, discriminant)) : -1
+          const entries = known ? [matched >= 0 ? matched : fallback].filter(index => index >= 0) : statement.cases.map((_, index) => index)
+          for (const entry of entries) for (let index = entry; index < statement.cases.length; index += 1) {
+            const statements = statement.cases[index].consequent
+            const stop = statements.findIndex(child => child.type === 'BreakStatement')
+            for (const child of stop < 0 ? statements : statements.slice(0, stop)) visit(child)
+            if (stop >= 0) break
+          }
           return
         }
         if (statement.type === 'BlockStatement') for (const child of statement.body) visit(child)
@@ -325,7 +454,17 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
       if (!['CallExpression', 'OptionalCallExpression'].includes(node.type)) return false
       if (node.callee?.type === 'Identifier' && renderNames.has(node.callee.name)) {
         if (resolvesTarget(node.arguments[0])) return true
-        return node.arguments.slice(1).some(child => inspect(child, resolving))
+        const componentVNode = resolvedVNodeType(node.arguments[0])?.type !== 'StringLiteral'
+        const children = node.arguments.length >= 3 ? node.arguments.slice(2) : node.arguments.slice(1)
+        const inspectRenderedChild = child => {
+          child = unwrapExpression(child)
+          if (!child) return false
+          if (child.type === 'ArrayExpression') return child.elements.some(inspectRenderedChild)
+          if (['ArrowFunctionExpression', 'FunctionExpression'].includes(child.type)) return componentVNode && returns(child.body).some(result => inspect(result, resolving))
+          if (child.type === 'ObjectExpression') return componentVNode && child.properties.some(property => inspect(property.type === 'ObjectMethod' ? property : property.value, resolving))
+          return inspect(child, resolving)
+        }
+        return children.some(inspectRenderedChild)
       }
       return node.callee?.type === 'Identifier' && helpers.has(node.callee.name) && !resolving.has(node.callee.name)
         && returns(helpers.get(node.callee.name).body).some(result => inspect(result, new Set(resolving).add(node.callee.name)))
@@ -612,16 +751,52 @@ const staticIterationValues = (node, bindings, resolving = new Set(), path = [])
   if (node.type === 'ObjectExpression') return node.properties.flatMap(property => property.type === 'SpreadElement' ? staticIterationValues(property.argument, bindings, resolving) : [propertyExpression(property)])
   return []
 }
+const templateBindingPatterns = (value, label) => {
+  const parameters = String(value || '').trim().replace(/^\(([\s\S]*)\)$/, '$1')
+  if (!parameters) return []
+  try { return vueCompiler.babelParse(`(${parameters}) => 0`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression?.params || [] }
+  catch (error) { throw new Error(`${label} must parse cleanly: ${error.message}`, { cause: error }) }
+}
+const bindTemplatePattern = (pattern, values, target) => {
+  pattern = unwrapExpression(pattern)
+  const selected = (value, key) => {
+    value = unwrapExpression(value)
+    if (value?.type === 'ArrayExpression' && /^\d+$/.test(String(key))) return value.elements[Number(key)]
+    if (value?.type === 'ObjectExpression') {
+      const property = [...value.properties].reverse().find(candidate => candidate.type !== 'SpreadElement' && staticPropertyKey(candidate.key) === String(key))
+      if (property) return propertyExpression(property)
+      if (!value.properties.some(candidate => candidate.type === 'SpreadElement')) return undefined
+    }
+    return { type: 'MemberExpression', object: value, property: { type: 'StringLiteral', value: String(key) }, computed: true }
+  }
+  if (pattern?.type === 'Identifier') { target.set(pattern.name, values.filter(Boolean)); return }
+  if (pattern?.type === 'AssignmentPattern') {
+    bindTemplatePattern(pattern.left, [...values.filter(value => value !== undefined), ...(values.length === 0 || values.includes(undefined) ? [pattern.right] : [])], target)
+    return
+  }
+  if (pattern?.type === 'RestElement') { bindTemplatePattern(pattern.argument, values, target); return }
+  if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) {
+    if (property.type === 'RestElement') bindTemplatePattern(property.argument, [], target)
+    else bindTemplatePattern(property.value, values.map(value => selected(value, staticPropertyKey(property.key))), target)
+  }
+  if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]) {
+    bindTemplatePattern(pattern.elements[index], values.map(value => selected(value, index)), target)
+  }
+}
 const bindingsForElement = (node, bindings) => {
-  const directive = node.props?.find(prop => prop.type === 7 && prop.name === 'for')
-  if (!directive?.exp?.content) return bindings
-  const match = directive.exp.content.match(/^\s*(?:\(\s*)?([A-Za-z_$][\w$]*)(?:\s*,[^)]*)?\)?\s+(?:in|of)\s+([\s\S]+)$/)
-  if (!match) return bindings
-  let sourceAst
-  try { sourceAst = vueCompiler.babelParse(`(${match[2]})`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression }
-  catch (error) { throw new Error(`v-for source must parse cleanly: ${error.message}`, { cause: error }) }
   const scoped = new Map(bindings)
-  scoped.set(match[1], staticIterationValues(sourceAst, bindings))
+  const loop = node.props?.find(prop => prop.type === 7 && prop.name === 'for')?.exp?.content?.match(/^\s*(.*?)\s+(?:in|of)\s+([\s\S]+)$/)
+  if (loop) {
+    let sourceAst
+    try { sourceAst = vueCompiler.babelParse(`(${loop[2]})`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression }
+    catch (error) { throw new Error(`v-for source must parse cleanly: ${error.message}`, { cause: error }) }
+    const values = staticIterationValues(sourceAst, bindings)
+    const patterns = templateBindingPatterns(loop[1], 'v-for aliases')
+    for (let index = 0; index < patterns.length; index += 1) bindTemplatePattern(patterns[index], index === 0 ? values : [], scoped)
+  }
+  for (const slot of node.props?.filter(prop => prop.type === 7 && prop.name === 'slot' && prop.exp?.content) || []) {
+    for (const pattern of templateBindingPatterns(slot.exp.content, 'slot props')) bindTemplatePattern(pattern, [], scoped)
+  }
   return scoped
 }
 const visibleStrings = value => {
@@ -638,7 +813,8 @@ const visibleStrings = value => {
       const visibleDirective = prop.type === 7 && ['text', 'html'].includes(prop.name)
       if ((visibleBinding || visibleDirective) && prop.exp?.content) result.push(...literalExpressionStrings(prop.exp.content, scopedBindings))
     }
-    for (const child of node.children || []) visit(child, scopedBindings)
+    for (const child of new Set(reachableChildPaths(node).flat())) visit(child, scopedBindings)
+    for (const branch of reachableVueBranches(node)) visit(branch, scopedBindings)
   }
   visit(templateAst(value))
   return result

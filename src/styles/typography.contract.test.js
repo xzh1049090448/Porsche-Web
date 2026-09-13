@@ -668,11 +668,12 @@ const typographyEvidenceFromVue = (files = collectProductionSources()) => {
     if (!paths.some(candidate => pathKey(candidate) === key)) paths.push(ancestors)
     ancestorPaths.set(identity, paths)
   }
-  const recordSibling = (identity, sibling) => {
-    const entries = siblingPaths.get(identity) || []
+  const recordSibling = (group, sibling) => {
+    const keyForGroup = identityGroupKey(group)
+    const entries = siblingPaths.get(keyForGroup) || []
     const key = `${pathKey(sibling.ancestors)}\0${pathKey([sibling.group])}\0${sibling.adjacent}`
     if (!entries.some(candidate => `${pathKey(candidate.ancestors)}\0${pathKey([candidate.group])}\0${candidate.adjacent}` === key)) entries.push(sibling)
-    siblingPaths.set(identity, entries)
+    siblingPaths.set(keyForGroup, entries)
   }
   for (const [file, graph] of graphs) for (const node of graph.nodes) {
     const child = graph.imports.get(componentKey(node.name))
@@ -696,7 +697,7 @@ const typographyEvidenceFromVue = (files = collectProductionSources()) => {
     const ancestors = localAncestorPath(node)
     for (const context of componentContexts.get(file) || []) for (let siblingIndex = 0; siblingIndex < index; siblingIndex += 1) {
       const entry = { group: nodeIdentities(siblings[siblingIndex]), ancestors: [...context, ...ancestors], adjacent: siblingIndex === index - 1 }
-      for (const identity of nodeIdentities(node)) recordSibling(identity, entry)
+      recordSibling(nodeIdentities(node), entry)
     }
   }
   recordIdentityGroup(documentPath[0])
@@ -1110,9 +1111,9 @@ const siblingTypographySelectorMatches = (structure, evidence) => {
   const relation = structure.combinators[siblingIndex]
   const target = structure.compounds.at(-1)
   const prefix = { compounds: structure.compounds.slice(0, -1), combinators: structure.combinators.slice(0, -1), leading: structure.leading }
-  return [...evidence].some(identity => (evidence.identityGroups?.get(identity) || [new Set([identity])]).some(group => compoundMayTarget(target, group))
-    && (evidence.siblingPaths?.get(identity) || []).some(sibling => (relation === '~' || sibling.adjacent)
-      && structureMatchesKnownPath(prefix, [...sibling.ancestors, sibling.group])))
+  return [...evidence].some(identity => (evidence.identityGroups?.get(identity) || [new Set([identity])]).some(group => compoundMayTarget(target, group)
+    && (evidence.siblingPaths?.get(identityGroupKey(group)) || []).some(sibling => (relation === '~' || sibling.adjacent)
+      && structureMatchesKnownPath(prefix, [...sibling.ancestors, sibling.group]))))
 }
 const compoundsMatchKnownPath = (compounds, path) => structureMatchesKnownPath({ compounds, combinators: compounds.slice(1).map(() => ' ') }, path)
 const selectorLeadingCompoundsAreKnown = (compounds, evidence, target) => {

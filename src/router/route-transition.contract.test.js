@@ -384,6 +384,10 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
       const next = new Set(resolving).add(node.name)
       return bindings.has(node.name) ? inspect(bindings.get(node.name), next) : helpers.has(node.name) ? returns(helpers.get(node.name).body).some(value => inspect(value, next)) : false
     }
+    if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+      const value = memberValue(node.object, memberName(node), resolving)
+      return value ? inspect(value, resolving) : false
+    }
     if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(node.type)) return returns(node.body).some(value => inspect(value, resolving))
     if (node.type === 'ConditionalExpression') { const value = staticValue(node.test); return value.known ? inspect(value.value ? node.consequent : node.alternate, resolving) : inspect(node.consequent, resolving) || inspect(node.alternate, resolving) }
     if (node.type === 'LogicalExpression') { const left = staticValue(node.left); if (left.known) return inspect(node.left, resolving) || ((node.operator === '&&' ? Boolean(left.value) : node.operator === '||' ? !left.value : left.value == null) && inspect(node.right, resolving)); return inspect(node.left, resolving) || inspect(node.right, resolving) }
