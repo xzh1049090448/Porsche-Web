@@ -915,33 +915,61 @@ const staticBindingInitializers = (value, importer) => {
       if (expression?.type === 'SequenceExpression') return resolvedLocalValues(expression.expressions.at(-1), local, resolving)
       return expression ? [expression] : []
     }
+    const unknownObjectValue = { type: 'Identifier', name: '__unknown_object_value__' }
+    const objectStates = (expression, local, resolving = new Set()) => {
+      expression = unwrapExpression(expression)
+      if (!expression || resolving.size > 32) return [{ map: new Map(), unknown: true }]
+      if (expression.type === 'Identifier') {
+        if (!local.has(expression.name) || resolving.has(expression.name)) return [{ map: new Map(), unknown: true }]
+        return local.get(expression.name).flatMap(value => objectStates(value, local, new Set(resolving).add(expression.name)))
+      }
+      if (['CallExpression', 'OptionalCallExpression'].includes(expression.type) && expression.callee?.type === 'Identifier' && expression.callee.name === 'defineComponent') return objectStates(expression.arguments[0], local, resolving)
+      if (expression.type === 'ConditionalExpression') return [...objectStates(expression.consequent, local, resolving), ...objectStates(expression.alternate, local, resolving)]
+      if (expression.type === 'SequenceExpression') return objectStates(expression.expressions.at(-1), local, resolving)
+      if (expression.type !== 'ObjectExpression') return [{ map: new Map(), unknown: true }]
+      let states = [{ map: new Map(), unknown: false }]
+      for (const property of expression.properties) {
+        if (property.type !== 'SpreadElement') {
+          for (const state of states) state.map.set(staticPropertyKey(property.key), propertyExpression(property))
+          continue
+        }
+        const spreads = objectStates(property.argument, local, resolving)
+        states = states.flatMap(state => spreads.map(spread => {
+          const map = new Map(state.map)
+          if (spread.unknown) for (const key of map.keys()) map.set(key, unknownObjectValue)
+          for (const [key, value] of spread.map) map.set(key, value)
+          return { map, unknown: state.unknown || spread.unknown }
+        }))
+      }
+      return states
+    }
+    const stateValues = (states, key) => {
+      const values = []
+      let uncertain = false
+      for (const state of states) {
+        if (state.map.has(key)) values.push(state.map.get(key))
+        else if (state.unknown) uncertain = true
+        else if (states.some(candidate => candidate.map.has(key))) uncertain = true
+      }
+      if (uncertain || values.includes(unknownObjectValue)) return [unknownObjectValue]
+      const unique = [...new Set(values)]
+      if (unique.length <= 1) return unique
+      return [unique.slice(1).reduce((alternate, consequent) => ({ type: 'ConditionalExpression', test: { type: 'Identifier', name: '__dynamic_object__' }, consequent, alternate }), unique[0])]
+    }
     const exposeReturnedObject = (fn, target) => {
       if (!fn?.body) return
       const local = new Map(target)
       if (fn.body.type === 'BlockStatement') process(fn.body.body, local)
       const returnedValues = fn.body.type === 'BlockStatement' ? setupReturns(fn.body) : [fn.body]
-      for (const returned of returnedValues) for (const object of resolvedLocalValues(returned, local)) if (object?.type === 'ObjectExpression') {
-        for (const property of object.properties) {
-          if (property.type === 'SpreadElement') {
-            for (const spread of resolvedLocalValues(property.argument, local)) if (spread?.type === 'ObjectExpression') for (const item of spread.properties) if (item.type !== 'SpreadElement') target.set(staticPropertyKey(item.key), resolvedLocalValues(propertyExpression(item), local))
-          } else target.set(staticPropertyKey(property.key), resolvedLocalValues(propertyExpression(property), local))
-        }
-      }
+      const states = returnedValues.flatMap(returned => objectStates(returned, local))
+      for (const key of new Set(states.flatMap(state => [...state.map.keys()]))) target.set(key, stateValues(states, key).flatMap(value => resolvedLocalValues(value, local)))
     }
     const exposeOptions = (declaration, target) => {
-      const candidates = resolvedLocalValues(declaration, target).flatMap(candidate => ['CallExpression', 'OptionalCallExpression'].includes(candidate?.type) && candidate.callee?.type === 'Identifier' && candidate.callee.name === 'defineComponent' ? resolvedLocalValues(candidate.arguments[0], target) : [candidate])
-      for (const options of candidates) if (options?.type === 'ObjectExpression') {
-        for (const name of ['setup', 'data']) {
-          const property = options.properties.find(candidate => staticPropertyKey(candidate.key) === name)
-          exposeReturnedObject(property?.type === 'ObjectMethod' ? property : unwrapExpression(property?.value), target)
-        }
-        for (const name of ['computed', 'methods']) {
-          const property = options.properties.find(candidate => staticPropertyKey(candidate.key) === name)
-          for (const registry of resolvedLocalValues(propertyExpression(property || {}), target)) if (registry?.type === 'ObjectExpression') for (const item of registry.properties) {
-            if (item.type === 'SpreadElement') continue
-            target.set(staticPropertyKey(item.key), resolvedLocalValues(propertyExpression(item), target))
-          }
-        }
+      const options = objectStates(declaration, target)
+      for (const name of ['setup', 'data']) for (const fn of stateValues(options, name)) exposeReturnedObject(unwrapExpression(fn), target)
+      for (const name of ['computed', 'methods']) {
+        const registries = stateValues(options, name).flatMap(value => objectStates(value, target))
+        for (const key of new Set(registries.flatMap(state => [...state.map.keys()]))) target.set(key, stateValues(registries, key).flatMap(value => resolvedLocalValues(value, target)))
       }
     }
     const process = (statements, target) => {

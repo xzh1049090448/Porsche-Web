@@ -208,6 +208,92 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
   const parents = new WeakMap()
   walkScriptAst(ast.program, (node, parent) => { if (parent) parents.set(node, parent) })
   const componentScopes = new Set()
+  const optionRootScopes = new Set()
+  const optionUnknown = { type: 'Identifier', name: '__unknown_component_option__' }
+  const optionStaticValue = node => {
+    node = unwrapScriptExpression(node)
+    if (['BooleanLiteral', 'NumericLiteral', 'StringLiteral'].includes(node?.type)) return { known: true, value: node.value }
+    if (node?.type === 'NullLiteral' || (node?.type === 'Identifier' && node.name === 'undefined')) return { known: true, value: undefined }
+    if (node?.type === 'UnaryExpression' && node.operator === '!') { const value = optionStaticValue(node.argument); return value.known ? { known: true, value: !value.value } : value }
+    return { known: false }
+  }
+  const optionBindings = new Map()
+  const optionMember = (object, name) => ({ type: 'MemberExpression', object, property: { type: 'StringLiteral', value: String(name) }, computed: true })
+  const bindOptionPattern = (pattern, value, target) => {
+    pattern = unwrapScriptExpression(pattern)
+    if (pattern?.type === 'Identifier') { target.set(pattern.name, value ? [value] : []); return }
+    if (pattern?.type === 'AssignmentPattern') { bindOptionPattern(pattern.left, value || pattern.right, target); return }
+    if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bindOptionPattern(property.value, optionMember(value, scriptPropertyName(property)), target)
+    if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bindOptionPattern(pattern.elements[index], optionMember(value, index), target)
+  }
+  const mergeOptionBindings = (left, right) => {
+    const merged = new Map()
+    for (const name of new Set([...left.keys(), ...right.keys()])) merged.set(name, [...new Set([...(left.get(name) || []), ...(right.get(name) || [])])])
+    return merged
+  }
+  const effectiveOptionStates = (expression, local, resolving = new Set()) => {
+    expression = unwrapScriptExpression(expression)
+    if (!expression || resolving.size > 32) return [{ map: new Map(), unknown: true }]
+    if (expression.type === 'Identifier') {
+      if (!local.has(expression.name) || resolving.has(expression.name)) return [{ map: new Map(), unknown: true }]
+      return local.get(expression.name).flatMap(value => effectiveOptionStates(value, local, new Set(resolving).add(expression.name)))
+    }
+    if (['CallExpression', 'OptionalCallExpression'].includes(expression.type) && expression.callee?.type === 'Identifier' && expression.callee.name === 'defineComponent') return effectiveOptionStates(expression.arguments[0], local, resolving)
+    if (expression.type === 'ConditionalExpression') {
+      const condition = optionStaticValue(expression.test)
+      return condition.known
+        ? effectiveOptionStates(condition.value ? expression.consequent : expression.alternate, local, resolving)
+        : [...effectiveOptionStates(expression.consequent, local, resolving), ...effectiveOptionStates(expression.alternate, local, resolving)]
+    }
+    if (expression.type === 'SequenceExpression') return effectiveOptionStates(expression.expressions.at(-1), local, resolving)
+    if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) {
+      const name = expression.computed ? unwrapScriptExpression(expression.property)?.value : expression.property?.name
+      const objects = effectiveOptionStates(expression.object, local, resolving)
+      const values = objects.flatMap(state => state.map.has(String(name)) ? [state.map.get(String(name))] : [])
+      return values.length ? values.flatMap(value => effectiveOptionStates(value, local, resolving)) : [{ map: new Map(), unknown: true }]
+    }
+    if (expression.type !== 'ObjectExpression') return [{ map: new Map(), unknown: true }]
+    let states = [{ map: new Map(), unknown: false }]
+    for (const property of expression.properties) {
+      if (property.type !== 'SpreadElement') {
+        for (const state of states) state.map.set(String(scriptPropertyName(property)), property.type === 'ObjectMethod' ? property : property.value)
+        continue
+      }
+      const spreads = effectiveOptionStates(property.argument, local, resolving)
+      states = states.flatMap(state => spreads.map(spread => {
+        const map = new Map(state.map)
+        if (spread.unknown) for (const key of map.keys()) map.set(key, optionUnknown)
+        for (const [key, value] of spread.map) map.set(key, value)
+        return { map, unknown: state.unknown || spread.unknown }
+      }))
+    }
+    return states
+  }
+  const exportedOptionStates = []
+  const processOptionStatements = (statements, target) => {
+    for (const raw of statements || []) {
+      const statement = raw?.type === 'ExportNamedDeclaration' ? raw.declaration : raw
+      if (!statement) continue
+      if (statement.type === 'FunctionDeclaration' && statement.id) target.set(statement.id.name, [statement])
+      else if (statement.type === 'VariableDeclaration') for (const declaration of statement.declarations) bindOptionPattern(declaration.id, declaration.init, target)
+      else if (statement.type === 'ExpressionStatement' && statement.expression?.type === 'AssignmentExpression' && statement.expression.operator === '=') bindOptionPattern(statement.expression.left, statement.expression.right, target)
+      else if (statement.type === 'ExportDefaultDeclaration') exportedOptionStates.push(...effectiveOptionStates(statement.declaration, target))
+      else if (statement.type === 'BlockStatement') processOptionStatements(statement.body, target)
+      else if (statement.type === 'IfStatement') {
+        const condition = optionStaticValue(statement.test)
+        if (condition.known) {
+          const branch = condition.value ? statement.consequent : statement.alternate
+          processOptionStatements(branch?.type === 'BlockStatement' ? branch.body : [branch], target)
+        } else {
+          const left = new Map(target); const right = new Map(target)
+          processOptionStatements(statement.consequent?.type === 'BlockStatement' ? statement.consequent.body : [statement.consequent], left)
+          processOptionStatements(statement.alternate?.type === 'BlockStatement' ? statement.alternate.body : [statement.alternate], right)
+          target.clear(); for (const [name, values] of mergeOptionBindings(left, right)) target.set(name, values)
+        }
+      }
+    }
+  }
+  processOptionStatements(ast.program.body, optionBindings)
   for (const statement of ast.program.body) {
     if (statement.type === 'ImportDeclaration') for (const imported of statement.specifiers) {
       if (statement.source.value === 'vue' && imported.type === 'ImportNamespaceSpecifier') vueNamespaces.add(imported.local.name)
@@ -218,19 +304,24 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
       if (statement.source.value === specifier) { componentName = imported.local.name; vnodeKinds.set(imported.local.name, 'component') }
       else if (/\.vue(?:\?|$)/.test(statement.source.value)) vnodeKinds.set(imported.local.name, 'component')
     }
-    if (statement.type === 'ExportDefaultDeclaration') {
-      let options = unwrapScriptExpression(statement.declaration)
-      if (['CallExpression', 'OptionalCallExpression'].includes(options?.type) && unwrapScriptExpression(options.callee)?.type === 'Identifier' && options.callee.name === 'defineComponent') options = unwrapScriptExpression(options.arguments[0])
-      if (options?.type === 'ObjectExpression') for (const property of options.properties.filter(candidate => ['setup', 'render'].includes(String(scriptPropertyName(candidate))))) {
-        componentScopes.add(property.type === 'ObjectMethod' ? property : unwrapScriptExpression(property.value))
-      }
-    }
   }
   const functionBindings = new Map()
   walkScriptAst(ast.program, node => {
     if (node.type === 'FunctionDeclaration' && node.id) functionBindings.set(node.id.name, node)
     if (node.type === 'VariableDeclarator' && node.id?.type === 'Identifier' && ['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapScriptExpression(node.init)?.type)) functionBindings.set(node.id.name, unwrapScriptExpression(node.init))
   })
+  const addOptionScope = (value, resolving = new Set()) => {
+    value = unwrapScriptExpression(value)
+    if (!value || value === optionUnknown || resolving.size > 32) return
+    if (value.type === 'Identifier') {
+      if (resolving.has(value.name)) return
+      if (functionBindings.has(value.name)) { componentScopes.add(functionBindings.get(value.name)); optionRootScopes.add(functionBindings.get(value.name)) }
+      else for (const candidate of optionBindings.get(value.name) || []) addOptionScope(candidate, new Set(resolving).add(value.name))
+      return
+    }
+    if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(value.type)) { componentScopes.add(value); optionRootScopes.add(value) }
+  }
+  for (const state of exportedOptionStates) for (const name of ['setup', 'render']) if (state.map.has(name)) addOptionScope(state.map.get(name))
   const nearestFunction = node => {
     for (let current = parents.get(node); current; current = parents.get(current)) if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(current.type)) return current
     return undefined
@@ -473,17 +564,7 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (unwrapScriptExpression(node.callee)?.type === 'Identifier' && helpers.has(node.callee.name) && !resolving.has(node.callee.name)) return returns(helpers.get(node.callee.name).body).some(value => inspect(value, new Set(resolving).add(node.callee.name)))
     return false
   }
-  for (const statement of ast.program.body) {
-    if (statement.type !== 'ExportDefaultDeclaration') continue
-    let options = unwrapScriptExpression(statement.declaration)
-    if (['CallExpression', 'OptionalCallExpression'].includes(options?.type) && unwrapScriptExpression(options.callee)?.type === 'Identifier' && options.callee.name === 'defineComponent') options = unwrapScriptExpression(options.arguments[0])
-    if (options?.type !== 'ObjectExpression') continue
-    for (const property of options.properties.filter(candidate => ['setup', 'render'].includes(String(scriptPropertyName(candidate))))) {
-      const fn = property.type === 'ObjectMethod' ? property : unwrapScriptExpression(property.value)
-      if (returns(fn?.body).some(value => inspect(value))) return true
-    }
-  }
-  return false
+  return [...optionRootScopes].some(fn => returns(fn?.body).some(value => inspect(value)))
 })
 const splitTopLevel = (value, delimiter) => {
   const parts = []
