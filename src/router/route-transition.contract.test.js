@@ -201,6 +201,7 @@ const importsComponent = (source, specifier) => componentScriptAsts(source, 'she
 const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(source, 'render shell').some(ast => {
   const renderNames = new Set(['h', 'createVNode'])
   const vnodeKinds = new Map()
+  const vueNamespaces = new Set()
   let componentName
   const bindings = new Map()
   const helpers = new Map()
@@ -209,6 +210,7 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
   const componentScopes = new Set()
   for (const statement of ast.program.body) {
     if (statement.type === 'ImportDeclaration') for (const imported of statement.specifiers) {
+      if (statement.source.value === 'vue' && imported.type === 'ImportNamespaceSpecifier') vueNamespaces.add(imported.local.name)
       const name = imported.imported?.name ?? imported.imported?.value
       if (statement.source.value === 'vue' && ['h', 'createVNode'].includes(name)) renderNames.add(imported.local.name)
       if (statement.source.value === 'vue' && ['Comment', 'Text', 'Static', 'Fragment'].includes(name)) vnodeKinds.set(imported.local.name, ['Comment', 'Text', 'Static'].includes(name) ? name.toLowerCase() : 'fragment')
@@ -346,6 +348,27 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (node.type === 'SequenceExpression') return isComponentReference(node.expressions.at(-1), resolving)
     return false
   }
+  const vueNamespaceReference = (node, resolving = new Set()) => {
+    node = unwrapScriptExpression(node)
+    if (node?.type !== 'Identifier' || resolving.has(node.name)) return false
+    if (vueNamespaces.has(node.name)) return true
+    return bindings.has(node.name) && vueNamespaceReference(bindings.get(node.name), new Set(resolving).add(node.name))
+  }
+  const builtinVNodeKind = (node, resolving = new Set()) => {
+    node = unwrapScriptExpression(node)
+    if (!node || resolving.size > 32) return undefined
+    if (node.type === 'Identifier') {
+      if (vnodeKinds.has(node.name)) return vnodeKinds.get(node.name)
+      return bindings.has(node.name) && !resolving.has(node.name) ? builtinVNodeKind(bindings.get(node.name), new Set(resolving).add(node.name)) : undefined
+    }
+    if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+      const name = memberName(node)
+      if (vueNamespaceReference(node.object, resolving) && ['Comment', 'Text', 'Static', 'Fragment', 'KeepAlive', 'Suspense', 'Teleport'].includes(name)) return ['Comment', 'Text', 'Static'].includes(name) ? name.toLowerCase() : name === 'Fragment' ? 'fragment' : 'component'
+      const value = memberValue(node.object, name, resolving)
+      return value ? builtinVNodeKind(value, resolving) : undefined
+    }
+    return undefined
+  }
   const resolvedVNodeOutcomes = (node, resolving = new Set()) => {
     node = unwrapScriptExpression(node)
     if (!node || resolving.size > 32) return []
@@ -356,6 +379,8 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
       return [{ node, kind: vnodeKinds.get(node.name) || 'unknown', truthy: vnodeKinds.has(node.name) ? true : undefined }]
     }
     if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+      const kind = builtinVNodeKind(node, resolving)
+      if (kind) return [{ node, kind, truthy: true }]
       const value = memberValue(node.object, memberName(node), resolving)
       return value ? resolvedVNodeOutcomes(value, resolving) : [{ node, kind: 'unknown', truthy: undefined }]
     }
@@ -426,20 +451,21 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (unwrapScriptExpression(node.callee)?.type === 'Identifier' && renderNames.has(node.callee.name)) {
       if (isComponentReference(node.arguments[0])) return true
       const vnodeTypes = resolvedVNodeOutcomes(node.arguments[0])
-      const componentVNode = vnodeTypes.length === 0 || vnodeTypes.some(type => !['native', 'nullish', 'comment', 'text', 'static', 'fragment'].includes(type.kind))
+      const rendersChildren = vnodeTypes.length === 0 || vnodeTypes.some(type => ['native', 'component', 'unknown', 'fragment'].includes(type.kind))
+      const executesSlots = vnodeTypes.length === 0 || vnodeTypes.some(type => ['component', 'unknown'].includes(type.kind))
       const children = node.arguments.length >= 3 ? node.arguments.slice(2) : node.arguments.slice(1)
       const inspectRenderedChild = child => {
         child = unwrapScriptExpression(child)
         if (!child) return false
-        if (child.type === 'ArrayExpression') return child.elements.some(inspectRenderedChild)
-        if (['ArrowFunctionExpression', 'FunctionExpression'].includes(child.type)) return componentVNode && returns(child.body).some(value => inspect(value, resolving))
+        if (child.type === 'ArrayExpression') return rendersChildren && child.elements.some(inspectRenderedChild)
+        if (['ArrowFunctionExpression', 'FunctionExpression'].includes(child.type)) return executesSlots && returns(child.body).some(value => inspect(value, resolving))
         if (child.type === 'ObjectExpression') {
-          if (!componentVNode) return false
+          if (!executesSlots) return false
           return child.properties.some(property => property.type === 'SpreadElement'
             ? inspect(property.argument, resolving)
             : inspect(property.type === 'ObjectMethod' ? property : property.value, resolving))
         }
-        return inspect(child, resolving)
+        return rendersChildren && inspect(child, resolving)
       }
       return children.some(inspectRenderedChild)
     }

@@ -894,12 +894,52 @@ const staticBindingInitializers = (value, importer) => {
       for (const name of new Set([...left.keys(), ...right.keys()])) merged.set(name, [...new Set([...(left.get(name) || []), ...(right.get(name) || [])])])
       return merged
     }
+    const setupReturns = body => {
+      const values = []
+      const visit = node => {
+        if (!node) return
+        if (node.type === 'ReturnStatement') { if (node.argument) values.push(node.argument); return }
+        if (node.type === 'BlockStatement') { for (const statement of node.body) visit(statement); return }
+        if (node.type === 'IfStatement') {
+          const condition = staticValue(node.test)
+          if (condition !== unknownStaticValue) visit(condition ? node.consequent : node.alternate)
+          else { visit(node.consequent); visit(node.alternate) }
+        }
+      }
+      visit(body)
+      return values
+    }
+    const resolvedLocalValues = (expression, local, resolving = new Set()) => {
+      expression = unwrapExpression(expression)
+      if (expression?.type === 'Identifier' && local.has(expression.name) && !resolving.has(expression.name)) return local.get(expression.name).flatMap(value => resolvedLocalValues(value, local, new Set(resolving).add(expression.name)))
+      if (expression?.type === 'SequenceExpression') return resolvedLocalValues(expression.expressions.at(-1), local, resolving)
+      return expression ? [expression] : []
+    }
+    const exposeSetup = (declaration, target) => {
+      let options = unwrapExpression(declaration)
+      if (['CallExpression', 'OptionalCallExpression'].includes(options?.type) && options.callee?.type === 'Identifier' && options.callee.name === 'defineComponent') options = unwrapExpression(options.arguments[0])
+      if (options?.type !== 'ObjectExpression') return
+      const setupProperty = options.properties.find(property => staticPropertyKey(property.key) === 'setup')
+      const setup = setupProperty?.type === 'ObjectMethod' ? setupProperty : unwrapExpression(setupProperty?.value)
+      if (!setup?.body) return
+      const local = new Map(target)
+      if (setup.body.type === 'BlockStatement') process(setup.body.body, local)
+      const returnedValues = setup.body.type === 'BlockStatement' ? setupReturns(setup.body) : [setup.body]
+      for (const returned of returnedValues) for (const object of resolvedLocalValues(returned, local)) if (object?.type === 'ObjectExpression') {
+        for (const property of object.properties) {
+          if (property.type === 'SpreadElement') {
+            for (const spread of resolvedLocalValues(property.argument, local)) if (spread?.type === 'ObjectExpression') for (const item of spread.properties) if (item.type !== 'SpreadElement') target.set(staticPropertyKey(item.key), resolvedLocalValues(propertyExpression(item), local))
+          } else target.set(staticPropertyKey(property.key), resolvedLocalValues(propertyExpression(property), local))
+        }
+      }
+    }
     const process = (statements, target) => {
       for (const raw of statements || []) {
         const node = raw?.type === 'ExportNamedDeclaration' ? raw.declaration : raw
         if (!node) continue
         if (node.type === 'FunctionDeclaration' && node.id) target.set(node.id.name, [node])
         else if (node.type === 'VariableDeclaration') for (const declaration of node.declarations) bindPattern(declaration.id, declaration.init, target)
+        else if (node.type === 'ExportDefaultDeclaration') exposeSetup(node.declaration, target)
         else if (node.type === 'ExpressionStatement') applyExpression(node.expression, target)
         else if (node.type === 'BlockStatement') process(node.body, target)
         else if (node.type === 'IfStatement') {

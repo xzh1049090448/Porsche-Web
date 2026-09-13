@@ -292,12 +292,52 @@ const staticBindingInitializers = value => {
       for (const name of new Set([...left.keys(), ...right.keys()])) merged.set(name, [...new Set([...(left.get(name) || []), ...(right.get(name) || [])])])
       return merged
     }
+    const setupReturns = body => {
+      const values = []
+      const visit = node => {
+        if (!node) return
+        if (node.type === 'ReturnStatement') { if (node.argument) values.push(node.argument); return }
+        if (node.type === 'BlockStatement') { for (const statement of node.body) visit(statement); return }
+        if (node.type === 'IfStatement') {
+          const condition = staticValue(node.test)
+          if (condition !== unknownStaticValue) visit(condition ? node.consequent : node.alternate)
+          else { visit(node.consequent); visit(node.alternate) }
+        }
+      }
+      visit(body)
+      return values
+    }
+    const resolvedLocalValues = (expression, local, resolving = new Set()) => {
+      expression = unwrapExpression(expression)
+      if (expression?.type === 'Identifier' && local.has(expression.name) && !resolving.has(expression.name)) return local.get(expression.name).flatMap(value => resolvedLocalValues(value, local, new Set(resolving).add(expression.name)))
+      if (expression?.type === 'SequenceExpression') return resolvedLocalValues(expression.expressions.at(-1), local, resolving)
+      return expression ? [expression] : []
+    }
+    const exposeSetup = (declaration, target) => {
+      let options = unwrapExpression(declaration)
+      if (['CallExpression', 'OptionalCallExpression'].includes(options?.type) && options.callee?.type === 'Identifier' && options.callee.name === 'defineComponent') options = unwrapExpression(options.arguments[0])
+      if (options?.type !== 'ObjectExpression') return
+      const setupProperty = options.properties.find(property => staticPropertyKey(property.key) === 'setup')
+      const setup = setupProperty?.type === 'ObjectMethod' ? setupProperty : unwrapExpression(setupProperty?.value)
+      if (!setup?.body) return
+      const local = new Map(target)
+      if (setup.body.type === 'BlockStatement') process(setup.body.body, local)
+      const returnedValues = setup.body.type === 'BlockStatement' ? setupReturns(setup.body) : [setup.body]
+      for (const returned of returnedValues) for (const object of resolvedLocalValues(returned, local)) if (object?.type === 'ObjectExpression') {
+        for (const property of object.properties) {
+          if (property.type === 'SpreadElement') {
+            for (const spread of resolvedLocalValues(property.argument, local)) if (spread?.type === 'ObjectExpression') for (const item of spread.properties) if (item.type !== 'SpreadElement') target.set(staticPropertyKey(item.key), resolvedLocalValues(propertyExpression(item), local))
+          } else target.set(staticPropertyKey(property.key), resolvedLocalValues(propertyExpression(property), local))
+        }
+      }
+    }
     const process = (statements, target) => {
       for (const raw of statements || []) {
         const node = raw?.type === 'ExportNamedDeclaration' ? raw.declaration : raw
         if (!node) continue
         if (node.type === 'FunctionDeclaration' && node.id) target.set(node.id.name, [node])
         else if (node.type === 'VariableDeclaration') for (const declaration of node.declarations) bindPattern(declaration.id, declaration.init, target)
+        else if (node.type === 'ExportDefaultDeclaration') exposeSetup(node.declaration, target)
         else if (node.type === 'ExpressionStatement') applyExpression(node.expression, target)
         else if (node.type === 'BlockStatement') process(node.body, target)
         else if (node.type === 'IfStatement') {
@@ -362,10 +402,12 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
     const targets = new Set()
     const renderNames = new Set(['h', 'createVNode'])
     const vnodeKinds = new Map()
+    const vueNamespaces = new Set()
     const helpers = new Map()
     const aliases = new Map()
     for (const statement of ast.program.body) {
       if (statement.type === 'ImportDeclaration') for (const specifier of statement.specifiers) {
+        if (statement.source.value === 'vue' && specifier.type === 'ImportNamespaceSpecifier') vueNamespaces.add(specifier.local.name)
         const imported = specifier.imported?.name ?? specifier.imported?.value
         if (statement.source.value === 'vue' && ['h', 'createVNode'].includes(imported)) renderNames.add(specifier.local.name)
         if (statement.source.value === 'vue' && ['Comment', 'Text', 'Static', 'Fragment'].includes(imported)) vnodeKinds.set(specifier.local.name, ['Comment', 'Text', 'Static'].includes(imported) ? imported.toLowerCase() : 'fragment')
@@ -375,11 +417,19 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
       }
       if (statement.type === 'FunctionDeclaration' && statement.id) helpers.set(statement.id.name, statement)
     }
+    const aliasMember = (object, key) => ({ type: 'MemberExpression', object, property: { type: 'StringLiteral', value: String(key) }, computed: true })
+    const bindAliasPattern = (pattern, value) => {
+      pattern = unwrapExpression(pattern)
+      if (pattern?.type === 'Identifier') { aliases.set(pattern.name, value); return }
+      if (pattern?.type === 'AssignmentPattern') { bindAliasPattern(pattern.left, value || pattern.right); return }
+      if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bindAliasPattern(property.value, aliasMember(value, staticPropertyKey(property.key)))
+      if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bindAliasPattern(pattern.elements[index], aliasMember(value, index))
+    }
     const registerBindings = node => {
       if (!node || typeof node !== 'object') return
-      if (node.type === 'VariableDeclarator' && node.id?.type === 'Identifier' && node.init) {
-        aliases.set(node.id.name, node.init)
-        if (['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapExpression(node.init)?.type)) helpers.set(node.id.name, unwrapExpression(node.init))
+      if (node.type === 'VariableDeclarator' && node.init) {
+        bindAliasPattern(node.id, node.init)
+        if (node.id?.type === 'Identifier' && ['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapExpression(node.init)?.type)) helpers.set(node.id.name, unwrapExpression(node.init))
       }
       for (const [key, child] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(key)) {
         for (const item of Array.isArray(child) ? child : [child]) if (item?.type) registerBindings(item)
@@ -420,6 +470,27 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
       }
       return false
     }
+    const vueNamespaceReference = (node, resolving = new Set()) => {
+      node = unwrapExpression(node)
+      if (node?.type !== 'Identifier' || resolving.has(node.name)) return false
+      if (vueNamespaces.has(node.name)) return true
+      return aliases.has(node.name) && vueNamespaceReference(aliases.get(node.name), new Set(resolving).add(node.name))
+    }
+    const builtinVNodeKind = (node, resolving = new Set()) => {
+      node = unwrapExpression(node)
+      if (!node || resolving.size > 32) return undefined
+      if (node.type === 'Identifier') {
+        if (vnodeKinds.has(node.name)) return vnodeKinds.get(node.name)
+        return aliases.has(node.name) && !resolving.has(node.name) ? builtinVNodeKind(aliases.get(node.name), new Set(resolving).add(node.name)) : undefined
+      }
+      if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+        const name = memberName(node)
+        if (vueNamespaceReference(node.object, resolving) && ['Comment', 'Text', 'Static', 'Fragment', 'KeepAlive', 'Suspense', 'Teleport'].includes(name)) return ['Comment', 'Text', 'Static'].includes(name) ? name.toLowerCase() : name === 'Fragment' ? 'fragment' : 'component'
+        const value = memberValue(node.object, name, resolving)
+        return value ? builtinVNodeKind(value, resolving) : undefined
+      }
+      return undefined
+    }
     const resolvedVNodeOutcomes = (node, resolving = new Set()) => {
       node = unwrapExpression(node)
       if (!node || resolving.size > 32) return []
@@ -430,6 +501,8 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
         return [{ node, kind: vnodeKinds.get(node.name) || 'unknown', truthy: vnodeKinds.has(node.name) ? true : undefined }]
       }
       if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+        const kind = builtinVNodeKind(node, resolving)
+        if (kind) return [{ node, kind, truthy: true }]
         const value = memberValue(node.object, memberName(node), resolving)
         return value ? resolvedVNodeOutcomes(value, resolving) : [{ node, kind: 'unknown', truthy: undefined }]
       }
@@ -515,15 +588,16 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
       if (node.callee?.type === 'Identifier' && renderNames.has(node.callee.name)) {
         if (resolvesTarget(node.arguments[0])) return true
         const vnodeTypes = resolvedVNodeOutcomes(node.arguments[0])
-        const componentVNode = vnodeTypes.length === 0 || vnodeTypes.some(type => !['native', 'nullish', 'comment', 'text', 'static', 'fragment'].includes(type.kind))
+        const rendersChildren = vnodeTypes.length === 0 || vnodeTypes.some(type => ['native', 'component', 'unknown', 'fragment'].includes(type.kind))
+        const executesSlots = vnodeTypes.length === 0 || vnodeTypes.some(type => ['component', 'unknown'].includes(type.kind))
         const children = node.arguments.length >= 3 ? node.arguments.slice(2) : node.arguments.slice(1)
         const inspectRenderedChild = child => {
           child = unwrapExpression(child)
           if (!child) return false
-          if (child.type === 'ArrayExpression') return child.elements.some(inspectRenderedChild)
-          if (['ArrowFunctionExpression', 'FunctionExpression'].includes(child.type)) return componentVNode && returns(child.body).some(result => inspect(result, resolving))
-          if (child.type === 'ObjectExpression') return componentVNode && child.properties.some(property => inspect(property.type === 'ObjectMethod' ? property : property.value, resolving))
-          return inspect(child, resolving)
+          if (child.type === 'ArrayExpression') return rendersChildren && child.elements.some(inspectRenderedChild)
+          if (['ArrowFunctionExpression', 'FunctionExpression'].includes(child.type)) return executesSlots && returns(child.body).some(result => inspect(result, resolving))
+          if (child.type === 'ObjectExpression') return executesSlots && child.properties.some(property => inspect(property.type === 'ObjectMethod' ? property : property.value, resolving))
+          return rendersChildren && inspect(child, resolving)
         }
         return children.some(inspectRenderedChild)
       }
