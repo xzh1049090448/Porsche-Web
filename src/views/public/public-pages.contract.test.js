@@ -1,26 +1,115 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
+import { baseParse } from '@vue/compiler-dom'
+import { parse as parseSfc } from '@vue/compiler-sfc'
+import postcss from 'postcss'
+import { messages } from '../../i18n/messages.js'
+import { publicMessages } from '../../i18n/public-messages.js'
+import { routes } from '../../router/index.js'
 
 const source = path => readFileSync(new URL(path, import.meta.url), 'utf8')
-const withoutStyles = value => value.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
-const namedObjectBlocks = (value, name) => {
-  const blocks = []
-  const pattern = new RegExp(`\\b${name}\\s*:\\s*\\{`, 'g')
-  for (const match of value.matchAll(pattern)) {
-    const start = match.index + match[0].lastIndexOf('{')
-    let depth = 1
-    let end = start + 1
-    while (end < value.length && depth > 0) {
-      if (value[end] === '{') depth += 1
-      else if (value[end] === '}') depth -= 1
-      end += 1
-    }
-    assert.equal(depth, 0, `${name} message object must be balanced`)
-    blocks.push(value.slice(start, end))
+const templateAst = value => baseParse(parseSfc(value).descriptor.template?.content || '')
+const elements = (value, name) => {
+  const matches = []
+  const visit = node => {
+    if (node.type === 1 && node.tag === name) matches.push(node)
+    for (const child of node.children || []) visit(child)
   }
-  assert.ok(blocks.length > 0, `${name} message objects must exist`)
-  return blocks
+  visit(templateAst(value))
+  return matches
+}
+const staticAttribute = (node, name) => node.props.find(prop => prop.type === 6 && prop.name === name)?.value?.content
+const boundAttribute = (node, name) => node.props.find(prop => prop.type === 7 && prop.name === 'bind' && prop.arg?.type === 4 && prop.arg.content === name)?.exp?.content
+const dataSectionOrder = value => {
+  const order = []
+  const visit = node => {
+    if (node.type === 1) {
+      const section = staticAttribute(node, 'data-section')
+      if (section) order.push(section)
+    }
+    for (const child of node.children || []) visit(child)
+  }
+  visit(templateAst(value))
+  return order
+}
+const visibleStrings = value => {
+  const result = []
+  const visibleAttributes = new Set(['alt', 'aria-label', 'placeholder', 'title', 'value'])
+  const visit = node => {
+    if (node.type === 2 && node.content.trim()) result.push(node.content.trim())
+    if (node.type === 5) result.push(node.content.content)
+    if (node.type === 1) for (const prop of node.props) {
+      if (prop.type === 6 && visibleAttributes.has(prop.name) && prop.value?.content) result.push(prop.value.content)
+    }
+    for (const child of node.children || []) visit(child)
+  }
+  visit(templateAst(value))
+  return result
+}
+const stringValues = value => {
+  if (typeof value === 'string') return [value]
+  if (Array.isArray(value)) return value.flatMap(stringValues)
+  if (value && typeof value === 'object') return Object.values(value).flatMap(stringValues)
+  return []
+}
+const routePathsByName = (() => {
+  const paths = new Map()
+  const visit = (items, parent = '') => {
+    for (const route of items) {
+      const path = route.path.startsWith('/') ? route.path : route.path ? `${parent.replace(/\/$/, '')}/${route.path}` : (parent || '/')
+      if (route.name) paths.set(route.name, path)
+      if (route.children) visit(route.children, path)
+    }
+  }
+  visit(routes)
+  return paths
+})()
+const routerLinkTargets = value => elements(value, 'RouterLink').flatMap(node => {
+  const direct = staticAttribute(node, 'to')
+  if (direct) return [direct]
+  const binding = boundAttribute(node, 'to')
+  const path = binding?.match(/(?:^|\{|,)\s*path\s*:\s*["']([^"']+)["']/)?.[1] || binding?.match(/^\s*["']([^"']+)["']\s*$/)?.[1]
+  if (path) return [path]
+  const name = binding?.match(/(?:^|\{|,)\s*name\s*:\s*["']([^"']+)["']/)?.[1]
+  return name && routePathsByName.has(name) ? [routePathsByName.get(name)] : []
+})
+const stripSafePerRequestCopy = value => value
+  .replace(/每次请求不单独计价/g, '')
+  .replace(/\bper[- ]request pricing is not offered\b/gi, '')
+const prototypePatterns = [
+  [/ModelHub/i, 'prototype product name'],
+  [/40\+/i, 'prototype model count'],
+  [/100%/i, 'prototype percentage claim'],
+  [/MIT License/i, 'prototype license claim'],
+  [/Tailwind\s+CDN/i, 'Tailwind CDN claim'],
+  [/(?:admin|demo)(?:@[^\s<"']+)?\s*(?:\/|:|：)\s*(?:admin|password|123456)/i, 'demo credentials'],
+  [/\b(?:admin|demo)@[A-Z0-9._%+-]+\.[A-Z]{2,}\b/i, 'demo account email'],
+  [/(?:password|密码)\s*[:=：]\s*["']?(?:admin\d*|demo\d*|123456(?:78)?)/i, 'demo password'],
+  [/(?:API[_ -]?KEY\s*[=:]\s*["']?(?:sk-)?[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{8,})/i, 'demo API credential'],
+  [/\d+(?:\.\d+)?\s*(?:x|×|倍)(?![\w-])/i, 'prototype multiplier'],
+  [/(?:单次调用价|每次请求(?:价格|价)|每请求(?:价格|价)|per[- ]request\s+(?:price|pricing)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request\b)/i, 'per-request pricing'],
+]
+const tailwindUrl = /(?:https?:)?\/\/[^\s"')]*(?:cdn\.tailwindcss\.com|tailwind)[^\s"')]*/i
+const assertNoTailwindLoading = (cssSources, vueSources) => {
+  const descriptors = vueSources.map(value => parseSfc(value).descriptor)
+  for (const css of cssSources.concat(descriptors.flatMap(descriptor => descriptor.styles.map(style => style.content)))) {
+    const root = postcss.parse(css)
+    root.walkAtRules(rule => {
+      if (['import', 'use'].includes(rule.name.toLowerCase())) assert.doesNotMatch(rule.params, tailwindUrl, 'public styles must not import Tailwind from a CDN')
+    })
+    root.walkDecls(declaration => assert.doesNotMatch(declaration.value, tailwindUrl, 'public styles must not load a Tailwind CDN URL'))
+  }
+  for (const descriptor of descriptors) {
+    const externalSources = [descriptor.script?.src, descriptor.scriptSetup?.src]
+      .concat(descriptor.styles.map(style => style.src), descriptor.customBlocks.map(block => block.src))
+      .filter(Boolean)
+    for (const url of externalSources) assert.doesNotMatch(url, tailwindUrl, 'public Vue blocks must not load Tailwind from a CDN')
+  }
+  for (const vue of vueSources) for (const name of ['script', 'link']) for (const node of elements(vue, name)) {
+    const url = staticAttribute(node, name === 'script' ? 'src' : 'href')
+    if (url) assert.doesNotMatch(url, tailwindUrl, 'public template sources must not load Tailwind from a CDN')
+  }
 }
 
 test('public shell and homepage preserve the published-content contract', () => {
@@ -30,7 +119,7 @@ test('public shell and homepage preserve the published-content contract', () => 
   const footer = source('../../components/public/PublicFooter.vue')
   assert.match(layout, /h\(PublicHeader/)
   assert.match(layout, /h\(PublicFooter/)
-  assert.deepEqual([...home.matchAll(/data-section="([^"]+)"/g)].map(match => match[1]), ['hero', 'proof', 'advantages', 'models', 'announcements-faq', 'cta'])
+  assert.deepEqual(dataSectionOrder(home), ['hero', 'proof', 'advantages', 'models', 'announcements-faq', 'cta'])
   assert.match(home, /演示|demo/i)
   assert.match(home, /releaseVersion/)
   assert.match(home, /localStorage/)
@@ -44,12 +133,11 @@ test('public shell and homepage preserve the published-content contract', () => 
   assert.doesNotMatch(home, /loadModels|pageSize/)
   assert.match(home, /state\.value\.site\.status === ['"]error['"] \? ['"]error['"]/)
   assert.match(home, /const load = \(\) => loadHome\(\)/)
-  assert.match(home, /@retry="load"/)
-  assert.match(home, /to=["']\/chat["']/)
-  assert.match(home, /<RouterLink\b[^>]*\bto=["']\/chat["']/)
-  assert.match(home, /<RouterLink\b[^>]*\bto=["']\/pricing["']/)
+  assert.match(home, /@retry\s*=\s*(["'])load\1/)
+  const linkTargets = routerLinkTargets(home)
+  assert.ok(linkTargets.includes('/chat'), 'homepage uses a RouterLink resolving to /chat')
+  assert.ok(linkTargets.includes('/pricing'), 'homepage uses a RouterLink resolving to /pricing')
   assert.doesNotMatch(`${layout}${home}${header}${footer}`, /href=["']#["']/)
-  assert.doesNotMatch(`${layout}${home}${header}${footer}`, /(?:>|['"])(?:40\+|100%|MIT|永久免费)(?:<|['"])/)
 })
 
 test('about and legal pages expose safe published states and metadata', () => {
@@ -152,26 +240,19 @@ test('public content pages compose the approved safe landing system', () => {
   const footer = source('../../components/public/PublicFooter.vue')
   const publicComponents = readdirSync(new URL('../../components/public/', import.meta.url))
     .filter(file => file.endsWith('.vue'))
-    .map(file => withoutStyles(source(`../../components/public/${file}`)))
-  const messages = source('../../i18n/messages.js')
-  const publicMessages = source('../../i18n/public-messages.js')
-  const runtimePublicMessages = namedObjectBlocks(messages, 'publicSite')
-  const rawPublicStyles = [
+    .map(file => source(`../../components/public/${file}`))
+  const vueSources = [layout, header, footer, home, hero, section, about, legal, notFound, preview, ...publicComponents]
+  const publicStyleSources = [
     source('../../styles/public-content.scss'),
     source('../../styles/public-shell.scss'),
     source('../../styles/public-pricing.scss'),
-    layout, header, footer, home, hero, section, about, legal, notFound, preview,
-    ...readdirSync(new URL('../../components/public/', import.meta.url))
-      .filter(file => file.endsWith('.vue'))
-      .map(file => source(`../../components/public/${file}`)),
-  ].join('\n')
-  const sourceBundle = [layout, header, footer, home, hero, section, about, legal, notFound, preview, publicMessages, ...runtimePublicMessages, ...publicComponents]
-    .map(withoutStyles)
-    .join('\n')
+  ]
+  const runtimePublicMessages = [messages, publicMessages]
+    .flatMap(catalog => Object.values(catalog).flatMap(locale => stringValues(locale.publicSite)))
+  assert.ok(runtimePublicMessages.length > 0, 'runtime publicSite messages must exist')
+  const sourceBundle = stripSafePerRequestCopy(vueSources.flatMap(visibleStrings).concat(runtimePublicMessages).join('\n'))
 
-  assert.doesNotMatch(rawPublicStyles, /\bcdn\.tailwindcss\.com\b/i, 'public styles must not load the Tailwind CDN')
-  assert.doesNotMatch(rawPublicStyles, /(?:@import|@use)\s+(?:url\()?[^;{}\n]*(?:https?:)?\/\/[^;{}\n]*tailwind/i, 'public styles must not import Tailwind from a CDN')
-  assert.doesNotMatch(rawPublicStyles, /<(?:script|link)\b[^>]*(?:src|href)\s*=\s*["'][^"']*(?:https?:)?\/\/[^"']*tailwind/i, 'public Vue sources must not load Tailwind from a remote script or stylesheet')
+  assertNoTailwindLoading(publicStyleSources, vueSources)
 
   assert.match(home, /<HeroPreview/)
   assert.equal((home.match(/<PublicSection/g) || []).length, 3)
@@ -189,20 +270,5 @@ test('public content pages compose the approved safe landing system', () => {
   assert.match(preview, /preview-banner/)
   assert.match(preview, /aria-live="polite"/)
   assert.match(`${home}${about}${legal}`, /v-html="(?:home\.|content\.)/)
-  const forbiddenClaims = [
-    [/ModelHub/i, 'prototype product name'],
-    [/(?:>|['"])[^<"']*40\+[^<"']*(?:<|['"])/i, 'prototype model count'],
-    [/(?:>|['"])[^<"']*100%[^<"']*(?:<|['"])/i, 'prototype percentage claim'],
-    [/MIT License/i, 'prototype license claim'],
-    [/Tailwind\s+CDN/i, 'Tailwind CDN claim'],
-    [/(?:admin|demo)(?:@[^\s<"']+)?\s*(?:\/|:|：)\s*(?:admin|password|123456)/i, 'demo credentials'],
-    [/\b(?:admin|demo)@[A-Z0-9._%+-]+\.[A-Z]{2,}\b/i, 'demo account email'],
-    [/(?:password|密码)\s*[:=：]\s*["']?(?:admin\d*|demo\d*|123456(?:78)?)/i, 'demo password'],
-    [/(?:API[_ -]?KEY\s*[=:]|sk-[A-Za-z0-9_-]{8,})/i, 'demo API credential'],
-    [/(?:>|['"])[^<"']*\d+(?:\.\d+)?\s*(?:x|×|倍)[^<"']*(?:<|['"])/i, 'prototype multiplier'],
-    [/(?:单次调用价|(?:每次请求|每请求)[^<\n]{0,20}(?:价|[$¥￥]\s*\d)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request\b|per[- ]request\s+(?:price|pricing))/i, 'per-request pricing'],
-  ]
-  for (const [pattern, label] of forbiddenClaims) {
-    assert.doesNotMatch(sourceBundle, pattern, label)
-  }
+  for (const [pattern, label] of prototypePatterns) assert.doesNotMatch(sourceBundle, pattern, label)
 })

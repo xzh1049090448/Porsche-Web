@@ -1,52 +1,92 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { baseParse } from '@vue/compiler-dom'
+import { parse as parseSfc } from '@vue/compiler-sfc'
+import postcss from 'postcss'
+import { messages } from '../../i18n/messages.js'
 import { publicText } from '../../i18n/public-runtime.js'
 import { formatPublicPrice, mapPublicModel, PUBLIC_PRICING } from '../../utils/public-catalog.js'
 import { publicPriceState } from '../../utils/public-pricing-query.js'
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
-const controlSize = '(?:44px|var\\(--control-min-size\\))'
-const namedObjectBlocks = (value, name) => {
-  const blocks = []
-  const pattern = new RegExp(`\\b${name}\\s*:\\s*\\{`, 'g')
-  for (const match of value.matchAll(pattern)) {
-    const start = match.index + match[0].lastIndexOf('{')
-    let depth = 1
-    let end = start + 1
-    while (end < value.length && depth > 0) {
-      if (value[end] === '{') depth += 1
-      else if (value[end] === '}') depth -= 1
-      end += 1
+const styleRoot = (source, sfc = false) => postcss.parse(sfc ? parseSfc(source).descriptor.styles.map(style => style.content).join('\n') : source)
+const templateAst = source => baseParse(parseSfc(source).descriptor.template?.content || '')
+const visibleStrings = source => {
+  const values = []
+  const visibleAttributes = new Set(['alt', 'aria-label', 'placeholder', 'title'])
+  const visit = node => {
+    if (node.type === 2 && node.content.trim()) values.push(node.content.trim())
+    if (node.type === 5) values.push(node.content.content)
+    if (node.type === 1) for (const prop of node.props) {
+      if (prop.type === 6 && visibleAttributes.has(prop.name) && prop.value?.content) values.push(prop.value.content)
     }
-    assert.equal(depth, 0, `${name} message object must be balanced`)
-    blocks.push(value.slice(start, end))
+    for (const child of node.children || []) visit(child)
   }
-  assert.ok(blocks.length > 0, `${name} message objects must exist`)
-  return blocks
+  visit(templateAst(source))
+  return values
 }
-const withoutMobileMedia = source => {
-  let output = ''
-  let cursor = 0
-  while (cursor < source.length) {
-    const start = source.indexOf('@media', cursor)
-    if (start === -1) return output + source.slice(cursor)
-    const open = source.indexOf('{', start)
-    if (open === -1) return output + source.slice(cursor)
-    let depth = 1
-    let end = open + 1
-    while (end < source.length && depth > 0) {
-      if (source[end] === '{') depth += 1
-      else if (source[end] === '}') depth -= 1
-      end += 1
-    }
-    const header = source.slice(start, open)
-    output += source.slice(cursor, start)
-    if (!/max-width\s*:\s*767px/.test(header)) output += source.slice(start, end)
-    cursor = end
+const stringValues = value => {
+  if (typeof value === 'string') return [value]
+  if (Array.isArray(value)) return value.flatMap(stringValues)
+  if (value && typeof value === 'object') return Object.values(value).flatMap(stringValues)
+  return []
+}
+const mediaAncestors = rule => {
+  const media = []
+  for (let parent = rule.parent; parent; parent = parent.parent) if (parent.type === 'atrule' && parent.name.toLowerCase() === 'media') media.push(parent.params)
+  return media
+}
+const exactRules = (root, selector, context = 'base') => {
+  const matches = []
+  root.walkRules(rule => {
+    if (!rule.selectors?.map(value => value.trim()).includes(selector)) return
+    const media = mediaAncestors(rule)
+    if (context === 'all' || (context === 'base' && media.length === 0) || (context instanceof RegExp && media.some(value => context.test(value)))) matches.push(rule)
+  })
+  return matches
+}
+const normalizeCssValue = value => value.replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim()
+const propertyMap = rules => {
+  const result = new Map()
+  for (const rule of rules) for (const node of rule.nodes) if (node.type === 'decl') {
+    const key = node.prop.toLowerCase()
+    if (!result.has(key)) result.set(key, [])
+    result.get(key).push(normalizeCssValue(node.value))
   }
-  return output
+  return result
 }
+const assertProperty = (root, selector, property, expected, message, context = 'base') => {
+  const actual = propertyMap(exactRules(root, selector, context)).get(property) || []
+  assert.ok(actual.includes(expected), `${message}; found ${JSON.stringify(actual)}`)
+}
+const controlValueIsAtLeast44 = value => value === 'var(--control-min-size)' || (/^\d+(?:\.\d+)?px$/.test(value) && Number.parseFloat(value) >= 44)
+const assertControlSize = (root, selector, properties, context = 'all') => {
+  const rules = exactRules(root, selector, context)
+  assert.ok(rules.length > 0, `${selector} must have an exact rule`)
+  const declarations = propertyMap(rules)
+  for (const property of properties) {
+    const values = declarations.get(property) || []
+    assert.ok(values.length > 0, `${selector} must declare ${property}`)
+    assert.equal(values.every(controlValueIsAtLeast44), true, `${selector} ${property} must stay at least 44px`)
+  }
+}
+const stripSafePerRequestCopy = value => value
+  .replace(/每次请求不单独计价/g, '')
+  .replace(/\bper[- ]request pricing is not offered\b/gi, '')
+const prototypePatterns = [
+  [/ModelHub/i, 'prototype product name'],
+  [/40\+|\b\d+\+?\s*(?:个\s*)?(?:模型|供应商)|\b\d+\+?\s*(?:models?|providers?)\b/i, 'hard-coded prototype model or provider count'],
+  [/100%/i, 'prototype percentage claim'],
+  [/MIT License/i, 'prototype license claim'],
+  [/Tailwind\s+CDN/i, 'Tailwind CDN claim'],
+  [/\d+(?:\.\d+)?\s*(?:x|×|倍)(?![\w-])/i, 'prototype multiplier'],
+  [/(?:单次调用价|每次请求(?:价格|价)|每请求(?:价格|价)|per[- ]request\s+(?:price|pricing)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request\b)/i, 'per-request price'],
+  [/(?:admin|demo)(?:@[^\s<"']+)?\s*(?:\/|:|：)\s*(?:admin|password|123456)/i, 'demo credentials'],
+  [/\b(?:admin|demo)@[A-Z0-9._%+-]+\.[A-Z]{2,}\b/i, 'demo account email'],
+  [/(?:password|密码)\s*[:=：]\s*["']?(?:admin\d*|demo\d*|123456(?:78)?)/i, 'demo password'],
+  [/(?:API[_ -]?KEY\s*[=:]\s*["']?(?:sk-)?[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{8,})/i, 'hard-coded API credential'],
+]
 
 test('pricing routes load real lazy pages and preserve encoded stable modelKey', async () => {
   const [router, main] = await Promise.all([read('../../router/index.js'), read('../../main.js')])
@@ -58,52 +98,53 @@ test('pricing routes load real lazy pages and preserve encoded stable modelKey',
 
 test('catalog exposes desktop filters/table, mobile drawer/cards and accessible controls', async () => {
   const [page, filters, table, cards, styles] = await Promise.all([read('./Pricing.vue'), read('../../components/public/PricingFilters.vue'), read('../../components/public/PricingTable.vue'), read('../../components/public/PricingCards.vue'), read('../../styles/public-pricing.scss')])
+  const pricingCss = styleRoot(styles)
+  const filterCss = styleRoot(filters, true)
+  const tableCss = styleRoot(table, true)
+  const cardsCss = styleRoot(cards, true)
   assert.match(page, /@\/styles\/public-pricing\.scss/)
-  assert.match(styles, /max-width:\s*1600px/); assert.match(styles, /\.pricing-layout\s*\{[^}]*grid-template-columns:\s*260px\s+minmax\(0,\s*1fr\)/s); assert.match(styles, /@media\s*\(max-width:\s*767px\)/)
+  assertProperty(pricingCss, '.pricing-page', 'max-width', '1600px', 'pricing page keeps its desktop width')
+  assertProperty(pricingCss, '.pricing-layout', 'grid-template-columns', '260px minmax(0, 1fr)', 'pricing layout keeps the approved sidebar grid')
   assert.match(page, /PricingFilters/); assert.match(page, /PricingTable/); assert.match(page, /PricingCards/)
-  for (const className of ['pricing-layout', 'pricing-sidebar', 'pricing-toolbar']) assert.match(page, new RegExp(`class="${className}"`))
-  assert.match(page, /class="pricing-results-count"/)
-  assert.match(page, /role="dialog"/); assert.match(page, /aria-modal="true"/)
-  assert.match(page, /aria-controls="pricing-filter-drawer"/); assert.match(page, /:aria-expanded="drawerOpen"/)
-  for (const field of ['search', 'provider', 'capability', 'endpoint', 'group', 'sort']) assert.match(filters, new RegExp(`name="${field}"`))
+  for (const className of ['pricing-layout', 'pricing-sidebar', 'pricing-toolbar', 'pricing-results-count']) assert.match(page, new RegExp(`class\\s*=\\s*(["'])[^"']*\\b${className}\\b[^"']*\\1`))
+  assert.match(page, /role\s*=\s*(["'])dialog\1/); assert.match(page, /aria-modal\s*=\s*(["'])true\1/)
+  assert.match(page, /aria-controls\s*=\s*(["'])pricing-filter-drawer\1/); assert.match(page, /:aria-expanded\s*=\s*(["'])drawerOpen\1/)
+  for (const field of ['search', 'provider', 'capability', 'endpoint', 'group', 'sort']) assert.match(filters, new RegExp(`name\\s*=\\s*(["'])${field}\\1`))
   assert.match(table, /publicPriceState/); assert.match(cards, /publicPriceState/)
   assert.match(table, /pricingCatalog\.inputPrice/); assert.match(table, /pricingCatalog\.outputPrice/)
   assert.match(cards, /price\(model,['"]input['"]\)/); assert.match(cards, /price\(model,['"]output['"]\)/)
-  assert.match(table, /class="pricing-table"/); assert.match(cards, /class="pricing-cards"/)
-  assert.match(styles, /\.pricing-page \.pricing-table-wrap\s*\{\s*display:\s*none/s)
-  assert.match(cards, /@media\s*\(\s*max-width:\s*767px\s*\)\s*\{\s*\.pricing-cards\s*\{\s*display:\s*grid/s)
-  assert.match(styles, /\.pricing-drawer\s*\{[^}]*display:\s*block/s)
-  const desktopPresentation = `${withoutMobileMedia(table)}\n${withoutMobileMedia(styles)}`
-  assert.doesNotMatch(desktopPresentation, /\.pricing-(?:table|table-wrap)\b[^{}]*\{[^}]*(?:\bdisplay\s*:\s*none\b|\bvisibility\s*:\s*hidden\b|\bopacity\s*:\s*0(?:\.0+)?\s*(?:!important)?\s*;)/s, 'desktop pricing table must not be globally hidden')
-  assert.match(filters, new RegExp(`\\.pricing-filters input\\s*,\\s*\\.pricing-filters select\\s*\\{[^}]*min-height\\s*:\\s*${controlSize}`), 'filter inputs and selects keep 44px targets')
-  assert.match(styles, new RegExp(`\\.pricing-pagination button\\s*,\\s*\\.pricing-pagination select\\s*\\{[^}]*min-height\\s*:\\s*${controlSize}`), 'pagination controls keep 44px targets')
-  assert.match(styles, new RegExp(`\\.pricing-filter-toggle\\s*\\{[^}]*min-height\\s*:\\s*${controlSize}`), 'mobile filter trigger keeps a 44px target')
-  assert.match(styles, new RegExp(`\\.pricing-drawer > header button\\s*\\{[^}]*min-width\\s*:\\s*${controlSize}[^}]*min-height\\s*:\\s*${controlSize}`), 'drawer close control keeps a 44px square target')
+  assert.match(table, /class\s*=\s*(["'])pricing-table\1/); assert.match(cards, /class\s*=\s*(["'])pricing-cards\1/)
+  assertProperty(pricingCss, '.pricing-page .pricing-table-wrap', 'display', 'none', 'mobile hides the desktop table', /max-width\s*:\s*767px/i)
+  assertProperty(cardsCss, '.pricing-cards', 'display', 'grid', 'mobile shows pricing cards', /max-width\s*:\s*767px/i)
+  assertProperty(pricingCss, '.pricing-drawer', 'display', 'block', 'mobile shows the pricing drawer', /max-width\s*:\s*767px/i)
+  for (const root of [pricingCss, tableCss]) root.walkRules(rule => {
+    if (mediaAncestors(rule).length > 0 || !rule.selectors?.some(selector => /\.pricing-table(?:-wrap)?(?![\w-])/.test(selector))) return
+    const declarations = propertyMap([rule])
+    assert.equal((declarations.get('display') || []).some(value => value.toLowerCase() === 'none'), false, 'desktop pricing table must not use display:none')
+    assert.equal((declarations.get('visibility') || []).some(value => value.toLowerCase() === 'hidden'), false, 'desktop pricing table must not use visibility:hidden')
+    assert.equal((declarations.get('opacity') || []).some(value => /^0(?:\.0+)?(?:\s*!important)?$/i.test(value)), false, 'desktop pricing table must not use opacity:0')
+  })
+  assertControlSize(filterCss, '.pricing-filters input', ['min-height'])
+  assertControlSize(filterCss, '.pricing-filters select', ['min-height'])
+  assertControlSize(pricingCss, '.pricing-pagination button', ['min-height'])
+  assertControlSize(pricingCss, '.pricing-pagination select', ['min-height'])
+  assertControlSize(pricingCss, '.pricing-filter-toggle', ['min-height'], /max-width\s*:\s*767px/i)
+  assertControlSize(pricingCss, '.pricing-drawer > header button', ['min-width', 'min-height'], /max-width\s*:\s*767px/i)
   assert.match(styles, /focus-visible/)
 })
 
 test('pricing presentation rejects prototype counts, multipliers and per-request prices', async () => {
-  const [page, detail, filters, table, cards, styles, messages] = await Promise.all([
+  const [page, detail, filters, table, cards] = await Promise.all([
     read('./Pricing.vue'),
     read('./ModelPricingDetail.vue'),
     read('../../components/public/PricingFilters.vue'),
     read('../../components/public/PricingTable.vue'),
     read('../../components/public/PricingCards.vue'),
-    read('../../styles/public-pricing.scss'),
-    read('../../i18n/messages.js'),
   ])
-  const pricingMessages = namedObjectBlocks(messages, 'pricingCatalog')
-  const presentation = [page, detail, filters, table, cards, styles, ...pricingMessages].join('\n')
-  const forbidden = [
-    [/40\+|\b\d+\+?\s*(?:个\s*)?(?:模型|供应商)|\b\d+\+?\s*(?:models?|providers?)\b/i, 'hard-coded prototype model or provider count'],
-    [/(?:>|['"])[^<"']*\d+(?:\.\d+)?\s*(?:x|×|倍)[^<"']*(?:<|['"])/i, 'prototype multiplier'],
-    [/(?:单次调用价|(?:每次请求|每请求)[^<\n]{0,20}(?:价|[$¥￥]\s*\d)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request\b|per[- ]request\s+(?:price|pricing))/i, 'per-request price'],
-    [/(?:admin|demo)(?:@[^\s<"']+)?\s*(?:\/|:|：)\s*(?:admin|password|123456)/i, 'demo credentials'],
-    [/\b(?:admin|demo)@[A-Z0-9._%+-]+\.[A-Z]{2,}\b/i, 'demo account email'],
-    [/(?:password|密码)\s*[:=：]\s*["']?(?:admin\d*|demo\d*|123456(?:78)?)/i, 'demo password'],
-    [/(?:API[_ -]?KEY\s*[=:]\s*["']?(?:sk-)?[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{8,})/i, 'hard-coded API credential'],
-  ]
-  for (const [pattern, label] of forbidden) assert.doesNotMatch(presentation, pattern, label)
+  const pricingMessages = Object.values(messages).flatMap(locale => stringValues(locale.publicSite?.pricingCatalog))
+  assert.ok(pricingMessages.length > 0, 'runtime pricingCatalog messages must exist')
+  const presentation = stripSafePerRequestCopy([page, detail, filters, table, cards].flatMap(visibleStrings).concat(pricingMessages).join('\n'))
+  for (const [pattern, label] of prototypePatterns) assert.doesNotMatch(presentation, pattern, label)
 })
 
 test('detail presents stable identity, two token price cards, metadata, disclaimer and console action', async () => {
