@@ -144,13 +144,13 @@ const scriptPropertyName = node => {
   const key = unwrapScriptExpression(node?.key)
   return !key || (node.computed && !['StringLiteral', 'NumericLiteral'].includes(key.type)) ? undefined : key.name ?? key.value
 }
-const walkScriptAst = (node, visit) => {
+const walkScriptAst = (node, visit, parent) => {
   if (!node || typeof node !== 'object') return
-  visit(node)
+  visit(node, parent)
   for (const [key, value] of Object.entries(node)) {
     if (['loc', 'start', 'end', 'extra'].includes(key)) continue
-    if (Array.isArray(value)) for (const child of value) walkScriptAst(child, visit)
-    else if (value && typeof value === 'object' && typeof value.type === 'string') walkScriptAst(value, visit)
+    if (Array.isArray(value)) for (const child of value) walkScriptAst(child, visit, node)
+    else if (value && typeof value === 'object' && typeof value.type === 'string') walkScriptAst(value, visit, node)
   }
 }
 const componentScriptAsts = (source, label = 'route transition') => {
@@ -203,19 +203,22 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
   let componentName
   const bindings = new Map()
   const helpers = new Map()
+  const parents = new WeakMap()
+  walkScriptAst(ast.program, (node, parent) => { if (parent) parents.set(node, parent) })
+  const componentScopes = new Set()
   for (const statement of ast.program.body) {
     if (statement.type === 'ImportDeclaration') for (const imported of statement.specifiers) {
       const name = imported.imported?.name ?? imported.imported?.value
       if (statement.source.value === 'vue' && ['h', 'createVNode'].includes(name)) renderNames.add(imported.local.name)
       if (statement.source.value === specifier) componentName = imported.local.name
     }
-    walkScriptAst(statement, node => {
-      if (node.type === 'FunctionDeclaration' && node.id) helpers.set(node.id.name, node)
-      if (node.type === 'VariableDeclarator' && node.id?.type === 'Identifier' && node.init) {
-        bindings.set(node.id.name, node.init)
-        if (['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapScriptExpression(node.init)?.type)) helpers.set(node.id.name, unwrapScriptExpression(node.init))
+    if (statement.type === 'ExportDefaultDeclaration') {
+      let options = unwrapScriptExpression(statement.declaration)
+      if (['CallExpression', 'OptionalCallExpression'].includes(options?.type) && unwrapScriptExpression(options.callee)?.type === 'Identifier' && options.callee.name === 'defineComponent') options = unwrapScriptExpression(options.arguments[0])
+      if (options?.type === 'ObjectExpression') for (const property of options.properties.filter(candidate => ['setup', 'render'].includes(String(scriptPropertyName(candidate))))) {
+        componentScopes.add(property.type === 'ObjectMethod' ? property : unwrapScriptExpression(property.value))
       }
-    })
+    }
   }
   if (!componentName) return false
   const staticValue = node => {
@@ -224,6 +227,103 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (node?.type === 'NullLiteral' || (node?.type === 'Identifier' && node.name === 'undefined')) return { known: true, value: undefined }
     if (node?.type === 'UnaryExpression' && node.operator === '!') { const value = staticValue(node.argument); return value.known ? { known: true, value: !value.value } : value }
     return { known: false }
+  }
+  const reachability = node => {
+    let uncertain = false
+    for (let current = node, parent = parents.get(current); parent; current = parent, parent = parents.get(parent)) {
+      if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(parent.type) && !componentScopes.has(parent)) return false
+      if (parent.type === 'IfStatement' && (current === parent.consequent || current === parent.alternate)) {
+        const condition = staticValue(parent.test)
+        if (condition.known && Boolean(condition.value) !== (current === parent.consequent)) return false
+        if (!condition.known) uncertain = true
+      }
+      if (parent.type === 'ConditionalExpression' && (current === parent.consequent || current === parent.alternate)) {
+        const condition = staticValue(parent.test)
+        if (condition.known && Boolean(condition.value) !== (current === parent.consequent)) return false
+        if (!condition.known) uncertain = true
+      }
+      if (parent.type === 'LogicalExpression' && current === parent.right) {
+        const left = staticValue(parent.left)
+        if (left.known && ((parent.operator === '&&' && !left.value) || (parent.operator === '||' && left.value))) return false
+        if (!left.known) uncertain = true
+      }
+    }
+    return uncertain ? 'maybe' : true
+  }
+  const memberReference = (object, name, sourceNode) => ({
+    type: 'MemberExpression', object, property: { type: 'StringLiteral', value: String(name) }, computed: true,
+    start: sourceNode?.start, end: sourceNode?.end,
+  })
+  const bindPattern = (pattern, value, certainty = true) => {
+    pattern = unwrapScriptExpression(pattern)
+    if (!pattern || certainty === false) return
+    if (pattern.type === 'Identifier') {
+      const previous = bindings.get(pattern.name)
+      bindings.set(pattern.name, certainty === 'maybe' && previous
+        ? { type: 'ConditionalExpression', test: { type: 'Identifier', name: '__dynamic_branch__' }, consequent: value, alternate: previous }
+        : value)
+      return
+    }
+    if (pattern.type === 'AssignmentPattern') { bindPattern(pattern.left, value, certainty); return }
+    if (pattern.type === 'ObjectPattern') for (const property of pattern.properties) {
+      if (property.type !== 'RestElement') bindPattern(property.value, memberReference(value, scriptPropertyName(property), property), certainty)
+    }
+    if (pattern.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) {
+      if (pattern.elements[index]?.type !== 'RestElement') bindPattern(pattern.elements[index], memberReference(value, index, pattern.elements[index]), certainty)
+    }
+  }
+  walkScriptAst(ast.program, node => {
+    if (node.type === 'FunctionDeclaration' && node.id) helpers.set(node.id.name, node)
+    if (node.type === 'VariableDeclarator' && node.init) {
+      const certainty = reachability(node)
+      bindPattern(node.id, node.init, certainty)
+      if (certainty !== false && node.id?.type === 'Identifier' && ['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapScriptExpression(node.init)?.type)) helpers.set(node.id.name, unwrapScriptExpression(node.init))
+    }
+    if (node.type === 'AssignmentExpression' && node.operator === '=' && ['Identifier', 'ObjectPattern', 'ArrayPattern'].includes(node.left?.type)) bindPattern(node.left, node.right, reachability(node))
+  })
+  const memberName = node => {
+    const property = unwrapScriptExpression(node?.property)
+    if (!node?.computed && property?.type === 'Identifier') return property.name
+    return node?.computed && ['StringLiteral', 'NumericLiteral'].includes(property?.type) ? String(property.value) : undefined
+  }
+  const memberValue = (object, name, resolving = new Set()) => {
+    object = unwrapScriptExpression(object)
+    if (!object || resolving.size > 32) return undefined
+    if (object.type === 'Identifier' && bindings.has(object.name) && !resolving.has(object.name)) return memberValue(bindings.get(object.name), name, new Set(resolving).add(object.name))
+    if (object.type === 'ArrayExpression') return object.elements[Number(name)]
+    if (object.type !== 'ObjectExpression') return undefined
+    let found
+    for (const property of object.properties) {
+      if (property.type === 'SpreadElement') {
+        const spread = memberValue(property.argument, name, resolving)
+        if (spread) found = spread
+      } else if (scriptPropertyName(property) === name) found = property.value
+    }
+    return found
+  }
+  const isComponentReference = (node, resolving = new Set()) => {
+    node = unwrapScriptExpression(node)
+    if (!node || resolving.size > 32) return false
+    if (node.type === 'Identifier') {
+      if (node.name === componentName) return true
+      if (!bindings.has(node.name) || resolving.has(node.name)) return false
+      return isComponentReference(bindings.get(node.name), new Set(resolving).add(node.name))
+    }
+    if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+      const value = memberValue(node.object, memberName(node), resolving)
+      return value ? isComponentReference(value, resolving) : false
+    }
+    if (node.type === 'ConditionalExpression') {
+      const condition = staticValue(node.test)
+      return condition.known ? isComponentReference(condition.value ? node.consequent : node.alternate, resolving) : isComponentReference(node.consequent, resolving) || isComponentReference(node.alternate, resolving)
+    }
+    if (node.type === 'LogicalExpression') {
+      const left = staticValue(node.left)
+      if (left.known) return isComponentReference(node.left, resolving) || ((node.operator === '&&' ? Boolean(left.value) : node.operator === '||' ? !left.value : left.value == null) && isComponentReference(node.right, resolving))
+      return isComponentReference(node.left, resolving) || isComponentReference(node.right, resolving)
+    }
+    if (node.type === 'SequenceExpression') return isComponentReference(node.expressions.at(-1), resolving)
+    return false
   }
   const returns = body => {
     body = unwrapScriptExpression(body)
@@ -258,7 +358,7 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (node.type === 'ArrayExpression') return node.elements.some(value => inspect(value, resolving))
     if (!['CallExpression', 'OptionalCallExpression'].includes(node.type)) return false
     if (unwrapScriptExpression(node.callee)?.type === 'Identifier' && renderNames.has(node.callee.name)) {
-      if (unwrapScriptExpression(node.arguments[0])?.type === 'Identifier' && node.arguments[0].name === componentName) return true
+      if (isComponentReference(node.arguments[0])) return true
       return node.arguments.slice(1).some(argument => unwrapScriptExpression(argument)?.type !== 'ObjectExpression' && inspect(argument, resolving))
     }
     if (unwrapScriptExpression(node.callee)?.type === 'Identifier' && helpers.has(node.callee.name) && !resolving.has(node.callee.name)) return returns(helpers.get(node.callee.name).body).some(value => inspect(value, new Set(resolving).add(node.callee.name)))

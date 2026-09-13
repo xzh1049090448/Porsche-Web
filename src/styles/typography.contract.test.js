@@ -548,6 +548,7 @@ const renderNodesFromScripts = (descriptor, file) => {
 }
 const typographyEvidenceFromVue = (files = collectProductionSources()) => {
   const evidence = new Set(['html', ':root', 'body', '#app'])
+  const ancestorPaths = new Map()
   const voidElements = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'])
   const vueFiles = files.filter(entry => entry.file.endsWith('.vue'))
   const sourceRoot = vueFiles.map(entry => entry.file.match(/^(.*\/src)(?:\/|$)/)?.[1]).find(Boolean)
@@ -612,13 +613,55 @@ const typographyEvidenceFromVue = (files = collectProductionSources()) => {
     }
   }
   const componentRendersTypography = file => !graphs.has(file) || renderMemo.get(file)
-  for (const graph of graphs.values()) for (const node of graph.nodes) {
+  const nodeIdentities = node => new Set([
+    node.name && node.name !== 'template' ? node.name.toLowerCase() : undefined,
+    ...node.classes.map(className => `.${className}`),
+    node.id ? `#${node.id}` : undefined,
+  ].filter(Boolean))
+  const ancestorIdentities = node => {
+    const identities = new Set(['html', ':root', 'body', '#app'])
+    for (let current = node?.parent; current; current = current.parent) for (const identity of nodeIdentities(current)) identities.add(identity)
+    return identities
+  }
+  const componentContexts = new Map([...graphs.keys()].map(file => [file, [new Set(['html', ':root', 'body', '#app'])]]))
+  let contextsChanged = true
+  while (contextsChanged) {
+    contextsChanged = false
+    for (const [file, graph] of graphs) for (const node of graph.nodes) {
+      const child = graph.imports.get(componentKey(node.name))
+      if (!child || !graphs.has(child)) continue
+      const local = new Set([...ancestorIdentities(node), ...nodeIdentities(node)])
+      for (const parentContext of componentContexts.get(file) || []) {
+        const context = new Set([...parentContext, ...local])
+        const key = [...context].sort().join('\0')
+        const childContexts = componentContexts.get(child)
+        if (!childContexts.some(candidate => [...candidate].sort().join('\0') === key) && childContexts.length < 128) {
+          childContexts.push(context)
+          contextsChanged = true
+        }
+      }
+    }
+  }
+  const recordPath = (identity, ancestors) => {
+    const paths = ancestorPaths.get(identity) || []
+    const key = [...ancestors].sort().join('\0')
+    if (!paths.some(candidate => [...candidate].sort().join('\0') === key)) paths.push(ancestors)
+    ancestorPaths.set(identity, paths)
+  }
+  for (const [file, graph] of graphs) for (const node of graph.nodes) {
     const child = graph.imports.get(componentKey(node.name))
     if (!node.typography && !(child && componentRendersTypography(child))) continue
-    for (let current = node; current; current = current.parent) addNode(current)
+    for (let current = node; current; current = current.parent) {
+      addNode(current)
+      const local = ancestorIdentities(current)
+      for (const context of componentContexts.get(file) || []) for (const identity of nodeIdentities(current)) recordPath(identity, new Set([...context, ...local]))
+    }
   }
+  for (const identity of ['html', ':root', 'body', '#app']) recordPath(identity, new Set(['html', ':root', 'body', '#app']))
+  Object.defineProperty(evidence, 'ancestorPaths', { value: ancestorPaths })
   return evidence
 }
+const siteTypographyEvidence = typographyEvidenceFromVue()
 const nestedStyleDeclarations = source => {
   const declarations = []
   const clean = source.replace(/\/\*[\s\S]*?\*\//g, '')
@@ -772,9 +815,9 @@ const effectiveStyleSelectors = contexts => contexts.filter(context => !context.
 const selectorTargetsTypography = (selector, evidence) => {
   const compounds = selectorCompounds(selector)
   const rightmost = compounds.at(-1) || ''
-  if (functionalPseudoArguments(rightmost, new Set(['has'])).some(value => splitTopLevel(value, ',').some(branch => selectorTargetsTypography(branch, evidence)))) return true
-  if ([...evidence].some(target => compoundMayTarget(rightmost, target))) return true
-  return /(^|[^\w-])\*/.test(rightmost) && (compounds.length === 1 || compounds.slice(0, -1).some(compound => compoundSubjectAlternatives(compound).some(alternative => compoundTokens(alternative).some(token => evidence.has(token.toLowerCase())))))
+  const relational = functionalPseudoArguments(rightmost, new Set(['has'])).some(value => splitTopLevel(value, ',').some(branch => selectorTargetsTypography(branch, evidence)))
+  if (relational) return selectorLeadingCompoundsAreKnown(compounds.slice(0, -1), evidence)
+  return [...evidence].some(target => compoundMayTarget(rightmost, target) && selectorLeadingCompoundsAreKnown(compounds.slice(0, -1), evidence, target))
 }
 const scopeHeaders = declaration => declaration.contexts.filter(context => !context.startsWith('@')).map(context => normalizeSelector(context))
 const scopeContains = (outer, inner) => outer.length <= inner.length && outer.every((value, index) => value === inner[index])
@@ -965,13 +1008,23 @@ const compoundMayTarget = (candidate, target) => {
     }))
   })
 }
-const selectorTargetsContract = (selector, target) => {
+const selectorLeadingCompoundsAreKnown = (compounds, evidence, target) => {
+  if (compounds.length === 0) return true
+  const paths = target ? evidence.ancestorPaths?.get(target.toLowerCase()) : undefined
+  const candidates = paths?.length ? paths : [evidence]
+  return candidates.some(path => compounds.every(compound => [...path].some(identity => compoundMayTarget(compound, identity))))
+}
+const selectorTargetsContract = (selector, target, evidence) => {
   const candidateCompounds = selectorCompounds(selector)
   const targetCompounds = selectorCompounds(target)
   if (candidateCompounds.length === 1) return compoundMayTarget(candidateCompounds[0], targetCompounds.at(-1) || target)
   if (candidateCompounds.length < targetCompounds.length) return false
   const offset = candidateCompounds.length - targetCompounds.length
-  return targetCompounds.every((compound, index) => compoundMayTarget(candidateCompounds[offset + index], compound))
+  const rightmostTarget = targetCompounds.at(-1) || target
+  const targetIdentities = compoundTokens(rightmostTarget).filter(token => token === '*' || !token.startsWith(':'))
+  const contextMatches = offset === 0 || targetIdentities.some(identity => selectorLeadingCompoundsAreKnown(candidateCompounds.slice(0, offset), evidence || new Set(), identity))
+  return contextMatches
+    && targetCompounds.every((compound, index) => compoundMayTarget(candidateCompounds[offset + index], compound))
 }
 const fontSizeFromShorthand = value => value.match(/(?:^|\s)(var\([^)]*\)|(?:\d*\.)?\d+(?:px|rem|em|%|vw|vh)|xx-small|x-small|small|medium|large|x-large|xx-large|smaller|larger)(?:\s*\/|\s|$)/i)?.[1] || value
 const selectorSpecificity = selector => {
@@ -1000,7 +1053,7 @@ const effectiveValue = (stylesheet, selector, property, width, reduced, exactOnl
     if (!winner || Number(candidate.important) > Number(winner.important) || (candidate.important === winner.important && (candidate.specificity > winner.specificity || (candidate.specificity === winner.specificity && candidate.order > winner.order)))) winner = candidate
   }
   for (const rule of stylesheet) {
-    const matching = rule.selectors.filter(candidate => exactOnly ? normalizeSelector(candidate) === normalizeSelector(selector) : selectorTargetsContract(candidate, selector))
+    const matching = rule.selectors.filter(candidate => exactOnly ? normalizeSelector(candidate) === normalizeSelector(selector) : selectorTargetsContract(candidate, selector, siteTypographyEvidence))
     if (!matching.length || !mediaMatchesScreen(rule.media, width, reduced)) continue
     const specificity = Math.max(...matching.map(selectorSpecificity))
     for (const declaration of rule.declarations) {
@@ -1080,10 +1133,11 @@ test('console surfaces map brand, navigation, headings and statuses to semantic 
 
 test('typography stays at real size and interactive controls retain 44px targets', () => {
   const mobileWidths = allScreenWidths.filter(width => width <= 767)
-  assertTypographyScalingPolicy(collectSiteStyleSources(), typographyEvidenceFromVue())
+  assertTypographyScalingPolicy(collectSiteStyleSources(), siteTypographyEvidence)
 
   assertMapping(tokens, 'html:root', '--control-min-size', '44px', 'shared controls retain a 44px minimum')
-  assertMinimumControl(publicShell, '.public-locale', 'min-height', 'public header controls keep the shared touch target')
+  for (const selector of ['.public-locale', '.public-theme', '.public-nav-toggle', '.public-button']) assert.equal(siteTypographyEvidence.has(selector), true, `${selector} must be rendered by a production public component before it can satisfy the control contract`)
+  for (const selector of ['.public-locale', '.public-theme', '.public-nav-toggle']) assertMinimumControl(publicShell, selector, 'min-height', `${selector} keeps the shared touch target`)
   assertMinimumControl(publicShell, '.public-button', 'min-height', 'public actions keep the shared touch target')
   assertMinimumControl(consoleShell, '.user-trigger', 'min-height', 'console user control keeps the shared touch target')
   for (const selector of ['.pricing-pagination button', '.pricing-pagination select', '.pricing-detail-back', '.pricing-console-cta']) assertMinimumControl(publicPricing, selector, 'min-height', `${selector} keeps a 44px target`)

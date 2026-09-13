@@ -1016,12 +1016,19 @@ const compoundMayTarget = (candidate, target) => {
     }))
   })
 }
+const pricingAncestorEvidence = new Set([
+  'html', 'body', '#app', '.public-layout', '.public-shell', 'main', '#public-content',
+  '.pricing-page', '.pricing-layout', '.pricing-results', '.pricing-table-wrap',
+  '.pricing-toolbar', '.pricing-drawer-backdrop', 'div', 'section', 'aside', 'header', 'nav',
+])
+const leadingCompoundsAreKnown = compounds => compounds.every(compound => [...pricingAncestorEvidence].some(target => compoundMayTarget(compound, target)))
 const selectorTargetsContract = (selector, target) => {
   const candidateCompounds = selectorCompounds(selector)
   const targetCompounds = selectorCompounds(target)
   if (candidateCompounds.length < targetCompounds.length) return false
   const offset = candidateCompounds.length - targetCompounds.length
-  return targetCompounds.every((compound, index) => compoundMayTarget(candidateCompounds[offset + index], compound))
+  return leadingCompoundsAreKnown(candidateCompounds.slice(0, offset))
+    && targetCompounds.every((compound, index) => compoundMayTarget(candidateCompounds[offset + index], compound))
 }
 const rootSelectorSpecificity = selector => {
   let score = 0
