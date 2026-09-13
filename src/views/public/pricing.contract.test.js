@@ -100,6 +100,50 @@ const parseCssRules = source => {
 }
 const styleRoot = (source, sfc = false) => parseCssRules(sfc ? parseVue(source).styles.map(style => style.content).join('\n') : source)
 const templateAst = source => parseVue(source).template?.ast || { children: [] }
+const staticAttribute = (node, name) => node.props?.find(prop => prop.type === 6 && prop.name === name)?.value?.content
+const hasClass = (node, name) => staticAttribute(node, 'class')?.split(/\s+/).includes(name)
+const renderedElements = (root, name) => {
+  const matches = []
+  const visit = node => {
+    const disabled = node.type === 1 && node.props?.some(prop => prop.type === 7 && ['if', 'else-if', 'show'].includes(prop.name) && prop.exp?.content.trim() === 'false')
+    if (disabled) return
+    if (node.type === 1 && node.tag === name) matches.push(node)
+    for (const child of node.children || []) visit(child)
+    for (const branch of node.branches || []) visit(branch)
+  }
+  visit(root)
+  return matches
+}
+const templateExpressionAsts = root => {
+  const expressions = []
+  const add = content => {
+    if (!content) return
+    try { expressions.push(vueCompiler.babelParse(`(${content})`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression) }
+    catch (error) { throw new Error(`pricing rendered expression must parse cleanly: ${error.message}`, { cause: error }) }
+  }
+  const visit = node => {
+    const disabled = node.type === 1 && node.props?.some(prop => prop.type === 7 && ['if', 'else-if', 'show'].includes(prop.name) && prop.exp?.content.trim() === 'false')
+    if (disabled) return
+    if (node.type === 5) add(node.content.content)
+    if (node.type === 1) for (const prop of node.props || []) if (prop.type === 7 && prop.exp?.content) add(prop.exp.content)
+    for (const child of node.children || []) visit(child)
+    for (const branch of node.branches || []) visit(branch)
+  }
+  visit(root)
+  return expressions.filter(Boolean)
+}
+const astContains = (node, predicate) => {
+  if (!node || typeof node !== 'object') return false
+  if (predicate(node)) return true
+  return Object.entries(node).some(([key, value]) => !['loc', 'start', 'end', 'extra'].includes(key) && (Array.isArray(value) ? value.some(item => astContains(item, predicate)) : astContains(value, predicate)))
+}
+const callsFunction = (node, name, argument) => astContains(node, candidate => {
+  if (!['CallExpression', 'OptionalCallExpression'].includes(candidate.type) || candidate.callee?.type !== 'Identifier' || candidate.callee.name !== name) return false
+  if (argument === undefined) return true
+  return candidate.arguments.some(value => value?.type === 'StringLiteral' && value.value === argument)
+})
+const memberUsesState = node => astContains(node, candidate => ['MemberExpression', 'OptionalMemberExpression'].includes(candidate.type) && !candidate.computed && candidate.property?.name === 'state')
+const bindingCalls = (bindings, binding, callee) => (bindings.get(binding) || []).some(node => callsFunction(node, callee))
 const staticBindingInitializers = value => {
   const bindings = new Map()
   const descriptor = parseVue(value)
@@ -109,6 +153,7 @@ const staticBindingInitializers = value => {
     catch (error) { throw new Error(`pricing Vue script must parse cleanly: ${error.message}`, { cause: error }) }
     for (const statement of ast.program.body) {
       const node = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement
+      if (node?.type === 'FunctionDeclaration' && node.id) bindings.set(node.id.name, [node])
       if (node?.type === 'VariableDeclaration' && node.kind === 'const') for (const declaration of node.declarations) {
         if (declaration.id.type !== 'Identifier' || !declaration.init) continue
         if (!bindings.has(declaration.id.name)) bindings.set(declaration.id.name, [])
@@ -137,6 +182,7 @@ const staticPropertyKey = node => {
   if (node?.type === 'StringLiteral' || node?.type === 'NumericLiteral') return String(node.value)
   return undefined
 }
+const propertyExpression = property => property.type === 'ObjectMethod' ? property : property.value
 const memberReference = node => {
   node = unwrapExpression(node)
   const path = []
@@ -165,9 +211,12 @@ const staticExpressionPossibilities = (node, bindings, resolving = new Set()) =>
   if (node?.type === 'ConditionalExpression') return [node.consequent, node.alternate].flatMap(branch => staticExpressionPossibilities(branch, bindings, resolving))
   if (node?.type === 'LogicalExpression') return [node.left, node.right].flatMap(branch => staticExpressionPossibilities(branch, bindings, resolving))
   if (node?.type === 'SequenceExpression') return staticExpressionPossibilities(node.expressions.at(-1), bindings, resolving)
-  if (node?.type === 'ArrowFunctionExpression' || node?.type === 'FunctionExpression') return returnedExpressions(node.body).flatMap(expression => staticExpressionPossibilities(expression, bindings, resolving))
+  if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node?.type)) return returnedExpressions(node.body).flatMap(expression => staticExpressionPossibilities(expression, bindings, resolving))
   if (node?.type === 'CallExpression' || node?.type === 'OptionalCallExpression' || node?.type === 'NewExpression') {
-    const returned = node.callee?.type === 'Identifier' && bindings.has(node.callee.name) ? bindingPossibilities(node.callee.name, [], bindings, resolving) : []
+    const reference = memberReference(node.callee)
+    const returned = node.callee?.type === 'Identifier' && bindings.has(node.callee.name)
+      ? bindingPossibilities(node.callee.name, [], bindings, resolving)
+      : reference ? bindingPossibilities(reference.name, reference.path, bindings, resolving) : []
     return returned.concat(node.arguments.flatMap(argument => staticExpressionPossibilities(argument, bindings, resolving)))
   }
   if (node?.type === 'TemplateLiteral') {
@@ -196,14 +245,14 @@ const possibilitiesAtPath = (node, path, bindings, resolving) => {
   if (node.type === 'Identifier') return bindingPossibilities(node.name, path, bindings, resolving)
   if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') return [node.consequent || node.left, node.alternate || node.right].flatMap(branch => possibilitiesAtPath(branch, path, bindings, resolving))
   if (node.type === 'SequenceExpression') return possibilitiesAtPath(node.expressions.at(-1), path, bindings, resolving)
-  if (node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression') return returnedExpressions(node.body).flatMap(expression => possibilitiesAtPath(expression, path, bindings, resolving))
+  if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return returnedExpressions(node.body).flatMap(expression => possibilitiesAtPath(expression, path, bindings, resolving))
   if (!path.length) return staticExpressionPossibilities(node, bindings, resolving)
   if (node.type === 'ObjectExpression') {
     const [head, ...tail] = path
     return node.properties.flatMap(property => {
       if (property.type === 'SpreadElement') return possibilitiesAtPath(property.argument, path, bindings, resolving)
       const key = property.computed ? staticPropertyKey(property.key) : staticPropertyKey(property.key)
-      return key === head ? possibilitiesAtPath(property.value, tail, bindings, resolving) : []
+      return key === head ? possibilitiesAtPath(propertyExpression(property), tail, bindings, resolving) : []
     })
   }
   if (node.type === 'ArrayExpression') {
@@ -229,14 +278,14 @@ const leavesAtPath = (node, path, bindings, resolving) => {
   if (node.type === 'Identifier') return referencedBindingLeaves(node.name, path, bindings, resolving)
   if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') return [node.consequent || node.left, node.alternate || node.right].flatMap(branch => leavesAtPath(branch, path, bindings, resolving))
   if (node.type === 'SequenceExpression') return leavesAtPath(node.expressions.at(-1), path, bindings, resolving)
-  if (node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression') return returnedExpressions(node.body).flatMap(expression => leavesAtPath(expression, path, bindings, resolving))
+  if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return returnedExpressions(node.body).flatMap(expression => leavesAtPath(expression, path, bindings, resolving))
   if (!path.length) return staticLiteralLeaves(node, bindings, resolving)
   if (node.type === 'ObjectExpression') {
     const [head, ...tail] = path
     return node.properties.flatMap(property => {
       if (property.type === 'SpreadElement') return leavesAtPath(property.argument, path, bindings, resolving)
       const key = staticPropertyKey(property.key)
-      return key === head ? leavesAtPath(property.value, tail, bindings, resolving) : []
+      return key === head ? leavesAtPath(propertyExpression(property), tail, bindings, resolving) : []
     })
   }
   if (node.type === 'ArrayExpression') {
@@ -261,12 +310,15 @@ const staticLiteralLeaves = (node, bindings, resolving = new Set()) => {
   }
   if (node.type === 'BinaryExpression' && node.operator === '+') return combined.length ? combined : staticLiteralLeaves(node.left, bindings, resolving).concat(staticLiteralLeaves(node.right, bindings, resolving))
   if (node.type === 'TemplateLiteral') return combined.length ? combined : node.expressions.flatMap(expression => staticLiteralLeaves(expression, bindings, resolving))
-  if (node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression') return combined.concat(returnedExpressions(node.body).flatMap(expression => staticLiteralLeaves(expression, bindings, resolving)))
+  if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return combined.concat(returnedExpressions(node.body).flatMap(expression => staticLiteralLeaves(expression, bindings, resolving)))
   if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression' || node.type === 'NewExpression') {
-    const returned = node.callee?.type === 'Identifier' && bindings.has(node.callee.name) ? referencedBindingLeaves(node.callee.name, [], bindings, resolving) : []
+    const reference = memberReference(node.callee)
+    const returned = node.callee?.type === 'Identifier' && bindings.has(node.callee.name)
+      ? referencedBindingLeaves(node.callee.name, [], bindings, resolving)
+      : reference ? referencedBindingLeaves(reference.name, reference.path, bindings, resolving) : []
     return combined.concat(returned, node.arguments.flatMap(argument => staticLiteralLeaves(argument, bindings, resolving)))
   }
-  if (node.type === 'ObjectExpression') return combined.concat(node.properties.flatMap(property => property.type === 'SpreadElement' ? staticLiteralLeaves(property.argument, bindings, resolving) : staticLiteralLeaves(property.value, bindings, resolving)))
+  if (node.type === 'ObjectExpression') return combined.concat(node.properties.flatMap(property => property.type === 'SpreadElement' ? staticLiteralLeaves(property.argument, bindings, resolving) : staticLiteralLeaves(propertyExpression(property), bindings, resolving)))
   if (node.type === 'ArrayExpression') return combined.concat(node.elements.flatMap(element => staticLiteralLeaves(element, bindings, resolving)))
   if (node.type === 'ConditionalExpression') return combined.concat(staticLiteralLeaves(node.consequent, bindings, resolving), staticLiteralLeaves(node.alternate, bindings, resolving))
   if (node.type === 'LogicalExpression') return combined.concat(staticLiteralLeaves(node.left, bindings, resolving), staticLiteralLeaves(node.right, bindings, resolving))
@@ -295,24 +347,28 @@ const staticIterationValues = (node, bindings, resolving = new Set(), path = [])
     const reference = memberReference(node)
     return reference ? staticIterationBindingValues(reference.name, reference.path.concat(path), bindings, resolving) : []
   }
-  if (node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression') return returnedExpressions(node.body).flatMap(expression => staticIterationValues(expression, bindings, resolving, path))
+  if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return returnedExpressions(node.body).flatMap(expression => staticIterationValues(expression, bindings, resolving, path))
   if (node.type === 'ConditionalExpression') return staticIterationValues(node.consequent, bindings, resolving, path).concat(staticIterationValues(node.alternate, bindings, resolving, path))
   if (node.type === 'LogicalExpression') return staticIterationValues(node.left, bindings, resolving, path).concat(staticIterationValues(node.right, bindings, resolving, path))
   if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression') {
     const remaining = path[0] === 'value' ? path.slice(1) : path
-    return node.arguments.flatMap(argument => staticIterationValues(argument, bindings, resolving, remaining))
+    const reference = memberReference(node.callee)
+    const returned = node.callee?.type === 'Identifier' && bindings.has(node.callee.name)
+      ? staticIterationBindingValues(node.callee.name, remaining, bindings, resolving)
+      : reference ? staticIterationBindingValues(reference.name, reference.path.concat(remaining), bindings, resolving) : []
+    return returned.concat(node.arguments.flatMap(argument => staticIterationValues(argument, bindings, resolving, remaining)))
   }
   if (path.length) {
     const [head, ...tail] = path
     if (node.type === 'ArrayExpression') return /^\d+$/.test(head) && node.elements[Number(head)] ? staticIterationValues(node.elements[Number(head)], bindings, resolving, tail) : []
     if (node.type === 'ObjectExpression') return node.properties.flatMap(property => {
       if (property.type === 'SpreadElement') return staticIterationValues(property.argument, bindings, resolving, path)
-      return staticPropertyKey(property.key) === head ? staticIterationValues(property.value, bindings, resolving, tail) : []
+      return staticPropertyKey(property.key) === head ? staticIterationValues(propertyExpression(property), bindings, resolving, tail) : []
     })
     return []
   }
   if (node.type === 'ArrayExpression') return node.elements.filter(Boolean)
-  if (node.type === 'ObjectExpression') return node.properties.flatMap(property => property.type === 'SpreadElement' ? staticIterationValues(property.argument, bindings, resolving) : [property.value])
+  if (node.type === 'ObjectExpression') return node.properties.flatMap(property => property.type === 'SpreadElement' ? staticIterationValues(property.argument, bindings, resolving) : [propertyExpression(property)])
   return []
 }
 const bindingsForElement = (node, bindings) => {
@@ -472,7 +528,7 @@ const perRequestPriceClaim = /(?:单次调用价|每次请求(?:价格|价)|每�
 const locallyNegatedPerRequestClaim = (value, match) => {
   const before = value.slice(Math.max(0, match.index - 48), match.index)
   const after = value.slice(match.index + match[0].length, match.index + match[0].length + 48)
-  const negativeBefore = /(?:\bno\s+|\b(?:do|does|did|will|would|can|could|should)\s+not\s+(?:offer|show|display|provide)\s+|\b(?:don['’]t|doesn['’]t|didn['’]t|won['’]t|wouldn['’]t|can['’]t|couldn['’]t|shouldn['’]t)\s+(?:offer|show|display|provide)\s+|\bnever\s+(?:offer|show|display|provide)\s+|(?:不|未)\s*(?:单独\s*)?(?:提供|展示|显示|公布|采用|支持)\s*)$/iu.test(before)
+  const negativeBefore = /(?:\bno(?:\s+(?:public|published?|displayed?|separate|individual|standalone|listed|available))*\s+|\b(?:do|does|did|will|would|can|could|should)\s+not\s+(?:offer|show|display|provide|publish)(?:\s+(?:public|separate|individual|standalone|listed|available))*\s+|\b(?:don['’]t|doesn['’]t|didn['’]t|won['’]t|wouldn['’]t|can['’]t|couldn['’]t|shouldn['’]t)\s+(?:offer|show|display|provide|publish)(?:\s+(?:public|separate|individual|standalone|listed|available))*\s+|\bnever\s+(?:offer|show|display|provide|publish)(?:\s+(?:public|separate|individual|standalone|listed|available))*\s+|(?:不|未)\s*(?:单独\s*)?(?:提供|展示|显示|公布|采用|支持)(?:\s*(?:公开(?:的)?|单独(?:的)?|独立(?:的)?|另外(?:的)?))*\s*)$/iu.test(before)
   const negativeAfter = /^(?:\s*(?:(?:is|are|was|were)\s+)?(?:not|never)\s+(?:offered|provided|available|displayed|shown)\b|\s*(?:is|are|was|were)\s+unavailable\b|\s*(?:isn['’]t|aren['’]t|wasn['’]t|weren['’]t)\s+(?:offered|provided|available|displayed|shown)\b|\s*(?:won['’]t|wouldn['’]t)\s+be\s+(?:offered|provided|available|displayed|shown)\b|\s*(?:不|未)\s*(?:单独\s*)?(?:计价|定价|收费|提供|展示|显示|公布|可用)|\s*不可用)/iu.test(after)
   return negativeBefore || negativeAfter
 }
@@ -503,6 +559,14 @@ test('pricing routes load real lazy pages and preserve encoded stable modelKey',
 
 test('catalog exposes desktop filters/table, mobile drawer/cards and accessible controls', async () => {
   const [page, filters, table, cards, styles] = await Promise.all([read('./Pricing.vue'), read('../../components/public/PricingFilters.vue'), read('../../components/public/PricingTable.vue'), read('../../components/public/PricingCards.vue'), read('../../styles/public-pricing.scss')])
+  const pageTemplate = templateAst(page)
+  const sidebar = renderedElements(pageTemplate, 'aside').find(node => hasClass(node, 'pricing-sidebar'))
+  const drawer = renderedElements(pageTemplate, 'section').find(node => hasClass(node, 'pricing-drawer'))
+  const results = renderedElements(pageTemplate, 'section').find(node => hasClass(node, 'pricing-results'))
+  assert.ok(sidebar && renderedElements(sidebar, 'PricingFilters').length === 1, 'desktop pricing sidebar must render PricingFilters')
+  assert.ok(drawer && renderedElements(drawer, 'PricingFilters').length === 1, 'mobile pricing drawer must render PricingFilters')
+  assert.ok(results && renderedElements(results, 'PricingTable').length === 1, 'desktop pricing results must render PricingTable')
+  assert.ok(results && renderedElements(results, 'PricingCards').length === 1, 'mobile pricing results must render PricingCards')
   const pricingCss = styleRoot(styles)
   const filterCss = styleRoot(filters, true)
   const cardsCss = styleRoot(cards, true)
@@ -510,15 +574,33 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
   assert.match(page, /@\/styles\/public-pricing\.scss/)
   assertProperty(pricingCss, '.pricing-page', 'max-width', '1600px', 'pricing page keeps its desktop width')
   assertProperty(pricingCss, '.pricing-layout', 'grid-template-columns', '260px minmax(0, 1fr)', 'pricing layout keeps the approved sidebar grid')
-  assert.match(page, /PricingFilters/); assert.match(page, /PricingTable/); assert.match(page, /PricingCards/)
   for (const className of ['pricing-layout', 'pricing-sidebar', 'pricing-toolbar', 'pricing-results-count']) assert.match(page, new RegExp(`class\\s*=\\s*(["'])[^"']*\\b${className}\\b[^"']*\\1`))
   assert.match(page, /role\s*=\s*(["'])dialog\1/); assert.match(page, /aria-modal\s*=\s*(["'])true\1/)
   assert.match(page, /aria-controls\s*=\s*(["'])pricing-filter-drawer\1/); assert.match(page, /:aria-expanded\s*=\s*(["'])drawerOpen\1/)
   for (const field of ['search', 'provider', 'capability', 'endpoint', 'group', 'sort']) assert.match(filters, new RegExp(`name\\s*=\\s*(["'])${field}\\1`))
-  assert.match(table, /publicPriceState/); assert.match(cards, /publicPriceState/)
-  assert.match(table, /pricingCatalog\.inputPrice/); assert.match(table, /pricingCatalog\.outputPrice/)
-  assert.match(cards, /price\(model,['"]input['"]\)/); assert.match(cards, /price\(model,['"]output['"]\)/)
-  assert.match(table, /class\s*=\s*(["'])pricing-table\1/); assert.match(cards, /class\s*=\s*(["'])pricing-cards\1/)
+  const tableRoot = renderedElements(templateAst(table), 'table').find(node => hasClass(node, 'pricing-table'))
+  const cardsRoot = renderedElements(templateAst(cards), 'div').find(node => hasClass(node, 'pricing-cards'))
+  assert.ok(tableRoot, 'PricingTable must render the pricing-table root')
+  assert.ok(cardsRoot, 'PricingCards must render the pricing-cards root')
+  assert.equal(bindingCalls(staticBindingInitializers(table), 'price', 'publicPriceState'), true, 'table rendered price helper must call publicPriceState')
+  assert.equal(bindingCalls(staticBindingInitializers(cards), 'price', 'publicPriceState'), true, 'card rendered price helper must call publicPriceState')
+  for (const component of ['input', 'output']) {
+    const key = `pricingCatalog.${component}Price`
+    const tableHeaders = renderedElements(renderedElements(tableRoot, 'thead')[0], 'th')
+    const headerIndex = tableHeaders.findIndex(node => templateExpressionAsts(node).some(expression => callsFunction(expression, 't', key)))
+    const tableCells = renderedElements(renderedElements(tableRoot, 'tbody')[0], 'td')
+    const tableHeader = tableHeaders[headerIndex]
+    const tableCell = tableCells[headerIndex - 1]
+    assert.ok(tableHeader && tableCell, `table must render ${key} beside the ${component} price cell`)
+    assert.ok(templateExpressionAsts(tableCell).some(expression => callsFunction(expression, 'price', component)), `table ${key} column must render the ${component} price value`)
+    assert.ok(templateExpressionAsts(tableCell).some(expression => callsFunction(expression, 'price', component) && memberUsesState(expression)), `table ${component} price cell must branch on publicPriceState output`)
+    const cardGroup = renderedElements(cardsRoot, 'dl').flatMap(node => renderedElements(node, 'div')).find(node => {
+      const expressions = templateExpressionAsts(node)
+      return expressions.some(expression => callsFunction(expression, 't', key)) && expressions.some(expression => callsFunction(expression, 'price', component))
+    })
+    assert.ok(cardGroup, `card must render ${key} with the ${component} price value`)
+    assert.ok(templateExpressionAsts(cardGroup).some(expression => callsFunction(expression, 'price', component) && memberUsesState(expression)), `card ${component} price cell must branch on publicPriceState output`)
+  }
   assertProperty(cardsCss, '.pricing-cards', 'display', 'grid', 'mobile shows pricing cards', /max-width\s*:\s*767px/i)
   assertProperty(pricingCss, '.pricing-drawer', 'display', 'block', 'mobile shows the pricing drawer', /max-width\s*:\s*767px/i)
   assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, 'pricing-table', 1440)), false, 'desktop .pricing-table root must remain visible at 1440px')
