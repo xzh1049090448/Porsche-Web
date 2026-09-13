@@ -115,7 +115,10 @@ const staticExpressionPossibilities = (node, bindings, resolving = new Set()) =>
     const returned = node.callee?.type === 'Identifier' && bindings.has(node.callee.name)
       ? bindingPossibilities(node.callee.name, [], bindings, resolving)
       : reference ? bindingPossibilities(reference.name, reference.path, bindings, resolving) : []
-    return returned.concat(node.arguments.flatMap(argument => staticExpressionPossibilities(argument, bindings, resolving)))
+    const receiver = ['MemberExpression', 'OptionalMemberExpression'].includes(node.callee?.type)
+      ? staticExpressionPossibilities(node.callee.object, bindings, resolving)
+      : []
+    return returned.concat(receiver, node.arguments.flatMap(argument => staticExpressionPossibilities(argument, bindings, resolving)))
   }
   if (node?.type === 'TemplateLiteral') {
     let values = ['']
@@ -214,7 +217,10 @@ const staticLiteralLeaves = (node, bindings, resolving = new Set()) => {
     const returned = node.callee?.type === 'Identifier' && bindings.has(node.callee.name)
       ? referencedBindingLeaves(node.callee.name, [], bindings, resolving)
       : reference ? referencedBindingLeaves(reference.name, reference.path, bindings, resolving) : []
-    return combined.concat(returned, node.arguments.flatMap(argument => staticLiteralLeaves(argument, bindings, resolving)))
+    const receiver = ['MemberExpression', 'OptionalMemberExpression'].includes(node.callee?.type)
+      ? staticExpressionPossibilities(node.callee.object, bindings, resolving).filter(value => typeof value === 'string' && value)
+      : []
+    return combined.concat(returned, receiver, node.arguments.flatMap(argument => staticLiteralLeaves(argument, bindings, resolving)))
   }
   if (node.type === 'ObjectExpression') return combined.concat(node.properties.flatMap(property => property.type === 'SpreadElement' ? staticLiteralLeaves(property.argument, bindings, resolving) : staticLiteralLeaves(propertyExpression(property), bindings, resolving)))
   if (node.type === 'ArrayExpression') return combined.concat(node.elements.flatMap(element => staticLiteralLeaves(element, bindings, resolving)))

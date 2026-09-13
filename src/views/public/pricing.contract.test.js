@@ -102,11 +102,59 @@ const styleRoot = (source, sfc = false) => parseCssRules(sfc ? parseVue(source).
 const templateAst = source => parseVue(source).template?.ast || { children: [] }
 const staticAttribute = (node, name) => node.props?.find(prop => prop.type === 6 && prop.name === name)?.value?.content
 const hasClass = (node, name) => staticAttribute(node, 'class')?.split(/\s+/).includes(name)
+const unknownStaticValue = Symbol('unknown static value')
+const staticValue = node => {
+  node = unwrapExpression(node)
+  if (!node) return unknownStaticValue
+  if (['BooleanLiteral', 'NumericLiteral', 'StringLiteral'].includes(node.type)) return node.value
+  if (node.type === 'NullLiteral') return null
+  if (node.type === 'UnaryExpression' && node.operator === '!') {
+    const value = staticValue(node.argument)
+    return value === unknownStaticValue ? unknownStaticValue : !value
+  }
+  if (node.type === 'BinaryExpression' && ['===', '!==', '==', '!='].includes(node.operator)) {
+    const left = staticValue(node.left)
+    const right = staticValue(node.right)
+    if (left === unknownStaticValue || right === unknownStaticValue) return unknownStaticValue
+    if (node.operator === '===') return left === right
+    if (node.operator === '!==') return left !== right
+    if (node.operator === '==') return left == right
+    return left != right
+  }
+  if (node.type === 'LogicalExpression') {
+    const left = staticValue(node.left)
+    const right = staticValue(node.right)
+    if (left !== unknownStaticValue) {
+      if (node.operator === '&&') return left ? right : left
+      if (node.operator === '||') return left ? left : right
+      if (node.operator === '??') return left === null || left === undefined ? right : left
+    }
+    if (right !== unknownStaticValue && node.operator === '&&' && !right) return false
+    if (right !== unknownStaticValue && node.operator === '||' && right) return true
+    return unknownStaticValue
+  }
+  if (node.type === 'ConditionalExpression') {
+    const condition = staticValue(node.test)
+    if (condition !== unknownStaticValue) return staticValue(condition ? node.consequent : node.alternate)
+    const consequent = staticValue(node.consequent)
+    const alternate = staticValue(node.alternate)
+    return consequent !== unknownStaticValue && alternate !== unknownStaticValue && Boolean(consequent) === Boolean(alternate) ? Boolean(consequent) : unknownStaticValue
+  }
+  return unknownStaticValue
+}
+const directiveIsStaticallyFalse = prop => {
+  if (prop.type !== 7 || !['if', 'else-if', 'show'].includes(prop.name) || !prop.exp?.content) return false
+  let expression
+  try { expression = vueCompiler.babelParse(`(${prop.exp.content})`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression }
+  catch (error) { throw new Error(`pricing visibility expression must parse cleanly: ${error.message}`, { cause: error }) }
+  const value = staticValue(expression)
+  return value !== unknownStaticValue && !value
+}
+const staticallyHidden = node => node.type === 1 && node.props?.some(directiveIsStaticallyFalse)
 const renderedElements = (root, name) => {
   const matches = []
   const visit = node => {
-    const disabled = node.type === 1 && node.props?.some(prop => prop.type === 7 && ['if', 'else-if', 'show'].includes(prop.name) && prop.exp?.content.trim() === 'false')
-    if (disabled) return
+    if (staticallyHidden(node)) return
     if (node.type === 1 && node.tag === name) matches.push(node)
     for (const child of node.children || []) visit(child)
     for (const branch of node.branches || []) visit(branch)
@@ -122,8 +170,7 @@ const templateExpressionAsts = root => {
     catch (error) { throw new Error(`pricing rendered expression must parse cleanly: ${error.message}`, { cause: error }) }
   }
   const visit = node => {
-    const disabled = node.type === 1 && node.props?.some(prop => prop.type === 7 && ['if', 'else-if', 'show'].includes(prop.name) && prop.exp?.content.trim() === 'false')
-    if (disabled) return
+    if (staticallyHidden(node)) return
     if (node.type === 5) add(node.content.content)
     if (node.type === 1) for (const prop of node.props || []) if (prop.type === 7 && prop.exp?.content) add(prop.exp.content)
     for (const child of node.children || []) visit(child)
@@ -143,7 +190,26 @@ const callsFunction = (node, name, argument) => astContains(node, candidate => {
   return candidate.arguments.some(value => value?.type === 'StringLiteral' && value.value === argument)
 })
 const memberUsesState = node => astContains(node, candidate => ['MemberExpression', 'OptionalMemberExpression'].includes(candidate.type) && !candidate.computed && candidate.property?.name === 'state')
-const bindingCalls = (bindings, binding, callee) => (bindings.get(binding) || []).some(node => callsFunction(node, callee))
+const callExpressions = (node, name) => {
+  const calls = []
+  astContains(node, candidate => {
+    if (['CallExpression', 'OptionalCallExpression'].includes(candidate.type) && candidate.callee?.type === 'Identifier' && (!name || candidate.callee.name === name)) calls.push(candidate)
+    return false
+  })
+  return calls
+}
+const functionParameters = node => ['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node?.type) ? node.params || [] : []
+const renderedPriceStateFor = (expression, component, bindings) => callExpressions(expression).some(call => {
+  if (call.callee.name === 'publicPriceState') return call.arguments[1]?.type === 'StringLiteral' && call.arguments[1].value === component
+  const componentArgument = call.arguments.findIndex(argument => argument?.type === 'StringLiteral' && argument.value === component)
+  if (componentArgument < 0) return false
+  return (bindings.get(call.callee.name) || []).some(binding => callExpressions(binding, 'publicPriceState').some(stateCall => {
+    const stateComponent = stateCall.arguments[1]
+    if (stateComponent?.type === 'StringLiteral') return stateComponent.value === component
+    const parameterIndex = functionParameters(binding).findIndex(parameter => parameter.type === 'Identifier' && parameter.name === stateComponent?.name)
+    return parameterIndex >= 0 && call.arguments[parameterIndex]?.type === 'StringLiteral' && call.arguments[parameterIndex].value === component
+  }))
+})
 const staticBindingInitializers = value => {
   const bindings = new Map()
   const descriptor = parseVue(value)
@@ -217,7 +283,10 @@ const staticExpressionPossibilities = (node, bindings, resolving = new Set()) =>
     const returned = node.callee?.type === 'Identifier' && bindings.has(node.callee.name)
       ? bindingPossibilities(node.callee.name, [], bindings, resolving)
       : reference ? bindingPossibilities(reference.name, reference.path, bindings, resolving) : []
-    return returned.concat(node.arguments.flatMap(argument => staticExpressionPossibilities(argument, bindings, resolving)))
+    const receiver = ['MemberExpression', 'OptionalMemberExpression'].includes(node.callee?.type)
+      ? staticExpressionPossibilities(node.callee.object, bindings, resolving)
+      : []
+    return returned.concat(receiver, node.arguments.flatMap(argument => staticExpressionPossibilities(argument, bindings, resolving)))
   }
   if (node?.type === 'TemplateLiteral') {
     let values = ['']
@@ -316,7 +385,10 @@ const staticLiteralLeaves = (node, bindings, resolving = new Set()) => {
     const returned = node.callee?.type === 'Identifier' && bindings.has(node.callee.name)
       ? referencedBindingLeaves(node.callee.name, [], bindings, resolving)
       : reference ? referencedBindingLeaves(reference.name, reference.path, bindings, resolving) : []
-    return combined.concat(returned, node.arguments.flatMap(argument => staticLiteralLeaves(argument, bindings, resolving)))
+    const receiver = ['MemberExpression', 'OptionalMemberExpression'].includes(node.callee?.type)
+      ? staticExpressionPossibilities(node.callee.object, bindings, resolving).filter(value => typeof value === 'string' && value)
+      : []
+    return combined.concat(returned, receiver, node.arguments.flatMap(argument => staticLiteralLeaves(argument, bindings, resolving)))
   }
   if (node.type === 'ObjectExpression') return combined.concat(node.properties.flatMap(property => property.type === 'SpreadElement' ? staticLiteralLeaves(property.argument, bindings, resolving) : staticLiteralLeaves(propertyExpression(property), bindings, resolving)))
   if (node.type === 'ArrayExpression') return combined.concat(node.elements.flatMap(element => staticLiteralLeaves(element, bindings, resolving)))
@@ -582,8 +654,8 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
   const cardsRoot = renderedElements(templateAst(cards), 'div').find(node => hasClass(node, 'pricing-cards'))
   assert.ok(tableRoot, 'PricingTable must render the pricing-table root')
   assert.ok(cardsRoot, 'PricingCards must render the pricing-cards root')
-  assert.equal(bindingCalls(staticBindingInitializers(table), 'price', 'publicPriceState'), true, 'table rendered price helper must call publicPriceState')
-  assert.equal(bindingCalls(staticBindingInitializers(cards), 'price', 'publicPriceState'), true, 'card rendered price helper must call publicPriceState')
+  const tableBindings = staticBindingInitializers(table)
+  const cardBindings = staticBindingInitializers(cards)
   for (const component of ['input', 'output']) {
     const key = `pricingCatalog.${component}Price`
     const tableHeaders = renderedElements(renderedElements(tableRoot, 'thead')[0], 'th')
@@ -592,14 +664,14 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
     const tableHeader = tableHeaders[headerIndex]
     const tableCell = tableCells[headerIndex - 1]
     assert.ok(tableHeader && tableCell, `table must render ${key} beside the ${component} price cell`)
-    assert.ok(templateExpressionAsts(tableCell).some(expression => callsFunction(expression, 'price', component)), `table ${key} column must render the ${component} price value`)
-    assert.ok(templateExpressionAsts(tableCell).some(expression => callsFunction(expression, 'price', component) && memberUsesState(expression)), `table ${component} price cell must branch on publicPriceState output`)
+    assert.ok(templateExpressionAsts(tableCell).some(expression => renderedPriceStateFor(expression, component, tableBindings)), `table ${key} column must render publicPriceState for ${component}`)
+    assert.ok(templateExpressionAsts(tableCell).some(expression => renderedPriceStateFor(expression, component, tableBindings) && memberUsesState(expression)), `table ${component} price cell must branch on publicPriceState output`)
     const cardGroup = renderedElements(cardsRoot, 'dl').flatMap(node => renderedElements(node, 'div')).find(node => {
       const expressions = templateExpressionAsts(node)
-      return expressions.some(expression => callsFunction(expression, 't', key)) && expressions.some(expression => callsFunction(expression, 'price', component))
+      return expressions.some(expression => callsFunction(expression, 't', key)) && expressions.some(expression => renderedPriceStateFor(expression, component, cardBindings))
     })
     assert.ok(cardGroup, `card must render ${key} with the ${component} price value`)
-    assert.ok(templateExpressionAsts(cardGroup).some(expression => callsFunction(expression, 'price', component) && memberUsesState(expression)), `card ${component} price cell must branch on publicPriceState output`)
+    assert.ok(templateExpressionAsts(cardGroup).some(expression => renderedPriceStateFor(expression, component, cardBindings) && memberUsesState(expression)), `card ${component} price cell must branch on publicPriceState output`)
   }
   assertProperty(cardsCss, '.pricing-cards', 'display', 'grid', 'mobile shows pricing cards', /max-width\s*:\s*767px/i)
   assertProperty(pricingCss, '.pricing-drawer', 'display', 'block', 'mobile shows the pricing drawer', /max-width\s*:\s*767px/i)
