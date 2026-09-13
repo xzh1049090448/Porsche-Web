@@ -473,13 +473,17 @@ const helperReturnsCorrectStateFromOrigin = (binding, component, modelName, rend
         && returnIsValid(node.alternate, definitions, alternateMode, resolving)
     }
     const labelResult = effectiveObjectLabel(node, definitions)
+    const labelRequired = renderedPaths.some(path => path[0] === 'label')
+    const directStateReturn = expressionDerivedFrom(node, origins, definitions)
+    const objectLabelValid = labelResult.labels.length > 0 && labelResult.labels.every(label => label === absentObjectLabel
+      ? !labelRequired
+      : label !== unknownObjectLabel && validLabelExpression(label, origins, definitions, mode))
+    const labelValid = labelResult.knownObject ? objectLabelValid : !labelRequired && directStateReturn
     return transparentlyCarriesState(node, origins, definitions)
-      && renderedPaths.every(path => path[0] === 'label'
-        ? expressionDerivedFrom(node, origins, definitions, ['state'])
-          && expressionDerivedFrom(node, origins, definitions, ['value'])
-          && labelResult.labels.length > 0
-          && labelResult.labels.every(label => label !== absentObjectLabel && label !== unknownObjectLabel && validLabelExpression(label, origins, definitions, mode))
-        : expressionDerivedFrom(node, origins, definitions, path))
+      && expressionDerivedFrom(node, origins, definitions, ['state'])
+      && expressionDerivedFrom(node, origins, definitions, ['value'])
+      && labelValid
+      && renderedPaths.every(path => path[0] === 'label' || expressionDerivedFrom(node, origins, definitions, path))
   }
   if (binding.body?.type !== 'BlockStatement') return returnIsValid(binding.body, new Map(), 'unknown')
   const returns = []
@@ -1187,7 +1191,7 @@ const pricingRenderPaths = new Map([
   ['.pricing-drawer > header button', [[...publicPricingPath, selectorGroup('.pricing-drawer-backdrop'), selectorGroup('.pricing-drawer'), selectorGroup('header')]]],
 ])
 const pricingTargetTags = new Map([
-  ['.pricing-page', 'div'], ['.pricing-layout', 'div'], ['.pricing-results', 'div'], ['.pricing-table-wrap', 'div'],
+  ['.pricing-page', 'div'], ['.pricing-layout', 'div'], ['.pricing-results', 'section'], ['.pricing-table-wrap', 'div'],
   ['.pricing-table', 'table'], ['.pricing-cards', 'div'], ['.pricing-toolbar', 'div'], ['.pricing-filter-toggle', 'button'],
   ['.pricing-drawer-backdrop', 'div'], ['.pricing-drawer', 'section'], ['.pricing-detail-back', 'button'], ['.pricing-console-cta', 'a'],
 ])
