@@ -851,12 +851,38 @@ const staticBindingInitializers = (value, importer) => {
       }
       return member(expression, key)
     }
+    const staticContainer = (expression, target, resolving = new Set()) => {
+      expression = unwrapExpression(expression)
+      if (['ObjectExpression', 'ArrayExpression'].includes(expression?.type)) return expression
+      if (expression?.type === 'Identifier' && !resolving.has(expression.name)) {
+        const values = target.get(expression.name) || []
+        if (values.length === 1) return staticContainer(values[0], target, new Set(resolving).add(expression.name))
+      }
+      if (expression?.type === 'SequenceExpression') return staticContainer(expression.expressions.at(-1), target, resolving)
+      return undefined
+    }
+    const objectRest = (expression, excluded, target) => {
+      const object = staticContainer(expression, target)
+      return object?.type === 'ObjectExpression'
+        ? { type: 'ObjectExpression', properties: object.properties.filter(property => property.type === 'SpreadElement' || !excluded.has(staticPropertyKey(property.key))) }
+        : expression
+    }
+    const arrayRest = (expression, index, target) => {
+      const array = staticContainer(expression, target)
+      return array?.type === 'ArrayExpression' ? { type: 'ArrayExpression', elements: array.elements.slice(index) } : expression
+    }
     const bindPattern = (pattern, expression, target) => {
       pattern = unwrapExpression(pattern)
       if (pattern?.type === 'Identifier') { target.set(pattern.name, expression ? [expression] : []); return }
       if (pattern?.type === 'AssignmentPattern') { bindPattern(pattern.left, expression || pattern.right, target); return }
-      if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bindPattern(property.value, selected(expression, staticPropertyKey(property.key)), target)
-      if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bindPattern(pattern.elements[index], selected(expression, index), target)
+      if (pattern?.type === 'ObjectPattern') {
+        const excluded = new Set(pattern.properties.filter(property => property.type !== 'RestElement').map(property => staticPropertyKey(property.key)))
+        for (const property of pattern.properties) bindPattern(property.type === 'RestElement' ? property.argument : property.value, property.type === 'RestElement' ? objectRest(expression, excluded, target) : selected(expression, staticPropertyKey(property.key)), target)
+      }
+      if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]) {
+        const element = pattern.elements[index]
+        bindPattern(element.type === 'RestElement' ? element.argument : element, element.type === 'RestElement' ? arrayRest(expression, index, target) : selected(expression, index), target)
+      }
     }
     const applyExpression = (expression, target) => {
       expression = unwrapExpression(expression)

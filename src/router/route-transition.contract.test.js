@@ -200,6 +200,7 @@ const shadowsComponentProp = (source, name) => componentScriptAsts(source).some(
 const importsComponent = (source, specifier) => componentScriptAsts(source, 'shell').some(ast => ast.program.body.some(statement => statement.type === 'ImportDeclaration' && statement.source.value === specifier))
 const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(source, 'render shell').some(ast => {
   const renderNames = new Set(['h', 'createVNode'])
+  const vnodeKinds = new Map()
   let componentName
   const bindings = new Map()
   const helpers = new Map()
@@ -210,7 +211,10 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (statement.type === 'ImportDeclaration') for (const imported of statement.specifiers) {
       const name = imported.imported?.name ?? imported.imported?.value
       if (statement.source.value === 'vue' && ['h', 'createVNode'].includes(name)) renderNames.add(imported.local.name)
-      if (statement.source.value === specifier) componentName = imported.local.name
+      if (statement.source.value === 'vue' && ['Comment', 'Text', 'Static', 'Fragment'].includes(name)) vnodeKinds.set(imported.local.name, ['Comment', 'Text', 'Static'].includes(name) ? name.toLowerCase() : 'fragment')
+      if (statement.source.value === 'vue' && ['KeepAlive', 'Suspense', 'Teleport'].includes(name)) vnodeKinds.set(imported.local.name, 'component')
+      if (statement.source.value === specifier) { componentName = imported.local.name; vnodeKinds.set(imported.local.name, 'component') }
+      else if (/\.vue(?:\?|$)/.test(statement.source.value)) vnodeKinds.set(imported.local.name, 'component')
     }
     if (statement.type === 'ExportDefaultDeclaration') {
       let options = unwrapScriptExpression(statement.declaration)
@@ -345,14 +349,15 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
   const resolvedVNodeOutcomes = (node, resolving = new Set()) => {
     node = unwrapScriptExpression(node)
     if (!node || resolving.size > 32) return []
-    if (node.type === 'StringLiteral') return [{ node, truthy: Boolean(node.value) }]
+    if (node.type === 'StringLiteral') return [{ node, kind: 'native', truthy: Boolean(node.value) }]
+    if (node.type === 'NullLiteral' || (node.type === 'Identifier' && node.name === 'undefined') || (node.type === 'UnaryExpression' && node.operator === 'void') || (node.type === 'BooleanLiteral' && node.value === false)) return [{ node, kind: 'nullish', truthy: false }]
     if (node.type === 'Identifier') {
       if (bindings.has(node.name) && !resolving.has(node.name)) return resolvedVNodeOutcomes(bindings.get(node.name), new Set(resolving).add(node.name))
-      return [{ node, truthy: undefined }]
+      return [{ node, kind: vnodeKinds.get(node.name) || 'unknown', truthy: vnodeKinds.has(node.name) ? true : undefined }]
     }
     if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
       const value = memberValue(node.object, memberName(node), resolving)
-      return value ? resolvedVNodeOutcomes(value, resolving) : [{ node, truthy: undefined }]
+      return value ? resolvedVNodeOutcomes(value, resolving) : [{ node, kind: 'unknown', truthy: undefined }]
     }
     if (node.type === 'ConditionalExpression') {
       const condition = staticValue(node.test)
@@ -374,15 +379,14 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
         if (usesRight) return right
         if (keepsLeft) return [outcome]
         return node.operator === '&&'
-          ? [{ ...outcome, truthy: false }, ...right]
+          ? [{ ...outcome, kind: 'nullish', truthy: false }, ...right]
           : [{ ...outcome, truthy: true }, ...right]
       })
     }
     if (node.type === 'SequenceExpression') return resolvedVNodeOutcomes(node.expressions.at(-1), resolving)
     const value = staticValue(node)
-    return [{ node, truthy: value.known ? Boolean(value.value) : undefined }]
+    return [{ node, kind: value.known && !value.value ? 'nullish' : 'unknown', truthy: value.known ? Boolean(value.value) : undefined }]
   }
-  const resolvedVNodeTypes = node => resolvedVNodeOutcomes(node).map(outcome => outcome.node)
   const returns = body => {
     body = unwrapScriptExpression(body)
     if (!body) return []
@@ -421,8 +425,8 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (!['CallExpression', 'OptionalCallExpression'].includes(node.type)) return false
     if (unwrapScriptExpression(node.callee)?.type === 'Identifier' && renderNames.has(node.callee.name)) {
       if (isComponentReference(node.arguments[0])) return true
-      const vnodeTypes = resolvedVNodeTypes(node.arguments[0])
-      const componentVNode = vnodeTypes.length === 0 || vnodeTypes.some(type => type.type !== 'StringLiteral')
+      const vnodeTypes = resolvedVNodeOutcomes(node.arguments[0])
+      const componentVNode = vnodeTypes.length === 0 || vnodeTypes.some(type => !['native', 'nullish', 'comment', 'text', 'static', 'fragment'].includes(type.kind))
       const children = node.arguments.length >= 3 ? node.arguments.slice(2) : node.arguments.slice(1)
       const inspectRenderedChild = child => {
         child = unwrapScriptExpression(child)

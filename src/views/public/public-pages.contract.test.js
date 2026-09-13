@@ -249,12 +249,38 @@ const staticBindingInitializers = value => {
       }
       return member(expression, key)
     }
+    const staticContainer = (expression, target, resolving = new Set()) => {
+      expression = unwrapExpression(expression)
+      if (['ObjectExpression', 'ArrayExpression'].includes(expression?.type)) return expression
+      if (expression?.type === 'Identifier' && !resolving.has(expression.name)) {
+        const values = target.get(expression.name) || []
+        if (values.length === 1) return staticContainer(values[0], target, new Set(resolving).add(expression.name))
+      }
+      if (expression?.type === 'SequenceExpression') return staticContainer(expression.expressions.at(-1), target, resolving)
+      return undefined
+    }
+    const objectRest = (expression, excluded, target) => {
+      const object = staticContainer(expression, target)
+      return object?.type === 'ObjectExpression'
+        ? { type: 'ObjectExpression', properties: object.properties.filter(property => property.type === 'SpreadElement' || !excluded.has(staticPropertyKey(property.key))) }
+        : expression
+    }
+    const arrayRest = (expression, index, target) => {
+      const array = staticContainer(expression, target)
+      return array?.type === 'ArrayExpression' ? { type: 'ArrayExpression', elements: array.elements.slice(index) } : expression
+    }
     const bindPattern = (pattern, expression, target) => {
       pattern = unwrapExpression(pattern)
       if (pattern?.type === 'Identifier') { target.set(pattern.name, expression ? [expression] : []); return }
       if (pattern?.type === 'AssignmentPattern') { bindPattern(pattern.left, expression || pattern.right, target); return }
-      if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bindPattern(property.value, selected(expression, staticPropertyKey(property.key)), target)
-      if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bindPattern(pattern.elements[index], selected(expression, index), target)
+      if (pattern?.type === 'ObjectPattern') {
+        const excluded = new Set(pattern.properties.filter(property => property.type !== 'RestElement').map(property => staticPropertyKey(property.key)))
+        for (const property of pattern.properties) bindPattern(property.type === 'RestElement' ? property.argument : property.value, property.type === 'RestElement' ? objectRest(expression, excluded, target) : selected(expression, staticPropertyKey(property.key)), target)
+      }
+      if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]) {
+        const element = pattern.elements[index]
+        bindPattern(element.type === 'RestElement' ? element.argument : element, element.type === 'RestElement' ? arrayRest(expression, index, target) : selected(expression, index), target)
+      }
     }
     const applyExpression = (expression, target) => {
       expression = unwrapExpression(expression)
@@ -335,12 +361,16 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
     catch (error) { throw new Error(`public layout render must parse cleanly: ${error.message}`, { cause: error }) }
     const targets = new Set()
     const renderNames = new Set(['h', 'createVNode'])
+    const vnodeKinds = new Map()
     const helpers = new Map()
     const aliases = new Map()
     for (const statement of ast.program.body) {
       if (statement.type === 'ImportDeclaration') for (const specifier of statement.specifiers) {
         const imported = specifier.imported?.name ?? specifier.imported?.value
         if (statement.source.value === 'vue' && ['h', 'createVNode'].includes(imported)) renderNames.add(specifier.local.name)
+        if (statement.source.value === 'vue' && ['Comment', 'Text', 'Static', 'Fragment'].includes(imported)) vnodeKinds.set(specifier.local.name, ['Comment', 'Text', 'Static'].includes(imported) ? imported.toLowerCase() : 'fragment')
+        if (statement.source.value === 'vue' && ['KeepAlive', 'Suspense', 'Teleport'].includes(imported)) vnodeKinds.set(specifier.local.name, 'component')
+        if (/\.vue(?:\?|$)/.test(statement.source.value)) vnodeKinds.set(specifier.local.name, 'component')
         if (String(statement.source.value).replace(/\\/g, '/').endsWith(`/${expectedFile}`)) targets.add(specifier.local.name)
       }
       if (statement.type === 'FunctionDeclaration' && statement.id) helpers.set(statement.id.name, statement)
@@ -393,14 +423,15 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
     const resolvedVNodeOutcomes = (node, resolving = new Set()) => {
       node = unwrapExpression(node)
       if (!node || resolving.size > 32) return []
-      if (node.type === 'StringLiteral') return [{ node, truthy: Boolean(node.value) }]
+      if (node.type === 'StringLiteral') return [{ node, kind: 'native', truthy: Boolean(node.value) }]
+      if (node.type === 'NullLiteral' || (node.type === 'Identifier' && node.name === 'undefined') || (node.type === 'UnaryExpression' && node.operator === 'void') || (node.type === 'BooleanLiteral' && node.value === false)) return [{ node, kind: 'nullish', truthy: false }]
       if (node.type === 'Identifier') {
         if (aliases.has(node.name) && !resolving.has(node.name)) return resolvedVNodeOutcomes(aliases.get(node.name), new Set(resolving).add(node.name))
-        return [{ node, truthy: undefined }]
+        return [{ node, kind: vnodeKinds.get(node.name) || 'unknown', truthy: vnodeKinds.has(node.name) ? true : undefined }]
       }
       if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
         const value = memberValue(node.object, memberName(node), resolving)
-        return value ? resolvedVNodeOutcomes(value, resolving) : [{ node, truthy: undefined }]
+        return value ? resolvedVNodeOutcomes(value, resolving) : [{ node, kind: 'unknown', truthy: undefined }]
       }
       if (node.type === 'ConditionalExpression') {
         const condition = staticValue(node.test)
@@ -422,15 +453,14 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
           if (usesRight) return right
           if (keepsLeft) return [outcome]
           return node.operator === '&&'
-            ? [{ ...outcome, truthy: false }, ...right]
+            ? [{ ...outcome, kind: 'nullish', truthy: false }, ...right]
             : [{ ...outcome, truthy: true }, ...right]
         })
       }
       if (node.type === 'SequenceExpression') return resolvedVNodeOutcomes(node.expressions.at(-1), resolving)
       const value = staticValue(node)
-      return [{ node, truthy: value === unknownStaticValue ? undefined : Boolean(value) }]
+      return [{ node, kind: value !== unknownStaticValue && !value ? 'nullish' : 'unknown', truthy: value === unknownStaticValue ? undefined : Boolean(value) }]
     }
-    const resolvedVNodeTypes = node => resolvedVNodeOutcomes(node).map(outcome => outcome.node)
     const returns = body => {
       body = unwrapExpression(body)
       if (!body) return []
@@ -484,8 +514,8 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
       if (!['CallExpression', 'OptionalCallExpression'].includes(node.type)) return false
       if (node.callee?.type === 'Identifier' && renderNames.has(node.callee.name)) {
         if (resolvesTarget(node.arguments[0])) return true
-        const vnodeTypes = resolvedVNodeTypes(node.arguments[0])
-        const componentVNode = vnodeTypes.length === 0 || vnodeTypes.some(type => type.type !== 'StringLiteral')
+        const vnodeTypes = resolvedVNodeOutcomes(node.arguments[0])
+        const componentVNode = vnodeTypes.length === 0 || vnodeTypes.some(type => !['native', 'nullish', 'comment', 'text', 'static', 'fragment'].includes(type.kind))
         const children = node.arguments.length >= 3 ? node.arguments.slice(2) : node.arguments.slice(1)
         const inspectRenderedChild = child => {
           child = unwrapExpression(child)
