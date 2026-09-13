@@ -616,6 +616,13 @@ const staticBindingInitializers = value => {
         if (branches.every(branch => branch.missing)) return { missing: true }
         return { unknown: true }
       }
+      if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) {
+        const memberKey = expression.computed ? staticPropertyKey(expression.property) : expression.property?.name
+        if (memberKey === undefined) return { unknown: true }
+        const receiver = factorySelection(expression.object, memberKey, local, resolving)
+        if (!receiver.value) return { unknown: true }
+        return factorySelection(receiver.value, key, local, resolving)
+      }
       if (expression.type === 'ArrayExpression' && /^\d+$/.test(String(key))) {
         const items = []
         for (const element of expression.elements) {
@@ -636,7 +643,9 @@ const staticBindingInitializers = value => {
         }
         const propertyKey = staticPropertyKey(property.key)
         if (property.computed && propertyKey === undefined) return { unknown: true }
-        if (propertyKey === String(key)) return { value: propertyExpression(property) }
+        if (propertyKey === String(key)) return property.type === 'ObjectMethod' && property.kind === 'get'
+          ? { unknown: true }
+          : { value: propertyExpression(property) }
       }
       return { missing: true }
     }
@@ -704,16 +713,16 @@ const staticBindingInitializers = value => {
       if (statement.type === 'VariableDeclaration' && statement.kind !== 'var') return statement.declarations.flatMap(declaration => patternNames(declaration.id))
       return ['FunctionDeclaration', 'ClassDeclaration'].includes(statement.type) && statement.id ? [statement.id.name] : []
     })
-    const substituteFactoryBindings = (node, replacements, shadowed = new Set(), parent, key) => {
+    const substituteFactoryBindings = (node, replacements, shadowed = new Set(), parent, key, resolving = new Set()) => {
       if (!node || typeof node !== 'object') return node
       if (replacements.size === 0) return node
       if (Array.isArray(node)) {
-        const values = node.map(value => substituteFactoryBindings(value, replacements, shadowed, parent, key))
+        const values = node.map(value => substituteFactoryBindings(value, replacements, shadowed, parent, key, resolving))
         return values.some((value, index) => value !== node[index]) ? values : node
       }
       if (node.type === 'Identifier' && replacements.has(node.name) && !shadowed.has(node.name)) {
         const isStaticKey = (parent?.type === 'ObjectProperty' || parent?.type === 'ObjectMethod' || parent?.type === 'MemberExpression') && key === 'key' || parent?.type === 'MemberExpression' && key === 'property' && !parent.computed
-        if (!isStaticKey) return replacements.get(node.name)
+        if (!isStaticKey && !resolving.has(node.name)) return substituteFactoryBindings(replacements.get(node.name), replacements, shadowed, parent, key, new Set(resolving).add(node.name))
       }
       let nestedShadowed = shadowed
       if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) {
@@ -726,7 +735,7 @@ const staticBindingInitializers = value => {
       let changed = false
       const copy = {}
       for (const [childKey, value] of Object.entries(node)) {
-        copy[childKey] = ['loc', 'start', 'end', 'extra'].includes(childKey) ? value : substituteFactoryBindings(value, replacements, nestedShadowed, node, childKey)
+        copy[childKey] = ['loc', 'start', 'end', 'extra'].includes(childKey) ? value : substituteFactoryBindings(value, replacements, nestedShadowed, node, childKey, resolving)
         if (copy[childKey] !== value) changed = true
       }
       if (changed && ['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
