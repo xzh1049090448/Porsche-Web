@@ -8,24 +8,107 @@ const readRequired = (path, label) => {
   assert.equal(existsSync(url), true, `${label} must exist at ${url.pathname}`)
   return readFileSync(url, 'utf8')
 }
+const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const tag = (source, element, predicate) => (source.match(new RegExp(`<${element}\\b[^>]*>`, 'g')) || []).find(predicate)
+const declarations = (source, selector) => {
+  const styleBlocks = [...source.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map(match => match[1])
+  const css = styleBlocks.length ? styleBlocks.join('\n') : source
+  const blocks = []
+  for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selectors = match[1].split(',').map(value => value.trim())
+    if (selectors.includes(selector)) blocks.push(match[2])
+  }
+  assert.ok(blocks.length > 0, `${selector} must have CSS declarations`)
+  return blocks.join(';')
+}
+const properties = (block, name) => [...block.matchAll(new RegExp(`(?:^|;)\\s*${escapeRegExp(name)}\\s*:\\s*([^;{}]+)`, 'gi'))]
+  .map(match => match[1].trim())
+const atRuleBlock = (source, header) => {
+  const match = header.exec(source)
+  if (!match) return undefined
+  const open = source.indexOf('{', match.index)
+  let depth = 1
+  let end = open + 1
+  while (end < source.length && depth > 0) {
+    if (source[end] === '{') depth += 1
+    else if (source[end] === '}') depth -= 1
+    end += 1
+  }
+  return depth === 0 ? source.slice(open + 1, end - 1) : undefined
+}
+const splitTransitionList = value => {
+  const items = []
+  let depth = 0
+  let start = 0
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === '(') depth += 1
+    else if (value[index] === ')') depth -= 1
+    else if (value[index] === ',' && depth === 0) {
+      items.push(value.slice(start, index).trim())
+      start = index + 1
+    }
+  }
+  items.push(value.slice(start).trim())
+  return items
+}
+const assertOpacityTransition = (block, duration) => {
+  const transitions = properties(block, 'transition')
+  assert.equal(transitions.length, 1, 'route active rule must declare exactly one transition value')
+  const [value] = transitions
+  const items = splitTransitionList(value)
+  assert.equal(items.length, 1, 'route transition must animate exactly one property')
+  assert.match(items[0], new RegExp(`(?:^|\\s)${duration}(?:\\s|$)`), `route transition duration must be ${duration}`)
+  const animatedProperty = items[0]
+    .replace(/(?:cubic-bezier|steps)\([^)]*\)/gi, ' ')
+    .replace(/\b\d*\.?\d+m?s\b/gi, ' ')
+    .replace(/\b(?:ease-in-out|ease-in|ease-out|ease|linear|step-start|step-end|allow-discrete|normal)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  assert.equal(animatedProperty, 'opacity', 'route transition must animate opacity and no other property')
+  for (const longhand of properties(block, 'transition-property')) {
+    assert.equal(longhand.replace(/\s+/g, ''), 'opacity', 'transition-property must be opacity only')
+  }
+  assert.doesNotMatch(block, /(?:^|;)\s*animation(?:-[\w-]+)?\s*:/i, 'route transition active rules must not add a separate animation')
+}
+const assertImmediate = block => {
+  const transition = properties(block, 'transition')
+  const duration = properties(block, 'transition-duration')
+  const isNone = transition.some(value => /^none(?:\s*!important)?$/i.test(value))
+  const isZeroDuration = duration.some(value => /^0m?s(?:\s*!important)?$/i.test(value))
+  assert.ok(isNone || isZeroDuration, 'reduced-motion route rule must disable the transition duration')
+  for (const delay of properties(block, 'transition-delay')) {
+    assert.match(delay, /^0m?s(?:\s*!important)?$/i, 'reduced-motion route rule must not retain a delay')
+  }
+}
 
 test('shared route transition keys leaf views by fullPath and identity epoch', () => {
   const transition = readRequired('../components/shell/RouteTransition.vue', 'shared route transition component')
   assert.match(transition, /<RouterView\b[^>]*v-slot=/)
-  assert.match(transition, /<Transition\b[^>]*\bmode=["']out-in["']/)
-  assert.match(transition, /route\.fullPath/)
-  assert.match(transition, /identityEpoch/)
-  assert.match(transition, /(?:route\.fullPath[\s\S]{0,160}identityEpoch|identityEpoch[\s\S]{0,160}route\.fullPath)/, 'route key composes route.fullPath with identity epoch')
+  const leaf = tag(transition, 'component', value => /:is\s*=\s*["']Component["']/.test(value))
+  assert.ok(leaf, 'RouterView must render its resolved leaf component')
+  const key = leaf.match(/:key\s*=\s*(["'])(.*?)\1/s)?.[2]
+  assert.ok(key, 'rendered leaf component must bind :key')
+  assert.match(key, /route\.fullPath/, 'rendered leaf :key must directly include route.fullPath')
+  assert.match(key, /identity(?:Epoch|Key)/, 'rendered leaf :key must directly include identityEpoch or identityKey')
 })
 
 test('route transition is opacity-only with approved timings and immediate reduced motion', () => {
   const transition = readRequired('../components/shell/RouteTransition.vue', 'shared route transition component')
-  assert.match(transition, /route-transition-enter-active[^}]*transition:\s*opacity\s+350ms(?:\s+[^,;{}]+)?\s*;/s)
-  assert.match(transition, /route-transition-leave-active[^}]*transition:\s*opacity\s+200ms(?:\s+[^,;{}]+)?\s*;/s)
-  assert.match(transition, /route-transition-(?:enter-from|leave-to)[^}]*opacity:\s*0\b/s)
-  assert.doesNotMatch(transition, /transition(?:-property)?\s*:[^;{}]*(?:transform|filter|height|width|all)\b/i)
-  assert.doesNotMatch(transition, /\btransform\s*:/i)
-  assert.match(transition, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?(?:transition:\s*none|transition-duration:\s*0m?s)/i, 'reduced motion makes the route transition immediate')
+  const transitionTag = tag(transition, 'Transition', () => true)
+  assert.ok(transitionTag, 'shared route component must render Vue Transition')
+  assert.match(transitionTag, /\bmode\s*=\s*["']out-in["']/)
+  const name = transitionTag.match(/\bname\s*=\s*(["'])([^"']+)\1/)?.[2]
+  assert.ok(name, 'Vue Transition must have a static CSS name')
+  const enter = declarations(transition, `.${name}-enter-active`)
+  const leave = declarations(transition, `.${name}-leave-active`)
+  assertOpacityTransition(enter, '350ms')
+  assertOpacityTransition(leave, '200ms')
+  assert.match(declarations(transition, `.${name}-enter-from`), /(?:^|;)\s*opacity\s*:\s*0\s*(?:;|$)/)
+  assert.match(declarations(transition, `.${name}-leave-to`), /(?:^|;)\s*opacity\s*:\s*0\s*(?:;|$)/)
+  const reduced = atRuleBlock(transition, /@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/i)
+  assert.ok(reduced, 'shared route transition must define reduced-motion CSS')
+  assertImmediate(declarations(reduced, `.${name}-enter-active`))
+  assertImmediate(declarations(reduced, `.${name}-leave-active`))
 })
 
 test('public and authenticated shells reuse the shared transition component', () => {

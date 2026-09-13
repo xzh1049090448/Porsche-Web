@@ -1,8 +1,27 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 const source = path => readFileSync(new URL(path, import.meta.url), 'utf8')
+const withoutStyles = value => value.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+const namedObjectBlocks = (value, name) => {
+  const blocks = []
+  const pattern = new RegExp(`\\b${name}\\s*:\\s*\\{`, 'g')
+  for (const match of value.matchAll(pattern)) {
+    const start = match.index + match[0].lastIndexOf('{')
+    let depth = 1
+    let end = start + 1
+    while (end < value.length && depth > 0) {
+      if (value[end] === '{') depth += 1
+      else if (value[end] === '}') depth -= 1
+      end += 1
+    }
+    assert.equal(depth, 0, `${name} message object must be balanced`)
+    blocks.push(value.slice(start, end))
+  }
+  assert.ok(blocks.length > 0, `${name} message objects must exist`)
+  return blocks
+}
 
 test('public shell and homepage preserve the published-content contract', () => {
   const layout = source('../../layouts/PublicLayout.vue')
@@ -128,7 +147,18 @@ test('public content pages compose the approved safe landing system', () => {
   const legal = source('./LegalPage.vue')
   const notFound = source('../PublicNotFound.vue')
   const preview = source('../PublicContentPreview.vue')
-  const sourceBundle = [home, hero, section, about, legal, notFound, preview].join('\n')
+  const layout = source('../../layouts/PublicLayout.vue')
+  const header = source('../../components/public/PublicHeader.vue')
+  const footer = source('../../components/public/PublicFooter.vue')
+  const publicComponents = readdirSync(new URL('../../components/public/', import.meta.url))
+    .filter(file => file.endsWith('.vue'))
+    .map(file => withoutStyles(source(`../../components/public/${file}`)))
+  const messages = source('../../i18n/messages.js')
+  const publicMessages = source('../../i18n/public-messages.js')
+  const runtimePublicMessages = namedObjectBlocks(messages, 'publicSite')
+  const sourceBundle = [layout, header, footer, home, hero, section, about, legal, notFound, preview, publicMessages, ...runtimePublicMessages, ...publicComponents]
+    .map(withoutStyles)
+    .join('\n')
 
   assert.match(home, /<HeroPreview/)
   assert.equal((home.match(/<PublicSection/g) || []).length, 3)
@@ -153,6 +183,8 @@ test('public content pages compose the approved safe landing system', () => {
     [/MIT License/i, 'prototype license claim'],
     [/cdn\.tailwindcss\.com|tailwindcss\.com\/[^\s"']*cdn/i, 'Tailwind CDN'],
     [/(?:admin|demo)(?:@[^\s<"']+)?\s*(?:\/|:|：)\s*(?:admin|password|123456)/i, 'demo credentials'],
+    [/\b(?:admin|demo)@[A-Z0-9._%+-]+\.[A-Z]{2,}\b/i, 'demo account email'],
+    [/(?:password|密码)\s*[:=：]\s*["']?(?:admin\d*|demo\d*|123456(?:78)?)/i, 'demo password'],
     [/(?:API[_ -]?KEY\s*[=:]|sk-[A-Za-z0-9_-]{8,})/i, 'demo API credential'],
     [/(?:>|['"])[^<"']*\d+(?:\.\d+)?\s*(?:x|×|倍)[^<"']*(?:<|['"])/i, 'prototype multiplier'],
     [/(?:单次调用价|(?:每次请求|每请求)[^<\n]{0,20}(?:价|[$¥￥]\s*\d)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request\b|per[- ]request\s+(?:price|pricing))/i, 'per-request pricing'],
