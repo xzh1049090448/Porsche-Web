@@ -196,13 +196,50 @@ const renderNodesFromScripts = (descriptor, file) => {
       while (['MemberExpression', 'OptionalMemberExpression'].includes(expression?.type)) expression = unwrapJavaScript(expression.object)
       return expression?.type === 'Identifier' ? expression.name : undefined
     }
+    const dynamicBinding = node => ({ type: 'StaticDynamicReference', start: node?.start, end: node?.end })
+    const memberBinding = (object, name, node) => ({
+      type: 'MemberExpression', object, property: { type: 'StringLiteral', value: String(name), start: node?.start, end: node?.end },
+      computed: true, optional: false, start: node?.start, end: node?.end,
+    })
+    const bindDynamicPattern = pattern => {
+      pattern = unwrapJavaScript(pattern)
+      if (pattern?.type === 'Identifier') bindings.set(pattern.name, dynamicBinding(pattern))
+      else if (pattern?.type === 'AssignmentPattern') bindDynamicPattern(pattern.left)
+      else for (const child of pattern?.properties || pattern?.elements || []) bindDynamicPattern(child?.argument || child?.value || child)
+    }
+    const bindPattern = (pattern, value) => {
+      pattern = unwrapJavaScript(pattern)
+      if (!pattern) return
+      if (pattern.type === 'Identifier') { bindings.set(pattern.name, value); return }
+      if (pattern.type === 'AssignmentPattern') {
+        bindPattern(pattern.left, { type: 'StaticDefaultReference', value, fallback: pattern.right, start: pattern.start, end: pattern.end })
+        return
+      }
+      if (pattern.type === 'ObjectPattern') {
+        for (const property of pattern.properties) {
+          if (property.type === 'RestElement') { bindDynamicPattern(property.argument); continue }
+          const name = propertyName(property)
+          if (name === undefined) bindDynamicPattern(property.value)
+          else bindPattern(property.value, memberBinding(value, name, property))
+        }
+        return
+      }
+      if (pattern.type === 'ArrayPattern') {
+        for (let index = 0; index < pattern.elements.length; index += 1) {
+          const element = pattern.elements[index]
+          if (!element) continue
+          if (element.type === 'RestElement') bindDynamicPattern(element.argument)
+          else bindPattern(element, memberBinding(value, index, element))
+        }
+      }
+    }
     walk(ast.program, node => {
       if (node.type === 'FunctionDeclaration' && node.id) helpers.set(node.id.name, node)
       if (node.type === 'AssignmentExpression' && assignmentRoot(node.left)) reassigned.add(assignmentRoot(node.left))
       if (node.type === 'UpdateExpression' && assignmentRoot(node.argument)) reassigned.add(assignmentRoot(node.argument))
-      if (node.type !== 'VariableDeclarator' || node.id?.type !== 'Identifier' || !node.init) return
-      bindings.set(node.id.name, node.init)
-      if (['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapJavaScript(node.init)?.type)) helpers.set(node.id.name, unwrapJavaScript(node.init))
+      if (node.type !== 'VariableDeclarator' || !node.init) return
+      bindPattern(node.id, node.init)
+      if (node.id?.type === 'Identifier' && ['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapJavaScript(node.init)?.type)) helpers.set(node.id.name, unwrapJavaScript(node.init))
     })
     const resolveHelper = (name, resolving = new Set()) => {
       if (!name) return { status: 'missing' }
@@ -257,6 +294,15 @@ const renderNodesFromScripts = (descriptor, file) => {
     const staticReference = (expression, environment, resolving = new Set()) => {
       expression = unwrapJavaScript(expression)
       if (!expression || resolving.size > 32) return { status: 'dynamic' }
+      if (expression.type === 'StaticDynamicReference') return { status: 'dynamic' }
+      if (expression.type === 'StaticDefaultReference') {
+        const value = staticReference(expression.value, environment, resolving)
+        const absent = value.status === 'missing' || (value.status === 'known' && (
+          (value.value?.type === 'Identifier' && value.value.name === 'undefined')
+          || (value.value?.type === 'UnaryExpression' && value.value.operator === 'void')
+        ))
+        return absent ? staticReference(expression.fallback, environment, resolving) : value
+      }
       if (expression.type === 'Identifier') {
         if (reassigned.has(expression.name) || resolving.has(expression.name)) return { status: 'dynamic' }
         const value = environment.get(expression.name) ?? bindings.get(expression.name)
@@ -270,6 +316,11 @@ const renderNodesFromScripts = (descriptor, file) => {
         if (name === undefined) return { status: 'dynamic' }
         const object = staticReference(expression.object, environment, nestedResolving)
         if (object.status !== 'known') return object
+        if (object.value?.type === 'ArrayExpression') {
+          const index = Number(name)
+          const value = Number.isInteger(index) ? object.value.elements[index] : undefined
+          return value ? staticReference(value, environment, nestedResolving) : { status: 'missing' }
+        }
         const properties = objectProperties(object.value, environment, nestedResolving)
         if (!properties.values.has(name)) return { status: properties.known ? 'missing' : 'dynamic' }
         return staticReference(properties.values.get(name), environment, nestedResolving)
