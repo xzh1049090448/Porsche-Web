@@ -20,19 +20,14 @@ const staticBindingInitializers = value => {
     let ast
     try { ast = parse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
     catch { continue }
-    const visit = node => {
-      if (!node || typeof node !== 'object') return
-      if (node.type === 'VariableDeclaration' && node.kind === 'const') for (const declaration of node.declarations) {
+    for (const statement of ast.program.body) {
+      const node = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement
+      if (node?.type === 'VariableDeclaration' && node.kind === 'const') for (const declaration of node.declarations) {
         if (declaration.id.type !== 'Identifier' || !declaration.init) continue
         if (!bindings.has(declaration.id.name)) bindings.set(declaration.id.name, [])
         bindings.get(declaration.id.name).push(declaration.init)
       }
-      for (const child of Object.values(node)) {
-        if (Array.isArray(child)) child.forEach(visit)
-        else if (child && typeof child === 'object' && typeof child.type === 'string') visit(child)
-      }
     }
-    visit(ast)
   }
   return bindings
 }
@@ -68,11 +63,55 @@ const staticExpressionPossibilities = (node, bindings, resolving = new Set()) =>
   // Calls, member reads, and other dynamic code are intentionally not executed or guessed.
   return []
 }
+const outputBindingRoots = node => {
+  const roots = new Set()
+  const visit = value => {
+    if (!value || typeof value !== 'object') return
+    if (value.type === 'Identifier') { roots.add(value.name); return }
+    if (value.type === 'ConditionalExpression') { visit(value.consequent); visit(value.alternate); return }
+    if (value.type === 'CallExpression' || value.type === 'OptionalCallExpression' || value.type === 'NewExpression') { value.arguments.forEach(visit); return }
+    if (value.type === 'MemberExpression' || value.type === 'OptionalMemberExpression') { visit(value.object); if (value.computed) visit(value.property); return }
+    if (value.type === 'ObjectProperty') { if (value.computed) visit(value.key); visit(value.value); return }
+    if (value.type === 'ObjectMethod' || value.type === 'FunctionExpression' || value.type === 'ArrowFunctionExpression') return
+    for (const child of Object.values(value)) {
+      if (Array.isArray(child)) child.forEach(visit)
+      else if (child && typeof child === 'object' && typeof child.type === 'string') visit(child)
+    }
+  }
+  visit(node)
+  return roots
+}
+const referencedBindingLeaves = (name, bindings, resolving = new Set()) => {
+  if (resolving.has(name)) return []
+  const next = new Set(resolving).add(name)
+  return (bindings.get(name) || []).flatMap(initializer => staticLiteralLeaves(initializer, bindings, next))
+}
+const staticLiteralLeaves = (node, bindings, resolving = new Set()) => {
+  if (!node) return []
+  const values = staticExpressionPossibilities(node, bindings, resolving).filter(value => typeof value === 'string' && value)
+  if (node.type === 'Identifier') return values.concat(referencedBindingLeaves(node.name, bindings, resolving))
+  if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression' || node.type === 'NewExpression') return values.concat(node.arguments.flatMap(argument => staticLiteralLeaves(argument, bindings, resolving)))
+  if (node.type === 'ObjectExpression') return values.concat(node.properties.flatMap(property => property.type === 'SpreadElement' ? staticLiteralLeaves(property.argument, bindings, resolving) : staticLiteralLeaves(property.value, bindings, resolving)))
+  if (node.type === 'ArrayExpression') return values.concat(node.elements.flatMap(element => staticLiteralLeaves(element, bindings, resolving)))
+  if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') return values.concat(staticLiteralLeaves(node.object, bindings, resolving), node.computed ? staticLiteralLeaves(node.property, bindings, resolving) : [])
+  if (node.type === 'ConditionalExpression') return values.concat(staticLiteralLeaves(node.consequent, bindings, resolving), staticLiteralLeaves(node.alternate, bindings, resolving))
+  if (node.type === 'LogicalExpression' || node.type === 'BinaryExpression') return values.concat(staticLiteralLeaves(node.left, bindings, resolving), staticLiteralLeaves(node.right, bindings, resolving))
+  if (node.type === 'TemplateLiteral') return values.concat(node.quasis.map(quasi => quasi.value.cooked ?? quasi.value.raw).filter(Boolean), node.expressions.flatMap(expression => staticLiteralLeaves(expression, bindings, resolving)))
+  if (node.type === 'TaggedTemplateExpression') return values.concat(staticLiteralLeaves(node.quasi, bindings, resolving))
+  if (node.type === 'SequenceExpression') return values.concat(node.expressions.flatMap(expression => staticLiteralLeaves(expression, bindings, resolving)))
+  if (node.type === 'ParenthesizedExpression' || node.type === 'TSAsExpression' || node.type === 'TSTypeAssertion' || node.type === 'TSNonNullExpression' || node.type === 'UnaryExpression' || node.type === 'AwaitExpression') return values.concat(staticLiteralLeaves(node.expression || node.argument, bindings, resolving))
+  if (node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression') return values.concat(staticLiteralLeaves(node.body, bindings, resolving))
+  if (node.type === 'BlockStatement') return values.concat(node.body.flatMap(statement => staticLiteralLeaves(statement, bindings, resolving)))
+  if (node.type === 'ReturnStatement' || node.type === 'ExpressionStatement') return values.concat(staticLiteralLeaves(node.argument || node.expression, bindings, resolving))
+  return values
+}
 const literalExpressionStrings = (expression, bindings) => {
   let ast
   try { ast = parseExpression(expression, { plugins: ['typescript'] }) }
   catch { return [] }
-  return [...new Set(staticExpressionPossibilities(ast, bindings).filter(value => typeof value === 'string' && value))]
+  const direct = staticExpressionPossibilities(ast, bindings).filter(value => typeof value === 'string' && value)
+  const referenced = [...outputBindingRoots(ast)].flatMap(name => referencedBindingLeaves(name, bindings))
+  return [...new Set(direct.concat(referenced))]
 }
 const visibleStrings = source => {
   const values = []
