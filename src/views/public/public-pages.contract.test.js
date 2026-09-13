@@ -404,6 +404,69 @@ const staticBindingInitializers = value => {
       }
       return { values, safe: visit(fn.body) }
     }
+    const patternNames = (pattern, names = []) => {
+      pattern = unwrapExpression(pattern)
+      if (pattern?.type === 'Identifier') names.push(pattern.name)
+      else if (pattern?.type === 'AssignmentPattern') patternNames(pattern.left, names)
+      else if (pattern?.type === 'RestElement') patternNames(pattern.argument, names)
+      else if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) patternNames(property.type === 'RestElement' ? property.argument : property.value, names)
+      else if (pattern?.type === 'ArrayPattern') for (const element of pattern.elements) if (element) patternNames(element, names)
+      return names
+    }
+    const factorySelected = (expression, key, local) => {
+      const container = staticContainer(expression, local)
+      if (container?.type === 'ArrayExpression' && /^\d+$/.test(String(key))) return container.elements[Number(key)]
+      if (container?.type === 'ObjectExpression') {
+        for (let index = container.properties.length - 1; index >= 0; index -= 1) {
+          const property = container.properties[index]
+          if (property.type === 'SpreadElement') break
+          if (staticPropertyKey(property.key) === String(key)) return propertyExpression(property)
+        }
+        if (!container.properties.some(property => property.type === 'SpreadElement')) return undefined
+      }
+      return member(expression, key)
+    }
+    const bindFactoryPattern = (pattern, expression, target, replacements) => {
+      pattern = unwrapExpression(pattern)
+      if (!pattern) return
+      if (pattern.type === 'AssignmentPattern') {
+        const missing = !expression || unwrapExpression(expression)?.type === 'Identifier' && unwrapExpression(expression).name === 'undefined'
+        bindFactoryPattern(pattern.left, missing ? pattern.right : expression, target, replacements)
+        return
+      }
+      if (pattern.type === 'RestElement') { bindFactoryPattern(pattern.argument, expression, target, replacements); return }
+      if (pattern.type === 'Identifier') {
+        target.set(pattern.name, expression ? [expression] : [])
+        if (expression) replacements.set(pattern.name, expression)
+        return
+      }
+      if (pattern.type === 'ObjectPattern') {
+        const excluded = new Set(pattern.properties.filter(property => property.type !== 'RestElement').map(property => staticPropertyKey(property.key)))
+        for (const property of pattern.properties) bindFactoryPattern(property.type === 'RestElement' ? property.argument : property.value, property.type === 'RestElement' ? objectRest(expression, excluded, target) : factorySelected(expression, staticPropertyKey(property.key), target), target, replacements)
+      }
+      if (pattern.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]) {
+        const element = pattern.elements[index]
+        bindFactoryPattern(element.type === 'RestElement' ? element.argument : element, element.type === 'RestElement' ? arrayRest(expression, index, target) : factorySelected(expression, index, target), target, replacements)
+      }
+    }
+    const functionVarNames = node => {
+      const names = []
+      const visit = value => {
+        if (!value || typeof value !== 'object') return
+        if (value !== node && ['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(value.type)) return
+        if (value.type === 'VariableDeclaration' && value.kind === 'var') for (const declaration of value.declarations) patternNames(declaration.id, names)
+        for (const [name, child] of Object.entries(value)) if (!['loc', 'start', 'end', 'extra'].includes(name)) {
+          if (Array.isArray(child)) for (const item of child) visit(item)
+          else visit(child)
+        }
+      }
+      visit(node.body)
+      return names
+    }
+    const blockLexicalNames = node => (node.body || []).flatMap(statement => {
+      if (statement.type === 'VariableDeclaration' && statement.kind !== 'var') return statement.declarations.flatMap(declaration => patternNames(declaration.id))
+      return ['FunctionDeclaration', 'ClassDeclaration'].includes(statement.type) && statement.id ? [statement.id.name] : []
+    })
     const substituteFactoryBindings = (node, replacements, shadowed = new Set(), parent, key) => {
       if (!node || typeof node !== 'object') return node
       if (replacements.size === 0) return node
@@ -418,20 +481,21 @@ const staticBindingInitializers = value => {
       let nestedShadowed = shadowed
       if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) {
         nestedShadowed = new Set(shadowed)
-        const addPattern = pattern => {
-          pattern = unwrapExpression(pattern)
-          if (pattern?.type === 'Identifier') nestedShadowed.add(pattern.name)
-          else if (pattern?.type === 'AssignmentPattern') addPattern(pattern.left)
-          else if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) addPattern(property.type === 'RestElement' ? property.argument : property.value)
-          else if (pattern?.type === 'ArrayPattern') for (const element of pattern.elements) if (element) addPattern(element.type === 'RestElement' ? element.argument : element)
-        }
-        for (const parameter of node.params || []) addPattern(parameter)
+        for (const name of (node.params || []).flatMap(parameter => patternNames(parameter)).concat(functionVarNames(node))) nestedShadowed.add(name)
+        if (node.id?.name) nestedShadowed.add(node.id.name)
       }
+      if (node.type === 'BlockStatement') { nestedShadowed = new Set(shadowed); for (const name of blockLexicalNames(node)) nestedShadowed.add(name) }
+      if (node.type === 'CatchClause') { nestedShadowed = new Set(shadowed); for (const name of patternNames(node.param)) nestedShadowed.add(name) }
       let changed = false
       const copy = {}
       for (const [childKey, value] of Object.entries(node)) {
         copy[childKey] = ['loc', 'start', 'end', 'extra'].includes(childKey) ? value : substituteFactoryBindings(value, replacements, nestedShadowed, node, childKey)
         if (copy[childKey] !== value) changed = true
+      }
+      if (changed && ['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+        const container = staticContainer(copy.object, new Map())
+        const property = copy.computed ? staticPropertyKey(copy.property) : copy.property?.name
+        if (container && property !== undefined) return factorySelected(container, property, new Map())
       }
       return changed ? copy : node
     }
@@ -451,9 +515,11 @@ const staticBindingInitializers = value => {
           const replacements = new Map()
           for (let index = 0; index < factory.params.length; index += 1) {
             const parameter = unwrapExpression(factory.params[index])
-            const argument = expression.arguments[index] || (parameter?.type === 'AssignmentPattern' ? parameter.right : undefined)
-            bindPattern(parameter?.type === 'AssignmentPattern' ? parameter.left : parameter, argument, factoryLocal)
-            if ((parameter?.type === 'Identifier' || parameter?.type === 'AssignmentPattern' && parameter.left?.type === 'Identifier') && argument) replacements.set(parameter.type === 'Identifier' ? parameter.name : parameter.left.name, argument)
+            const argument = parameter?.type === 'RestElement'
+              ? { type: 'ArrayExpression', elements: expression.arguments.slice(index) }
+              : expression.arguments[index]
+            bindFactoryPattern(parameter, argument, factoryLocal, replacements)
+            if (parameter?.type === 'RestElement') break
           }
           const returned = safeFactoryReturns(factory, factoryLocal)
           const next = new Set(resolving).add(factory.id?.name || expression.callee?.name || '__iife__')
