@@ -12,6 +12,7 @@ const vueCompiler = (() => {
   plugin.buildStart()
   return plugin.api.options.compiler
 })()
+// This helper is intentionally mirrored in the pricing contract: importing a *.test.js file would register its tests and alter the node:test harness.
 const parseVue = (value, label = 'public Vue component') => {
   const parsed = vueCompiler.parse(value, { filename: label })
   assert.deepEqual(parsed.errors, [], `${label} must parse cleanly: ${parsed.errors.map(String).join('; ')}`)
@@ -63,6 +64,15 @@ const unwrapExpression = node => {
   while (node && ['ParenthesizedExpression', 'TSAsExpression', 'TSTypeAssertion', 'TSNonNullExpression', 'TypeCastExpression'].includes(node.type)) node = node.expression
   return node
 }
+const returnedExpressions = node => {
+  node = unwrapExpression(node)
+  if (!node) return []
+  if (node.type === 'ReturnStatement') return node.argument ? [node.argument] : []
+  if (node.type === 'IfStatement') return returnedExpressions(node.consequent).concat(returnedExpressions(node.alternate))
+  if (node.type === 'SwitchStatement') return node.cases.flatMap(branch => branch.consequent.flatMap(returnedExpressions))
+  if (node.type === 'BlockStatement') return node.body.flatMap(returnedExpressions)
+  return [node]
+}
 const staticPropertyKey = node => {
   node = unwrapExpression(node)
   if (node?.type === 'Identifier') return node.name
@@ -97,7 +107,11 @@ const staticExpressionPossibilities = (node, bindings, resolving = new Set()) =>
   if (node?.type === 'ConditionalExpression') return [node.consequent, node.alternate].flatMap(branch => staticExpressionPossibilities(branch, bindings, resolving))
   if (node?.type === 'LogicalExpression') return [node.left, node.right].flatMap(branch => staticExpressionPossibilities(branch, bindings, resolving))
   if (node?.type === 'SequenceExpression') return staticExpressionPossibilities(node.expressions.at(-1), bindings, resolving)
-  if (node?.type === 'CallExpression' || node?.type === 'OptionalCallExpression' || node?.type === 'NewExpression') return node.arguments.flatMap(argument => staticExpressionPossibilities(argument, bindings, resolving))
+  if (node?.type === 'ArrowFunctionExpression' || node?.type === 'FunctionExpression') return returnedExpressions(node.body).flatMap(expression => staticExpressionPossibilities(expression, bindings, resolving))
+  if (node?.type === 'CallExpression' || node?.type === 'OptionalCallExpression' || node?.type === 'NewExpression') {
+    const returned = node.callee?.type === 'Identifier' && bindings.has(node.callee.name) ? bindingPossibilities(node.callee.name, [], bindings, resolving) : []
+    return returned.concat(node.arguments.flatMap(argument => staticExpressionPossibilities(argument, bindings, resolving)))
+  }
   if (node?.type === 'TemplateLiteral') {
     let values = ['']
     for (let index = 0; index < node.quasis.length; index += 1) {
@@ -124,6 +138,7 @@ const possibilitiesAtPath = (node, path, bindings, resolving) => {
   if (node.type === 'Identifier') return bindingPossibilities(node.name, path, bindings, resolving)
   if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') return [node.consequent || node.left, node.alternate || node.right].flatMap(branch => possibilitiesAtPath(branch, path, bindings, resolving))
   if (node.type === 'SequenceExpression') return possibilitiesAtPath(node.expressions.at(-1), path, bindings, resolving)
+  if (node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression') return returnedExpressions(node.body).flatMap(expression => possibilitiesAtPath(expression, path, bindings, resolving))
   if (!path.length) return staticExpressionPossibilities(node, bindings, resolving)
   if (node.type === 'ObjectExpression') {
     const [head, ...tail] = path
@@ -156,6 +171,7 @@ const leavesAtPath = (node, path, bindings, resolving) => {
   if (node.type === 'Identifier') return referencedBindingLeaves(node.name, path, bindings, resolving)
   if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') return [node.consequent || node.left, node.alternate || node.right].flatMap(branch => leavesAtPath(branch, path, bindings, resolving))
   if (node.type === 'SequenceExpression') return leavesAtPath(node.expressions.at(-1), path, bindings, resolving)
+  if (node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression') return returnedExpressions(node.body).flatMap(expression => leavesAtPath(expression, path, bindings, resolving))
   if (!path.length) return staticLiteralLeaves(node, bindings, resolving)
   if (node.type === 'ObjectExpression') {
     const [head, ...tail] = path
@@ -187,7 +203,11 @@ const staticLiteralLeaves = (node, bindings, resolving = new Set()) => {
   }
   if (node.type === 'BinaryExpression' && node.operator === '+') return combined.length ? combined : staticLiteralLeaves(node.left, bindings, resolving).concat(staticLiteralLeaves(node.right, bindings, resolving))
   if (node.type === 'TemplateLiteral') return combined.length ? combined : node.expressions.flatMap(expression => staticLiteralLeaves(expression, bindings, resolving))
-  if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression' || node.type === 'NewExpression') return combined.concat(node.arguments.flatMap(argument => staticLiteralLeaves(argument, bindings, resolving)))
+  if (node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression') return combined.concat(returnedExpressions(node.body).flatMap(expression => staticLiteralLeaves(expression, bindings, resolving)))
+  if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression' || node.type === 'NewExpression') {
+    const returned = node.callee?.type === 'Identifier' && bindings.has(node.callee.name) ? referencedBindingLeaves(node.callee.name, [], bindings, resolving) : []
+    return combined.concat(returned, node.arguments.flatMap(argument => staticLiteralLeaves(argument, bindings, resolving)))
+  }
   if (node.type === 'ObjectExpression') return combined.concat(node.properties.flatMap(property => property.type === 'SpreadElement' ? staticLiteralLeaves(property.argument, bindings, resolving) : staticLiteralLeaves(property.value, bindings, resolving)))
   if (node.type === 'ArrayExpression') return combined.concat(node.elements.flatMap(element => staticLiteralLeaves(element, bindings, resolving)))
   if (node.type === 'ConditionalExpression') return combined.concat(staticLiteralLeaves(node.consequent, bindings, resolving), staticLiteralLeaves(node.alternate, bindings, resolving))
@@ -203,20 +223,48 @@ const literalExpressionStrings = (expression, bindings) => {
   catch (error) { throw new Error(`visible Vue expression must parse cleanly: ${error.message}`, { cause: error }) }
   return [...new Set(staticLiteralLeaves(ast, bindings))]
 }
+const staticIterationValues = (node, bindings, resolving = new Set()) => {
+  node = unwrapExpression(node)
+  if (!node) return []
+  if (node.type === 'Identifier') {
+    if (resolving.has(node.name)) return []
+    const next = new Set(resolving).add(node.name)
+    return (bindings.get(node.name) || []).flatMap(initializer => staticIterationValues(initializer, bindings, next))
+  }
+  if (node.type === 'ArrayExpression') return node.elements.filter(Boolean)
+  if (node.type === 'ObjectExpression') return node.properties.flatMap(property => property.type === 'SpreadElement' ? staticIterationValues(property.argument, bindings, resolving) : [property.value])
+  if (node.type === 'ConditionalExpression') return staticIterationValues(node.consequent, bindings, resolving).concat(staticIterationValues(node.alternate, bindings, resolving))
+  if (node.type === 'LogicalExpression') return staticIterationValues(node.left, bindings, resolving).concat(staticIterationValues(node.right, bindings, resolving))
+  if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression') return node.arguments.flatMap(argument => staticIterationValues(argument, bindings, resolving))
+  return []
+}
+const bindingsForElement = (node, bindings) => {
+  const directive = node.props?.find(prop => prop.type === 7 && prop.name === 'for')
+  if (!directive?.exp?.content) return bindings
+  const match = directive.exp.content.match(/^\s*(?:\(\s*)?([A-Za-z_$][\w$]*)(?:\s*,[^)]*)?\)?\s+(?:in|of)\s+([\s\S]+)$/)
+  if (!match) return bindings
+  let sourceAst
+  try { sourceAst = vueCompiler.babelParse(`(${match[2]})`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression }
+  catch (error) { throw new Error(`v-for source must parse cleanly: ${error.message}`, { cause: error }) }
+  const scoped = new Map(bindings)
+  scoped.set(match[1], staticIterationValues(sourceAst, bindings))
+  return scoped
+}
 const visibleStrings = value => {
   const result = []
   const bindings = staticBindingInitializers(value)
   const visibleAttributes = new Set(['alt', 'aria-label', 'placeholder', 'title', 'value'])
-  const visit = node => {
+  const visit = (node, inheritedBindings = bindings) => {
+    const scopedBindings = node.type === 1 ? bindingsForElement(node, inheritedBindings) : inheritedBindings
     if (node.type === 2 && node.content.trim()) result.push(node.content.trim())
-    if (node.type === 5) result.push(...literalExpressionStrings(node.content.content, bindings))
+    if (node.type === 5) result.push(...literalExpressionStrings(node.content.content, scopedBindings))
     if (node.type === 1) for (const prop of node.props) {
       if (prop.type === 6 && visibleAttributes.has(prop.name) && prop.value?.content) result.push(prop.value.content)
       const visibleBinding = prop.type === 7 && prop.name === 'bind' && prop.arg?.type === 4 && prop.arg.isStatic && visibleAttributes.has(prop.arg.content)
       const visibleDirective = prop.type === 7 && ['text', 'html'].includes(prop.name)
-      if ((visibleBinding || visibleDirective) && prop.exp?.content) result.push(...literalExpressionStrings(prop.exp.content, bindings))
+      if ((visibleBinding || visibleDirective) && prop.exp?.content) result.push(...literalExpressionStrings(prop.exp.content, scopedBindings))
     }
-    for (const child of node.children || []) visit(child)
+    for (const child of node.children || []) visit(child, scopedBindings)
   }
   visit(templateAst(value))
   return result
@@ -249,12 +297,12 @@ const routerLinkTargets = value => elements(value, 'RouterLink').flatMap(node =>
   return name && routePathsByName.has(name) ? [routePathsByName.get(name)] : []
 })
 const numericPerRequestOffer = /(?:(?:每(?:次)?请求|每请求|单次(?:请求|调用)|per[-\s]?request)[^.!。；;\n]{0,40}(?:[$¥￥]\s*\d|\d+(?:\.\d+)?\s*(?:USD|CNY|元|美元))|(?:[$¥￥]\s*\d|\d+(?:\.\d+)?\s*(?:USD|CNY|元|美元))[^.!。；;\n]{0,24}(?:每(?:次)?请求|每请求|单次(?:请求|调用)|per[-\s]?request)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request)/i
-const perRequestPriceClaim = /(?:单次调用价|每次请求(?:价格|价)|每请求(?:价格|价)|per[- ]request\s+(?:price|pricing))/gi
+const perRequestPriceClaim = /(?:单次调用价|每次请求(?:价格|价)|每请求(?:价格|价)|per[- ]request\s+(?:prices?|pricing))/gi
 const locallyNegatedPerRequestClaim = (value, match) => {
   const before = value.slice(Math.max(0, match.index - 48), match.index)
   const after = value.slice(match.index + match[0].length, match.index + match[0].length + 48)
-  const negativeBefore = /(?:\bno\s+|(?:不|未)\s*(?:单独\s*)?(?:提供|展示|显示|公布|采用|支持)\s*)$/iu.test(before)
-  const negativeAfter = /^(?:\s*(?:(?:is|are)\s+)?(?:not|never)\s+(?:offered|provided|available|displayed|shown)\b|\s*(?:is|are)\s+unavailable\b|\s*(?:不|未)\s*(?:单独\s*)?(?:计价|定价|收费|提供|展示|显示|公布|可用)|\s*不可用)/iu.test(after)
+  const negativeBefore = /(?:\bno\s+|\b(?:do|does|did|will|would|can|could|should)\s+not\s+(?:offer|show|display|provide)\s+|\b(?:don['’]t|doesn['’]t|didn['’]t|won['’]t|wouldn['’]t|can['’]t|couldn['’]t|shouldn['’]t)\s+(?:offer|show|display|provide)\s+|\bnever\s+(?:offer|show|display|provide)\s+|(?:不|未)\s*(?:单独\s*)?(?:提供|展示|显示|公布|采用|支持)\s*)$/iu.test(before)
+  const negativeAfter = /^(?:\s*(?:(?:is|are|was|were)\s+)?(?:not|never)\s+(?:offered|provided|available|displayed|shown)\b|\s*(?:is|are|was|were)\s+unavailable\b|\s*(?:isn['’]t|aren['’]t|wasn['’]t|weren['’]t)\s+(?:offered|provided|available|displayed|shown)\b|\s*(?:won['’]t|wouldn['’]t)\s+be\s+(?:offered|provided|available|displayed|shown)\b|\s*(?:不|未)\s*(?:单独\s*)?(?:计价|定价|收费|提供|展示|显示|公布|可用)|\s*不可用)/iu.test(after)
   return negativeBefore || negativeAfter
 }
 const positivePerRequestClaims = value => [...value.matchAll(perRequestPriceClaim)]
