@@ -136,30 +136,146 @@ const balancedSlice = (source, start, open, close) => {
   }
   return depth === 0 ? { content: source.slice(start + 1, end - 1), end } : undefined
 }
-const declaresComponentProp = (source, name) => {
-  const objectDeclaration = new RegExp(`\\b${name}\\s*\\??\\s*:`)
-  const arrayDeclaration = new RegExp(`["']${name}["']`)
-  for (const match of source.matchAll(/\bdefineProps\b/g)) {
-    let cursor = match.index + match[0].length
-    while (/\s/.test(source[cursor])) cursor += 1
-    if (source[cursor] === '<') {
-      const generic = balancedSlice(source, cursor, '<', '>')
-      if (generic && objectDeclaration.test(generic.content)) return true
-      cursor = generic?.end ?? cursor
-      while (/\s/.test(source[cursor])) cursor += 1
-    }
-    const args = balancedSlice(source, cursor, '(', ')')?.content.trim()
-    if (args?.startsWith('{') && objectDeclaration.test(args)) return true
-    if (args?.startsWith('[') && arrayDeclaration.test(args)) return true
+const unwrapScriptExpression = node => {
+  while (node && ['ParenthesizedExpression', 'TSAsExpression', 'TSTypeAssertion', 'TSNonNullExpression', 'TypeCastExpression'].includes(node.type)) node = node.expression
+  return node
+}
+const scriptPropertyName = node => {
+  const key = unwrapScriptExpression(node?.key)
+  return !key || (node.computed && !['StringLiteral', 'NumericLiteral'].includes(key.type)) ? undefined : key.name ?? key.value
+}
+const walkScriptAst = (node, visit) => {
+  if (!node || typeof node !== 'object') return
+  visit(node)
+  for (const [key, value] of Object.entries(node)) {
+    if (['loc', 'start', 'end', 'extra'].includes(key)) continue
+    if (Array.isArray(value)) for (const child of value) walkScriptAst(child, visit)
+    else if (value && typeof value === 'object' && typeof value.type === 'string') walkScriptAst(value, visit)
   }
-  for (const match of source.matchAll(/\bprops\s*:\s*/g)) {
-    const object = balancedSlice(source, match.index + match[0].length, '{', '}')
-    if (object && objectDeclaration.test(object.content)) return true
-    const array = balancedSlice(source, match.index + match[0].length, '[', ']')
-    if (array && arrayDeclaration.test(array.content)) return true
+}
+const componentScriptAsts = (source, label = 'route transition') => {
+  const parsed = vueCompiler.parse(source, { filename: `${label}.vue` })
+  assert.deepEqual(parsed.errors, [], `${label} SFC must parse cleanly: ${parsed.errors.map(String).join('; ')}`)
+  return [parsed.descriptor.script, parsed.descriptor.scriptSetup].filter(Boolean).map(block => {
+    try { return vueCompiler.babelParse(block.content, { sourceType: 'module', plugins: block.lang === 'ts' || block.lang === 'tsx' ? ['typescript'] : [] }) }
+    catch (error) { throw new Error(`${label} script must parse cleanly: ${error.message}`, { cause: error }) }
+  })
+}
+const objectDeclaresProp = (node, name) => {
+  node = unwrapScriptExpression(node)
+  if (node?.type === 'ArrayExpression') return node.elements.some(element => unwrapScriptExpression(element)?.type === 'StringLiteral' && element.value === name)
+  return node?.type === 'ObjectExpression' && node.properties.some(property => scriptPropertyName(property) === name)
+}
+const declaresComponentProp = (source, name) => componentScriptAsts(source).some(ast => {
+  let declared = false
+  for (const statement of ast.program.body) {
+    walkScriptAst(statement, node => {
+      if (declared) return
+      if (['CallExpression', 'OptionalCallExpression'].includes(node.type) && unwrapScriptExpression(node.callee)?.type === 'Identifier' && node.callee.name === 'defineProps') {
+        if (objectDeclaresProp(node.arguments[0], name)) declared = true
+        for (const typeRoot of [node.typeParameters, node.typeArguments].filter(Boolean)) walkScriptAst(typeRoot, typeNode => { if (['TSPropertySignature', 'ObjectProperty'].includes(typeNode.type) && scriptPropertyName(typeNode) === name) declared = true })
+      }
+    })
+    if (statement.type !== 'ExportDefaultDeclaration') continue
+    let options = unwrapScriptExpression(statement.declaration)
+    if (['CallExpression', 'OptionalCallExpression'].includes(options?.type) && unwrapScriptExpression(options.callee)?.type === 'Identifier' && options.callee.name === 'defineComponent') options = unwrapScriptExpression(options.arguments[0])
+    const props = options?.type === 'ObjectExpression' ? options.properties.find(property => scriptPropertyName(property) === 'props') : undefined
+    if (props && objectDeclaresProp(props.value, name)) declared = true
+  }
+  return declared
+})
+const shadowsComponentProp = (source, name) => componentScriptAsts(source).some(ast => {
+  let shadowed = false
+  walkScriptAst(ast.program, node => {
+    if (node.type !== 'VariableDeclarator') return
+    if (node.id?.type === 'Identifier' && node.id.name === name) shadowed = true
+    if (node.id?.type !== 'ObjectPattern') return
+    const declaresName = node.id.properties.some(property => scriptPropertyName(property) === name || unwrapScriptExpression(property.value)?.name === name)
+    const initializer = unwrapScriptExpression(node.init)
+    const fromProps = ['CallExpression', 'OptionalCallExpression'].includes(initializer?.type) && unwrapScriptExpression(initializer.callee)?.type === 'Identifier' && initializer.callee.name === 'defineProps'
+    if (declaresName && !fromProps) shadowed = true
+  })
+  return shadowed
+})
+const importsComponent = (source, specifier) => componentScriptAsts(source, 'shell').some(ast => ast.program.body.some(statement => statement.type === 'ImportDeclaration' && statement.source.value === specifier))
+const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(source, 'render shell').some(ast => {
+  const renderNames = new Set(['h', 'createVNode'])
+  let componentName
+  const bindings = new Map()
+  const helpers = new Map()
+  for (const statement of ast.program.body) {
+    if (statement.type === 'ImportDeclaration') for (const imported of statement.specifiers) {
+      const name = imported.imported?.name ?? imported.imported?.value
+      if (statement.source.value === 'vue' && ['h', 'createVNode'].includes(name)) renderNames.add(imported.local.name)
+      if (statement.source.value === specifier) componentName = imported.local.name
+    }
+    walkScriptAst(statement, node => {
+      if (node.type === 'FunctionDeclaration' && node.id) helpers.set(node.id.name, node)
+      if (node.type === 'VariableDeclarator' && node.id?.type === 'Identifier' && node.init) {
+        bindings.set(node.id.name, node.init)
+        if (['ArrowFunctionExpression', 'FunctionExpression'].includes(unwrapScriptExpression(node.init)?.type)) helpers.set(node.id.name, unwrapScriptExpression(node.init))
+      }
+    })
+  }
+  if (!componentName) return false
+  const staticValue = node => {
+    node = unwrapScriptExpression(node)
+    if (['BooleanLiteral', 'NumericLiteral', 'StringLiteral'].includes(node?.type)) return { known: true, value: node.value }
+    if (node?.type === 'NullLiteral' || (node?.type === 'Identifier' && node.name === 'undefined')) return { known: true, value: undefined }
+    if (node?.type === 'UnaryExpression' && node.operator === '!') { const value = staticValue(node.argument); return value.known ? { known: true, value: !value.value } : value }
+    return { known: false }
+  }
+  const returns = body => {
+    body = unwrapScriptExpression(body)
+    if (!body) return []
+    if (body.type !== 'BlockStatement') return [body]
+    const values = []
+    const visit = node => {
+      if (!node) return
+      if (node.type === 'ReturnStatement') { if (node.argument) values.push(node.argument); return }
+      if (node !== body && ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(node.type)) return
+      if (node.type === 'IfStatement') { const condition = staticValue(node.test); if (condition.known) visit(condition.value ? node.consequent : node.alternate); else { visit(node.consequent); visit(node.alternate) }; return }
+      for (const [key, value] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(key)) {
+        if (Array.isArray(value)) for (const child of value) visit(child)
+        else if (value?.type) visit(value)
+      }
+    }
+    visit(body)
+    return values
+  }
+  const inspect = (node, resolving = new Set()) => {
+    node = unwrapScriptExpression(node)
+    if (!node) return false
+    if (node.type === 'Identifier') {
+      if (resolving.has(node.name)) return false
+      const next = new Set(resolving).add(node.name)
+      return bindings.has(node.name) ? inspect(bindings.get(node.name), next) : helpers.has(node.name) ? returns(helpers.get(node.name).body).some(value => inspect(value, next)) : false
+    }
+    if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(node.type)) return returns(node.body).some(value => inspect(value, resolving))
+    if (node.type === 'ConditionalExpression') { const value = staticValue(node.test); return value.known ? inspect(value.value ? node.consequent : node.alternate, resolving) : inspect(node.consequent, resolving) || inspect(node.alternate, resolving) }
+    if (node.type === 'LogicalExpression') { const left = staticValue(node.left); if (left.known) return inspect(node.left, resolving) || ((node.operator === '&&' ? Boolean(left.value) : node.operator === '||' ? !left.value : left.value == null) && inspect(node.right, resolving)); return inspect(node.left, resolving) || inspect(node.right, resolving) }
+    if (node.type === 'SequenceExpression') return inspect(node.expressions.at(-1), resolving)
+    if (node.type === 'ArrayExpression') return node.elements.some(value => inspect(value, resolving))
+    if (!['CallExpression', 'OptionalCallExpression'].includes(node.type)) return false
+    if (unwrapScriptExpression(node.callee)?.type === 'Identifier' && renderNames.has(node.callee.name)) {
+      if (unwrapScriptExpression(node.arguments[0])?.type === 'Identifier' && node.arguments[0].name === componentName) return true
+      return node.arguments.slice(1).some(argument => unwrapScriptExpression(argument)?.type !== 'ObjectExpression' && inspect(argument, resolving))
+    }
+    if (unwrapScriptExpression(node.callee)?.type === 'Identifier' && helpers.has(node.callee.name) && !resolving.has(node.callee.name)) return returns(helpers.get(node.callee.name).body).some(value => inspect(value, new Set(resolving).add(node.callee.name)))
+    return false
+  }
+  for (const statement of ast.program.body) {
+    if (statement.type !== 'ExportDefaultDeclaration') continue
+    let options = unwrapScriptExpression(statement.declaration)
+    if (['CallExpression', 'OptionalCallExpression'].includes(options?.type) && unwrapScriptExpression(options.callee)?.type === 'Identifier' && options.callee.name === 'defineComponent') options = unwrapScriptExpression(options.arguments[0])
+    if (options?.type !== 'ObjectExpression') continue
+    for (const property of options.properties.filter(candidate => ['setup', 'render'].includes(String(scriptPropertyName(candidate))))) {
+      const fn = property.type === 'ObjectMethod' ? property : unwrapScriptExpression(property.value)
+      if (returns(fn?.body).some(value => inspect(value))) return true
+    }
   }
   return false
-}
+})
 const splitTopLevel = (value, delimiter) => {
   const parts = []
   let start = 0
@@ -285,10 +401,29 @@ const representativeScreenWidths = rules => {
   for (let index = 1; index < thresholds.length; index += 1) add(thresholds[index - 1] + (thresholds[index] - thresholds[index - 1]) / 2)
   return [...widths].sort((left, right) => left - right)
 }
-const selectorSpecificity = selector => (selector.match(/#[\w-]+/g) || []).length * 100 + (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (selector.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
-const selectorTargetsClass = (selector, target) => selector.trim() === target
-const applicableRules = (rules, selector, width, reduced) => rules.filter(rule => rule.selectors.some(candidate => selectorTargetsClass(candidate, selector)) && mediaMatchesScreen(rule.media, width, reduced))
-const reducedRuleExists = (rules, selector, width) => applicableRules(rules, selector, width, true).some(rule => rule.media.some(condition => /prefers-reduced-motion\s*:\s*reduce/i.test(condition)))
+const selectorSpecificity = selector => {
+  let score = 0
+  let plain = ''
+  for (let cursor = 0; cursor < selector.length;) {
+    const match = /:([\w-]+)\s*\(/.exec(selector.slice(cursor))
+    if (!match) { plain += selector.slice(cursor); break }
+    const index = cursor + match.index
+    plain += selector.slice(cursor, index)
+    const open = selector.indexOf('(', index)
+    const body = balancedSlice(selector, open, '(', ')')
+    if (!body) { plain += selector.slice(index); break }
+    const name = match[1].toLowerCase()
+    if (name !== 'where') score += ['is', 'not', 'has'].includes(name) ? Math.max(0, ...splitTopLevel(body.content, ',').map(selectorSpecificity)) : 10
+    cursor = body.end
+  }
+  score += (plain.match(/#[\w-]+/g) || []).length * 100
+  score += (plain.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10
+  score += (plain.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
+  return score
+}
+const selectorTargetsClassExactly = (selector, target) => selector.trim() === target
+const applicableRules = (rules, selector, width, reduced) => rules.filter(rule => rule.selectors.some(candidate => selectorMayTarget(candidate, selector)) && mediaMatchesScreen(rule.media, width, reduced))
+const reducedRuleExists = (rules, selector, width) => rules.some(rule => rule.selectors.some(candidate => selectorTargetsClassExactly(candidate, selector)) && mediaMatchesScreen(rule.media, width, true) && rule.media.some(condition => /prefers-reduced-motion\s*:\s*reduce/i.test(condition)))
 const transitionTime = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:ms|s)$/i
 const transitionTiming = /^(?:ease|ease-in|ease-out|ease-in-out|linear|step-start|step-end|allow-discrete|normal|cubic-bezier\(.+\)|steps\(.+\)|linear\(.+\))$/i
 const parseTransitionShorthand = value => {
@@ -315,7 +450,7 @@ const effectiveProperties = (rules, selector, width, reduced) => {
     if (!previous || Number(candidate.important) > Number(previous.important) || (candidate.important === previous.important && (candidate.specificity > previous.specificity || (candidate.specificity === previous.specificity && candidate.order > previous.order)))) winners.set(candidate.property, candidate)
   }
   for (const rule of applicableRules(rules, selector, width, reduced)) {
-    const specificity = Math.max(...rule.selectors.filter(candidate => selectorTargetsClass(candidate, selector)).map(selectorSpecificity))
+    const specificity = Math.max(...rule.selectors.filter(candidate => selectorMayTarget(candidate, selector)).map(selectorSpecificity))
     for (const declaration of rule.declarations) {
       if (declaration.property === 'transition') {
         for (const [property, value] of Object.entries(parseTransitionShorthand(declaration.value))) apply({ ...declaration, property, value }, specificity)
@@ -380,17 +515,45 @@ const selectorSubjectAlternatives = selector => {
     if (depth !== 0) return [subject]
     const before = subject.slice(0, match.index)
     const after = subject.slice(cursor)
-    if (!['is', 'where'].includes(match[1].toLowerCase())) return expand(before + after)
+    if (!['is', 'where'].includes(match[1].toLowerCase())) return expand(before + after || '*')
     return splitTopLevel(subject.slice(open + 1, cursor - 1), ',').flatMap(branch => expand(`${before}${selectorSubject(branch)}${after}`))
   }
   return expand(selectorSubject(selector))
+}
+const functionalPseudoArguments = (subject, name) => {
+  const values = []
+  for (let cursor = 0; cursor < subject.length;) {
+    const match = /:([\w-]+)\s*\(/.exec(subject.slice(cursor))
+    if (!match) break
+    const index = cursor + match.index
+    const open = subject.indexOf('(', index)
+    const body = balancedSlice(subject, open, '(', ')')
+    if (!body) break
+    if (match[1].toLowerCase() === name) values.push(body.content)
+    cursor = body.end
+  }
+  return values
+}
+const selectorMayTarget = (selector, target) => {
+  const subject = selectorSubject(selector)
+  const targetClass = target.startsWith('.') ? target : `.${target}`
+  return selectorSubjectAlternatives(selector).some(alternative => {
+    const classes = [...alternative.matchAll(/\.[\w-]+/g)].map(match => match[0])
+    const tags = [...alternative.matchAll(/(?:^|[^\w.#:-])([a-z][\w-]*)/gi)].map(match => match[1])
+    const baseMatches = classes.includes(targetClass) || (classes.length === 0 && tags.length === 0)
+    if (!baseMatches) return false
+    return !functionalPseudoArguments(subject, 'not').flatMap(value => splitTopLevel(value, ',')).some(exclusion => {
+      const branch = selectorSubject(exclusion)
+      return /(?:^|[^\w-])\*(?:$|[^\w-])/.test(branch) || [...branch.matchAll(/\.[\w-]+/g)].some(match => match[0] === targetClass)
+    })
+  })
 }
 const assertEveryPhaseOpacityOnly = (rules, name, widths) => {
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const phaseClass = new RegExp(`\\.${escapedName}-(enter|leave)-(?:active|from|to)(?![\\w-])`, 'g')
   for (const rule of rules) {
     if (!widths.some(width => mediaMatchesScreen(rule.media, width, false) || mediaMatchesScreen(rule.media, width, true))) continue
-    const targets = rule.selectors.flatMap(selector => selectorSubjectAlternatives(selector).flatMap(subject => [...subject.matchAll(phaseClass)].map(match => ({ selector, direction: match[1], phase: match[0] }))))
+    const targets = rule.selectors.flatMap(selector => selectorSubjectAlternatives(selector).flatMap(subject => [...subject.matchAll(phaseClass)].filter(match => selectorMayTarget(selector, match[0])).map(match => ({ selector, direction: match[1], phase: match[0] }))))
     if (targets.length === 0) continue
     const label = targets.map(target => target.selector).join(', ')
     const properties = ruleProperties(rule)
@@ -416,6 +579,10 @@ const assertEveryPhaseOpacityOnly = (rules, name, widths) => {
 const assertOpacityTransition = (rules, selector, durationMs, widths) => {
   for (const width of widths) {
     const properties = effectiveProperties(rules, selector, width, false)
+    for (const [property, value] of properties) {
+      const allowed = property === 'opacity' || property.startsWith('transition-') || (property === 'will-change' && value.trim().toLowerCase() === 'opacity')
+      assert.equal(allowed, true, `${selector} effective rule must not declare ${property} at ${width}px`)
+    }
     assert.deepEqual(transitionValues(properties, 'transition-property', 'all'), ['opacity'], `${selector} must effectively animate opacity only at ${width}px`)
     const durations = transitionValues(properties, 'transition-duration', '0s').map(milliseconds)
     assert.deepEqual(durations, [durationMs], `${selector} effective duration must be ${durationMs}ms at ${width}px`)
@@ -451,7 +618,7 @@ test('shared route transition keys leaf views by fullPath and identity epoch', (
   assert.ok(identityName, 'rendered leaf :key must directly include identityEpoch or identityKey')
   assert.equal(keyComposesRouteIdentity(keyExpression, identityName, transition), true, 'rendered leaf :key must compose route.fullPath and identity epoch through a template, array, + chain, or verified helper')
   assert.equal(declaresComponentProp(transition, identityName), true, `${identityName} must be declared as a component prop`)
-  assert.doesNotMatch(transition, new RegExp(`\\b(?:const|let|var)\\s+${identityName}\\b`), `${identityName} must come from the declared prop`)
+  assert.equal(shadowsComponentProp(transition, identityName), false, `${identityName} must come from the declared prop rather than an unrelated binding`)
   const mainTransition = elements(mainLayout, 'RouteTransition')[0]
   assert.ok(mainTransition, 'console layout must render the shared route transition')
   const identityAttribute = identityName === 'identityKey' ? 'identity-key' : 'identity-epoch'
@@ -481,8 +648,8 @@ test('public and authenticated shells reuse the shared transition component', ()
   const publicLayout = read('../layouts/PublicLayout.vue')
   const authEntry = read('../bootstrap/AuthApp.vue')
   const mainLayout = read('../layouts/MainLayout.vue')
-  for (const [source, label] of [[publicLayout, 'public child outlet'], [authEntry, 'authenticated top-level outlet'], [mainLayout, 'console content outlet']]) assert.match(source, /@\/components\/shell\/RouteTransition\.vue/, `${label} imports the shared transition`)
-  assert.match(publicLayout, /h\(\s*RouteTransition\b/, 'public child outlet uses the shared transition in its render function')
+  for (const [source, label] of [[publicLayout, 'public child outlet'], [authEntry, 'authenticated top-level outlet'], [mainLayout, 'console content outlet']]) assert.equal(importsComponent(source, '@/components/shell/RouteTransition.vue'), true, `${label} imports the shared transition`)
+  assert.equal(renderFunctionUsesComponent(publicLayout, '@/components/shell/RouteTransition.vue'), true, 'public child outlet uses the shared transition in its reachable render function')
   assert.ok(elements(authEntry, 'RouteTransition').length > 0, 'authenticated entry renders the shared transition')
   assert.ok(elements(mainLayout, 'RouteTransition').length > 0, 'console content renders the shared transition')
 })

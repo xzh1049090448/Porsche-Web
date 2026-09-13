@@ -210,19 +210,20 @@ const renderNodesFromScripts = (descriptor, file) => {
       else if (pattern?.type === 'AssignmentPattern') bindDynamicPattern(pattern.left)
       else for (const child of pattern?.properties || pattern?.elements || []) bindDynamicPattern(child?.argument || child?.value || child)
     }
-    const bindPattern = (pattern, value, assignment = false) => {
+    const bindPattern = (pattern, value, assignment = false, replace = false) => {
       pattern = unwrapJavaScript(pattern)
       if (!pattern) return
       if (pattern.type === 'Identifier') {
-        if (assignment && (patternAssignments.has(pattern.name) || bindings.has(pattern.name))) reassigned.add(pattern.name)
+        if (assignment && !replace) reassigned.add(pattern.name)
         else {
           if (assignment) patternAssignments.add(pattern.name)
           bindings.set(pattern.name, value)
+          if (replace) reassigned.delete(pattern.name)
         }
         return
       }
       if (pattern.type === 'AssignmentPattern') {
-        bindPattern(pattern.left, { type: 'StaticDefaultReference', value, fallback: pattern.right, start: pattern.start, end: pattern.end }, assignment)
+        bindPattern(pattern.left, { type: 'StaticDefaultReference', value, fallback: pattern.right, start: pattern.start, end: pattern.end }, assignment, replace)
         return
       }
       if (pattern.type === 'ObjectPattern') {
@@ -230,7 +231,7 @@ const renderNodesFromScripts = (descriptor, file) => {
           if (property.type === 'RestElement') { bindDynamicPattern(property.argument); continue }
           const name = propertyName(property)
           if (name === undefined) bindDynamicPattern(property.value)
-          else bindPattern(property.value, memberBinding(value, name, property), assignment)
+          else bindPattern(property.value, memberBinding(value, name, property), assignment, replace)
         }
         return
       }
@@ -239,7 +240,7 @@ const renderNodesFromScripts = (descriptor, file) => {
           const element = pattern.elements[index]
           if (!element) continue
           if (element.type === 'RestElement') bindDynamicPattern(element.argument)
-          else bindPattern(element, memberBinding(value, index, element), assignment)
+          else bindPattern(element, memberBinding(value, index, element), assignment, replace)
         }
       }
     }
@@ -254,7 +255,7 @@ const renderNodesFromScripts = (descriptor, file) => {
     }
     walk(ast.program, node => {
       if (node.type === 'FunctionDeclaration' && node.id) helpers.set(node.id.name, node)
-      if (node.type === 'AssignmentExpression' && ['ObjectPattern', 'ArrayPattern'].includes(node.left?.type)) bindPattern(node.left, node.right, true)
+      if (node.type === 'AssignmentExpression' && ['ObjectPattern', 'ArrayPattern'].includes(node.left?.type)) bindPattern(node.left, node.right, true, assignmentIsUnconditional(node))
       else if (node.type === 'AssignmentExpression' && node.operator === '=' && node.left?.type === 'Identifier' && assignmentIsUnconditional(node)) {
         const assigned = unwrapJavaScript(node.right)
         const staticallyKnown = ['ArrowFunctionExpression', 'FunctionExpression', 'ObjectExpression', 'ArrayExpression'].includes(assigned?.type)
@@ -498,7 +499,8 @@ const renderNodesFromScripts = (descriptor, file) => {
       if (render) renderRootExpressions.push(...returnExpressions(render.body))
       const setup = optionFunction(options, 'setup')
       if (setup) for (const returned of returnExpressions(setup.body)) {
-        const resolved = dereference(returned, new Map())
+        const reference = staticReference(returned, new Map())
+        const resolved = reference.status === 'known' ? unwrapJavaScript(reference.value) : dereference(returned, new Map())
         const namedHelper = resolved?.type === 'Identifier' ? resolveHelper(resolved.name) : { status: 'missing' }
         const renderFunction = namedHelper.status === 'resolved' ? namedHelper.helper : resolved
         if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(renderFunction?.type)) renderRootExpressions.push(...returnExpressions(renderFunction.body))
@@ -771,11 +773,7 @@ const selectorTargetsTypography = (selector, evidence) => {
   const compounds = selectorCompounds(selector)
   const rightmost = compounds.at(-1) || ''
   if (functionalPseudoArguments(rightmost, new Set(['has'])).some(value => splitTopLevel(value, ',').some(branch => selectorTargetsTypography(branch, evidence)))) return true
-  if (compoundSubjectAlternatives(rightmost).some(alternative => {
-    const tokens = compoundTokens(alternative)
-    const identities = tokens.filter(token => /^[.#]/.test(token) || /^[a-z]/i.test(token))
-    return identities.length === 0 || identities.some(token => evidence.has(token.toLowerCase()))
-  })) return true
+  if ([...evidence].some(target => compoundMayTarget(rightmost, target))) return true
   return /(^|[^\w-])\*/.test(rightmost) && (compounds.length === 1 || compounds.slice(0, -1).some(compound => compoundSubjectAlternatives(compound).some(alternative => compoundTokens(alternative).some(token => evidence.has(token.toLowerCase())))))
 }
 const scopeHeaders = declaration => declaration.contexts.filter(context => !context.startsWith('@')).map(context => normalizeSelector(context))
@@ -955,58 +953,86 @@ const functionalPseudoArguments = (compound, names) => {
 }
 const compoundMayTarget = (candidate, target) => {
   const targetTokens = new Set(compoundTokens(target))
+  const targetIdentities = [...targetTokens].filter(token => !token.startsWith(':'))
   return compoundSubjectAlternatives(candidate).some(alternative => {
     const identities = compoundTokens(alternative).filter(token => token === '*' || !token.startsWith(':'))
-    const baseMatches = identities.length === 0 || identities.includes('*') || [...targetTokens].every(token => identities.includes(token))
+    const baseMatches = identities.length === 0 || identities.includes('*') || (targetIdentities.length > 0 && targetIdentities.every(token => identities.includes(token)))
     if (!baseMatches) return false
     const excluded = functionalPseudoArguments(candidate, new Set(['not'])).flatMap(value => splitTopLevel(value, ','))
     return !excluded.some(selector => compoundSubjectAlternatives(selectorCompounds(selector).at(-1) || '*').some(branch => {
       const tokens = compoundTokens(branch).filter(token => !token.startsWith(':'))
-      return tokens.includes('*') || (tokens.length > 0 && tokens.every(token => targetTokens.has(token)))
+      return /(?:^|[^\w-])\*(?:$|[^\w-])/.test(branch) || (tokens.length > 0 && tokens.every(token => targetTokens.has(token)))
     }))
   })
 }
 const selectorTargetsContract = (selector, target) => {
   const candidateCompounds = selectorCompounds(selector)
   const targetCompounds = selectorCompounds(target)
+  if (candidateCompounds.length === 1) return compoundMayTarget(candidateCompounds[0], targetCompounds.at(-1) || target)
   if (candidateCompounds.length < targetCompounds.length) return false
   const offset = candidateCompounds.length - targetCompounds.length
   return targetCompounds.every((compound, index) => compoundMayTarget(candidateCompounds[offset + index], compound))
 }
-const assertNoContextualOverrides = (stylesheet, selector, properties, message, widths) => {
-  for (const width of widths) for (const reduced of [false, true]) for (const rule of stylesheet) {
-    if (!mediaMatchesScreen(rule.media, width, reduced)) continue
-    const conflicting = rule.selectors.filter(candidate => normalizeSelector(candidate) !== normalizeSelector(selector) && selectorTargetsContract(candidate, selector))
-    const guarded = rule.declarations.filter(declaration => properties.includes(declaration.property))
-    assert.ok(conflicting.length === 0 || guarded.length === 0, `${message} at ${width}px: contextual selector ${conflicting.join(', ')} writes ${guarded.map(declaration => declaration.property).join(', ')}`)
-  }
-}
 const fontSizeFromShorthand = value => value.match(/(?:^|\s)(var\([^)]*\)|(?:\d*\.)?\d+(?:px|rem|em|%|vw|vh)|xx-small|x-small|small|medium|large|x-large|xx-large|smaller|larger)(?:\s*\/|\s|$)/i)?.[1] || value
-const effectiveValue = (stylesheet, selector, property, width, reduced) => {
+const selectorSpecificity = selector => {
+  let score = 0
+  let plain = ''
+  for (let cursor = 0; cursor < selector.length;) {
+    const match = /:([\w-]+)\s*\(/.exec(selector.slice(cursor))
+    if (!match) { plain += selector.slice(cursor); break }
+    const index = cursor + match.index
+    plain += selector.slice(cursor, index)
+    const open = selector.indexOf('(', index)
+    let end = open + 1
+    let depth = 1
+    for (; end < selector.length && depth > 0; end += 1) { if (selector[end] === '(') depth += 1; else if (selector[end] === ')') depth -= 1 }
+    if (depth !== 0) { plain += selector.slice(index); break }
+    const name = match[1].toLowerCase()
+    if (name !== 'where') score += ['is', 'not', 'has'].includes(name) ? Math.max(0, ...splitTopLevel(selector.slice(open + 1, end - 1), ',').map(selectorSpecificity)) : 10
+    cursor = end
+  }
+  return score + (plain.match(/#[\w-]+/g) || []).length * 100 + (plain.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (plain.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
+}
+const effectiveValue = (stylesheet, selector, property, width, reduced, exactOnly = false) => {
   let winner
-  const apply = declaration => {
-    if (!winner || Number(declaration.important) > Number(winner.important) || (declaration.important === winner.important && declaration.order > winner.order)) winner = declaration
+  const apply = (declaration, specificity) => {
+    const candidate = { ...declaration, specificity }
+    if (!winner || Number(candidate.important) > Number(winner.important) || (candidate.important === winner.important && (candidate.specificity > winner.specificity || (candidate.specificity === winner.specificity && candidate.order > winner.order)))) winner = candidate
   }
   for (const rule of stylesheet) {
-    if (!rule.selectors.some(candidate => normalizeSelector(candidate) === normalizeSelector(selector)) || !mediaMatchesScreen(rule.media, width, reduced)) continue
+    const matching = rule.selectors.filter(candidate => exactOnly ? normalizeSelector(candidate) === normalizeSelector(selector) : selectorTargetsContract(candidate, selector))
+    if (!matching.length || !mediaMatchesScreen(rule.media, width, reduced)) continue
+    const specificity = Math.max(...matching.map(selectorSpecificity))
     for (const declaration of rule.declarations) {
-      if (declaration.property === property) apply(declaration)
-      else if (property === 'font-size' && declaration.property === 'font') apply({ ...declaration, property, value: fontSizeFromShorthand(declaration.value) })
+      if (declaration.property === property) apply(declaration, specificity)
+      else if (property === 'font-size' && declaration.property === 'font') apply({ ...declaration, property, value: fontSizeFromShorthand(declaration.value) }, specificity)
     }
   }
   return winner?.value.trim()
 }
 const assertMapping = (stylesheet, selector, property, expected, message, widths = allScreenWidths) => {
-  assertNoContextualOverrides(stylesheet, selector, property === 'font-size' ? ['font', 'font-size'] : [property], message, widths)
-  for (const width of widths) for (const reduced of [false, true]) assert.equal(effectiveValue(stylesheet, selector, property, width, reduced), expected, `${message} at ${width}px with reduced motion ${reduced}`)
+  for (const width of widths) for (const reduced of [false, true]) {
+    assert.equal(effectiveValue(stylesheet, selector, property, width, reduced, true), expected, `${message} must be owned by ${selector} at ${width}px with reduced motion ${reduced}`)
+    assert.equal(effectiveValue(stylesheet, selector, property, width, reduced), expected, `${message} must remain effective at ${width}px with reduced motion ${reduced}`)
+  }
 }
 const assertMinimumControl = (stylesheet, selector, property, message, widths = allScreenWidths) => {
-  assertNoContextualOverrides(stylesheet, selector, property === 'min-height' ? ['height', 'min-height'] : ['min-width', 'width'], message, widths)
+  const axis = property.endsWith('height') ? 'height' : 'width'
+  const pixels = value => value === 'var(--control-min-size)' ? 44 : Number(value?.match(/^(\d+(?:\.\d+)?)px$/)?.[1])
   for (const width of widths) {
     for (const reduced of [false, true]) {
-      const value = effectiveValue(stylesheet, selector, property, width, reduced)
-      const pixels = value === 'var(--control-min-size)' ? 44 : Number(value?.match(/^(\d+(?:\.\d+)?)px$/)?.[1])
-      assert.ok(Number.isFinite(pixels) && pixels >= 44, `${message} at ${width}px with reduced motion ${reduced}; found ${JSON.stringify(value)}`)
+      for (const exactOnly of [true, false]) {
+        const minimumValue = effectiveValue(stylesheet, selector, `min-${axis}`, width, reduced, exactOnly)
+        const preferredValue = effectiveValue(stylesheet, selector, axis, width, reduced, exactOnly)
+        const maximumValue = effectiveValue(stylesheet, selector, `max-${axis}`, width, reduced, exactOnly)
+        const minimum = pixels(minimumValue)
+        const preferred = pixels(preferredValue)
+        const maximum = maximumValue === 'none' ? Number.POSITIVE_INFINITY : pixels(maximumValue)
+        let effective = Number.NaN
+        if (Number.isFinite(minimum)) effective = Number.isFinite(preferred) ? Math.max(minimum, Number.isFinite(maximum) ? Math.min(preferred, maximum) : preferred) : minimum
+        else if (Number.isFinite(preferred)) effective = Number.isFinite(maximum) ? Math.min(preferred, maximum) : preferred
+        assert.ok(Number.isFinite(effective) && effective >= 44, `${message} ${exactOnly ? 'stable selector' : 'effective cascade'} at ${width}px with reduced motion ${reduced}; found min=${JSON.stringify(minimumValue)}, ${axis}=${JSON.stringify(preferredValue)}, max=${JSON.stringify(maximumValue)}`)
+      }
     }
   }
 }

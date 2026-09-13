@@ -1004,14 +1004,15 @@ const functionalPseudoArguments = (compound, names) => {
 }
 const compoundMayTarget = (candidate, target) => {
   const targetTokens = new Set(compoundTokens(target))
+  const targetIdentities = [...targetTokens].filter(token => !token.startsWith(':'))
   return compoundSubjectAlternatives(candidate).some(alternative => {
     const identities = compoundTokens(alternative).filter(token => token === '*' || !token.startsWith(':'))
-    const baseMatches = identities.length === 0 || identities.includes('*') || [...targetTokens].every(token => identities.includes(token))
+    const baseMatches = identities.length === 0 || identities.includes('*') || (targetIdentities.length > 0 && targetIdentities.every(token => identities.includes(token)))
     if (!baseMatches) return false
     const excluded = functionalPseudoArguments(candidate, new Set(['not'])).flatMap(value => splitCssTopLevel(value, ','))
     return !excluded.some(selector => compoundSubjectAlternatives(selectorCompounds(selector).at(-1) || '*').some(branch => {
       const tokens = compoundTokens(branch).filter(token => !token.startsWith(':'))
-      return tokens.includes('*') || (tokens.length > 0 && tokens.every(token => targetTokens.has(token)))
+      return /(?:^|[^\w-])\*(?:$|[^\w-])/.test(branch) || (tokens.length > 0 && tokens.every(token => targetTokens.has(token)))
     }))
   })
 }
@@ -1022,21 +1023,32 @@ const selectorTargetsContract = (selector, target) => {
   const offset = candidateCompounds.length - targetCompounds.length
   return targetCompounds.every((compound, index) => compoundMayTarget(candidateCompounds[offset + index], compound))
 }
-const assertNoContextualOverrides = (rules, selector, properties, widths) => {
-  for (const width of widths) for (const rule of rules) {
-    if (!mediaMatchesScreen(rule.media, width)) continue
-    const conflicting = rule.selectors.filter(candidate => normalizeSelector(candidate) !== normalizeSelector(selector) && selectorTargetsContract(candidate, selector))
-    const guarded = rule.declarations.filter(declaration => properties.includes(declaration.property))
-    assert.ok(conflicting.length === 0 || guarded.length === 0, `${selector} presentation conflicts with ${conflicting.join(', ')} at ${width}px through ${guarded.map(declaration => declaration.property).join(', ')}`)
+const rootSelectorSpecificity = selector => {
+  let score = 0
+  let plain = ''
+  for (let cursor = 0; cursor < selector.length;) {
+    const match = /:([\w-]+)\s*\(/.exec(selector.slice(cursor))
+    if (!match) { plain += selector.slice(cursor); break }
+    const index = cursor + match.index
+    plain += selector.slice(cursor, index)
+    const open = selector.indexOf('(', index)
+    let end = open + 1
+    let depth = 1
+    for (; end < selector.length && depth > 0; end += 1) { if (selector[end] === '(') depth += 1; else if (selector[end] === ')') depth -= 1 }
+    if (depth !== 0) { plain += selector.slice(index); break }
+    const name = match[1].toLowerCase()
+    if (name !== 'where') score += ['is', 'not', 'has'].includes(name) ? Math.max(0, ...splitCssTopLevel(selector.slice(open + 1, end - 1), ',').map(rootSelectorSpecificity)) : 10
+    cursor = end
   }
+  return score + (plain.match(/#[\w-]+/g) || []).length * 100 + (plain.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (plain.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
 }
-const rootSelectorSpecificity = selector => (selector.match(/#[\w-]+/g) || []).length * 100 + (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (selector.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
-const effectiveSelectorProperties = (rules, selector, width, guarded) => {
-  assertNoContextualOverrides(rules, selector, guarded, [width])
+const effectiveSelectorProperties = (rules, selector, width, exactOnly = false) => {
   const winners = new Map()
   for (const rule of rules) {
     if (!mediaMatchesScreen(rule.media, width)) continue
-    const matching = rule.selectors.filter(candidate => normalizeSelector(candidate) === normalizeSelector(selector))
+    const matching = rule.selectors.filter(candidate => exactOnly
+      ? normalizeSelector(candidate) === normalizeSelector(selector)
+      : selectorTargetsContract(candidate, selector))
     if (!matching.length) continue
     const specificity = Math.max(...matching.map(rootSelectorSpecificity))
     for (const declaration of rule.declarations) {
@@ -1048,24 +1060,39 @@ const effectiveSelectorProperties = (rules, selector, width, guarded) => {
   return new Map([...winners].map(([property, declaration]) => [property, normalizeCssValue(declaration.value).toLowerCase()]))
 }
 const effectiveRootProperties = (rules, targetClass, width) => {
-  const guarded = ['display', 'visibility', 'opacity', 'min-height', 'min-width']
-  if (targetClass === 'pricing-filter-toggle') guarded.push('height')
-  return effectiveSelectorProperties(rules, `.${targetClass}`, width, guarded)
+  const properties = effectiveSelectorProperties(rules, `.${targetClass}`, width)
+  const ancestors = {
+    'pricing-table': ['.pricing-table-wrap', '.pricing-results', '.pricing-layout', '.pricing-page'],
+    'pricing-cards': ['.pricing-results', '.pricing-layout', '.pricing-page'],
+    'pricing-filter-toggle': ['.pricing-toolbar', '.pricing-page'],
+    'pricing-drawer': ['.pricing-drawer-backdrop', '.pricing-page'],
+  }[targetClass] || []
+  const hidden = value => value.get('display') === 'none' || ['hidden', 'collapse'].includes(value.get('visibility')) || /^(?:0(?:\.0+)?|\.0+)$/.test(value.get('opacity') || '')
+  if (ancestors.some(ancestor => hidden(effectiveSelectorProperties(rules, ancestor, width)))) return new Map(properties).set('display', 'none')
+  const relationalAncestors = new Set(rules.flatMap(rule => rule.selectors.filter(selector => functionalPseudoArguments(selectorCompounds(selector).at(-1) || '', new Set(['has']))
+    .flatMap(value => splitCssTopLevel(value, ','))
+    .some(argument => selectorTargetsContract(argument, `.${targetClass}`)))))
+  if ([...relationalAncestors].some(selector => hidden(effectiveSelectorProperties(rules, selector, width, true)))) return new Map(properties).set('display', 'none')
+  return properties
 }
 const rootIsHidden = properties => properties.get('display') === 'none' || ['hidden', 'collapse'].includes(properties.get('visibility')) || /^(?:0(?:\.0+)?|\.0+)$/.test(properties.get('opacity') || '')
 const assertProperty = (root, selector, property, expected, message, context = 'base') => {
   const actual = propertyMap(exactRules(root, selector, context)).get(property) || []
   assert.ok(actual.includes(expected), `${message}; found ${JSON.stringify(actual)}`)
 }
-const controlValueIsAtLeast44 = value => value === 'var(--control-min-size)' || (/^\d+(?:\.\d+)?px$/.test(value) && Number.parseFloat(value) >= 44)
 const assertControlSize = (root, selector, properties, widths) => {
-  const guarded = new Set(properties)
-  if (properties.includes('min-height')) guarded.add('height')
-  if (properties.includes('min-width')) guarded.add('width')
-  for (const width of widths) for (const property of properties) {
-    const value = effectiveSelectorProperties(root, selector, width, [...guarded]).get(property)
-    assert.ok(value, `${selector} must effectively declare ${property} at ${width}px`)
-    assert.equal(controlValueIsAtLeast44(value), true, `${selector} ${property} must stay at least 44px at ${width}px; found ${JSON.stringify(value)}`)
+  for (const width of widths) for (const property of properties) for (const exactOnly of [true, false]) {
+    const axis = property.endsWith('height') ? 'height' : 'width'
+    const values = effectiveSelectorProperties(root, selector, width, exactOnly)
+    const pixels = value => value === 'var(--control-min-size)' ? 44 : /^\d+(?:\.\d+)?px$/.test(value || '') ? Number.parseFloat(value) : Number.NaN
+    const minimum = pixels(values.get(`min-${axis}`))
+    const preferred = pixels(values.get(axis))
+    const maximum = values.get(`max-${axis}`) === 'none' ? Number.POSITIVE_INFINITY : pixels(values.get(`max-${axis}`))
+    const effective = Number.isFinite(minimum)
+      ? (Number.isFinite(preferred) ? Math.max(minimum, Number.isFinite(maximum) ? Math.min(preferred, maximum) : preferred) : minimum)
+      : (Number.isFinite(preferred) ? (Number.isFinite(maximum) ? Math.min(preferred, maximum) : preferred) : Number.NaN)
+    const scope = exactOnly ? 'stable selector' : 'effective cascade'
+    assert.ok(Number.isFinite(effective) && effective >= 44, `${selector} ${axis} must stay at least 44px at ${width}px in its ${scope}; found min=${JSON.stringify(values.get(`min-${axis}`))}, ${axis}=${JSON.stringify(values.get(axis))}, max=${JSON.stringify(values.get(`max-${axis}`))}`)
   }
 }
 const numericPerRequestOffer = /(?:(?:每(?:次)?请求|每请求|单次(?:请求|调用)|per[-\s]?request)[^.!。；;\n]{0,40}(?:[$¥￥]\s*\d|\d+(?:\.\d+)?\s*(?:USD|CNY|元|美元))|(?:[$¥￥]\s*\d|\d+(?:\.\d+)?\s*(?:USD|CNY|元|美元))[^.!。；;\n]{0,24}(?:每(?:次)?请求|每请求|单次(?:请求|调用)|per[-\s]?request)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request)/i
