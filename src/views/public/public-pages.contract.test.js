@@ -128,15 +128,56 @@ const staticBindingInitializers = value => {
     let ast
     try { ast = vueCompiler.babelParse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
     catch (error) { throw new Error(`public Vue script must parse cleanly: ${error.message}`, { cause: error }) }
-    for (const statement of ast.program.body) {
-      const node = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement
-      if (node?.type === 'FunctionDeclaration' && node.id) bindings.set(node.id.name, [node])
-      if (node?.type === 'VariableDeclaration' && node.kind === 'const') for (const declaration of node.declarations) {
-        if (declaration.id.type !== 'Identifier' || !declaration.init) continue
-        if (!bindings.has(declaration.id.name)) bindings.set(declaration.id.name, [])
-        bindings.get(declaration.id.name).push(declaration.init)
+    const member = (object, key) => ({ type: 'MemberExpression', object, property: { type: 'StringLiteral', value: String(key) }, computed: true })
+    const selected = (expression, key) => {
+      expression = unwrapExpression(expression)
+      if (expression?.type === 'ArrayExpression' && /^\d+$/.test(String(key))) return expression.elements[Number(key)]
+      if (expression?.type === 'ObjectExpression') for (let index = expression.properties.length - 1; index >= 0; index -= 1) {
+        const property = expression.properties[index]
+        if (property.type === 'SpreadElement') break
+        const propertyKey = property.computed ? staticPropertyKey(property.key) : staticPropertyKey(property.key)
+        if (propertyKey === String(key)) return propertyExpression(property)
+      }
+      return member(expression, key)
+    }
+    const bindPattern = (pattern, expression, target) => {
+      pattern = unwrapExpression(pattern)
+      if (pattern?.type === 'Identifier') { target.set(pattern.name, expression ? [expression] : []); return }
+      if (pattern?.type === 'AssignmentPattern') { bindPattern(pattern.left, expression || pattern.right, target); return }
+      if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bindPattern(property.value, selected(expression, staticPropertyKey(property.key)), target)
+      if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bindPattern(pattern.elements[index], selected(expression, index), target)
+    }
+    const applyExpression = (expression, target) => {
+      expression = unwrapExpression(expression)
+      if (expression?.type === 'AssignmentExpression' && expression.operator === '=') bindPattern(expression.left, expression.right, target)
+      if (expression?.type === 'SequenceExpression') for (const item of expression.expressions) applyExpression(item, target)
+    }
+    const merge = (left, right) => {
+      const merged = new Map()
+      for (const name of new Set([...left.keys(), ...right.keys()])) merged.set(name, [...new Set([...(left.get(name) || []), ...(right.get(name) || [])])])
+      return merged
+    }
+    const process = (statements, target) => {
+      for (const raw of statements || []) {
+        const node = raw?.type === 'ExportNamedDeclaration' ? raw.declaration : raw
+        if (!node) continue
+        if (node.type === 'FunctionDeclaration' && node.id) target.set(node.id.name, [node])
+        else if (node.type === 'VariableDeclaration') for (const declaration of node.declarations) bindPattern(declaration.id, declaration.init, target)
+        else if (node.type === 'ExpressionStatement') applyExpression(node.expression, target)
+        else if (node.type === 'BlockStatement') process(node.body, target)
+        else if (node.type === 'IfStatement') {
+          const condition = staticValue(node.test)
+          if (condition !== unknownStaticValue) process((condition ? node.consequent : node.alternate)?.type === 'BlockStatement' ? (condition ? node.consequent : node.alternate).body : [condition ? node.consequent : node.alternate], target)
+          else {
+            const left = new Map(target); const right = new Map(target)
+            process(node.consequent?.type === 'BlockStatement' ? node.consequent.body : [node.consequent], left)
+            process(node.alternate?.type === 'BlockStatement' ? node.alternate.body : [node.alternate], right)
+            target.clear(); for (const [name, values] of merge(left, right)) target.set(name, values)
+          }
+        }
       }
     }
+    process(ast.program.body, bindings)
   }
   return bindings
 }
@@ -668,8 +709,8 @@ test('public content pages compose the approved safe landing system', () => {
 
   assertNoTailwindLoading(publicStyleSources, vueSources)
 
-  assert.match(home, /<HeroPreview/)
-  assert.equal((home.match(/<PublicSection/g) || []).length, 3)
+  assert.equal(elements(home, 'HeroPreview').length, 1, 'the rendered home tree contains its hero preview')
+  assert.equal(elements(home, 'PublicSection').length, 3, 'the rendered home tree contains the three approved public sections')
   assert.match(hero, /aria-hidden="true"/)
   assert.match(hero, /capability-preview/)
   assert.doesNotMatch(hero, /v-html|api[_-]?key|token|user(?:name)?|chat/i)

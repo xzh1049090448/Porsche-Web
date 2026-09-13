@@ -376,7 +376,24 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (!['CallExpression', 'OptionalCallExpression'].includes(node.type)) return false
     if (unwrapScriptExpression(node.callee)?.type === 'Identifier' && renderNames.has(node.callee.name)) {
       if (isComponentReference(node.arguments[0])) return true
-      return node.arguments.slice(1).some(argument => unwrapScriptExpression(argument)?.type !== 'ObjectExpression' && inspect(argument, resolving))
+      let vnodeType = unwrapScriptExpression(node.arguments[0])
+      if (vnodeType?.type === 'Identifier' && bindings.has(vnodeType.name)) vnodeType = unwrapScriptExpression(bindings.get(vnodeType.name))
+      const componentVNode = vnodeType?.type !== 'StringLiteral'
+      const children = node.arguments.length >= 3 ? node.arguments.slice(2) : node.arguments.slice(1)
+      const inspectRenderedChild = child => {
+        child = unwrapScriptExpression(child)
+        if (!child) return false
+        if (child.type === 'ArrayExpression') return child.elements.some(inspectRenderedChild)
+        if (['ArrowFunctionExpression', 'FunctionExpression'].includes(child.type)) return componentVNode && returns(child.body).some(value => inspect(value, resolving))
+        if (child.type === 'ObjectExpression') {
+          if (!componentVNode) return false
+          return child.properties.some(property => property.type === 'SpreadElement'
+            ? inspect(property.argument, resolving)
+            : inspect(property.type === 'ObjectMethod' ? property : property.value, resolving))
+        }
+        return inspect(child, resolving)
+      }
+      return children.some(inspectRenderedChild)
     }
     if (unwrapScriptExpression(node.callee)?.type === 'Identifier' && helpers.has(node.callee.name) && !resolving.has(node.callee.name)) return returns(helpers.get(node.callee.name).body).some(value => inspect(value, new Set(resolving).add(node.callee.name)))
     return false
@@ -652,18 +669,28 @@ const functionalPseudoArguments = (subject, name) => {
   return values
 }
 const selectorMayTarget = (selector, target) => {
-  const subject = selectorSubject(selector)
   const targetClass = target.startsWith('.') ? target : `.${target}`
-  return selectorSubjectAlternatives(selector).some(alternative => {
-    const classes = [...alternative.matchAll(/\.[\w-]+/g)].map(match => match[0])
-    const tags = [...alternative.matchAll(/(?:^|[^\w.#:-])([a-z][\w-]*)/gi)].map(match => match[1])
-    const baseMatches = classes.includes(targetClass) || (classes.length === 0 && tags.length === 0)
-    if (!baseMatches) return false
-    return !functionalPseudoArguments(subject, 'not').flatMap(value => splitTopLevel(value, ',')).some(exclusion => {
-      const branch = selectorSubject(exclusion)
-      return /(?:^|[^\w-])\*(?:$|[^\w-])/.test(branch) || [...branch.matchAll(/\.[\w-]+/g)].some(match => match[0] === targetClass)
-    })
-  })
+  const matches = subject => {
+    const match = /:([\w-]+)\s*\(/.exec(subject)
+    if (match) {
+      const open = subject.indexOf('(', match.index)
+      const body = balancedSlice(subject, open, '(', ')')
+      if (body) {
+        const before = subject.slice(0, match.index)
+        const after = subject.slice(body.end)
+        const base = `${before}${after}` || '*'
+        const branches = splitTopLevel(body.content, ',')
+        const name = match[1].toLowerCase()
+        if (['is', 'where'].includes(name)) return branches.some(branch => matches(`${before}${selectorSubject(branch)}${after}`))
+        if (name === 'not') return matches(base) && branches.every(branch => !matches(selectorSubject(branch)))
+        return matches(base)
+      }
+    }
+    const classes = [...subject.matchAll(/\.[\w-]+/g)].map(value => value[0])
+    const tags = [...subject.matchAll(/(?:^|[^\w.#:-])([a-z][\w-]*)/gi)].map(value => value[1])
+    return classes.includes(targetClass) || (classes.length === 0 && tags.length === 0)
+  }
+  return matches(selectorSubject(selector))
 }
 const assertEveryPhaseOpacityOnly = (rules, name, widths) => {
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

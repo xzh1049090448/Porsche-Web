@@ -818,10 +818,9 @@ const effectiveStyleSelectors = contexts => contexts.filter(context => !context.
   return parents.flatMap(parent => children.map(child => child.includes('&') ? child.replaceAll('&', parent) : parent ? `${parent} ${child}` : child))
 }, ['']).map(selector => normalizeSelector(selector))
 const selectorTargetsTypography = (selector, evidence) => {
-  const compounds = selectorCompounds(selector)
-  const rightmost = compounds.at(-1) || ''
+  const rightmost = selectorCompounds(selector).at(-1) || ''
   if (functionalPseudoArguments(rightmost, new Set(['has'])).length) return relationalTypographySelectorMatches(selector, evidence)
-  return [...evidence].some(target => compoundMayTarget(rightmost, target) && selectorLeadingCompoundsAreKnown(compounds.slice(0, -1), evidence, target))
+  return [...evidence].some(target => (evidence.ancestorPaths?.get(target) || []).some(path => structureMatchesKnownPath(selectorStructure(selector), [...path, new Set([target])])))
 }
 const scopeHeaders = declaration => declaration.contexts.filter(context => !context.startsWith('@')).map(context => normalizeSelector(context))
 const scopeContains = (outer, inner) => outer.length <= inner.length && outer.every((value, index) => value === inner[index])
@@ -925,32 +924,44 @@ const representativeScreenWidths = (...stylesheets) => {
   return [...widths].sort((left, right) => left - right)
 }
 const allScreenWidths = representativeScreenWidths(...surfaces)
-const selectorCompounds = selector => {
+const selectorStructure = selector => {
   const compounds = []
-  let start = 0
+  const combinators = []
+  let buffer = ''
+  let pending
+  let leading
   let quote = ''
   let escaped = false
   let depth = 0
-  const push = end => {
-    const value = selector.slice(start, end).trim()
-    if (value) compounds.push(value)
+  const push = () => {
+    const value = buffer.trim()
+    if (!value) return
+    if (compounds.length) combinators.push(pending || ' ')
+    else if (pending) leading = pending
+    compounds.push(value)
+    buffer = ''
+    pending = undefined
   }
   for (let index = 0; index < selector.length; index += 1) {
     const character = selector[index]
-    if (escaped) { escaped = false; continue }
+    if (escaped) { escaped = false; buffer += character; continue }
     if (quote) {
       if (character === '\\') escaped = true
       else if (character === quote) quote = ''
+      buffer += character
       continue
     }
-    if (character === '"' || character === "'") quote = character
-    else if (character === '(' || character === '[') depth += 1
-    else if (character === ')' || character === ']') depth -= 1
-    else if (depth === 0 && (/\s/.test(character) || /[>+~]/.test(character))) { push(index); start = index + 1 }
+    if (character === '"' || character === "'") { quote = character; buffer += character }
+    else if (character === '(' || character === '[') { depth += 1; buffer += character }
+    else if (character === ')' || character === ']') { depth -= 1; buffer += character }
+    else if (depth === 0 && /\s/.test(character)) { push(); if (compounds.length && pending !== '>') pending = pending || ' ' }
+    else if (depth === 0 && /[>+~]/.test(character)) { push(); pending = character }
+    else buffer += character
   }
-  push(selector.length)
-  return compounds
+  push()
+  return { compounds, combinators, leading }
 }
+const selectorCompounds = selector => selectorStructure(selector).compounds
 const compoundTokens = compound => [...compound.matchAll(/[.#:][\w-]+|\[[^\]]+\]|(?:^|(?<=[^\w.#:-]))[a-z][\w-]*/gi)].map(match => match[0])
 const compoundSubjectAlternatives = compound => {
   const expand = subject => {
@@ -1001,26 +1012,48 @@ const functionalPseudoArguments = (compound, names) => {
 const compoundMayTarget = (candidate, target) => {
   const targetTokens = new Set(compoundTokens(target))
   const targetIdentities = [...targetTokens].filter(token => !token.startsWith(':'))
-  return compoundSubjectAlternatives(candidate).some(alternative => {
-    const identities = compoundTokens(alternative).filter(token => token === '*' || !token.startsWith(':'))
+  const matches = subject => {
+    const match = /:([\w-]+)\s*\(/.exec(subject)
+    if (match) {
+      const open = subject.indexOf('(', match.index)
+      let cursor = open + 1; let depth = 1; let quote = ''
+      for (; cursor < subject.length && depth > 0; cursor += 1) {
+        const character = subject[cursor]
+        if (quote) { if (character === quote && subject[cursor - 1] !== '\\') quote = '' }
+        else if (character === '"' || character === "'") quote = character
+        else if (character === '(') depth += 1
+        else if (character === ')') depth -= 1
+      }
+      if (depth === 0) {
+        const base = `${subject.slice(0, match.index)}${subject.slice(cursor)}` || '*'
+        const branches = splitTopLevel(subject.slice(open + 1, cursor - 1), ',')
+        const name = match[1].toLowerCase()
+        if (['is', 'where'].includes(name)) return branches.some(branch => matches(`${subject.slice(0, match.index)}${selectorCompounds(branch).at(-1) || '*'}${subject.slice(cursor)}`))
+        if (name === 'not') return matches(base) && branches.every(branch => !matches(selectorCompounds(branch).at(-1) || '*'))
+        return matches(base)
+      }
+    }
+    const identities = compoundTokens(subject).filter(token => token === '*' || !token.startsWith(':'))
     const baseMatches = identities.length === 0 || identities.includes('*') || (targetIdentities.length > 0 && targetIdentities.every(token => identities.includes(token)))
-    if (!baseMatches) return false
-    const excluded = functionalPseudoArguments(candidate, new Set(['not'])).flatMap(value => splitTopLevel(value, ','))
-    return !excluded.some(selector => compoundSubjectAlternatives(selectorCompounds(selector).at(-1) || '*').some(branch => {
-      const tokens = compoundTokens(branch).filter(token => !token.startsWith(':'))
-      return /(?:^|[^\w-])\*(?:$|[^\w-])/.test(branch) || (tokens.length > 0 && tokens.every(token => targetTokens.has(token)))
-    }))
-  })
-}
-const compoundsMatchKnownPath = (compounds, path) => {
-  let cursor = 0
-  for (const compound of compounds) {
-    while (cursor < path.length && ![...path[cursor]].some(identity => compoundMayTarget(compound, identity))) cursor += 1
-    if (cursor >= path.length) return false
-    cursor += 1
+    return baseMatches
   }
-  return true
+  return matches(candidate)
 }
+const structureMatchesKnownPath = (structure, path) => {
+  const { compounds, combinators, leading } = structure
+  if (!compounds.length || !path.length || ['+', '~'].some(value => combinators.includes(value) || leading === value)) return false
+  const matchesGroup = (compound, group) => [...group].some(identity => compoundMayTarget(compound, identity))
+  const matchFrom = (compoundIndex, pathIndex) => {
+    if (pathIndex < 0 || !matchesGroup(compounds[compoundIndex], path[pathIndex])) return false
+    if (compoundIndex === 0) return leading !== '>' || pathIndex === 0
+    const relation = combinators[compoundIndex - 1] || ' '
+    if (relation === '>') return matchFrom(compoundIndex - 1, pathIndex - 1)
+    for (let candidate = pathIndex - 1; candidate >= 0; candidate -= 1) if (matchFrom(compoundIndex - 1, candidate)) return true
+    return false
+  }
+  return matchFrom(compounds.length - 1, path.length - 1)
+}
+const compoundsMatchKnownPath = (compounds, path) => structureMatchesKnownPath({ compounds, combinators: compounds.slice(1).map(() => ' ') }, path)
 const selectorLeadingCompoundsAreKnown = (compounds, evidence, target) => {
   if (compounds.length === 0) return true
   const paths = target ? evidence.ancestorPaths?.get(target.toLowerCase()) : undefined
@@ -1028,37 +1061,36 @@ const selectorLeadingCompoundsAreKnown = (compounds, evidence, target) => {
   return candidates.some(path => compoundsMatchKnownPath(compounds, path))
 }
 const relationalTypographySelectorMatches = (selector, evidence) => {
-  const compounds = selectorCompounds(selector)
-  const subject = compounds.at(-1) || ''
+  const structure = selectorStructure(selector)
+  const subject = structure.compounds.at(-1) || ''
   const argumentsByPseudo = functionalPseudoArguments(subject, new Set(['has'])).map(value => splitTopLevel(value, ','))
   const subjectCandidates = [...evidence].filter(identity => compoundMayTarget(subject, identity))
   return subjectCandidates.some(identity => (evidence.ancestorPaths?.get(identity) || []).some(subjectPath => {
-    if (!selectorLeadingCompoundsAreKnown(compounds.slice(0, -1), evidence, identity)) return false
+    if (!structureMatchesKnownPath(structure, [...subjectPath, new Set([identity])])) return false
     return argumentsByPseudo.every(branches => branches.some(branch => {
-      const branchCompounds = selectorCompounds(branch)
-      const branchTarget = branchCompounds.at(-1) || ''
+      const branchStructure = selectorStructure(branch)
+      const branchTarget = branchStructure.compounds.at(-1) || ''
       return [...evidence].some(descendant => compoundMayTarget(branchTarget, descendant) && (evidence.ancestorPaths?.get(descendant) || []).some(descendantPath => {
         for (let subjectIndex = 0; subjectIndex < descendantPath.length; subjectIndex += 1) {
           if (!descendantPath[subjectIndex].has(identity)) continue
           const relativePath = [...descendantPath.slice(subjectIndex + 1), new Set([descendant])]
-          if (compoundsMatchKnownPath(branchCompounds, relativePath)) return true
+          if (structureMatchesKnownPath(branchStructure, relativePath)) return true
         }
         return false
       }))
     }))
   }))
 }
-const selectorTargetsContract = (selector, target, evidence) => {
-  const candidateCompounds = selectorCompounds(selector)
-  const targetCompounds = selectorCompounds(target)
-  if (candidateCompounds.length === 1) return compoundMayTarget(candidateCompounds[0], targetCompounds.at(-1) || target)
-  if (candidateCompounds.length < targetCompounds.length) return false
-  const offset = candidateCompounds.length - targetCompounds.length
-  const rightmostTarget = targetCompounds.at(-1) || target
-  const targetIdentities = compoundTokens(rightmostTarget).filter(token => token === '*' || !token.startsWith(':'))
-  const contextMatches = offset === 0 || targetIdentities.some(identity => selectorLeadingCompoundsAreKnown(candidateCompounds.slice(0, offset), evidence || new Set(), identity))
-  return contextMatches
-    && targetCompounds.every((compound, index) => compoundMayTarget(candidateCompounds[offset + index], compound))
+const selectorTargetsContract = (selector, target, evidence = siteTypographyEvidence) => {
+  const candidate = selectorStructure(selector)
+  const required = selectorStructure(target)
+  const rightmostTarget = required.compounds.at(-1) || target
+  if (candidate.compounds.length === 1 && required.compounds.length === 1) return compoundMayTarget(candidate.compounds[0], rightmostTarget)
+  return [...(evidence || [])].filter(identity => compoundMayTarget(rightmostTarget, identity)).some(identity =>
+    (evidence.ancestorPaths?.get(identity) || []).some(path => {
+      const fullPath = [...path, new Set([identity])]
+      return structureMatchesKnownPath(required, fullPath) && structureMatchesKnownPath(candidate, fullPath)
+    }))
 }
 const fontSizeFromShorthand = value => value.match(/(?:^|\s)(var\([^)]*\)|(?:\d*\.)?\d+(?:px|rem|em|%|vw|vh)|xx-small|x-small|small|medium|large|x-large|xx-large|smaller|larger)(?:\s*\/|\s|$)/i)?.[1] || value
 const selectorSpecificity = selector => {

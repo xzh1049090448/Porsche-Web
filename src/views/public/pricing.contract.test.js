@@ -424,8 +424,8 @@ const transparentlyCarriesState = (node, origins, definitions, resolving = new S
   if (node.type === 'AwaitExpression') return transparentlyCarriesState(node.argument, origins, definitions, resolving)
   return false
 }
-const helperReturnsCorrectState = (binding, component, modelName, renderedCall, renderedPaths) => {
-  const origins = node => ['CallExpression', 'OptionalCallExpression'].includes(node?.type) && correctPublicStateCall(node, component, modelName, binding, renderedCall)
+const helperReturnsCorrectStateFromOrigin = (binding, component, modelName, renderedCall, renderedPaths, origin) => {
+  const origins = node => node === origin
   const returnIsValid = (node, definitions, mode, resolving = new Set()) => {
     node = unwrapExpression(node)
     if (!node) return false
@@ -475,6 +475,19 @@ const helperReturnsCorrectState = (binding, component, modelName, renderedCall, 
   }
   visitStatements(binding.body.body)
   return returns.length > 0 && returns.every(Boolean)
+}
+const helperReturnsCorrectState = (binding, component, modelName, renderedCall, renderedPaths) => {
+  const origins = []
+  const collect = node => {
+    node = unwrapExpression(node)
+    if (!node || typeof node !== 'object') return
+    if (['CallExpression', 'OptionalCallExpression'].includes(node.type) && correctPublicStateCall(node, component, modelName, binding, renderedCall)) origins.push(node)
+    for (const [key, value] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(key)) {
+      for (const child of Array.isArray(value) ? value : [value]) if (child?.type) collect(child)
+    }
+  }
+  collect(binding)
+  return origins.some(origin => helperReturnsCorrectStateFromOrigin(binding, component, modelName, renderedCall, renderedPaths, origin))
 }
 const staticRenderedLabel = node => {
   node = unwrapExpression(node)
@@ -539,15 +552,56 @@ const staticBindingInitializers = value => {
     let ast
     try { ast = vueCompiler.babelParse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
     catch (error) { throw new Error(`pricing Vue script must parse cleanly: ${error.message}`, { cause: error }) }
-    for (const statement of ast.program.body) {
-      const node = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement
-      if (node?.type === 'FunctionDeclaration' && node.id) bindings.set(node.id.name, [node])
-      if (node?.type === 'VariableDeclaration' && node.kind === 'const') for (const declaration of node.declarations) {
-        if (declaration.id.type !== 'Identifier' || !declaration.init) continue
-        if (!bindings.has(declaration.id.name)) bindings.set(declaration.id.name, [])
-        bindings.get(declaration.id.name).push(declaration.init)
+    const member = (object, key) => ({ type: 'MemberExpression', object, property: { type: 'StringLiteral', value: String(key) }, computed: true })
+    const selected = (expression, key) => {
+      expression = unwrapExpression(expression)
+      if (expression?.type === 'ArrayExpression' && /^\d+$/.test(String(key))) return expression.elements[Number(key)]
+      if (expression?.type === 'ObjectExpression') for (let index = expression.properties.length - 1; index >= 0; index -= 1) {
+        const property = expression.properties[index]
+        if (property.type === 'SpreadElement') break
+        const propertyKey = property.computed ? staticPropertyKey(property.key) : staticPropertyKey(property.key)
+        if (propertyKey === String(key)) return propertyExpression(property)
+      }
+      return member(expression, key)
+    }
+    const bindPattern = (pattern, expression, target) => {
+      pattern = unwrapExpression(pattern)
+      if (pattern?.type === 'Identifier') { target.set(pattern.name, expression ? [expression] : []); return }
+      if (pattern?.type === 'AssignmentPattern') { bindPattern(pattern.left, expression || pattern.right, target); return }
+      if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bindPattern(property.value, selected(expression, staticPropertyKey(property.key)), target)
+      if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bindPattern(pattern.elements[index], selected(expression, index), target)
+    }
+    const applyExpression = (expression, target) => {
+      expression = unwrapExpression(expression)
+      if (expression?.type === 'AssignmentExpression' && expression.operator === '=') bindPattern(expression.left, expression.right, target)
+      if (expression?.type === 'SequenceExpression') for (const item of expression.expressions) applyExpression(item, target)
+    }
+    const merge = (left, right) => {
+      const merged = new Map()
+      for (const name of new Set([...left.keys(), ...right.keys()])) merged.set(name, [...new Set([...(left.get(name) || []), ...(right.get(name) || [])])])
+      return merged
+    }
+    const process = (statements, target) => {
+      for (const raw of statements || []) {
+        const node = raw?.type === 'ExportNamedDeclaration' ? raw.declaration : raw
+        if (!node) continue
+        if (node.type === 'FunctionDeclaration' && node.id) target.set(node.id.name, [node])
+        else if (node.type === 'VariableDeclaration') for (const declaration of node.declarations) bindPattern(declaration.id, declaration.init, target)
+        else if (node.type === 'ExpressionStatement') applyExpression(node.expression, target)
+        else if (node.type === 'BlockStatement') process(node.body, target)
+        else if (node.type === 'IfStatement') {
+          const condition = staticValue(node.test)
+          if (condition !== unknownStaticValue) process((condition ? node.consequent : node.alternate)?.type === 'BlockStatement' ? (condition ? node.consequent : node.alternate).body : [condition ? node.consequent : node.alternate], target)
+          else {
+            const left = new Map(target); const right = new Map(target)
+            process(node.consequent?.type === 'BlockStatement' ? node.consequent.body : [node.consequent], left)
+            process(node.alternate?.type === 'BlockStatement' ? node.alternate.body : [node.alternate], right)
+            target.clear(); for (const [name, values] of merge(left, right)) target.set(name, values)
+          }
+        }
       }
     }
+    process(ast.program.body, bindings)
   }
   return bindings
 }
@@ -929,32 +983,44 @@ const representativeScreenWidths = (...stylesheets) => {
   for (let index = 1; index < thresholds.length; index += 1) add(thresholds[index - 1] + (thresholds[index] - thresholds[index - 1]) / 2)
   return [...widths].sort((left, right) => left - right)
 }
-const selectorCompounds = selector => {
+const selectorStructure = selector => {
   const compounds = []
-  let start = 0
+  const combinators = []
+  let buffer = ''
+  let pending
+  let leading
   let quote = ''
   let escaped = false
   let depth = 0
-  const push = end => {
-    const value = selector.slice(start, end).trim()
-    if (value) compounds.push(value)
+  const push = () => {
+    const value = buffer.trim()
+    if (!value) return
+    if (compounds.length) combinators.push(pending || ' ')
+    else if (pending) leading = pending
+    compounds.push(value)
+    buffer = ''
+    pending = undefined
   }
   for (let index = 0; index < selector.length; index += 1) {
     const character = selector[index]
-    if (escaped) { escaped = false; continue }
+    if (escaped) { escaped = false; buffer += character; continue }
     if (quote) {
       if (character === '\\') escaped = true
       else if (character === quote) quote = ''
+      buffer += character
       continue
     }
-    if (character === '"' || character === "'") quote = character
-    else if (character === '(' || character === '[') depth += 1
-    else if (character === ')' || character === ']') depth -= 1
-    else if (depth === 0 && (/\s/.test(character) || /[>+~]/.test(character))) { push(index); start = index + 1 }
+    if (character === '"' || character === "'") { quote = character; buffer += character }
+    else if (character === '(' || character === '[') { depth += 1; buffer += character }
+    else if (character === ')' || character === ']') { depth -= 1; buffer += character }
+    else if (depth === 0 && /\s/.test(character)) { push(); if (compounds.length && pending !== '>') pending = pending || ' ' }
+    else if (depth === 0 && /[>+~]/.test(character)) { push(); pending = character }
+    else buffer += character
   }
-  push(selector.length)
-  return compounds
+  push()
+  return { compounds, combinators, leading }
 }
+const selectorCompounds = selector => selectorStructure(selector).compounds
 const compoundTokens = compound => [...compound.matchAll(/(?:^|(?<=[^\w-]))(?:[a-z][\w-]*|[.#:][\w-]+|\[[^\]]+\])/gi)].map(match => match[0])
 const compoundSubjectAlternatives = compound => {
   const expand = subject => {
@@ -1005,16 +1071,32 @@ const functionalPseudoArguments = (compound, names) => {
 const compoundMayTarget = (candidate, target) => {
   const targetTokens = new Set(compoundTokens(target))
   const targetIdentities = [...targetTokens].filter(token => !token.startsWith(':'))
-  return compoundSubjectAlternatives(candidate).some(alternative => {
-    const identities = compoundTokens(alternative).filter(token => token === '*' || !token.startsWith(':'))
+  const matches = subject => {
+    const match = /:([\w-]+)\s*\(/.exec(subject)
+    if (match) {
+      const open = subject.indexOf('(', match.index)
+      let cursor = open + 1; let depth = 1; let quote = ''
+      for (; cursor < subject.length && depth > 0; cursor += 1) {
+        const character = subject[cursor]
+        if (quote) { if (character === quote && subject[cursor - 1] !== '\\') quote = '' }
+        else if (character === '"' || character === "'") quote = character
+        else if (character === '(') depth += 1
+        else if (character === ')') depth -= 1
+      }
+      if (depth === 0) {
+        const base = `${subject.slice(0, match.index)}${subject.slice(cursor)}` || '*'
+        const branches = splitCssTopLevel(subject.slice(open + 1, cursor - 1), ',')
+        const name = match[1].toLowerCase()
+        if (['is', 'where'].includes(name)) return branches.some(branch => matches(`${subject.slice(0, match.index)}${selectorCompounds(branch).at(-1) || '*'}${subject.slice(cursor)}`))
+        if (name === 'not') return matches(base) && branches.every(branch => !matches(selectorCompounds(branch).at(-1) || '*'))
+        return matches(base)
+      }
+    }
+    const identities = compoundTokens(subject).filter(token => token === '*' || !token.startsWith(':'))
     const baseMatches = identities.length === 0 || identities.includes('*') || (targetIdentities.length > 0 && targetIdentities.every(token => identities.includes(token)))
-    if (!baseMatches) return false
-    const excluded = functionalPseudoArguments(candidate, new Set(['not'])).flatMap(value => splitCssTopLevel(value, ','))
-    return !excluded.some(selector => compoundSubjectAlternatives(selectorCompounds(selector).at(-1) || '*').some(branch => {
-      const tokens = compoundTokens(branch).filter(token => !token.startsWith(':'))
-      return /(?:^|[^\w-])\*(?:$|[^\w-])/.test(branch) || (tokens.length > 0 && tokens.every(token => targetTokens.has(token)))
-    }))
-  })
+    return baseMatches
+  }
+  return matches(candidate)
 }
 const selectorGroup = (...identities) => new Set(identities)
 const publicContentPath = [selectorGroup('html', ':root'), selectorGroup('body'), selectorGroup('#app'), selectorGroup('.public-layout', '.public-shell', '.shell'), selectorGroup('main', '#public-content')]
@@ -1039,6 +1121,19 @@ const pricingRenderPaths = new Map([
   ['.pricing-drawer > header button', [[...publicPricingPath, selectorGroup('.pricing-drawer-backdrop'), selectorGroup('.pricing-drawer'), selectorGroup('header')]]],
 ])
 const targetIdentityGroup = target => new Set(compoundTokens(selectorCompounds(target).at(-1) || target).filter(token => token === '*' || !token.startsWith(':')))
+const structureMatchesPricingPath = (structure, path, depth = 0) => {
+  const { compounds, combinators, leading } = structure
+  if (!compounds.length || !path.length || ['+', '~'].some(value => combinators.includes(value) || leading === value)) return false
+  const matchFrom = (compoundIndex, pathIndex) => {
+    if (pathIndex < 0 || !compoundMatchesPricingGroup(compounds[compoundIndex], path[pathIndex], depth)) return false
+    if (compoundIndex === 0) return leading !== '>' || pathIndex === 0
+    const relation = combinators[compoundIndex - 1] || ' '
+    if (relation === '>') return matchFrom(compoundIndex - 1, pathIndex - 1)
+    for (let candidate = pathIndex - 1; candidate >= 0; candidate -= 1) if (matchFrom(compoundIndex - 1, candidate)) return true
+    return false
+  }
+  return matchFrom(compounds.length - 1, path.length - 1)
+}
 const pricingHasDescendants = (compound, subjectIdentity, depth = 0) => {
   const argumentsByPseudo = functionalPseudoArguments(compound, new Set(['has'])).map(value => splitCssTopLevel(value, ','))
   if (!argumentsByPseudo.length) return true
@@ -1046,7 +1141,7 @@ const pricingHasDescendants = (compound, subjectIdentity, depth = 0) => {
   return argumentsByPseudo.every(branches => branches.some(branch => [...pricingRenderPaths].some(([descendant, paths]) => paths.some(path => {
     const fullPath = [...path, targetIdentityGroup(descendant)]
     return fullPath.some((group, subjectIndex) => group.has(subjectIdentity)
-      && compoundsMatchPricingPath(selectorCompounds(branch), fullPath.slice(subjectIndex + 1), depth + 1))
+      && structureMatchesPricingPath(selectorStructure(branch), fullPath.slice(subjectIndex + 1), depth + 1))
   }))))
 }
 const compoundMatchesPricingGroup = (compound, group, depth = 0) => [...group].some(identity => compoundMayTarget(compound, identity) && pricingHasDescendants(compound, identity, depth))
@@ -1061,21 +1156,31 @@ const compoundsMatchPricingPath = (compounds, path, depth = 0) => {
 }
 const leadingCompoundsAreKnown = (compounds, target) => compounds.length === 0 || (pricingRenderPaths.get(normalizeSelector(target)) || []).some(path => compoundsMatchPricingPath(compounds, path))
 const selectorTargetsContract = (selector, target) => {
-  const candidateCompounds = selectorCompounds(selector)
+  const candidateStructure = selectorStructure(selector)
+  const candidateCompounds = candidateStructure.compounds
   const targetCompounds = selectorCompounds(target)
   if (candidateCompounds.length < targetCompounds.length) return false
+  if (targetCompounds.length === 1) {
+    const paths = pricingRenderPaths.get(normalizeSelector(target)) || []
+    return paths.length
+      ? paths.some(path => structureMatchesPricingPath(candidateStructure, [...path, targetIdentityGroup(target)]))
+      : candidateCompounds.length === 1 && compoundMayTarget(candidateCompounds[0], targetCompounds[0])
+  }
   const offset = candidateCompounds.length - targetCompounds.length
   return leadingCompoundsAreKnown(candidateCompounds.slice(0, offset), target)
     && targetCompounds.every((compound, index) => compoundMayTarget(candidateCompounds[offset + index], compound))
     && compoundMatchesPricingGroup(candidateCompounds.at(-1), targetIdentityGroup(target))
 }
 const relationalSelectorTargetsRoot = (selector, target) => {
-  const compounds = selectorCompounds(selector)
-  const subject = compounds.at(-1) || ''
+  const structure = selectorStructure(selector)
+  const subject = structure.compounds.at(-1) || ''
   const argumentsByPseudo = functionalPseudoArguments(subject, new Set(['has'])).map(value => splitCssTopLevel(value, ','))
-  if (!argumentsByPseudo.length || !argumentsByPseudo.every(branches => branches.some(branch => selectorTargetsContract(branch, target)))) return false
-  return (pricingRenderPaths.get(normalizeSelector(target)) || []).some(path => path.some((group, subjectIndex) => compoundMatchesPricingGroup(subject, group)
-    && compoundsMatchPricingPath(compounds.slice(0, -1), path.slice(0, subjectIndex))))
+  if (!argumentsByPseudo.length) return false
+  return (pricingRenderPaths.get(normalizeSelector(target)) || []).some(path => {
+    const fullPath = [...path, targetIdentityGroup(target)]
+    return fullPath.slice(0, -1).some((group, subjectIndex) => compoundMatchesPricingGroup(subject, group)
+      && structureMatchesPricingPath(structure, fullPath.slice(0, subjectIndex + 1)))
+  })
 }
 const rootSelectorSpecificity = selector => {
   let score = 0
