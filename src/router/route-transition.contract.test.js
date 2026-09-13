@@ -183,6 +183,16 @@ test('public and authenticated shells reuse the shared transition component', ()
 
 test('router preserves guarded cross-bootstrap handoff and explicit scroll behavior', async () => {
   const { createAppRouter, installBootstrapHandoff } = await import('./index.js')
+  for (const [configuration, label] of [
+    [{ handoff() {} }, 'missing mode'],
+    [{ mode: 'public' }, 'missing handoff'],
+    [{ mode: 'public', handoff: 'reload' }, 'non-function handoff'],
+  ]) {
+    let registrations = 0
+    const guardedRouter = { beforeEach() { registrations += 1 } }
+    assert.equal(installBootstrapHandoff(guardedRouter, configuration), guardedRouter, `${label} returns the router`)
+    assert.equal(registrations, 0, `${label} must not install a bootstrap guard`)
+  }
   let guard
   const fakeRouter = { beforeEach(value) { guard = value } }
   const handoffs = []

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { baseParse } from '@vue/compiler-dom'
 import { parse as parseSfc } from '@vue/compiler-sfc'
+import { parseExpression } from '@babel/parser'
 import postcss from 'postcss'
 import { messages } from '../../i18n/messages.js'
 import { publicText } from '../../i18n/public-runtime.js'
@@ -12,14 +13,52 @@ import { publicPriceState } from '../../utils/public-pricing-query.js'
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 const styleRoot = (source, sfc = false) => postcss.parse(sfc ? parseSfc(source).descriptor.styles.map(style => style.content).join('\n') : source)
 const templateAst = source => baseParse(parseSfc(source).descriptor.template?.content || '')
+const staticExpressionValue = node => {
+  if (node?.type === 'StringLiteral' || node?.type === 'NumericLiteral' || node?.type === 'BooleanLiteral') return node.value
+  if (node?.type === 'NullLiteral') return null
+  if (node?.type === 'ParenthesizedExpression') return staticExpressionValue(node.expression)
+  if (node?.type === 'BinaryExpression' && node.operator === '+') {
+    const left = staticExpressionValue(node.left)
+    const right = staticExpressionValue(node.right)
+    if (left !== undefined && right !== undefined) return left + right
+  }
+  if (node?.type === 'TemplateLiteral') {
+    const expressions = node.expressions.map(staticExpressionValue)
+    if (expressions.some(value => value === undefined)) return undefined
+    return node.quasis.map((quasi, index) => `${quasi.value.cooked ?? quasi.value.raw}${index < expressions.length ? expressions[index] : ''}`).join('')
+  }
+  return undefined
+}
+const literalExpressionStrings = expression => {
+  let ast
+  try { ast = parseExpression(expression, { plugins: ['typescript'] }) }
+  catch { return [] }
+  const values = []
+  const value = staticExpressionValue(ast)
+  if (typeof value === 'string') values.push(value)
+  const visit = node => {
+    if (!node || typeof node !== 'object') return
+    if (node.type === 'StringLiteral') values.push(node.value)
+    if (node.type === 'TemplateElement') values.push(node.value.cooked ?? node.value.raw)
+    for (const child of Object.values(node)) {
+      if (Array.isArray(child)) child.forEach(visit)
+      else if (child && typeof child === 'object' && typeof child.type === 'string') visit(child)
+    }
+  }
+  visit(ast)
+  return [...new Set(values.filter(Boolean))]
+}
 const visibleStrings = source => {
   const values = []
   const visibleAttributes = new Set(['alt', 'aria-label', 'placeholder', 'title'])
   const visit = node => {
     if (node.type === 2 && node.content.trim()) values.push(node.content.trim())
-    if (node.type === 5) values.push(node.content.content)
+    if (node.type === 5) values.push(...literalExpressionStrings(node.content.content))
     if (node.type === 1) for (const prop of node.props) {
       if (prop.type === 6 && visibleAttributes.has(prop.name) && prop.value?.content) values.push(prop.value.content)
+      const visibleBinding = prop.type === 7 && prop.name === 'bind' && prop.arg?.type === 4 && prop.arg.isStatic && visibleAttributes.has(prop.arg.content)
+      const visibleDirective = prop.type === 7 && ['text', 'html'].includes(prop.name)
+      if ((visibleBinding || visibleDirective) && prop.exp?.content) values.push(...literalExpressionStrings(prop.exp.content))
     }
     for (const child of node.children || []) visit(child)
   }
