@@ -3,7 +3,6 @@ import { existsSync, readFileSync } from 'node:fs'
 import test from 'node:test'
 import { baseParse } from '@vue/compiler-dom'
 import { parse as parseSfc } from '@vue/compiler-sfc'
-import postcss from 'postcss'
 import { createMemoryHistory } from 'vue-router'
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8')
@@ -64,76 +63,152 @@ const declaresComponentProp = (source, name) => {
   }
   return false
 }
+const splitTopLevel = (value, delimiter) => {
+  const parts = []
+  let start = 0
+  let quote = ''
+  let escaped = false
+  let depth = 0
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+    if (escaped) { escaped = false; continue }
+    if (quote) {
+      if (character === '\\') escaped = true
+      else if (character === quote) quote = ''
+      continue
+    }
+    if (character === '"' || character === "'") { quote = character; continue }
+    if ('([{'.includes(character)) depth += 1
+    else if (')]}'.includes(character)) depth -= 1
+    else if (character === delimiter && depth === 0) { parts.push(value.slice(start, index).trim()); start = index + 1 }
+  }
+  parts.push(value.slice(start).trim())
+  return parts.filter(Boolean)
+}
+const parseDeclarations = (body, nextOrder) => splitTopLevel(body, ';').flatMap(entry => {
+  const separator = splitTopLevel(entry, ':')
+  if (separator.length < 2) return []
+  const property = separator.shift().trim().toLowerCase()
+  let value = separator.join(':').trim()
+  const important = /!\s*important\s*$/i.test(value)
+  value = value.replace(/!\s*important\s*$/i, '').trim()
+  return [{ property, value, important, order: nextOrder() }]
+})
+const parseCssRules = source => {
+  const rules = []
+  let declarationOrder = 0
+  const clean = source.replace(/\/\*[\s\S]*?\*\//g, '')
+  const parseScope = (value, media = []) => {
+    let cursor = 0
+    while (cursor < value.length) {
+      while (/\s|;/.test(value[cursor] || '')) cursor += 1
+      if (cursor >= value.length) break
+      const headerStart = cursor
+      let quote = ''
+      let escaped = false
+      let parentheses = 0
+      while (cursor < value.length) {
+        const character = value[cursor]
+        if (escaped) escaped = false
+        else if (quote) { if (character === '\\') escaped = true; else if (character === quote) quote = '' }
+        else if (character === '"' || character === "'") quote = character
+        else if (character === '(') parentheses += 1
+        else if (character === ')') parentheses -= 1
+        else if ((character === '{' || character === ';') && parentheses === 0) break
+        cursor += 1
+      }
+      if (value[cursor] === ';') { cursor += 1; continue }
+      if (value[cursor] !== '{') break
+      const header = value.slice(headerStart, cursor).trim()
+      const bodyStart = ++cursor
+      let braces = 1
+      quote = ''
+      escaped = false
+      while (cursor < value.length && braces > 0) {
+        const character = value[cursor]
+        if (escaped) escaped = false
+        else if (quote) { if (character === '\\') escaped = true; else if (character === quote) quote = '' }
+        else if (character === '"' || character === "'") quote = character
+        else if (character === '{') braces += 1
+        else if (character === '}') braces -= 1
+        cursor += 1
+      }
+      const body = value.slice(bodyStart, cursor - 1)
+      if (/^@media\b/i.test(header)) parseScope(body, media.concat(header.replace(/^@media\s*/i, '')))
+      else if (/^@(?:supports|layer|container)\b/i.test(header)) parseScope(body, media)
+      else if (!header.startsWith('@')) rules.push({ selectors: splitTopLevel(header, ','), declarations: parseDeclarations(body, () => declarationOrder++), media })
+    }
+  }
+  parseScope(clean)
+  return rules
+}
 const styleRoot = source => {
   const styles = parseSfc(source).descriptor.styles.map(style => style.content).join('\n')
   assert.ok(styles, 'shared route transition must contain CSS')
-  return postcss.parse(styles)
+  return parseCssRules(styles)
 }
-const mediaAncestors = rule => {
-  const media = []
-  for (let parent = rule.parent; parent; parent = parent.parent) {
-    if (parent.type === 'atrule' && parent.name.toLowerCase() === 'media') media.push(parent.params)
+const mediaMatchesMotion = (conditions, reduced) => conditions.every(condition => splitTopLevel(condition, ',').some(query => {
+  if (/prefers-reduced-motion\s*:\s*no-preference/i.test(query)) return !reduced
+  if (/prefers-reduced-motion\s*:\s*reduce/i.test(query)) return reduced
+  return true
+}))
+const exactApplicableRules = (rules, selector, reduced) => rules.filter(rule => rule.selectors.includes(selector) && mediaMatchesMotion(rule.media, reduced))
+const reducedRuleExists = (rules, selector) => rules.some(rule => rule.selectors.includes(selector) && rule.media.some(condition => /prefers-reduced-motion\s*:\s*reduce/i.test(condition)))
+const transitionTime = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:ms|s)$/i
+const transitionTiming = /^(?:ease|ease-in|ease-out|ease-in-out|linear|step-start|step-end|allow-discrete|normal|cubic-bezier\(.+\)|steps\(.+\)|linear\(.+\))$/i
+const parseTransitionShorthand = value => {
+  if (/^none$/i.test(value)) return { 'transition-property': 'none', 'transition-duration': '0s', 'transition-delay': '0s' }
+  const clauses = splitTopLevel(value, ',')
+  const properties = []
+  const durations = []
+  const delays = []
+  for (const clause of clauses) {
+    const tokens = splitTopLevel(clause.replace(/\s+/g, ' ').trim(), ' ')
+    const times = tokens.filter(token => transitionTime.test(token))
+    const property = tokens.find(token => !transitionTime.test(token) && !transitionTiming.test(token)) || 'all'
+    properties.push(property)
+    durations.push(times[0] || '0s')
+    delays.push(times[1] || '0s')
   }
-  return media
+  return { 'transition-property': properties.join(', '), 'transition-duration': durations.join(', '), 'transition-delay': delays.join(', ') }
 }
-const exactRules = (root, selector, context = 'base') => {
-  const matches = []
-  root.walkRules(rule => {
-    if (!rule.selectors?.map(value => value.trim()).includes(selector)) return
-    const media = mediaAncestors(rule)
-    if (context === 'base' ? media.length === 0 : media.some(value => /prefers-reduced-motion\s*:\s*reduce/i.test(value))) matches.push(rule)
-  })
-  return matches
-}
-const propertyValues = (rules, property) => rules.flatMap(rule => rule.nodes
-  .filter(node => node.type === 'decl' && node.prop.toLowerCase() === property)
-  .map(node => node.value.trim()))
-const splitTopLevel = (value, delimiter) => {
-  const parts = []
-  let depth = 0
-  let start = 0
-  for (let index = 0; index < value.length; index += 1) {
-    if (value[index] === '(') depth += 1
-    else if (value[index] === ')') depth -= 1
-    else if (value[index] === delimiter && depth === 0) {
-      parts.push(value.slice(start, index).trim())
-      start = index + 1
-    }
+const effectiveProperties = (rules, selector, reduced) => {
+  const winners = new Map()
+  const apply = declaration => {
+    const previous = winners.get(declaration.property)
+    if (!previous || Number(declaration.important) > Number(previous.important) || (declaration.important === previous.important && declaration.order > previous.order)) winners.set(declaration.property, declaration)
   }
-  parts.push(value.slice(start).trim())
-  return parts
+  for (const rule of exactApplicableRules(rules, selector, reduced)) for (const declaration of rule.declarations) {
+    if (declaration.property === 'transition') {
+      for (const [property, value] of Object.entries(parseTransitionShorthand(declaration.value))) apply({ ...declaration, property, value })
+    } else apply(declaration)
+  }
+  return new Map([...winners].map(([property, declaration]) => [property, declaration.value.trim()]))
 }
-const transitionTokens = value => splitTopLevel(value.replace(/\s+/g, ' ').trim(), ' ')
-const assertZeroTime = (value, message) => assert.match(value, /^0m?s(?:\s*!important)?$/i, message)
-const assertOpacityTransition = (root, selector, duration) => {
-  const rules = exactRules(root, selector, 'base')
-  assert.ok(rules.length > 0, `${selector} must have a base rule`)
-  const transitions = propertyValues(rules, 'transition')
-  assert.equal(transitions.length, 1, `${selector} must declare one base transition`)
-  const clauses = splitTopLevel(transitions[0], ',')
-  assert.equal(clauses.length, 1, `${selector} must animate one property`)
-  const tokens = transitionTokens(clauses[0])
-  const times = tokens.filter(token => /^\d*\.?\d+m?s$/i.test(token))
-  assert.equal(times[0], duration, `${selector} duration must be ${duration}`)
-  assert.ok(times.length <= 2, `${selector} must not add extra timing values`)
-  if (times[1]) assertZeroTime(times[1], `${selector} delay must be zero`)
-  const propertyTokens = tokens.filter(token => !/^\d*\.?\d+m?s$/i.test(token)
-    && !/^(?:ease|ease-in|ease-out|ease-in-out|linear|step-start|step-end|allow-discrete|normal)$/i.test(token)
-    && !/^(?:cubic-bezier|steps|linear)\(/i.test(token))
-  assert.deepEqual(propertyTokens, ['opacity'], `${selector} must animate opacity only`)
-  for (const value of propertyValues(rules, 'transition-property')) assert.equal(value.replace(/\s+/g, ''), 'opacity')
-  for (const value of propertyValues(rules, 'transition-duration')) assert.equal(value, duration)
-  for (const value of propertyValues(rules, 'transition-delay')) assertZeroTime(value, `${selector} delay must be zero`)
-  for (const rule of rules) assert.equal(rule.nodes.some(node => node.type === 'decl' && /^animation(?:-|$)/i.test(node.prop)), false, `${selector} must not use CSS animation`)
+const milliseconds = value => {
+  const match = value.trim().match(/^(-?(?:\d+(?:\.\d+)?|\.\d+))(ms|s)$/i)
+  return match ? Number(match[1]) * (match[2].toLowerCase() === 's' ? 1000 : 1) : Number.NaN
 }
-const assertImmediateReducedMotion = (root, selector) => {
-  const rules = exactRules(root, selector, 'reduced')
-  assert.ok(rules.length > 0, `reduced motion must target ${selector}`)
-  const transitions = propertyValues(rules, 'transition')
-  const durations = propertyValues(rules, 'transition-duration')
-  assert.ok(transitions.some(value => /^none(?:\s*!important)?$/i.test(value)) || durations.some(value => /^0m?s(?:\s*!important)?$/i.test(value)), `${selector} must become immediate`)
-  for (const value of propertyValues(rules, 'transition-delay')) assertZeroTime(value, `${selector} reduced-motion delay must be zero`)
+const transitionValues = (properties, name, fallback) => splitTopLevel(properties.get(name) || fallback, ',').map(value => value.trim().toLowerCase())
+const assertOpacityTransition = (rules, selector, durationMs) => {
+  const properties = effectiveProperties(rules, selector, false)
+  assert.deepEqual(transitionValues(properties, 'transition-property', 'all'), ['opacity'], `${selector} must effectively animate opacity only`)
+  const durations = transitionValues(properties, 'transition-duration', '0s').map(milliseconds)
+  assert.deepEqual(durations, [durationMs], `${selector} effective duration must be ${durationMs}ms`)
+  const delays = transitionValues(properties, 'transition-delay', '0s').map(milliseconds)
+  assert.deepEqual(delays, [0], `${selector} effective delay must be zero or omitted`)
+  for (const [property, value] of properties) if (/^animation(?:-|$)/i.test(property)) assert.ok(/^none$|^0m?s$/i.test(value), `${selector} must not use CSS animation`)
 }
+const assertImmediateReducedMotion = (rules, selector) => {
+  assert.equal(reducedRuleExists(rules, selector), true, `reduced motion must target ${selector}`)
+  const properties = effectiveProperties(rules, selector, true)
+  const transitionProperties = transitionValues(properties, 'transition-property', 'all')
+  const durations = transitionValues(properties, 'transition-duration', '0s').map(milliseconds)
+  const delays = transitionValues(properties, 'transition-delay', '0s').map(milliseconds)
+  assert.ok(transitionProperties.every(property => property === 'none') || durations.every(duration => Number.isFinite(duration) && Math.abs(duration) <= 1), `${selector} reduced-motion transition must remain effectively none or near-zero`)
+  assert.ok(delays.every(delay => delay === 0), `${selector} reduced-motion delay must be zero or omitted`)
+}
+const effectiveProperty = (rules, selector, property, reduced = false) => effectiveProperties(rules, selector, reduced).get(property)
 
 test('shared route transition keys leaf views by fullPath and identity epoch', () => {
   const transition = readRequired('../components/shell/RouteTransition.vue', 'shared route transition component')
@@ -162,10 +237,10 @@ test('route transition is opacity-only with approved timings and immediate reduc
   const name = staticAttribute(transitionNode, 'name')
   assert.ok(name, 'Vue Transition must have a static CSS name')
   const root = styleRoot(transition)
-  assertOpacityTransition(root, `.${name}-enter-active`, '350ms')
-  assertOpacityTransition(root, `.${name}-leave-active`, '200ms')
+  assertOpacityTransition(root, `.${name}-enter-active`, 350)
+  assertOpacityTransition(root, `.${name}-leave-active`, 200)
   for (const selector of [`.${name}-enter-from`, `.${name}-leave-to`]) {
-    assert.ok(propertyValues(exactRules(root, selector, 'base'), 'opacity').includes('0'), `${selector} must start or end transparent`)
+    assert.equal(effectiveProperty(root, selector, 'opacity'), '0', `${selector} must start or end transparent`)
   }
   assertImmediateReducedMotion(root, `.${name}-enter-active`)
   assertImmediateReducedMotion(root, `.${name}-leave-active`)

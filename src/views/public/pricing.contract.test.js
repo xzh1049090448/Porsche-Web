@@ -4,14 +4,92 @@ import test from 'node:test'
 import { baseParse } from '@vue/compiler-dom'
 import { parse as parseSfc } from '@vue/compiler-sfc'
 import { parse, parseExpression } from '@babel/parser'
-import postcss from 'postcss'
 import { messages } from '../../i18n/messages.js'
 import { publicText } from '../../i18n/public-runtime.js'
 import { formatPublicPrice, mapPublicModel, PUBLIC_PRICING } from '../../utils/public-catalog.js'
 import { publicPriceState } from '../../utils/public-pricing-query.js'
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
-const styleRoot = (source, sfc = false) => postcss.parse(sfc ? parseSfc(source).descriptor.styles.map(style => style.content).join('\n') : source)
+const splitCssTopLevel = (value, delimiter) => {
+  const parts = []
+  let start = 0
+  let quote = ''
+  let escaped = false
+  let depth = 0
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+    if (escaped) { escaped = false; continue }
+    if (quote) {
+      if (character === '\\') escaped = true
+      else if (character === quote) quote = ''
+      continue
+    }
+    if (character === '"' || character === "'") { quote = character; continue }
+    if ('([{'.includes(character)) depth += 1
+    else if (')]}'.includes(character)) depth -= 1
+    else if (character === delimiter && depth === 0) { parts.push(value.slice(start, index).trim()); start = index + 1 }
+  }
+  parts.push(value.slice(start).trim())
+  return parts.filter(Boolean)
+}
+const parseDeclarations = (body, nextOrder) => splitCssTopLevel(body, ';').flatMap(entry => {
+  const separator = splitCssTopLevel(entry, ':')
+  if (separator.length < 2) return []
+  const property = separator.shift().trim().toLowerCase()
+  let value = separator.join(':').trim()
+  const important = /!\s*important\s*$/i.test(value)
+  value = value.replace(/!\s*important\s*$/i, '').trim()
+  return [{ property, value, important, order: nextOrder() }]
+})
+const parseCssRules = source => {
+  const rules = []
+  let declarationOrder = 0
+  const clean = source.replace(/\/\*[\s\S]*?\*\//g, '')
+  const parseScope = (value, media = []) => {
+    let cursor = 0
+    while (cursor < value.length) {
+      while (/\s|;/.test(value[cursor] || '')) cursor += 1
+      if (cursor >= value.length) break
+      const headerStart = cursor
+      let quote = ''
+      let escaped = false
+      let parentheses = 0
+      while (cursor < value.length) {
+        const character = value[cursor]
+        if (escaped) escaped = false
+        else if (quote) { if (character === '\\') escaped = true; else if (character === quote) quote = '' }
+        else if (character === '"' || character === "'") quote = character
+        else if (character === '(') parentheses += 1
+        else if (character === ')') parentheses -= 1
+        else if ((character === '{' || character === ';') && parentheses === 0) break
+        cursor += 1
+      }
+      if (value[cursor] === ';') { cursor += 1; continue }
+      if (value[cursor] !== '{') break
+      const header = value.slice(headerStart, cursor).trim()
+      const bodyStart = ++cursor
+      let braces = 1
+      quote = ''
+      escaped = false
+      while (cursor < value.length && braces > 0) {
+        const character = value[cursor]
+        if (escaped) escaped = false
+        else if (quote) { if (character === '\\') escaped = true; else if (character === quote) quote = '' }
+        else if (character === '"' || character === "'") quote = character
+        else if (character === '{') braces += 1
+        else if (character === '}') braces -= 1
+        cursor += 1
+      }
+      const body = value.slice(bodyStart, cursor - 1)
+      if (/^@media\b/i.test(header)) parseScope(body, media.concat(header.replace(/^@media\s*/i, '')))
+      else if (/^@(?:supports|layer|container)\b/i.test(header)) parseScope(body, media)
+      else if (!header.startsWith('@')) rules.push({ selectors: splitCssTopLevel(header, ','), declarations: parseDeclarations(body, () => declarationOrder++), media })
+    }
+  }
+  parseScope(clean)
+  return rules
+}
+const styleRoot = (source, sfc = false) => parseCssRules(sfc ? parseSfc(source).descriptor.styles.map(style => style.content).join('\n') : source)
 const templateAst = source => baseParse(parseSfc(source).descriptor.template?.content || '')
 const staticBindingInitializers = value => {
   const bindings = new Map()
@@ -137,30 +215,56 @@ const stringValues = value => {
   if (value && typeof value === 'object') return Object.values(value).flatMap(stringValues)
   return []
 }
-const mediaAncestors = rule => {
-  const media = []
-  for (let parent = rule.parent; parent; parent = parent.parent) if (parent.type === 'atrule' && parent.name.toLowerCase() === 'media') media.push(parent.params)
-  return media
-}
+const mediaAncestors = rule => rule.media
 const exactRules = (root, selector, context = 'base') => {
   const matches = []
-  root.walkRules(rule => {
-    if (!rule.selectors?.map(value => value.trim()).includes(selector)) return
+  for (const rule of root) {
+    if (!rule.selectors?.map(value => value.trim()).includes(selector)) continue
     const media = mediaAncestors(rule)
     if (context === 'all' || (context === 'base' && media.length === 0) || (context instanceof RegExp && media.some(value => context.test(value)))) matches.push(rule)
-  })
+  }
   return matches
 }
 const normalizeCssValue = value => value.replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim()
 const propertyMap = rules => {
   const result = new Map()
-  for (const rule of rules) for (const node of rule.nodes) if (node.type === 'decl') {
-    const key = node.prop.toLowerCase()
+  for (const rule of rules) for (const node of rule.declarations) {
+    const key = node.property
     if (!result.has(key)) result.set(key, [])
     result.get(key).push(normalizeCssValue(node.value))
   }
   return result
 }
+const mediaMatchesWidth = (conditions, width) => conditions.every(condition => splitCssTopLevel(condition, ',').some(query => {
+  const minimums = [...query.matchAll(/min-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
+  const maximums = [...query.matchAll(/max-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
+  return minimums.every(minimum => width >= minimum) && maximums.every(maximum => width <= maximum)
+}))
+const rootSelectorSpecificity = selector => (selector.match(/#[\w-]+/g) || []).length * 100 + (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (selector.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
+const selectorTargetsRoot = (selector, targetClass) => {
+  const compounds = selector.trim().split(/\s+|[>+~]/).filter(Boolean)
+  const last = compounds.at(-1) || ''
+  const classes = [...last.matchAll(/\.([\w-]+)/g)].map(match => match[1])
+  if (!classes.includes(targetClass) || classes.some(name => name !== targetClass)) return false
+  const remainder = last.replace(new RegExp(`\\.${targetClass}\\b`), '').replace(/^(?:table|div|\*)/i, '')
+  return remainder === ''
+}
+const effectiveRootProperties = (rules, targetClass, width) => {
+  const winners = new Map()
+  for (const rule of rules) {
+    if (!mediaMatchesWidth(rule.media, width)) continue
+    const matching = rule.selectors.filter(selector => selectorTargetsRoot(selector, targetClass))
+    if (!matching.length) continue
+    const specificity = Math.max(...matching.map(rootSelectorSpecificity))
+    for (const declaration of rule.declarations) {
+      const previous = winners.get(declaration.property)
+      const candidate = { ...declaration, specificity }
+      if (!previous || Number(candidate.important) > Number(previous.important) || (candidate.important === previous.important && (candidate.specificity > previous.specificity || (candidate.specificity === previous.specificity && candidate.order > previous.order)))) winners.set(declaration.property, candidate)
+    }
+  }
+  return new Map([...winners].map(([property, declaration]) => [property, normalizeCssValue(declaration.value).toLowerCase()]))
+}
+const rootIsHidden = properties => properties.get('display') === 'none' || ['hidden', 'collapse'].includes(properties.get('visibility')) || /^(?:0(?:\.0+)?|\.0+)$/.test(properties.get('opacity') || '')
 const assertProperty = (root, selector, property, expected, message, context = 'base') => {
   const actual = propertyMap(exactRules(root, selector, context)).get(property) || []
   assert.ok(actual.includes(expected), `${message}; found ${JSON.stringify(actual)}`)
@@ -207,6 +311,7 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
   const filterCss = styleRoot(filters, true)
   const tableCss = styleRoot(table, true)
   const cardsCss = styleRoot(cards, true)
+  const responsiveCss = parseCssRules(`${parseSfc(table).descriptor.styles.map(style => style.content).join('\n')}\n${styles}`)
   assert.match(page, /@\/styles\/public-pricing\.scss/)
   assertProperty(pricingCss, '.pricing-page', 'max-width', '1600px', 'pricing page keeps its desktop width')
   assertProperty(pricingCss, '.pricing-layout', 'grid-template-columns', '260px minmax(0, 1fr)', 'pricing layout keeps the approved sidebar grid')
@@ -222,13 +327,8 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
   assertProperty(pricingCss, '.pricing-page .pricing-table-wrap', 'display', 'none', 'mobile hides the desktop table', /max-width\s*:\s*767px/i)
   assertProperty(cardsCss, '.pricing-cards', 'display', 'grid', 'mobile shows pricing cards', /max-width\s*:\s*767px/i)
   assertProperty(pricingCss, '.pricing-drawer', 'display', 'block', 'mobile shows the pricing drawer', /max-width\s*:\s*767px/i)
-  for (const root of [pricingCss, tableCss]) root.walkRules(rule => {
-    if (mediaAncestors(rule).length > 0 || !rule.selectors?.some(selector => /\.pricing-table(?:-wrap)?(?![\w-])/.test(selector))) return
-    const declarations = propertyMap([rule])
-    assert.equal((declarations.get('display') || []).some(value => value.toLowerCase() === 'none'), false, 'desktop pricing table must not use display:none')
-    assert.equal((declarations.get('visibility') || []).some(value => value.toLowerCase() === 'hidden'), false, 'desktop pricing table must not use visibility:hidden')
-    assert.equal((declarations.get('opacity') || []).some(value => /^0(?:\.0+)?(?:\s*!important)?$/i.test(value)), false, 'desktop pricing table must not use opacity:0')
-  })
+  for (const target of ['pricing-table-wrap', 'pricing-table']) assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, target, 1440)), false, `desktop .${target} root must remain visible at 1440px`)
+  assert.equal(rootIsHidden(effectiveRootProperties(responsiveCss, 'pricing-table-wrap', 375)), true, 'mobile may hide the table root wrapper at 375px')
   assertControlSize(filterCss, '.pricing-filters input', ['min-height'])
   assertControlSize(filterCss, '.pricing-filters select', ['min-height'])
   assertControlSize(pricingCss, '.pricing-pagination button', ['min-height'])
