@@ -164,7 +164,7 @@ const selectorCompounds = selector => {
   push(selector.length)
   return compounds
 }
-const compoundTokens = compound => [...compound.matchAll(/(?:^|(?<=[^\w-]))(?:[a-z][\w-]*|[.#:][\w-]+|\[[^\]]+\])/gi)].map(match => match[0])
+const compoundTokens = compound => [...compound.matchAll(/[.#:][\w-]+|\[[^\]]+\]|(?:^|(?<=[^\w.#:-]))[a-z][\w-]*/gi)].map(match => match[0])
 const selectorTargetsContract = (selector, target) => {
   const candidateCompounds = selectorCompounds(selector)
   const targetCompounds = selectorCompounds(target)
@@ -272,6 +272,13 @@ test('typography stays at real size and interactive controls retain 44px targets
     '.app-brand__copy small', '.token-stat', '.console-sidebar__group', '.page-header h1', '.page-header__eyebrow',
     '.page-header__description', '.status-badge', '.auth-brand h1',
   ])
+  // These audited roots come from App/AuthApp, MainLayout, PublicLayout, the public page roots,
+  // and the login/register templates. Scaling any of them scales their descendant typography.
+  const typographyAncestorSelectors = [
+    'html', 'body', '#app', '.public-layout', '.public-shell', '#public-content', '.public-home', '.public-document',
+    '.pricing-layout', '.pricing-results', '.main-layout', '.console-shell', '.console-body', '.console-workspace',
+    '.console-page', '.auth-page', '.auth-card', '.login-page', '.register-page',
+  ]
   for (const stylesheet of surfaces) {
     const typographySelectors = new Set(semanticSelectors)
     for (const rule of stylesheet) {
@@ -281,6 +288,7 @@ test('typography stays at real size and interactive controls retain 44px targets
       }
     }
     for (const selector of typographySelectors) assertNoTypographyScaling(stylesheet, selector)
+    for (const selector of typographyAncestorSelectors) assertNoTypographyScaling(stylesheet, selector)
   }
 
   assertMapping(tokens, 'html:root', '--control-min-size', '44px', 'shared controls retain a 44px minimum')

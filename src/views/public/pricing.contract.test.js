@@ -302,14 +302,14 @@ const derivedStateMember = (node, origins, definitions, resolving = new Set()) =
 }
 const labelConditionModes = (node, origins, definitions, inherited = 'unknown') => {
   node = unwrapExpression(node)
-  if (node?.type !== 'BinaryExpression' || !['===', '==', '!==', '!='].includes(node.operator)) return [inherited, inherited]
+  if (node?.type !== 'BinaryExpression' || !['===', '==', '!==', '!='].includes(node.operator)) return [inherited, inherited, false]
   const pairs = [[node.left, node.right], [node.right, node.left]]
   const pair = pairs.find(([member, literal]) => derivedStateMember(member, origins, definitions) === 'state' && literal?.type === 'StringLiteral')
-  if (!pair) return [inherited, inherited]
+  if (!pair) return [inherited, inherited, false]
   const status = pair[1].value
   const equal = ['===', '=='].includes(node.operator)
-  if (status === 'published') return equal ? ['published', 'nonpublished'] : ['nonpublished', 'published']
-  return equal ? ['nonpublished', inherited] : [inherited, 'nonpublished']
+  if (status === 'published') return equal ? ['published', 'nonpublished', true] : ['nonpublished', 'published', true]
+  return equal ? ['nonpublished', inherited, true] : [inherited, 'nonpublished', true]
 }
 const legitimateFallback = (node, origins, definitions, mode) => {
   node = unwrapExpression(node)
@@ -328,10 +328,18 @@ const validLabelExpression = (node, origins, definitions, mode = 'unknown', reso
     return validLabelExpression(definitions.get(node.name), origins, definitions, mode, new Set([...resolving, node.name]))
   }
   if (node.type === 'ConditionalExpression') {
-    const [consequentMode, alternateMode] = labelConditionModes(node.test, origins, definitions, mode)
-    if (consequentMode === mode && alternateMode === mode) return false
+    const [consequentMode, alternateMode, recognized] = labelConditionModes(node.test, origins, definitions, mode)
+    if (!recognized) return false
     return validLabelExpression(node.consequent, origins, definitions, consequentMode, resolving)
       && validLabelExpression(node.alternate, origins, definitions, alternateMode, resolving)
+  }
+  if (node.type === 'LogicalExpression' && node.operator === '||') {
+    const guarded = unwrapExpression(node.left)
+    if (guarded?.type !== 'LogicalExpression' || guarded.operator !== '&&') return false
+    const [truthyMode, falsyMode, recognized] = labelConditionModes(guarded.left, origins, definitions, mode)
+    if (!recognized) return false
+    return validLabelExpression(guarded.right, origins, definitions, truthyMode, resolving)
+      && validLabelExpression(node.right, origins, definitions, falsyMode, resolving)
   }
   if (mode === 'published') return derivedStateMember(node, origins, definitions, resolving) === 'value'
   return legitimateFallback(node, origins, definitions, mode)
@@ -447,6 +455,12 @@ const staticRenderedLabel = node => {
 const renderedPriceStateFor = (expression, component, modelName, bindings, path = []) => {
   const node = unwrapExpression(expression)
   if (!node) return false
+  const directOrigins = candidate => ['CallExpression', 'OptionalCallExpression'].includes(candidate?.type)
+    && correctPublicStateCall(candidate, component, modelName)
+  if (path.length === 0 && ['ConditionalExpression', 'LogicalExpression'].includes(node.type)
+    && directlyReadStateMembers(node, directOrigins, new Map()).size > 0) {
+    return validLabelExpression(node, directOrigins, new Map())
+  }
   if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
     const property = node.computed ? staticPropertyKey(node.property) : node.property?.name
     return property !== undefined && renderedPriceStateFor(node.object, component, modelName, bindings, [property, ...path])
