@@ -1,10 +1,83 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import postcss from 'postcss'
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8')
-const root = path => postcss.parse(read(path), { from: path })
+const splitTopLevel = (value, delimiter) => {
+  const parts = []
+  let start = 0
+  let quote = ''
+  let escaped = false
+  let depth = 0
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+    if (escaped) { escaped = false; continue }
+    if (quote) {
+      if (character === '\\') escaped = true
+      else if (character === quote) quote = ''
+      continue
+    }
+    if (character === '"' || character === "'") { quote = character; continue }
+    if ('([{'.includes(character)) depth += 1
+    else if (')]}'.includes(character)) depth -= 1
+    else if (character === delimiter && depth === 0) { parts.push(value.slice(start, index).trim()); start = index + 1 }
+  }
+  parts.push(value.slice(start).trim())
+  return parts.filter(Boolean)
+}
+const parseDeclarations = body => splitTopLevel(body, ';').flatMap(entry => {
+  const separator = splitTopLevel(entry, ':')
+  if (separator.length < 2) return []
+  return [{ property: separator.shift().trim().toLowerCase(), value: separator.join(':').trim() }]
+})
+const parseCssRules = source => {
+  const rules = []
+  const clean = source.replace(/\/\*[\s\S]*?\*\//g, '')
+  const parseScope = (value, media = []) => {
+    let cursor = 0
+    while (cursor < value.length) {
+      while (/\s|;/.test(value[cursor] || '')) cursor += 1
+      if (cursor >= value.length) break
+      const headerStart = cursor
+      let quote = ''
+      let escaped = false
+      let parentheses = 0
+      while (cursor < value.length) {
+        const character = value[cursor]
+        if (escaped) escaped = false
+        else if (quote) { if (character === '\\') escaped = true; else if (character === quote) quote = '' }
+        else if (character === '"' || character === "'") quote = character
+        else if (character === '(') parentheses += 1
+        else if (character === ')') parentheses -= 1
+        else if ((character === '{' || character === ';') && parentheses === 0) break
+        cursor += 1
+      }
+      if (value[cursor] === ';') { cursor += 1; continue }
+      if (value[cursor] !== '{') break
+      const header = value.slice(headerStart, cursor).trim()
+      const bodyStart = ++cursor
+      let braces = 1
+      quote = ''
+      escaped = false
+      while (cursor < value.length && braces > 0) {
+        const character = value[cursor]
+        if (escaped) escaped = false
+        else if (quote) { if (character === '\\') escaped = true; else if (character === quote) quote = '' }
+        else if (character === '"' || character === "'") quote = character
+        else if (character === '{') braces += 1
+        else if (character === '}') braces -= 1
+        cursor += 1
+      }
+      const body = value.slice(bodyStart, cursor - 1)
+      if (/^@media\b/i.test(header)) parseScope(body, media.concat(header.replace(/^@media\s*/i, '')))
+      else if (/^@(?:supports|layer|container)\b/i.test(header)) parseScope(body, media)
+      else if (!header.startsWith('@')) rules.push({ selectors: splitTopLevel(header, ','), declarations: parseDeclarations(body), media })
+    }
+  }
+  parseScope(clean)
+  return rules
+}
+const root = path => parseCssRules(read(path))
 const tokens = root('./tokens.scss')
 const foundations = root('./foundations.scss')
 const global = root('./global.scss')
@@ -15,25 +88,14 @@ const consolePages = root('./console-pages.scss')
 const publicPricing = root('./public-pricing.scss')
 const surfaces = [tokens, foundations, global, publicShell, publicContent, consoleShell, consolePages, publicPricing]
 
-const mediaAncestors = rule => {
-  const media = []
-  for (let parent = rule.parent; parent; parent = parent.parent) {
-    if (parent.type === 'atrule' && parent.name.toLowerCase() === 'media') media.push(parent.params)
-  }
-  return media
-}
-const exactRules = (stylesheet, selector, media) => {
-  const matches = []
-  stylesheet.walkRules(rule => {
-    if (!rule.selectors?.map(value => value.trim()).includes(selector)) return
-    const ancestors = mediaAncestors(rule)
-    if (media === 'all' || (!media && ancestors.length === 0) || (media instanceof RegExp && ancestors.some(value => media.test(value)))) matches.push(rule)
-  })
-  return matches
-}
-const values = (rules, property) => rules.flatMap(rule => rule.nodes
-  .filter(node => node.type === 'decl' && node.prop === property)
-  .map(node => node.value.trim()))
+const exactRules = (stylesheet, selector, media) => stylesheet.filter(rule => {
+  if (!rule.selectors.includes(selector)) return false
+  return media === 'all' || (!media && rule.media.length === 0) || (media instanceof RegExp && rule.media.some(value => media.test(value)))
+})
+const values = (rules, property) => rules.flatMap(rule => rule.declarations
+  .filter(declaration => declaration.property === property)
+  .map(declaration => declaration.value.trim()))
+const declarationValues = (stylesheet, property) => values(stylesheet, property)
 const assertMapping = (stylesheet, selector, property, expected, message, media) => {
   const actual = values(exactRules(stylesheet, selector, media), property)
   assert.ok(actual.includes(expected), `${message}; found ${JSON.stringify(actual)}`)
@@ -46,7 +108,7 @@ test('semantic typography tokens keep the approved exact pixel scale', () => {
   }
   for (const [name, value] of Object.entries(expected)) {
     const actual = []
-    tokens.walkDecls(`--font-size-${name}`, declaration => actual.push(declaration.value.trim()))
+    actual.push(...declarationValues(tokens, `--font-size-${name}`))
     assert.deepEqual(actual, [value], `--font-size-${name} must remain ${value}`)
   }
 })
@@ -91,31 +153,30 @@ test('typography stays at real size and interactive controls retain 44px targets
   ])
   for (const stylesheet of surfaces) {
     const typographySelectors = new Set(semanticSelectors)
-    stylesheet.walkRules(rule => {
-      const hasFontSize = rule.nodes.some(node => node.type === 'decl' && ['font', 'font-size'].includes(node.prop))
-      if (hasFontSize) for (const selector of rule.selectors || []) {
+    for (const rule of stylesheet) {
+      const hasFontSize = rule.declarations.some(declaration => ['font', 'font-size'].includes(declaration.property))
+      if (hasFontSize) for (const selector of rule.selectors) {
         if (!/(?:^|[-_])icon(?:$|[-_\s.:>])|\bsvg\b|spinner/i.test(selector)) typographySelectors.add(selector.trim())
       }
-    })
+    }
     for (const selector of typographySelectors) {
       for (const rule of exactRules(stylesheet, selector, 'all')) {
         if (/:hover|:active|:focus/.test(selector)) continue
-        for (const node of rule.nodes) {
-          if (node.type !== 'decl') continue
-          assert.notEqual(node.prop.toLowerCase(), 'zoom', `${selector} must not resize typography with zoom`)
-          if (node.prop.toLowerCase() === 'transform') assert.doesNotMatch(node.value, /\bscale(?:x|y|3d)?\s*\(/i, `${selector} must not resize typography with transform scale`)
+        for (const node of rule.declarations) {
+          assert.notEqual(node.property, 'zoom', `${selector} must not resize typography with zoom`)
+          if (node.property === 'transform') assert.doesNotMatch(node.value, /\bscale(?:x|y|3d)?\s*\(/i, `${selector} must not resize typography with transform scale`)
         }
       }
     }
   }
 
   const controlSizes = []
-  tokens.walkDecls('--control-min-size', declaration => controlSizes.push(declaration.value.trim()))
+  controlSizes.push(...declarationValues(tokens, '--control-min-size'))
   assert.deepEqual(controlSizes, ['44px'])
   assertMapping(publicShell, '.public-locale', 'min-height', 'var(--control-min-size)', 'public header controls keep the shared touch target')
   assertMapping(publicShell, '.public-button', 'min-height', 'var(--control-min-size)', 'public actions keep the shared touch target')
   assertMapping(consoleShell, '.user-trigger', 'min-height', 'var(--control-min-size)', 'console user control keeps the shared touch target')
   const pricingTargets = []
-  publicPricing.walkDecls('min-height', declaration => pricingTargets.push(declaration.value.trim()))
+  pricingTargets.push(...declarationValues(publicPricing, 'min-height'))
   assert.ok(pricingTargets.some(value => value === '44px' || value === 'var(--control-min-size)'), 'pricing controls retain at least a 44px target')
 })

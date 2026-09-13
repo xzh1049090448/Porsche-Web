@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import test from 'node:test'
-import { baseParse } from '@vue/compiler-dom'
-import { parse as parseSfc } from '@vue/compiler-sfc'
+import vuePlugin from '@vitejs/plugin-vue'
 import { createMemoryHistory } from 'vue-router'
+
+const vueCompiler = (() => {
+  const plugin = vuePlugin()
+  plugin.buildStart()
+  return plugin.api.options.compiler
+})()
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8')
 const readRequired = (path, label) => {
@@ -12,9 +17,11 @@ const readRequired = (path, label) => {
   return readFileSync(url, 'utf8')
 }
 const templateAst = source => {
-  const template = parseSfc(source).descriptor.template?.content
-  assert.ok(template, 'component must contain a Vue template')
-  return baseParse(template)
+  const parsed = vueCompiler.parse(source, { filename: 'route-transition-contract.vue' })
+  assert.deepEqual(parsed.errors, [], `component SFC must parse cleanly: ${parsed.errors.map(String).join('; ')}`)
+  const template = parsed.descriptor.template
+  assert.ok(template?.ast, 'component must contain a Vue template')
+  return template.ast
 }
 const elements = (source, name) => {
   const matches = []
@@ -143,7 +150,9 @@ const parseCssRules = source => {
   return rules
 }
 const styleRoot = source => {
-  const styles = parseSfc(source).descriptor.styles.map(style => style.content).join('\n')
+  const parsed = vueCompiler.parse(source, { filename: 'route-transition-contract.vue' })
+  assert.deepEqual(parsed.errors, [], `component SFC must parse cleanly: ${parsed.errors.map(String).join('; ')}`)
+  const styles = parsed.descriptor.styles.map(style => style.content).join('\n')
   assert.ok(styles, 'shared route transition must contain CSS')
   return parseCssRules(styles)
 }

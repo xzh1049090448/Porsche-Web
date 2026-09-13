@@ -1,15 +1,23 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import { baseParse } from '@vue/compiler-dom'
-import { parse as parseSfc } from '@vue/compiler-sfc'
-import { parse, parseExpression } from '@babel/parser'
+import vuePlugin from '@vitejs/plugin-vue'
 import { messages } from '../../i18n/messages.js'
 import { publicText } from '../../i18n/public-runtime.js'
 import { formatPublicPrice, mapPublicModel, PUBLIC_PRICING } from '../../utils/public-catalog.js'
 import { publicPriceState } from '../../utils/public-pricing-query.js'
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
+const vueCompiler = (() => {
+  const plugin = vuePlugin()
+  plugin.buildStart()
+  return plugin.api.options.compiler
+})()
+const parseVue = (value, label = 'pricing Vue component') => {
+  const parsed = vueCompiler.parse(value, { filename: label })
+  assert.deepEqual(parsed.errors, [], `${label} must parse cleanly: ${parsed.errors.map(String).join('; ')}`)
+  return parsed.descriptor
+}
 const splitCssTopLevel = (value, delimiter) => {
   const parts = []
   let start = 0
@@ -89,15 +97,15 @@ const parseCssRules = source => {
   parseScope(clean)
   return rules
 }
-const styleRoot = (source, sfc = false) => parseCssRules(sfc ? parseSfc(source).descriptor.styles.map(style => style.content).join('\n') : source)
-const templateAst = source => baseParse(parseSfc(source).descriptor.template?.content || '')
+const styleRoot = (source, sfc = false) => parseCssRules(sfc ? parseVue(source).styles.map(style => style.content).join('\n') : source)
+const templateAst = source => parseVue(source).template?.ast || { children: [] }
 const staticBindingInitializers = value => {
   const bindings = new Map()
-  const descriptor = parseSfc(value).descriptor
+  const descriptor = parseVue(value)
   for (const block of [descriptor.script, descriptor.scriptSetup].filter(Boolean)) {
     let ast
-    try { ast = parse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
-    catch { continue }
+    try { ast = vueCompiler.babelParse(block.content, { sourceType: 'module', plugins: ['typescript'] }) }
+    catch (error) { throw new Error(`pricing Vue script must parse cleanly: ${error.message}`, { cause: error }) }
     for (const statement of ast.program.body) {
       const node = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement
       if (node?.type === 'VariableDeclaration' && node.kind === 'const') for (const declaration of node.declarations) {
@@ -109,14 +117,35 @@ const staticBindingInitializers = value => {
   }
   return bindings
 }
+const unwrapExpression = node => {
+  while (node && ['ParenthesizedExpression', 'TSAsExpression', 'TSTypeAssertion', 'TSNonNullExpression', 'TypeCastExpression'].includes(node.type)) node = node.expression
+  return node
+}
+const staticPropertyKey = node => {
+  node = unwrapExpression(node)
+  if (node?.type === 'Identifier') return node.name
+  if (node?.type === 'StringLiteral' || node?.type === 'NumericLiteral') return String(node.value)
+  return undefined
+}
+const memberReference = node => {
+  node = unwrapExpression(node)
+  const path = []
+  while (node?.type === 'MemberExpression' || node?.type === 'OptionalMemberExpression') {
+    const key = node.computed ? staticPropertyKey(node.property) : node.property?.name
+    if (key === undefined) return undefined
+    path.unshift(key)
+    node = unwrapExpression(node.object)
+  }
+  return node?.type === 'Identifier' ? { name: node.name, path } : undefined
+}
 const staticExpressionPossibilities = (node, bindings, resolving = new Set()) => {
+  node = unwrapExpression(node)
   if (node?.type === 'StringLiteral' || node?.type === 'NumericLiteral' || node?.type === 'BooleanLiteral') return [node.value]
   if (node?.type === 'NullLiteral') return [null]
-  if (node?.type === 'ParenthesizedExpression' || node?.type === 'TSAsExpression' || node?.type === 'TSTypeAssertion' || node?.type === 'TSNonNullExpression') return staticExpressionPossibilities(node.expression, bindings, resolving)
-  if (node?.type === 'Identifier') {
-    if (resolving.has(node.name)) return []
-    const next = new Set(resolving).add(node.name)
-    return (bindings.get(node.name) || []).flatMap(initializer => staticExpressionPossibilities(initializer, bindings, next))
+  if (node?.type === 'Identifier') return bindingPossibilities(node.name, [], bindings, resolving)
+  if (node?.type === 'MemberExpression' || node?.type === 'OptionalMemberExpression') {
+    const reference = memberReference(node)
+    return reference ? bindingPossibilities(reference.name, reference.path, bindings, resolving) : []
   }
   if (node?.type === 'BinaryExpression' && node.operator === '+') {
     const left = staticExpressionPossibilities(node.left, bindings, resolving)
@@ -126,6 +155,7 @@ const staticExpressionPossibilities = (node, bindings, resolving = new Set()) =>
   if (node?.type === 'ConditionalExpression') return [node.consequent, node.alternate].flatMap(branch => staticExpressionPossibilities(branch, bindings, resolving))
   if (node?.type === 'LogicalExpression') return [node.left, node.right].flatMap(branch => staticExpressionPossibilities(branch, bindings, resolving))
   if (node?.type === 'SequenceExpression') return staticExpressionPossibilities(node.expressions.at(-1), bindings, resolving)
+  if (node?.type === 'CallExpression' || node?.type === 'OptionalCallExpression' || node?.type === 'NewExpression') return node.arguments.flatMap(argument => staticExpressionPossibilities(argument, bindings, resolving))
   if (node?.type === 'TemplateLiteral') {
     let values = ['']
     for (let index = 0; index < node.quasis.length; index += 1) {
@@ -138,58 +168,98 @@ const staticExpressionPossibilities = (node, bindings, resolving = new Set()) =>
     }
     return values
   }
-  // Calls, member reads, and other dynamic code are intentionally not executed or guessed.
   return []
 }
-const outputBindingRoots = node => {
-  const roots = new Set()
-  const visit = value => {
-    if (!value || typeof value !== 'object') return
-    if (value.type === 'Identifier') { roots.add(value.name); return }
-    if (value.type === 'ConditionalExpression') { visit(value.consequent); visit(value.alternate); return }
-    if (value.type === 'CallExpression' || value.type === 'OptionalCallExpression' || value.type === 'NewExpression') { value.arguments.forEach(visit); return }
-    if (value.type === 'MemberExpression' || value.type === 'OptionalMemberExpression') { visit(value.object); if (value.computed) visit(value.property); return }
-    if (value.type === 'ObjectProperty') { if (value.computed) visit(value.key); visit(value.value); return }
-    if (value.type === 'ObjectMethod' || value.type === 'FunctionExpression' || value.type === 'ArrowFunctionExpression') return
-    for (const child of Object.values(value)) {
-      if (Array.isArray(child)) child.forEach(visit)
-      else if (child && typeof child === 'object' && typeof child.type === 'string') visit(child)
-    }
-  }
-  visit(node)
-  return roots
+const bindingPossibilities = (name, path, bindings, resolving = new Set()) => {
+  const resolution = `${name}.${path.join('.')}`
+  if (resolving.has(resolution)) return []
+  const next = new Set(resolving).add(resolution)
+  return (bindings.get(name) || []).flatMap(initializer => possibilitiesAtPath(initializer, path, bindings, next))
 }
-const referencedBindingLeaves = (name, bindings, resolving = new Set()) => {
-  if (resolving.has(name)) return []
-  const next = new Set(resolving).add(name)
-  return (bindings.get(name) || []).flatMap(initializer => staticLiteralLeaves(initializer, bindings, next))
+const possibilitiesAtPath = (node, path, bindings, resolving) => {
+  node = unwrapExpression(node)
+  if (!node) return []
+  if (node.type === 'Identifier') return bindingPossibilities(node.name, path, bindings, resolving)
+  if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') return [node.consequent || node.left, node.alternate || node.right].flatMap(branch => possibilitiesAtPath(branch, path, bindings, resolving))
+  if (node.type === 'SequenceExpression') return possibilitiesAtPath(node.expressions.at(-1), path, bindings, resolving)
+  if (!path.length) return staticExpressionPossibilities(node, bindings, resolving)
+  if (node.type === 'ObjectExpression') {
+    const [head, ...tail] = path
+    return node.properties.flatMap(property => {
+      if (property.type === 'SpreadElement') return possibilitiesAtPath(property.argument, path, bindings, resolving)
+      const key = property.computed ? staticPropertyKey(property.key) : staticPropertyKey(property.key)
+      return key === head ? possibilitiesAtPath(property.value, tail, bindings, resolving) : []
+    })
+  }
+  if (node.type === 'ArrayExpression') {
+    const [head, ...tail] = path
+    return /^\d+$/.test(head) && node.elements[Number(head)] ? possibilitiesAtPath(node.elements[Number(head)], tail, bindings, resolving) : []
+  }
+  if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression' || node.type === 'NewExpression') {
+    const remaining = path[0] === 'value' ? path.slice(1) : path
+    return node.arguments.flatMap(argument => possibilitiesAtPath(argument, remaining, bindings, resolving))
+  }
+  const reference = memberReference(node)
+  return reference ? bindingPossibilities(reference.name, reference.path.concat(path), bindings, resolving) : []
+}
+const referencedBindingLeaves = (name, path, bindings, resolving = new Set()) => {
+  const resolution = `${name}.${path.join('.')}`
+  if (resolving.has(resolution)) return []
+  const next = new Set(resolving).add(resolution)
+  return (bindings.get(name) || []).flatMap(initializer => leavesAtPath(initializer, path, bindings, next))
+}
+const leavesAtPath = (node, path, bindings, resolving) => {
+  node = unwrapExpression(node)
+  if (!node) return []
+  if (node.type === 'Identifier') return referencedBindingLeaves(node.name, path, bindings, resolving)
+  if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') return [node.consequent || node.left, node.alternate || node.right].flatMap(branch => leavesAtPath(branch, path, bindings, resolving))
+  if (node.type === 'SequenceExpression') return leavesAtPath(node.expressions.at(-1), path, bindings, resolving)
+  if (!path.length) return staticLiteralLeaves(node, bindings, resolving)
+  if (node.type === 'ObjectExpression') {
+    const [head, ...tail] = path
+    return node.properties.flatMap(property => {
+      if (property.type === 'SpreadElement') return leavesAtPath(property.argument, path, bindings, resolving)
+      const key = staticPropertyKey(property.key)
+      return key === head ? leavesAtPath(property.value, tail, bindings, resolving) : []
+    })
+  }
+  if (node.type === 'ArrayExpression') {
+    const [head, ...tail] = path
+    return /^\d+$/.test(head) && node.elements[Number(head)] ? leavesAtPath(node.elements[Number(head)], tail, bindings, resolving) : []
+  }
+  if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression' || node.type === 'NewExpression') {
+    const remaining = path[0] === 'value' ? path.slice(1) : path
+    return node.arguments.flatMap(argument => leavesAtPath(argument, remaining, bindings, resolving))
+  }
+  const reference = memberReference(node)
+  return reference ? referencedBindingLeaves(reference.name, reference.path.concat(path), bindings, resolving) : []
 }
 const staticLiteralLeaves = (node, bindings, resolving = new Set()) => {
+  node = unwrapExpression(node)
   if (!node) return []
-  const values = staticExpressionPossibilities(node, bindings, resolving).filter(value => typeof value === 'string' && value)
-  if (node.type === 'Identifier') return values.concat(referencedBindingLeaves(node.name, bindings, resolving))
-  if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression' || node.type === 'NewExpression') return values.concat(node.arguments.flatMap(argument => staticLiteralLeaves(argument, bindings, resolving)))
-  if (node.type === 'ObjectExpression') return values.concat(node.properties.flatMap(property => property.type === 'SpreadElement' ? staticLiteralLeaves(property.argument, bindings, resolving) : staticLiteralLeaves(property.value, bindings, resolving)))
-  if (node.type === 'ArrayExpression') return values.concat(node.elements.flatMap(element => staticLiteralLeaves(element, bindings, resolving)))
-  if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') return values.concat(staticLiteralLeaves(node.object, bindings, resolving), node.computed ? staticLiteralLeaves(node.property, bindings, resolving) : [])
-  if (node.type === 'ConditionalExpression') return values.concat(staticLiteralLeaves(node.consequent, bindings, resolving), staticLiteralLeaves(node.alternate, bindings, resolving))
-  if (node.type === 'LogicalExpression' || node.type === 'BinaryExpression') return values.concat(staticLiteralLeaves(node.left, bindings, resolving), staticLiteralLeaves(node.right, bindings, resolving))
-  if (node.type === 'TemplateLiteral') return values.concat(node.quasis.map(quasi => quasi.value.cooked ?? quasi.value.raw).filter(Boolean), node.expressions.flatMap(expression => staticLiteralLeaves(expression, bindings, resolving)))
-  if (node.type === 'TaggedTemplateExpression') return values.concat(staticLiteralLeaves(node.quasi, bindings, resolving))
-  if (node.type === 'SequenceExpression') return values.concat(node.expressions.flatMap(expression => staticLiteralLeaves(expression, bindings, resolving)))
-  if (node.type === 'ParenthesizedExpression' || node.type === 'TSAsExpression' || node.type === 'TSTypeAssertion' || node.type === 'TSNonNullExpression' || node.type === 'UnaryExpression' || node.type === 'AwaitExpression') return values.concat(staticLiteralLeaves(node.expression || node.argument, bindings, resolving))
-  if (node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression') return values.concat(staticLiteralLeaves(node.body, bindings, resolving))
-  if (node.type === 'BlockStatement') return values.concat(node.body.flatMap(statement => staticLiteralLeaves(statement, bindings, resolving)))
-  if (node.type === 'ReturnStatement' || node.type === 'ExpressionStatement') return values.concat(staticLiteralLeaves(node.argument || node.expression, bindings, resolving))
-  return values
+  const combined = staticExpressionPossibilities(node, bindings, resolving).filter(value => typeof value === 'string' && value)
+  if (node.type === 'Identifier') return combined.concat(referencedBindingLeaves(node.name, [], bindings, resolving))
+  if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
+    const reference = memberReference(node)
+    return combined.concat(reference ? referencedBindingLeaves(reference.name, reference.path, bindings, resolving) : [])
+  }
+  if (node.type === 'BinaryExpression' && node.operator === '+') return combined.length ? combined : staticLiteralLeaves(node.left, bindings, resolving).concat(staticLiteralLeaves(node.right, bindings, resolving))
+  if (node.type === 'TemplateLiteral') return combined.length ? combined : node.expressions.flatMap(expression => staticLiteralLeaves(expression, bindings, resolving))
+  if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression' || node.type === 'NewExpression') return combined.concat(node.arguments.flatMap(argument => staticLiteralLeaves(argument, bindings, resolving)))
+  if (node.type === 'ObjectExpression') return combined.concat(node.properties.flatMap(property => property.type === 'SpreadElement' ? staticLiteralLeaves(property.argument, bindings, resolving) : staticLiteralLeaves(property.value, bindings, resolving)))
+  if (node.type === 'ArrayExpression') return combined.concat(node.elements.flatMap(element => staticLiteralLeaves(element, bindings, resolving)))
+  if (node.type === 'ConditionalExpression') return combined.concat(staticLiteralLeaves(node.consequent, bindings, resolving), staticLiteralLeaves(node.alternate, bindings, resolving))
+  if (node.type === 'LogicalExpression') return combined.concat(staticLiteralLeaves(node.left, bindings, resolving), staticLiteralLeaves(node.right, bindings, resolving))
+  if (node.type === 'TaggedTemplateExpression') return combined.concat(staticLiteralLeaves(node.quasi, bindings, resolving))
+  if (node.type === 'SequenceExpression') return combined.concat(staticLiteralLeaves(node.expressions.at(-1), bindings, resolving))
+  if (node.type === 'UnaryExpression' || node.type === 'AwaitExpression') return combined.concat(staticLiteralLeaves(node.argument, bindings, resolving))
+  return combined
 }
 const literalExpressionStrings = (expression, bindings) => {
   let ast
-  try { ast = parseExpression(expression, { plugins: ['typescript'] }) }
-  catch { return [] }
-  const direct = staticExpressionPossibilities(ast, bindings).filter(value => typeof value === 'string' && value)
-  const referenced = [...outputBindingRoots(ast)].flatMap(name => referencedBindingLeaves(name, bindings))
-  return [...new Set(direct.concat(referenced))]
+  try { ast = vueCompiler.babelParse(`(${expression})`, { sourceType: 'module', plugins: ['typescript'] }).program.body[0]?.expression }
+  catch (error) { throw new Error(`visible Vue expression must parse cleanly: ${error.message}`, { cause: error }) }
+  return [...new Set(staticLiteralLeaves(ast, bindings))]
 }
 const visibleStrings = source => {
   const values = []
@@ -280,9 +350,12 @@ const assertControlSize = (root, selector, properties, context = 'all') => {
     assert.equal(values.every(controlValueIsAtLeast44), true, `${selector} ${property} must stay at least 44px`)
   }
 }
-const stripSafePerRequestCopy = value => value
-  .replace(/每次请求不单独计价/g, '')
-  .replace(/\bper[- ]request pricing is not offered\b/gi, '')
+const perRequestTopic = /(?:每(?:次)?请求|每请求|单次(?:请求|调用)|per[-\s]?request)/i
+const numericPerRequestOffer = /(?:(?:每(?:次)?请求|每请求|单次(?:请求|调用)|per[-\s]?request)[^.!。；;\n]{0,40}(?:[$¥￥]\s*\d|\d+(?:\.\d+)?\s*(?:USD|CNY|元|美元))|(?:[$¥￥]\s*\d|\d+(?:\.\d+)?\s*(?:USD|CNY|元|美元))[^.!。；;\n]{0,24}(?:每(?:次)?请求|每请求|单次(?:请求|调用)|per[-\s]?request)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request)/i
+const safePerRequestExplanation = value => perRequestTopic.test(value)
+  && !numericPerRequestOffer.test(value)
+  && (/(?:不|未|无|非)[^。；;.!?\n]{0,24}(?:提供|展示|显示|计价|定价|收费|价格|请求)|(?:每(?:次)?请求|每请求|单次(?:请求|调用))[^。；;.!?\n]{0,18}(?:不|未|无|非)/.test(value)
+    || /\b(?:no|not|without|unavailable|isn['’]?t|doesn['’]?t|is\s+not|does\s+not)\b[^.!?\n]{0,50}\bper[-\s]?request\b|\bper[-\s]?request\b[^.!?\n]{0,50}\b(?:not|unavailable|isn['’]?t|doesn['’]?t|is\s+not|does\s+not)\b/i.test(value))
 const prototypePatterns = [
   [/ModelHub/i, 'prototype product name'],
   [/40\+|\b\d+\+?\s*(?:个\s*)?(?:模型|供应商)|\b\d+\+?\s*(?:models?|providers?)\b/i, 'hard-coded prototype model or provider count'],
@@ -290,6 +363,7 @@ const prototypePatterns = [
   [/MIT License/i, 'prototype license claim'],
   [/Tailwind\s+CDN/i, 'Tailwind CDN claim'],
   [/\d+(?:\.\d+)?\s*(?:x|×|倍)(?![\w-])/i, 'prototype multiplier'],
+  [numericPerRequestOffer, 'numeric per-request price offer'],
   [/(?:单次调用价|每次请求(?:价格|价)|每请求(?:价格|价)|per[- ]request\s+(?:price|pricing)|(?:[$¥￥]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:USD|CNY))\s*\/\s*request\b)/i, 'per-request price'],
   [/(?:admin|demo)(?:@[^\s<"']+)?\s*(?:\/|:|：)\s*(?:admin|password|123456)/i, 'demo credentials'],
   [/\b(?:admin|demo)@[A-Z0-9._%+-]+\.[A-Z]{2,}\b/i, 'demo account email'],
@@ -311,7 +385,7 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
   const filterCss = styleRoot(filters, true)
   const tableCss = styleRoot(table, true)
   const cardsCss = styleRoot(cards, true)
-  const responsiveCss = parseCssRules(`${parseSfc(table).descriptor.styles.map(style => style.content).join('\n')}\n${styles}`)
+  const responsiveCss = parseCssRules(`${parseVue(table).styles.map(style => style.content).join('\n')}\n${styles}`)
   assert.match(page, /@\/styles\/public-pricing\.scss/)
   assertProperty(pricingCss, '.pricing-page', 'max-width', '1600px', 'pricing page keeps its desktop width')
   assertProperty(pricingCss, '.pricing-layout', 'grid-template-columns', '260px minmax(0, 1fr)', 'pricing layout keeps the approved sidebar grid')
@@ -348,7 +422,8 @@ test('pricing presentation rejects prototype counts, multipliers and per-request
   ])
   const pricingMessages = Object.values(messages).flatMap(locale => stringValues(locale.publicSite?.pricingCatalog))
   assert.ok(pricingMessages.length > 0, 'runtime pricingCatalog messages must exist')
-  const presentation = [page, detail, filters, table, cards].flatMap(visibleStrings).concat(pricingMessages).map(stripSafePerRequestCopy)
+  const presentation = [page, detail, filters, table, cards].flatMap(visibleStrings).concat(pricingMessages)
+    .filter(copy => !safePerRequestExplanation(copy))
   for (const [pattern, label] of prototypePatterns) for (const copy of presentation) assert.doesNotMatch(copy, pattern, label)
 })
 
