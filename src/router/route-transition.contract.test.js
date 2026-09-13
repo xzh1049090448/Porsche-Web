@@ -252,7 +252,7 @@ const assertEveryPhaseOpacityOnly = (rules, name) => {
     const label = targets.map(target => target.selector).join(', ')
     const properties = ruleProperties(rule)
     for (const [property, value] of properties) {
-      const allowed = property === 'opacity' || property.startsWith('transition-') || property.startsWith('--') || (property === 'will-change' && value.trim().toLowerCase() === 'opacity')
+      const allowed = property === 'opacity' || property.startsWith('transition-') || (property === 'will-change' && value.trim().toLowerCase() === 'opacity')
       assert.equal(allowed, true, `${label} must not declare ${property}; route phases may declare opacity and its transition only`)
     }
     const transitionProperties = transitionValues(properties, 'transition-property', '')
