@@ -1038,10 +1038,22 @@ const pricingRenderPaths = new Map([
   ['.pricing-console-cta', [[...detailPath]]],
   ['.pricing-drawer > header button', [[...publicPricingPath, selectorGroup('.pricing-drawer-backdrop'), selectorGroup('.pricing-drawer'), selectorGroup('header')]]],
 ])
-const compoundsMatchPricingPath = (compounds, path) => {
+const targetIdentityGroup = target => new Set(compoundTokens(selectorCompounds(target).at(-1) || target).filter(token => token === '*' || !token.startsWith(':')))
+const pricingHasDescendants = (compound, subjectIdentity, depth = 0) => {
+  const argumentsByPseudo = functionalPseudoArguments(compound, new Set(['has'])).map(value => splitCssTopLevel(value, ','))
+  if (!argumentsByPseudo.length) return true
+  if (depth > 12) return false
+  return argumentsByPseudo.every(branches => branches.some(branch => [...pricingRenderPaths].some(([descendant, paths]) => paths.some(path => {
+    const fullPath = [...path, targetIdentityGroup(descendant)]
+    return fullPath.some((group, subjectIndex) => group.has(subjectIdentity)
+      && compoundsMatchPricingPath(selectorCompounds(branch), fullPath.slice(subjectIndex + 1), depth + 1))
+  }))))
+}
+const compoundMatchesPricingGroup = (compound, group, depth = 0) => [...group].some(identity => compoundMayTarget(compound, identity) && pricingHasDescendants(compound, identity, depth))
+const compoundsMatchPricingPath = (compounds, path, depth = 0) => {
   let cursor = 0
   for (const compound of compounds) {
-    while (cursor < path.length && ![...path[cursor]].some(identity => compoundMayTarget(compound, identity))) cursor += 1
+    while (cursor < path.length && !compoundMatchesPricingGroup(compound, path[cursor], depth)) cursor += 1
     if (cursor >= path.length) return false
     cursor += 1
   }
@@ -1055,13 +1067,14 @@ const selectorTargetsContract = (selector, target) => {
   const offset = candidateCompounds.length - targetCompounds.length
   return leadingCompoundsAreKnown(candidateCompounds.slice(0, offset), target)
     && targetCompounds.every((compound, index) => compoundMayTarget(candidateCompounds[offset + index], compound))
+    && compoundMatchesPricingGroup(candidateCompounds.at(-1), targetIdentityGroup(target))
 }
 const relationalSelectorTargetsRoot = (selector, target) => {
   const compounds = selectorCompounds(selector)
   const subject = compounds.at(-1) || ''
   const argumentsByPseudo = functionalPseudoArguments(subject, new Set(['has'])).map(value => splitCssTopLevel(value, ','))
   if (!argumentsByPseudo.length || !argumentsByPseudo.every(branches => branches.some(branch => selectorTargetsContract(branch, target)))) return false
-  return (pricingRenderPaths.get(normalizeSelector(target)) || []).some(path => path.some((group, subjectIndex) => [...group].some(identity => compoundMayTarget(subject, identity))
+  return (pricingRenderPaths.get(normalizeSelector(target)) || []).some(path => path.some((group, subjectIndex) => compoundMatchesPricingGroup(subject, group)
     && compoundsMatchPricingPath(compounds.slice(0, -1), path.slice(0, subjectIndex))))
 }
 const rootSelectorSpecificity = selector => {
