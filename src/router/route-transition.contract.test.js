@@ -247,10 +247,12 @@ const assertEveryPhaseOpacityOnly = (rules, name) => {
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const phaseClass = new RegExp(`\\.${escapedName}-(enter|leave)-(?:active|from|to)(?![\\w-])`, 'g')
   for (const rule of rules) {
-    const targets = rule.selectors.flatMap(selector => [...selectorSubject(selector).matchAll(phaseClass)].map(match => ({ selector, direction: match[1] })))
+    if (![375, 1440].some(width => mediaMatchesScreen(rule.media, width, false) || mediaMatchesScreen(rule.media, width, true))) continue
+    const targets = rule.selectors.flatMap(selector => [...selectorSubject(selector).matchAll(phaseClass)].map(match => ({ selector, direction: match[1], phase: match[0] })))
     if (targets.length === 0) continue
     const label = targets.map(target => target.selector).join(', ')
     const properties = ruleProperties(rule)
+    for (const { selector, phase } of targets) if (properties.size > 0) assert.equal(selector.trim(), phase, `${selector} conflicts with the exact ${phase} presentation contract`)
     for (const [property, value] of properties) {
       const allowed = property === 'opacity' || property.startsWith('transition-') || (property === 'will-change' && value.trim().toLowerCase() === 'opacity')
       assert.equal(allowed, true, `${label} must not declare ${property}; route phases may declare opacity and its transition only`)

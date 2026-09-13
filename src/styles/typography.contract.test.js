@@ -93,27 +93,74 @@ const consolePages = root('./console-pages.scss')
 const publicPricing = root('./public-pricing.scss')
 const surfaces = [tokens, foundations, global, publicShell, publicContent, consoleShell, consolePages, publicPricing]
 
+const normalizeSelector = selector => selector.trim().replace(/\s*([>+~])\s*/g, '$1').replace(/\s+/g, ' ')
 const exactRules = (stylesheet, selector, media) => stylesheet.filter(rule => {
-  if (!rule.selectors.includes(selector)) return false
+  if (!rule.selectors.some(candidate => normalizeSelector(candidate) === normalizeSelector(selector))) return false
   return media === 'all' || (!media && rule.media.length === 0) || (media instanceof RegExp && rule.media.some(value => media.test(value)))
 })
-const mediaQueryMatchesScreen = (query, width) => {
+const mediaQueryMatchesScreen = (query, width, reduced) => {
   if (/(?:^|\s|\()print(?:\s|$|\))/i.test(query) && !/not\s+print/i.test(query)) return false
   if (/not\s+screen/i.test(query)) return false
-  if (/prefers-reduced-motion\s*:\s*reduce/i.test(query)) return false
+  if (/prefers-reduced-motion\s*:\s*no-preference/i.test(query) && reduced) return false
+  if (/prefers-reduced-motion\s*:\s*reduce/i.test(query) && !reduced) return false
   const minimums = [...query.matchAll(/min-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
   const maximums = [...query.matchAll(/max-width\s*:\s*(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))
   return minimums.every(minimum => width >= minimum) && maximums.every(maximum => width <= maximum)
 }
-const mediaMatchesScreen = (conditions, width) => conditions.every(condition => splitTopLevel(condition, ',').some(query => mediaQueryMatchesScreen(query, width)))
+const mediaMatchesScreen = (conditions, width, reduced) => conditions.every(condition => splitTopLevel(condition, ',').some(query => mediaQueryMatchesScreen(query, width, reduced)))
+const selectorCompounds = selector => {
+  const compounds = []
+  let start = 0
+  let quote = ''
+  let escaped = false
+  let depth = 0
+  const push = end => {
+    const value = selector.slice(start, end).trim()
+    if (value) compounds.push(value)
+  }
+  for (let index = 0; index < selector.length; index += 1) {
+    const character = selector[index]
+    if (escaped) { escaped = false; continue }
+    if (quote) {
+      if (character === '\\') escaped = true
+      else if (character === quote) quote = ''
+      continue
+    }
+    if (character === '"' || character === "'") quote = character
+    else if (character === '(' || character === '[') depth += 1
+    else if (character === ')' || character === ']') depth -= 1
+    else if (depth === 0 && (/\s/.test(character) || /[>+~]/.test(character))) { push(index); start = index + 1 }
+  }
+  push(selector.length)
+  return compounds
+}
+const compoundTokens = compound => [...compound.matchAll(/(?:^|(?<=[^\w-]))(?:[a-z][\w-]*|[.#:][\w-]+|\[[^\]]+\])/gi)].map(match => match[0])
+const selectorTargetsContract = (selector, target) => {
+  const candidateCompounds = selectorCompounds(selector)
+  const targetCompounds = selectorCompounds(target)
+  if (candidateCompounds.length < targetCompounds.length) return false
+  const offset = candidateCompounds.length - targetCompounds.length
+  return targetCompounds.every((compound, index) => {
+    const candidateTokens = new Set(compoundTokens(candidateCompounds[offset + index]))
+    return compoundTokens(compound).every(token => candidateTokens.has(token))
+  })
+}
+const assertNoContextualOverrides = (stylesheet, selector, properties, message, widths) => {
+  for (const width of widths) for (const reduced of [false, true]) for (const rule of stylesheet) {
+    if (!mediaMatchesScreen(rule.media, width, reduced)) continue
+    const conflicting = rule.selectors.filter(candidate => normalizeSelector(candidate) !== normalizeSelector(selector) && selectorTargetsContract(candidate, selector))
+    const guarded = rule.declarations.filter(declaration => properties.includes(declaration.property))
+    assert.ok(conflicting.length === 0 || guarded.length === 0, `${message} at ${width}px: contextual selector ${conflicting.join(', ')} writes ${guarded.map(declaration => declaration.property).join(', ')}`)
+  }
+}
 const fontSizeFromShorthand = value => value.match(/(?:^|\s)(var\([^)]*\)|(?:\d*\.)?\d+(?:px|rem|em|%|vw|vh)|xx-small|x-small|small|medium|large|x-large|xx-large|smaller|larger)(?:\s*\/|\s|$)/i)?.[1] || value
-const effectiveValue = (stylesheet, selector, property, width) => {
+const effectiveValue = (stylesheet, selector, property, width, reduced) => {
   let winner
   const apply = declaration => {
     if (!winner || Number(declaration.important) > Number(winner.important) || (declaration.important === winner.important && declaration.order > winner.order)) winner = declaration
   }
   for (const rule of stylesheet) {
-    if (!rule.selectors.includes(selector) || !mediaMatchesScreen(rule.media, width)) continue
+    if (!rule.selectors.some(candidate => normalizeSelector(candidate) === normalizeSelector(selector)) || !mediaMatchesScreen(rule.media, width, reduced)) continue
     for (const declaration of rule.declarations) {
       if (declaration.property === property) apply(declaration)
       else if (property === 'font-size' && declaration.property === 'font') apply({ ...declaration, property, value: fontSizeFromShorthand(declaration.value) })
@@ -122,13 +169,17 @@ const effectiveValue = (stylesheet, selector, property, width) => {
   return winner?.value.trim()
 }
 const assertMapping = (stylesheet, selector, property, expected, message, widths = [375, 1440]) => {
-  for (const width of widths) assert.equal(effectiveValue(stylesheet, selector, property, width), expected, `${message} at ${width}px`)
+  assertNoContextualOverrides(stylesheet, selector, property === 'font-size' ? ['font', 'font-size'] : [property], message, widths)
+  for (const width of widths) for (const reduced of [false, true]) assert.equal(effectiveValue(stylesheet, selector, property, width, reduced), expected, `${message} at ${width}px with reduced motion ${reduced}`)
 }
 const assertMinimumControl = (stylesheet, selector, property, message, widths = [375, 1440]) => {
+  assertNoContextualOverrides(stylesheet, selector, property === 'min-height' ? ['height', 'min-height'] : ['min-width', 'width'], message, widths)
   for (const width of widths) {
-    const value = effectiveValue(stylesheet, selector, property, width)
-    const pixels = value === 'var(--control-min-size)' ? 44 : Number(value?.match(/^(\d+(?:\.\d+)?)px$/)?.[1])
-    assert.ok(Number.isFinite(pixels) && pixels >= 44, `${message} at ${width}px; found ${JSON.stringify(value)}`)
+    for (const reduced of [false, true]) {
+      const value = effectiveValue(stylesheet, selector, property, width, reduced)
+      const pixels = value === 'var(--control-min-size)' ? 44 : Number(value?.match(/^(\d+(?:\.\d+)?)px$/)?.[1])
+      assert.ok(Number.isFinite(pixels) && pixels >= 44, `${message} at ${width}px with reduced motion ${reduced}; found ${JSON.stringify(value)}`)
+    }
   }
 }
 

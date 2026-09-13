@@ -353,10 +353,11 @@ const stringValues = value => {
   return []
 }
 const mediaAncestors = rule => rule.media
+const normalizeSelector = selector => selector.trim().replace(/\s*([>+~])\s*/g, '$1').replace(/\s+/g, ' ')
 const exactRules = (root, selector, context = 'base') => {
   const matches = []
   for (const rule of root) {
-    if (!rule.selectors?.map(value => value.trim()).includes(selector)) continue
+    if (!rule.selectors?.some(value => normalizeSelector(value) === normalizeSelector(selector))) continue
     const media = mediaAncestors(rule)
     if (context === 'all' || (context === 'base' && media.length === 0) || (context instanceof RegExp && media.some(value => context.test(value)))) matches.push(rule)
   }
@@ -380,9 +381,57 @@ const mediaQueryMatchesScreen = (query, width) => {
   return minimums.every(minimum => width >= minimum) && maximums.every(maximum => width <= maximum)
 }
 const mediaMatchesScreen = (conditions, width) => conditions.every(condition => splitCssTopLevel(condition, ',').some(query => mediaQueryMatchesScreen(query, width)))
+const selectorCompounds = selector => {
+  const compounds = []
+  let start = 0
+  let quote = ''
+  let escaped = false
+  let depth = 0
+  const push = end => {
+    const value = selector.slice(start, end).trim()
+    if (value) compounds.push(value)
+  }
+  for (let index = 0; index < selector.length; index += 1) {
+    const character = selector[index]
+    if (escaped) { escaped = false; continue }
+    if (quote) {
+      if (character === '\\') escaped = true
+      else if (character === quote) quote = ''
+      continue
+    }
+    if (character === '"' || character === "'") quote = character
+    else if (character === '(' || character === '[') depth += 1
+    else if (character === ')' || character === ']') depth -= 1
+    else if (depth === 0 && (/\s/.test(character) || /[>+~]/.test(character))) { push(index); start = index + 1 }
+  }
+  push(selector.length)
+  return compounds
+}
+const compoundTokens = compound => [...compound.matchAll(/(?:^|(?<=[^\w-]))(?:[a-z][\w-]*|[.#:][\w-]+|\[[^\]]+\])/gi)].map(match => match[0])
+const selectorTargetsContract = (selector, target) => {
+  const candidateCompounds = selectorCompounds(selector)
+  const targetCompounds = selectorCompounds(target)
+  if (candidateCompounds.length < targetCompounds.length) return false
+  const offset = candidateCompounds.length - targetCompounds.length
+  return targetCompounds.every((compound, index) => {
+    const candidateTokens = new Set(compoundTokens(candidateCompounds[offset + index]))
+    return compoundTokens(compound).every(token => candidateTokens.has(token))
+  })
+}
+const assertNoContextualOverrides = (rules, selector, properties, widths) => {
+  for (const width of widths) for (const rule of rules) {
+    if (!mediaMatchesScreen(rule.media, width)) continue
+    const conflicting = rule.selectors.filter(candidate => normalizeSelector(candidate) !== normalizeSelector(selector) && selectorTargetsContract(candidate, selector))
+    const guarded = rule.declarations.filter(declaration => properties.includes(declaration.property))
+    assert.ok(conflicting.length === 0 || guarded.length === 0, `${selector} presentation conflicts with ${conflicting.join(', ')} at ${width}px through ${guarded.map(declaration => declaration.property).join(', ')}`)
+  }
+}
 const rootSelectorSpecificity = selector => (selector.match(/#[\w-]+/g) || []).length * 100 + (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (selector.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
 const selectorTargetsRoot = (selector, targetClass) => selector.trim() === `.${targetClass}`
 const effectiveRootProperties = (rules, targetClass, width) => {
+  const guarded = ['display', 'visibility', 'opacity', 'min-height', 'min-width']
+  if (targetClass === 'pricing-filter-toggle') guarded.push('height')
+  assertNoContextualOverrides(rules, `.${targetClass}`, guarded, [width])
   const winners = new Map()
   for (const rule of rules) {
     if (!mediaMatchesScreen(rule.media, width)) continue
@@ -404,6 +453,11 @@ const assertProperty = (root, selector, property, expected, message, context = '
 }
 const controlValueIsAtLeast44 = value => value === 'var(--control-min-size)' || (/^\d+(?:\.\d+)?px$/.test(value) && Number.parseFloat(value) >= 44)
 const assertControlSize = (root, selector, properties, context = 'all') => {
+  const widths = context instanceof RegExp ? [375] : [375, 1440]
+  const guarded = new Set(properties)
+  if (properties.includes('min-height')) guarded.add('height')
+  if (properties.includes('min-width')) guarded.add('width')
+  assertNoContextualOverrides(root, selector, [...guarded], widths)
   const rules = exactRules(root, selector, context)
   assert.ok(rules.length > 0, `${selector} must have an exact rule`)
   const declarations = propertyMap(rules)
