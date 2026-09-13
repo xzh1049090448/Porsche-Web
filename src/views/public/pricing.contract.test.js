@@ -974,23 +974,53 @@ const compoundSubjectAlternatives = compound => {
     if (depth !== 0) return [subject]
     const before = subject.slice(0, match.index)
     const after = subject.slice(cursor)
-    if (!['is', 'where'].includes(match[1].toLowerCase())) return expand(before + after)
+    if (!['is', 'where'].includes(match[1].toLowerCase())) return expand(before + after || '*')
     return splitCssTopLevel(subject.slice(open + 1, cursor - 1), ',').flatMap(branch => expand(`${before}${selectorCompounds(branch).at(-1) || ''}${after}`))
   }
   return expand(compound)
+}
+const functionalPseudoArguments = (compound, names) => {
+  const matches = []
+  for (let start = 0; start < compound.length;) {
+    const match = /:([\w-]+)\s*\(/.exec(compound.slice(start))
+    if (!match) break
+    const index = start + match.index
+    const open = compound.indexOf('(', index)
+    let cursor = open + 1
+    let depth = 1
+    let quote = ''
+    for (; cursor < compound.length && depth > 0; cursor += 1) {
+      const character = compound[cursor]
+      if (quote) { if (character === quote && compound[cursor - 1] !== '\\') quote = '' }
+      else if (character === '"' || character === "'") quote = character
+      else if (character === '(') depth += 1
+      else if (character === ')') depth -= 1
+    }
+    if (depth !== 0) break
+    if (names.has(match[1].toLowerCase())) matches.push(compound.slice(open + 1, cursor - 1))
+    start = cursor
+  }
+  return matches
+}
+const compoundMayTarget = (candidate, target) => {
+  const targetTokens = new Set(compoundTokens(target))
+  return compoundSubjectAlternatives(candidate).some(alternative => {
+    const identities = compoundTokens(alternative).filter(token => token === '*' || !token.startsWith(':'))
+    const baseMatches = identities.length === 0 || identities.includes('*') || [...targetTokens].every(token => identities.includes(token))
+    if (!baseMatches) return false
+    const excluded = functionalPseudoArguments(candidate, new Set(['not'])).flatMap(value => splitCssTopLevel(value, ','))
+    return !excluded.some(selector => compoundSubjectAlternatives(selectorCompounds(selector).at(-1) || '*').some(branch => {
+      const tokens = compoundTokens(branch).filter(token => !token.startsWith(':'))
+      return tokens.includes('*') || (tokens.length > 0 && tokens.every(token => targetTokens.has(token)))
+    }))
+  })
 }
 const selectorTargetsContract = (selector, target) => {
   const candidateCompounds = selectorCompounds(selector)
   const targetCompounds = selectorCompounds(target)
   if (candidateCompounds.length < targetCompounds.length) return false
   const offset = candidateCompounds.length - targetCompounds.length
-  return targetCompounds.every((compound, index) => {
-    const targetTokens = compoundTokens(compound)
-    return compoundSubjectAlternatives(candidateCompounds[offset + index]).some(alternative => {
-      const candidateTokens = new Set(compoundTokens(alternative))
-      return targetTokens.every(token => candidateTokens.has(token))
-    })
-  })
+  return targetCompounds.every((compound, index) => compoundMayTarget(candidateCompounds[offset + index], compound))
 }
 const assertNoContextualOverrides = (rules, selector, properties, widths) => {
   for (const width of widths) for (const rule of rules) {
