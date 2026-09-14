@@ -17,13 +17,13 @@ const normalizeSelector = selector => selector.trim().replace(/\s*([>+~])\s*/g, 
 const tokenPixels = { xs: '11px', sm: '12px', body: '14px', subtitle: '16px', 'page-title': '20px' }
 const compactTokens = new Set(['xs', 'sm', 'body', 'subtitle', 'page-title', 'section-title'])
 
-const auditedStylePaths = [
+const representativeVueRoots = [
   './Login.vue', './Register.vue', './Chat.vue', './Billing.vue', './ApiKeys.vue', './Profile.vue',
   './Users.vue', './UserDetail.vue', './PublicModelsAdmin.vue', './PublicPricingAdmin.vue',
-  './PublicContentAdmin.vue', './RootNotifications.vue',
-  '../components/public-admin/PublicModelForm.vue', '../components/public/PricingTable.vue',
-  '../components/public/PricingCards.vue', '../components/mobile/MobileDrawer.vue',
-  '../components/chat/ChatMessageList.vue', '../components/admin/UserPermissionEditor.vue',
+  './PublicContentAdmin.vue', './RootNotifications.vue', './public/Home.vue', './public/Pricing.vue',
+  './public/ModelPricingDetail.vue', '../components/admin/UserPermissionEditor.vue', '../layouts/MainLayout.vue',
+]
+const sharedStylePaths = [
   '../styles/console-pages.scss', '../styles/global.scss', '../styles/console-shell.scss',
   '../styles/mobile.scss', '../styles/public-pricing.scss', '../styles/public-shell.scss',
 ]
@@ -32,6 +32,40 @@ function descriptor(path) {
   const parsed = vueCompiler.parse(read(path), { filename: path })
   assert.equal(parsed.errors.length, 0, `${path} must parse as a Vue SFC`)
   return parsed.descriptor
+}
+
+function resolveLocalVueImport(fromPath, source) {
+  if (!source.endsWith('.vue')) return null
+  if (source.startsWith('@/')) return new URL(source.slice(2), new URL('../', import.meta.url)).href
+  if (source.startsWith('.')) return new URL(source, new URL(fromPath, import.meta.url)).href
+  return null
+}
+
+function localVueImportGraph(roots) {
+  const pending = roots.map(path => new URL(path, import.meta.url).href)
+  const seen = new Set()
+  while (pending.length) {
+    const path = pending.shift()
+    if (seen.has(path)) continue
+    seen.add(path)
+    const component = descriptor(path)
+    if (!component.script && !component.scriptSetup) continue
+    const compiled = vueCompiler.compileScript(component, { id: path })
+    const bindingSources = Object.values(compiled.imports || {}).map(binding => binding.source)
+    const astSources = [...(compiled.scriptAst || []), ...(compiled.scriptSetupAst || [])]
+      .filter(node => node.type === 'ImportDeclaration').map(node => node.source.value)
+    for (const source of new Set([...bindingSources, ...astSources])) {
+      const resolved = resolveLocalVueImport(path, source)
+      if (resolved && !seen.has(resolved)) pending.push(resolved)
+    }
+  }
+  return seen
+}
+
+function auditedStylePaths() {
+  const importedVueStyles = [...localVueImportGraph(representativeVueRoots)]
+    .filter(path => descriptor(path).styles.length > 0)
+  return [...importedVueStyles, ...sharedStylePaths]
 }
 
 function templateClasses(path) {
@@ -55,6 +89,10 @@ function staticClasses(node) {
   return attribute?.value?.content.split(/\s+/).filter(Boolean) || []
 }
 
+function staticAttributes(node) {
+  return (node.props || []).filter(prop => prop.type === 6).map(prop => [prop.name, prop.value?.content])
+}
+
 function templateElementPath(path, predicate) {
   let found
   const walk = (node, ancestors = []) => {
@@ -71,8 +109,9 @@ function templateElementPath(path, predicate) {
 
 function minimalDomFromTemplatePath(path) {
   return path.reduceRight((content, node) => {
-    const classes = staticClasses(node)
-    return `<${node.tag}${classes.length ? ` class="${classes.join(' ')}"` : ''}>${content}</${node.tag}>`
+    if (node.tag === 'template') return content
+    const attributes = staticAttributes(node).map(([name, value]) => value === undefined ? name : `${name}="${value.replaceAll('&', '&amp;').replaceAll('"', '&quot;')}"`).join(' ')
+    return `<${node.tag}${attributes ? ` ${attributes}` : ''}>${content}</${node.tag}>`
   }, 'Welcome')
 }
 
@@ -161,8 +200,24 @@ function selectorForDom(selector) {
   return candidate
 }
 
+const addSpecificity = (left, right) => left.map((value, index) => value + right[index])
+const compareSpecificity = (left, right) => left[0] - right[0] || left[1] - right[1] || left[2] - right[2]
+const maxSpecificity = values => values.reduce((winner, value) => compareSpecificity(value, winner) > 0 ? value : winner, [0, 0, 0])
+
+function nthOfSelector(argument) {
+  let depth = 0
+  for (let index = 0; index < argument.length - 3; index += 1) {
+    if (argument[index] === '(' || argument[index] === '[') depth += 1
+    else if (argument[index] === ')' || argument[index] === ']') depth -= 1
+    else if (depth === 0 && /\s/.test(argument[index]) && /^of\s+/i.test(argument.slice(index).trimStart())) {
+      return argument.slice(index).trimStart().replace(/^of\s+/i, '')
+    }
+  }
+  return null
+}
+
 function selectorSpecificity(selector) {
-  let score = 0
+  let score = [0, 0, 0]
   let plain = ''
   for (let cursor = 0; cursor < selector.length;) {
     const match = /:([\w-]+)\s*\(/.exec(selector.slice(cursor))
@@ -178,17 +233,20 @@ function selectorSpecificity(selector) {
     }
     if (depth !== 0) { plain += selector.slice(index); break }
     const name = match[1].toLowerCase()
-    if (name !== 'where') {
-      score += ['is', 'not', 'has'].includes(name)
-        ? Math.max(0, ...postcss.list.comma(selector.slice(open + 1, end - 1)).map(selectorSpecificity))
-        : 10
-    }
+    const argument = selector.slice(open + 1, end - 1)
+    if (['is', 'not', 'has'].includes(name)) score = addSpecificity(score, maxSpecificity(postcss.list.comma(argument).map(selectorSpecificity)))
+    else if (['nth-child', 'nth-last-child'].includes(name)) {
+      score = addSpecificity(score, [0, 1, 0])
+      const ofSelector = nthOfSelector(argument)
+      if (ofSelector) score = addSpecificity(score, maxSpecificity(postcss.list.comma(ofSelector).map(selectorSpecificity)))
+    } else if (name !== 'where') score = addSpecificity(score, [0, 1, 0])
     cursor = end
   }
-  return score
-    + (plain.match(/#[\w-]+/g) || []).length * 100
-    + (plain.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10
-    + (plain.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
+  return addSpecificity(score, [
+    (plain.match(/#[\w-]+/g) || []).length,
+    (plain.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length,
+    (plain.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length,
+  ])
 }
 
 function effectiveMatchedFontSize(path, target, width) {
@@ -197,28 +255,132 @@ function effectiveMatchedFontSize(path, target, width) {
     if (!declaration.media.every(query => mediaQueryApplies(query, width))) continue
     const selector = selectorForDom(declaration.selector)
     if (!selector) continue
-    try { if (!target.matches(selector)) continue } catch { continue }
+    try { if (!target.matches(selector)) continue } catch (error) { assert.fail(`unsupported typography selector ${declaration.selector}: ${error.message}`) }
     const candidate = { ...declaration, specificity: selectorSpecificity(selector) }
     if (!winner
       || Number(candidate.important) > Number(winner.important)
-      || (candidate.important === winner.important && (candidate.specificity > winner.specificity
-        || (candidate.specificity === winner.specificity && candidate.order > winner.order)))) winner = candidate
+      || (candidate.important === winner.important && (compareSpecificity(candidate.specificity, winner.specificity) > 0
+        || (compareSpecificity(candidate.specificity, winner.specificity) === 0 && candidate.order > winner.order)))) winner = candidate
   }
   return winner
+}
+
+function cascadeDeclarations(paths) {
+  const found = []
+  let order = 0
+  for (const path of paths) for (const { file, root } of parsedStyles(path)) {
+    root.walkRules(rule => {
+      const selectors = postcss.list.comma(rule.selector).map(normalizeSelector)
+      for (const declaration of rule.nodes.filter(node => node.type === 'decl' && (node.prop === 'font-size' || node.prop.startsWith('--')))) {
+        const declarationOrder = order++
+        for (const selector of selectors) found.push({
+          file, selector, property: declaration.prop, value: declaration.value.trim(),
+          important: Boolean(declaration.important), media: mediaConditions(rule), order: declarationOrder,
+        })
+      }
+    })
+  }
+  return found
+}
+
+function cascadeWinner(declarations, target, property, width) {
+  let winner
+  for (const declaration of declarations) {
+    if (declaration.property !== property || !declaration.media.every(query => mediaQueryApplies(query, width))) continue
+    const selector = selectorForDom(declaration.selector)
+    if (!selector) continue
+    try { if (!target.matches(selector)) continue } catch (error) { assert.fail(`unsupported cascade selector ${declaration.file} ${declaration.selector}: ${error.message}`) }
+    const candidate = { ...declaration, specificity: selectorSpecificity(selector) }
+    if (!winner || Number(candidate.important) > Number(winner.important)
+      || (candidate.important === winner.important && (compareSpecificity(candidate.specificity, winner.specificity) > 0
+        || (compareSpecificity(candidate.specificity, winner.specificity) === 0 && candidate.order > winner.order)))) winner = candidate
+  }
+  return winner
+}
+
+function splitVarArguments(value) {
+  let depth = 0
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === '(') depth += 1
+    else if (value[index] === ')') depth -= 1
+    else if (value[index] === ',' && depth === 0) return [value.slice(0, index).trim(), value.slice(index + 1).trim()]
+  }
+  return [value.trim(), undefined]
+}
+
+function customPropertyValue(declarations, target, name, width) {
+  for (let node = target; node?.nodeType === 1; node = node.parentElement) {
+    const winner = cascadeWinner(declarations, node, name, width)
+    if (winner) return winner.value
+  }
+  return undefined
+}
+
+function resolveVars(value, declarations, target, width, resolving = new Set()) {
+  const start = value.indexOf('var(')
+  if (start < 0) return value.trim()
+  let end = start + 4
+  let depth = 1
+  for (; end < value.length && depth; end += 1) {
+    if (value[end] === '(') depth += 1
+    else if (value[end] === ')') depth -= 1
+  }
+  if (depth) return undefined
+  const [name, fallback] = splitVarArguments(value.slice(start + 4, end - 1))
+  if (!/^--[\w-]+$/.test(name)) return undefined
+  let replacement
+  if (!resolving.has(name)) {
+    const custom = customPropertyValue(declarations, target, name, width)
+    if (custom !== undefined) replacement = resolveVars(custom, declarations, target, width, new Set([...resolving, name]))
+  }
+  if (replacement === undefined && fallback !== undefined) replacement = resolveVars(fallback, declarations, target, width, resolving)
+  if (replacement === undefined) return undefined
+  return resolveVars(`${value.slice(0, start)}${replacement}${value.slice(end)}`, declarations, target, width, resolving)
+}
+
+function computedFontSize(declarations, target, width, resolvingElements = new Set()) {
+  if (!target || resolvingElements.has(target)) return undefined
+  const winner = cascadeWinner(declarations, target, 'font-size', width)
+  if (!winner) return computedFontSize(declarations, target.parentElement, width, new Set([...resolvingElements, target]))
+  const resolved = resolveVars(winner.value, declarations, target, width)
+  const match = /^(\d*(?:\.\d+)?)(px|em|rem)$/.exec(resolved || '')
+  if (!match) return { winner, resolved, px: Number.NaN }
+  const number = Number(match[1])
+  if (match[2] === 'px') return { winner, resolved, px: number }
+  if (match[2] === 'rem') return { winner, resolved, px: number * 16 }
+  const parent = computedFontSize(declarations, target.parentElement, width, new Set([...resolvingElements, target]))
+  return { winner, resolved, px: number * (parent?.px || 16) }
+}
+
+function templateFixture(path, predicate) {
+  const elements = templateElementPath(path, predicate)
+  const dom = new JSDOM(minimalDomFromTemplatePath(elements))
+  let target = dom.window.document.body.firstElementChild
+  while (target?.firstElementChild) target = target.firstElementChild
+  assert.ok(target, `${path} template fixture must create a target`)
+  return target
+}
+
+function cascadeStylePaths() {
+  const imported = [...localVueImportGraph(representativeVueRoots)].filter(path => descriptor(path).styles.length > 0)
+  return ['../styles/tokens.scss', '../styles/foundations.scss', '../styles/public-shell.scss', '../styles/global.scss', '../styles/mobile.scss', '../styles/console-shell.scss', '../styles/public-pricing.scss', ...imported]
 }
 
 function classifyFontSize({ selector, value }) {
   if (selector === '.model-icon' && value === '10px') return 'technical icon glyph'
   if (selector === '.pricing-drawer>header button' && value === '28px') return 'technical close glyph'
+  if (['.theme-toggle', '.conv-more', '.conv-delete', '.send-btn'].includes(selector) && value === '18px') return 'technical icon control'
+  if (selector === '.markdown-body :deep(code)' && value === '0.9em') return 'independent inline code scale'
 
   const token = /^var\(--font-size-([a-z-]+)\)$/.exec(value)?.[1]
   if (compactTokens.has(token)) return 'compact semantic token'
   if ((token === 'hero' || token === 'hero-mobile') && selector === '.public-hero h1') return 'Home hero exception'
 
   const pixels = /^(\d+(?:\.\d+)?)px$/.exec(value)
-  if (!pixels) return null
-  const size = Number(pixels[1])
-  if ([11, 12, 13, 14, 16, 20, 30].includes(size)) return 'approved compact literal'
+  const rem = /^(\d*(?:\.\d+)?)rem$/.exec(value)
+  if (!pixels && !rem) return null
+  const size = pixels ? Number(pixels[1]) : Number(rem[1]) * 16
+  if (size === 11 || (size >= 12 && size <= 14) || [16, 20, 30].includes(size)) return 'approved compact literal'
   if (size >= 28 && size <= 36 && new Set(['.plan-card .price', '.detail-price-card strong']).has(selector)) return 'approved price exception'
   if ([34, 44].includes(size) && selector === '.public-hero h1') return 'Home hero exception'
   return null
@@ -340,7 +502,9 @@ test('chat welcome title resolves through the ordered desktop and mobile cascade
 
 test('representative SFC and shared style declarations reject unscoped display type', () => {
   const failures = []
-  for (const path of auditedStylePaths) {
+  const graph = localVueImportGraph(representativeVueRoots)
+  assert.ok(graph.has(new URL('../components/chat/MarkdownContent.vue', import.meta.url).href), 'Chat import graph must include MarkdownContent.vue')
+  for (const path of auditedStylePaths()) {
     for (const declaration of fontSizeDeclarations(path)) {
       if (!classifyFontSize(declaration)) {
         failures.push(`${declaration.file} ${declaration.selector} has unapproved font-size ${declaration.value}${declaration.media.length ? ` under ${declaration.media.join(' -> ')}` : ''}`)
@@ -350,9 +514,50 @@ test('representative SFC and shared style declarations reject unscoped display t
   assert.deepEqual(failures, [], failures.join('\n'))
 })
 
+test('all repaired targets resolve their final cascade to compact pixels', () => {
+  const declarations = cascadeDeclarations(cascadeStylePaths())
+  const billingH2 = templateFixture('./Billing.vue', node => node.tag === 'h2' && staticClasses(node).includes('section-title'))
+  const billingH3 = templateFixture('./Billing.vue', (node, path) => node.tag === 'h3' && path.some(ancestor => staticClasses(ancestor).includes('plan-card')))
+  const permissionH3 = templateFixture('../components/admin/UserPermissionEditor.vue', node => node.tag === 'h3')
+  const pricingDrawerH2 = templateFixture('./public/Pricing.vue', node => node.tag === 'h2' && staticAttributes(node).some(([name, value]) => name === 'id' && value === 'pricing-filter-title'))
+  const detailPriceH2 = templateFixture('./public/ModelPricingDetail.vue', (node, path) => node.tag === 'h2' && path.some(ancestor => staticClasses(ancestor).includes('detail-price-card')))
+  const welcomeH2 = templateFixture('../components/chat/ChatMessageList.vue', (node, path) => node.tag === 'h2' && path.some(ancestor => staticClasses(ancestor).includes('welcome')))
+
+  const drawerPath = templateElementPath('../layouts/MainLayout.vue', (node, path) => node.tag === 'el-menu-item' && path.some(ancestor => staticClasses(ancestor).includes('drawer-nav-menu')))
+  assert.ok(drawerPath.some(node => node.tag === 'el-menu' && staticClasses(node).includes('drawer-nav-menu')), 'drawer output fixture must be anchored to the real Element menu template')
+  const drawerDom = new JSDOM('<ul class="drawer-nav-menu" role="menu"><li class="el-menu-item" role="menuitem">Navigation</li></ul>')
+  const drawerItem = drawerDom.window.document.querySelector('.drawer-nav-menu>.el-menu-item')
+
+  const targets = [
+    ['console-page h2', billingH2, width => 16],
+    ['console-page h3', billingH3, width => 14],
+    ['drawer menu item', drawerItem, width => 14],
+    ['permission module h3', permissionH3, width => 16],
+    ['pricing drawer h2', pricingDrawerH2, width => 16],
+    ['detail price card h2', detailPriceH2, width => 16],
+    ['welcome h2', welcomeH2, width => width <= 768 ? 16 : 20],
+  ]
+  for (const width of [767, 768, 769, 1440]) for (const [name, target, expected] of targets) {
+    const actual = computedFontSize(declarations, target, width)
+    const evidence = actual?.winner ? `${actual.winner.file} ${actual.winner.selector} => ${actual.winner.value} (${actual.resolved})` : 'no winning declaration'
+    assert.equal(actual?.px, expected(width), `${name} must resolve to ${expected(width)}px at ${width}px; winner ${evidence}`)
+  }
+})
+
 test('display typography is limited to the approved hero and price exceptions', () => {
   const hero = declarations('../styles/public-shell.scss', '.public-hero h1')
   assert.deepEqual(hero.map(item => item.value), ['var(--font-size-hero)', 'var(--font-size-hero-mobile)'], 'Home hero must keep its sole desktop/mobile display scale')
   assertApprovedPixels('./Billing.vue', '.plan-card .price', 28, 36)
   assertSemantic('../styles/public-pricing.scss', '.detail-price-card strong', 'page-title')
+
+  const cascade = cascadeDeclarations(cascadeStylePaths())
+  const heroTitle = templateFixture('./public/Home.vue', node => node.tag === 'h1' && staticAttributes(node).some(([name, value]) => name === 'id' && value === 'home-title'))
+  const billingPrice = templateFixture('./Billing.vue', node => staticClasses(node).includes('price'))
+  const detailPrice = templateFixture('./public/ModelPricingDetail.vue', (node, path) => node.tag === 'strong' && path.some(ancestor => staticClasses(ancestor).includes('detail-price-card')))
+  for (const [width, expected] of [[767, 34], [768, 44], [1440, 44]]) {
+    const actual = computedFontSize(cascade, heroTitle, width)
+    assert.equal(actual?.px, expected, `Home hero must resolve to ${expected}px at ${width}px; winner ${actual?.winner?.selector || 'missing'} => ${actual?.winner?.value || 'missing'}`)
+  }
+  assert.equal(computedFontSize(cascade, billingPrice, 1440)?.px, 28, 'billing currency emphasis must resolve to its approved 28px exception')
+  assert.equal(computedFontSize(cascade, detailPrice, 1440)?.px, 20, 'public detail price must retain its approved compact 20px value')
 })
