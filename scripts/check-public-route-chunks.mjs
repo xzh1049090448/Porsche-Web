@@ -8,8 +8,10 @@ const PUBLIC_LOCAL_MODULES = new Set([
   'repo:src/App.vue',
   'repo:src/bootstrap-app.js',
   'repo:src/router/index.js',
+  'repo:src/router/page-transition.js',
   'repo:src/utils/auth-redirect.js',
   'repo:src/layouts/PublicLayout.vue',
+  'repo:src/components/shell/RouteViewTransition.vue',
   'repo:src/components/public/PublicHeader.vue',
   'repo:src/components/public/PublicFooter.vue',
   'repo:src/i18n/public-runtime.js',
@@ -31,7 +33,7 @@ const PUBLIC_VIRTUAL_MODULES = new Set([
   'virtual:vite/preload-helper.js',
 ])
 const MAX_PUBLIC_CODE_BYTES = 200_000
-const MAX_PUBLIC_CSS_BYTES = 20_000
+const MAX_PUBLIC_CSS_BYTES = 21_000
 
 function closure(chunks, roots) {
   const files = new Set()

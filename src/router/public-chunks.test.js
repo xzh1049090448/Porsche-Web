@@ -7,7 +7,7 @@ import { publicModuleGraphPlugin } from '../../scripts/public-module-graph.mjs'
 
 const PUBLIC_FOUNDATION_MODULES = ['src/styles/tokens.scss', 'src/styles/foundations.scss', 'src/styles/public-shell.scss']
 
-function fixture(extraModules = []) {
+function fixture(extraModules = [], cssBytes = 100) {
   const root = '/repo'
   const plugin = publicModuleGraphPlugin()
   plugin.configResolved({ root })
@@ -19,7 +19,7 @@ function fixture(extraModules = []) {
       'src/main.js', 'src/App.vue', 'src/router/index.js', 'src/utils/auth-redirect.js', ...PUBLIC_FOUNDATION_MODULES, ...extraModules,
     ].map(id => [id.startsWith('/') || id.startsWith('\0') ? id : `${root}/${id}`, {}])), code: 'bootstrap', viteMetadata: { importedCss: new Set() } },
     'assets/public.js': { type: 'chunk', isEntry: false, imports: ['assets/entry.js'], modules: { [`${root}/src/layouts/PublicLayout.vue`]: {} }, code: 'layout', viteMetadata: { importedCss: new Set(['assets/public.css']) } },
-    'assets/public.css': { type: 'asset', source: 'x'.repeat(100) },
+    'assets/public.css': { type: 'asset', source: 'x'.repeat(cssBytes) },
   })
   return graph
 }
@@ -39,6 +39,17 @@ test('public graph accepts only the dedicated public message catalog', () => {
   for (const moduleId of ['src/i18n/index.js', 'src/i18n/messages.js']) {
     assert.throws(() => validatePublicGraph(fixture([moduleId])), /non-public module/)
   }
+})
+
+test('public graph accepts the shared route transition used by the public bootstrap', () => {
+  assert.deepEqual(validatePublicGraph(fixture([
+    'src/components/shell/RouteViewTransition.vue',
+    'src/router/page-transition.js',
+  ])), {
+    chunkCount: 2,
+    codeBytes: 15,
+    cssBytes: 100,
+  })
 })
 
 test('early document theme uses valid storage first and otherwise follows the system', () => {
@@ -101,6 +112,11 @@ test('build-produced graph rejects an unknown local module even without protecte
 
 test('build-produced graph accepts only the dedicated public shell stylesheet', () => {
   assert.deepEqual(validatePublicGraph(fixture()), { chunkCount: 2, codeBytes: 15, cssBytes: 100 })
+})
+
+test('public CSS budget admits the approved shell and rejects the next byte above its bound', () => {
+  assert.deepEqual(validatePublicGraph(fixture([], 20_362)), { chunkCount: 2, codeBytes: 15, cssBytes: 20_362 })
+  assert.throws(() => validatePublicGraph(fixture([], 21_001)), /public CSS budget exceeded: 21001 > 21000/)
 })
 
 test('build-produced graph rejects Element Plus, all-icons, auth modules, and non-foundation styles', () => {
