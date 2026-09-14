@@ -676,6 +676,11 @@ test('remaining functional titles and mobile labels use semantic tokens', () => 
   assert.deepEqual(failures, [], failures.join('\n'))
 })
 
+test('chat panel toggles retain the shared touch target size', () => {
+  assert.deepEqual(declarations('./Chat.vue', '.panel-toggle', 'width').map(item => item.value), ['var(--control-min-size)'])
+  assert.deepEqual(declarations('./Chat.vue', '.panel-toggle', 'height').map(item => item.value), ['var(--control-min-size)'])
+})
+
 test('chat welcome title resolves through the ordered desktop and mobile cascade', () => {
   const templatePath = templateElementPath('../components/chat/ChatMessageList.vue', (node, path) =>
     node.tag === 'h2' && path.some(ancestor => staticClasses(ancestor).includes('welcome')))

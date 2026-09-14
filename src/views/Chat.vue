@@ -323,8 +323,8 @@ function onSend(content, images) {
 
 .panel-toggle {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
+  width: var(--control-min-size);
+  height: var(--control-min-size);
   border-radius: 6px;
 }
 

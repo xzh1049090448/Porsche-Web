@@ -342,11 +342,12 @@ test('public shell selectors and legacy public tokens have one stylesheet owner'
   assert.match(publicShell, /\.public-nav/)
 })
 
-test('Task 3 builds one console shell around desktop, mobile, and main landmarks', async () => {
-  const [mainLayout, main, sidebar] = await Promise.all([
+test('Task 3 builds one viewport-stable console shell around desktop, mobile, and main landmarks', async () => {
+  const [mainLayout, main, sidebar, consoleShell] = await Promise.all([
     read('./MainLayout.vue'),
     read('../main.js'),
     read('../components/shell/ConsoleSidebar.vue'),
+    read('../styles/console-shell.scss'),
   ])
 
   assert.match(mainLayout, /class="[^"]*console-shell[^"]*"/)
@@ -357,6 +358,8 @@ test('Task 3 builds one console shell around desktop, mobile, and main landmarks
   assert.match(main, /import\(['"]\.\/styles\/console-shell\.scss['"]\)/)
   assert.match(sidebar, /aria-label=/)
   assert.match(sidebar, /aria-current=/)
+  assert.match(consoleShell, /\.console-shell\s*\{[^}]*height:\s*calc\(var\(--vh,\s*1vh\)\s*\*\s*100\)/s)
+  assert.match(consoleShell, /\.console-workspace\s*\{[^}]*overflow:\s*auto/s)
 })
 
 test('Task 3 exposes a single permission-filtered navigation model with grouped Root entries', async () => {

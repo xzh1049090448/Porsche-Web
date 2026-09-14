@@ -51,5 +51,6 @@ test('content administration and preview compose shared shells without weakening
  for(const source of [editor,history]){assert.match(source,/import SurfaceCard from ['"]@\/components\/shell\/SurfaceCard\.vue['"]/);assert.match(source,/<SurfaceCard\b/)}
  for(const component of ['PublicHeader','PublicFooter']){assert.match(preview,new RegExp(`import ${component} from ['\"]@\\/components\\/public\\/${component}\\.vue['\"]`));assert.match(preview,new RegExp(`<${component}\\b`))}
  for(const token of ['SafeMarkdownEditor','preview','validationProof','pendingRecovery','ContentReleaseHistory','revision_conflict','responsive-dialog','responsive-table'])assert.match(admin,new RegExp(token),token)
+ assert.match(admin,/\.publish input,dialog input\{min-height:44px\}/,'publication password and release inputs keep a 44px touch target')
  assert.match(preview,/preview-banner/);assert.match(preview,/renderSafePublicMarkdown/);assert.doesNotMatch(preview,/v-html="documents/)
 })
