@@ -127,37 +127,7 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
       if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bind(property.value, select(expression, staticPropertyKey(property.key)), target)
       if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bind(pattern.elements[index], select(expression, index), target)
     }
-    const merged = (left, right) => {
-      const result = new Map()
-      for (const name of new Set([...left.keys(), ...right.keys()])) {
-        const before = left.get(name); const after = right.get(name)
-        result.set(name, before === after ? before : { type: 'ConditionalExpression', test: { type: 'Identifier', name: '__dynamic_branch__' }, consequent: after || { type: 'Identifier', name: 'undefined' }, alternate: before || { type: 'Identifier', name: 'undefined' } })
-      }
-      return result
-    }
-    let exported
-    const process = (statements, target) => {
-      for (const statement of statements || []) {
-        if (!statement) continue
-        if (statement.type === 'FunctionDeclaration' && statement.id) target.set(statement.id.name, statement)
-        else if (statement.type === 'VariableDeclaration') {
-          for (const declaration of statement.declarations) if (declaration.init) bind(declaration.id, declaration.init, target)
-        } else if (statement.type === 'ExpressionStatement') {
-          const expression = unwrapExpression(statement.expression)
-          if (expression?.type === 'AssignmentExpression' && expression.operator === '=') bind(expression.left, expression.right, target)
-        } else if (statement.type === 'IfStatement') {
-          const condition = staticValue(statement.test)
-          if (condition !== unknownStaticValue) process((condition ? statement.consequent : statement.alternate)?.type === 'BlockStatement' ? (condition ? statement.consequent : statement.alternate).body : [condition ? statement.consequent : statement.alternate], target)
-          else {
-            const left = new Map(target); const right = new Map(target)
-            process(statement.consequent?.type === 'BlockStatement' ? statement.consequent.body : [statement.consequent], left)
-            process(statement.alternate?.type === 'BlockStatement' ? statement.alternate.body : [statement.alternate], right)
-            target.clear(); for (const [name, expression] of merged(left, right)) target.set(name, expression)
-          }
-        } else if (statement.type === 'ExportDefaultDeclaration') exported = statement.declaration
-      }
-    }
-    process(ast.program.body, bindings)
+    let exported = []
     const possibilities = (expression, resolving = new Set()) => {
       expression = unwrapExpression(expression)
       if (!expression || resolving.size > 32) return []
@@ -174,7 +144,6 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
       const candidates = possibilities(expression)
       return candidates.length > 0 && candidates.every(candidate => candidate.type === 'Identifier' && sourceMatches(imports.get(candidate.name)))
     }
-    if (block === descriptor.scriptSetup) for (const local of new Set([...imports.keys(), ...bindings.keys()])) if (authoritative({ type: 'Identifier', name: local })) wiredNames.add(normalizedComponentName(local))
     const substitute = (node, replacements, parent, key) => {
       node = unwrapExpression(node)
       if (!node || typeof node !== 'object') return node
@@ -213,6 +182,98 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
       }
       return returned
     }
+    const bindingValue = (expression, target, resolving = new Set()) => {
+      expression = unwrapExpression(expression)
+      if (expression?.type === 'Identifier' && target.has(expression.name) && !resolving.has(expression.name)) return bindingValue(target.get(expression.name), target, new Set(resolving).add(expression.name))
+      return expression
+    }
+    const expressionEffect = (expression, target, chain = false) => {
+      expression = bindingValue(expression, target)
+      if (!expression) return 'cannotThrow'
+      if (expression.type === 'ChainExpression') return expressionEffect(expression.expression, target, true)
+      if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'NullLiteral', 'BigIntLiteral', 'ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod', 'Identifier'].includes(expression.type)) return 'cannotThrow'
+      if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) {
+        const object = bindingValue(expression.object, target)
+        const nested = expressionEffect(expression.object, target, chain || expression.type === 'OptionalMemberExpression')
+        if (nested === 'mustThrow') return 'mustThrow'
+        const nullish = object?.type === 'NullLiteral' || object?.type === 'Identifier' && object.name === 'undefined'
+        const shortCircuited = ['MemberExpression', 'OptionalMemberExpression'].includes(object?.type) && expressionEffect(object, target, true) === 'cannotThrow' && object.optional
+        if (nullish) return expression.optional ? nested : nested === 'cannotThrow' ? 'mustThrow' : 'mayThrow'
+        if (shortCircuited) return chain || expression.type === 'OptionalMemberExpression' ? nested : 'mustThrow'
+        return ['ObjectExpression', 'ArrayExpression', 'StringLiteral', 'NumericLiteral', 'BooleanLiteral'].includes(object?.type) ? nested : 'mayThrow'
+      }
+      if (['CallExpression', 'OptionalCallExpression'].includes(expression.type)) {
+        const callee = bindingValue(expression.callee, target)
+        if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'].includes(callee?.type) && factoryReturns(callee, expression.arguments).length) return 'cannotThrow'
+        return 'mayThrow'
+      }
+      return 'cannotThrow'
+    }
+    const flow = (statements, initial, catches = false) => {
+      const hoisted = new Map(initial)
+      for (const statement of statements || []) if (statement?.type === 'FunctionDeclaration' && statement.id) hoisted.set(statement.id.name, statement)
+      let paths = [{ kind: 'normal', bindings: hoisted, exports: [] }]
+      const one = (statement, path, catchesHere) => {
+        if (!statement) return [path]
+        if (statement.type === 'BlockStatement') return flow(statement.body, path.bindings, catchesHere).map(result => ({ ...result, exports: path.exports.concat(result.exports) }))
+        if (statement.type === 'ExportDefaultDeclaration') return [{ ...path, exports: path.exports.concat(substitute(statement.declaration, path.bindings)) }]
+        if (statement.type === 'FunctionDeclaration' || statement.type === 'ImportDeclaration' || statement.type === 'EmptyStatement') return [path]
+        if (statement.type === 'ThrowStatement') return [{ ...path, kind: 'throw' }]
+        if (statement.type === 'VariableDeclaration') {
+          const next = new Map(path.bindings)
+          let effect = 'cannotThrow'
+          for (const declaration of statement.declarations) {
+            const current = expressionEffect(declaration.init, next)
+            if (current === 'mustThrow') effect = 'mustThrow'
+            else if (current === 'mayThrow' && effect === 'cannotThrow') effect = 'mayThrow'
+            if (declaration.init && current !== 'mustThrow') bind(declaration.id, declaration.init, next)
+          }
+          const result = effect === 'mustThrow' ? [] : [{ ...path, bindings: next }]
+          if (catchesHere && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
+          return result
+        }
+        if (statement.type === 'ExpressionStatement' && unwrapExpression(statement.expression)?.type === 'AssignmentExpression') {
+          const assignment = unwrapExpression(statement.expression)
+          const effect = expressionEffect(assignment.right, path.bindings)
+          const result = []
+          if (effect !== 'mustThrow') {
+            const next = new Map(path.bindings); bind(assignment.left, assignment.right, next)
+            result.push({ ...path, bindings: next })
+          }
+          if (catchesHere && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
+          return result
+        }
+        if (statement.type === 'IfStatement') {
+          const condition = staticValue(substitute(statement.test, path.bindings))
+          return condition !== unknownStaticValue
+            ? one(condition ? statement.consequent : statement.alternate, { ...path, bindings: new Map(path.bindings) }, catchesHere)
+            : [...one(statement.consequent, { ...path, bindings: new Map(path.bindings) }, catchesHere), ...one(statement.alternate, { ...path, bindings: new Map(path.bindings) }, catchesHere)]
+        }
+        if (statement.type === 'TryStatement') {
+          let results = one(statement.block, { ...path, bindings: new Map(path.bindings) }, true).flatMap(result => result.kind === 'throw' && statement.handler
+            ? one(statement.handler.body, { ...result, kind: 'normal', bindings: new Map(result.bindings) }, false)
+            : [result])
+          if (statement.finalizer) results = results.flatMap(result => one(statement.finalizer, { ...result, kind: 'normal', bindings: new Map(result.bindings) }, true).map(finalResult => finalResult.kind === 'normal' ? { ...result, bindings: finalResult.bindings, exports: finalResult.exports } : finalResult))
+          return results
+        }
+        const effect = expressionEffect(statement.expression, path.bindings)
+        const result = effect === 'mustThrow' ? [] : [path]
+        if (catchesHere && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
+        return result
+      }
+      for (const statement of statements || []) paths = paths.flatMap(path => path.kind === 'normal' ? one(statement, path, catches) : [path])
+      return paths
+    }
+    const normalPaths = flow(ast.program.body, new Map()).filter(path => path.kind === 'normal')
+    exported = normalPaths.flatMap(path => path.exports)
+    if (normalPaths.length) {
+      const names = new Set(normalPaths.flatMap(path => [...path.bindings.keys()]))
+      for (const name of names) {
+        const candidates = [...new Set(normalPaths.map(path => path.bindings.get(name)).filter(Boolean))]
+        if (candidates.length) bindings.set(name, candidates.slice(1).reduce((alternate, consequent) => ({ type: 'ConditionalExpression', test: { type: 'Identifier', name: '__dynamic_branch__' }, consequent, alternate }), candidates[0]))
+      }
+    }
+    if (block === descriptor.scriptSetup) for (const local of new Set([...imports.keys(), ...bindings.keys()])) if (authoritative({ type: 'Identifier', name: local })) wiredNames.add(normalizedComponentName(local))
     const isDefineComponent = callee => possibilities(callee).some(candidate => candidate?.type === 'Identifier' && defineComponentNames.has(candidate.name))
     const objectMaps = (expression, resolving = new Set()) => possibilities(expression, resolving).flatMap(candidate => {
       if (['CallExpression', 'OptionalCallExpression'].includes(candidate?.type) && isDefineComponent(candidate.callee)) return objectMaps(candidate.arguments[0], resolving)
@@ -228,9 +289,10 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
       }
       return [map]
     })
-    const registries = objectMaps(exported).flatMap(options => objectMaps(options.get('components')))
-    for (const registered of new Set(registries.flatMap(registry => [...registry.keys()]))) {
-      if (registries.length > 0 && registries.every(registry => registry.has(registered) && authoritative(registry.get(registered)))) wiredNames.add(normalizedComponentName(registered))
+    const registryPaths = exported.map(option => objectMaps(option).flatMap(options => options.has('components') ? objectMaps(options.get('components')) : []))
+    const registeredNames = new Set(registryPaths.flatMap(registries => registries.flatMap(registry => [...registry.keys()])))
+    for (const registered of registeredNames) {
+      if (registryPaths.length > 0 && registryPaths.every(registries => registries.length > 0 && registries.every(registry => registry.has(registered) && authoritative(registry.get(registered))))) wiredNames.add(normalizedComponentName(registered))
     }
   }
   const renderedCount = node => {
@@ -1459,10 +1521,16 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
         }), candidates[0]))
       }
     }
-    for (const options of exportedOptions.flatMap(expression => optionMaps(expression))) for (const name of ['setup', 'render']) {
-      const scope = options.get(name)
-      if (scope) for (const candidate of optionValues(scope)) if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(candidate?.type)) componentScopes.add(candidate)
-    }
+    const exportedScopeGroups = exportedOptions.flatMap(expression => {
+      const maps = optionMaps(expression)
+      return maps.length ? maps.map(options => {
+        const scopes = new Set()
+        const name = options.has('render') ? 'render' : 'setup'
+        const scope = options.get(name)
+        if (scope) for (const candidate of optionValues(scope)) if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(candidate?.type)) { scopes.add(candidate); componentScopes.add(candidate) }
+        return { known: true, scopes }
+      }) : [{ known: false, scopes: new Set() }]
+    })
     for (const pending = [...componentScopes]; pending.length;) {
       const scope = pending.shift()
       if (scope?.body?.type !== 'BlockStatement') for (const candidate of optionValues(scope.body)) {
@@ -1588,16 +1656,16 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
     const inspect = (node, resolving = new Set()) => {
       node = unwrapExpression(node)
       if (!node) return false
-      if (node.type === 'Identifier' && helpers.has(node.name) && !resolving.has(node.name)) return returns(helpers.get(node.name).body).some(result => inspect(result, new Set(resolving).add(node.name)))
-      if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(node.type)) return returns(node.body).some(result => inspect(result, resolving))
+      if (node.type === 'Identifier' && helpers.has(node.name) && !resolving.has(node.name)) { const values = returns(helpers.get(node.name).body); return values.length > 0 && values.every(result => inspect(result, new Set(resolving).add(node.name))) }
+      if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(node.type)) { const values = returns(node.body); return values.length > 0 && values.every(result => inspect(result, resolving)) }
       if (node.type === 'ConditionalExpression') {
         const condition = staticValue(node.test)
-        return condition !== unknownStaticValue ? inspect(condition ? node.consequent : node.alternate, resolving) : inspect(node.consequent, resolving) || inspect(node.alternate, resolving)
+        return condition !== unknownStaticValue ? inspect(condition ? node.consequent : node.alternate, resolving) : inspect(node.consequent, resolving) && inspect(node.alternate, resolving)
       }
       if (node.type === 'LogicalExpression') {
         const left = staticValue(node.left)
         if (left !== unknownStaticValue) return inspect(node.left, resolving) || ((node.operator === '&&' ? Boolean(left) : node.operator === '||' ? !left : left == null) && inspect(node.right, resolving))
-        return inspect(node.left, resolving) || inspect(node.right, resolving)
+        return inspect(node.left, resolving) && inspect(node.right, resolving)
       }
       if (node.type === 'SequenceExpression') return inspect(node.expressions.at(-1), resolving)
       if (node.type === 'ArrayExpression') return node.elements.some(item => inspect(item, resolving))
@@ -1619,10 +1687,14 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
         }
         return children.some(inspectRenderedChild)
       }
-      return node.callee?.type === 'Identifier' && helpers.has(node.callee.name) && !resolving.has(node.callee.name)
-        && returns(helpers.get(node.callee.name).body).some(result => inspect(result, new Set(resolving).add(node.callee.name)))
+      if (node.callee?.type !== 'Identifier' || !helpers.has(node.callee.name) || resolving.has(node.callee.name)) return false
+      const values = returns(helpers.get(node.callee.name).body)
+      return values.length > 0 && values.every(result => inspect(result, new Set(resolving).add(node.callee.name)))
     }
-    for (const scope of componentScopes) if (returns(scope?.body).some(result => inspect(result))) return true
+    if (exportedScopeGroups.length > 0 && exportedScopeGroups.every(({ known, scopes }) => known && scopes.size > 0 && [...scopes].every(scope => {
+      const values = returns(scope?.body)
+      return values.length > 0 && values.every(result => inspect(result))
+    }))) return true
   }
   return false
 }
