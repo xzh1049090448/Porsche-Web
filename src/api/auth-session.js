@@ -104,6 +104,9 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
   const notify = () => listeners.forEach(fn => fn({ accessToken: accessToken(), user, state, issue, epoch, generation, permissionRevision }))
   const accessToken = () => ['signingOut', 'uncertain'].includes(state) ? null : access
   const authIssue = () => issue
+  const rememberUnresolved = record => {
+    if (typeof record?.epoch === 'string' && (record.pending || record.suppressed)) unresolvedEpoch = record.epoch
+  }
   const invalidate = () => { epoch = id(); invalidators.forEach(fn => fn()); notify() }
   const uncertain = (code = 'auth_uncertain') => {
     issue = code
@@ -118,13 +121,13 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
   }
   try {
     const record = read(); epoch = sharedEpoch = record.epoch
-    if (record.pending || record.suppressed) { state = 'uncertain'; issue = 'auth_uncertain'; unresolvedEpoch = record.epoch }
+    if (record.pending || record.suppressed) { state = 'uncertain'; issue = 'auth_uncertain'; rememberUnresolved(record) }
   } catch (error) { state = 'uncertain'; issue = error?.code || browser?.capabilityCode?.() || 'auth_uncertain' }
 
   function clearSession() {
     if ((state === 'anonymous' || state === 'uncertain') && !access && !user) return
     access = null; user = null
-    if (state !== 'uncertain') { state = 'anonymous'; issue = null }
+    if (state !== 'uncertain') { state = 'anonymous'; issue = null; unresolvedEpoch = null }
     invalidate()
   }
   function setSession(next) {
@@ -220,8 +223,13 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
         } catch (error) {
           const current = read()
           if (matches(current)) {
-            if (definiteFailure(error)) browser.write({ ...current, pending: null, suppressed: kind === 'logout' })
-            else browser.write({ ...current, suppressed: true })
+            const next = definiteFailure(error)
+              ? { ...current, pending: null, suppressed: kind === 'logout' }
+              : { ...current, suppressed: true }
+            rememberUnresolved(next)
+            browser.write(next)
+          } else {
+            rememberUnresolved(current)
           }
           if (!definiteFailure(error) || kind === 'logout') uncertain()
           else if (kind === 'refresh' || (kind === 'login' && state === 'initializing' && !access && !user)) clearSession()

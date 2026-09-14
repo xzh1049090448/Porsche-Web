@@ -342,6 +342,37 @@ test('prompt cross-tab invalidate preserves settled-elsewhere recovery', async (
   assert.deepEqual(shared.messages, [{ type: 'invalidate', epoch: record.epoch }])
 })
 
+test('runtime login and refresh uncertainty retain settled-elsewhere evidence', async () => {
+  for (const kind of ['login', 'refresh']) {
+    const shared = sharedBrowserTabs({ epoch: 'clean-epoch', pending: null, suppressed: false })
+    const firstBrowser = shared.createTab(); let originalCalls = 0; let recoveryCalls = 0
+    const first = createAuthSessionManager({ browser: firstBrowser, refresh: async () => { recoveryCalls++; return refreshed } })
+    await assert.rejects(first.cookieOperation(kind, async () => {
+      originalCalls++
+      throw new TypeError('network failure')
+    }), /network failure/)
+    assert.equal(first.state(), 'uncertain')
+    assert.equal(shared.read().pending.kind, kind)
+
+    const peerBrowser = shared.createTab()
+    const peer = createAuthSessionManager({ browser: peerBrowser, refresh: async () => { recoveryCalls++; return refreshed } })
+    assert.deepEqual(await peer.recover(), { state: 'authenticated' })
+    assert.equal(first.state(), 'uncertain')
+    assert.deepEqual(await first.recover(), { state: 'anonymous', settledElsewhere: true })
+    assert.equal(originalCalls, 1)
+    assert.equal(recoveryCalls, 1)
+    assert.equal(peer.state(), 'authenticated')
+    assert.equal(peer.accessToken(), 'fresh')
+    assert.equal(first.state(), 'anonymous')
+    assert.equal(first.authIssue(), null)
+    assert.equal(first.accessToken(), null)
+    assert.equal(first.user(), null)
+    const record = shared.read()
+    assert.deepEqual(record, { epoch: record.epoch, pending: null, suppressed: false })
+    assert.deepEqual(shared.messages, [{ type: 'invalidate', epoch: record.epoch }])
+  }
+})
+
 test('malformed uncertainty records are unsupported without network', async () => {
   const browser = browserFixture()
   browser.write({ epoch: 'initial', pending: { operationId: 'bad', kind: 'login', epoch: 'other' }, suppressed: true })
