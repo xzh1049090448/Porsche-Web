@@ -281,6 +281,7 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
                     const primitive = staticValue(node)
                     if (primitive !== unknownStaticValue && primitive != null) {
                       if (typeof primitive === 'string' && key === 'length') return { type: 'NumericLiteral', value: primitive.length }
+                      if (typeof primitive === 'string' && /^\d+$/.test(key)) return Number(key) < primitive.length ? { type: 'StringLiteral', value: primitive[Number(key)] } : { type: 'Identifier', name: 'undefined' }
                       return inheritedKeys.has(key) ? { type: 'BooleanLiteral', value: true } : { type: 'Identifier', name: 'undefined' }
                     }
                     return undefined
@@ -291,7 +292,15 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
                     ? inheritedKeys.has(key) ? { type: 'BooleanLiteral', value: true } : { type: 'Identifier', name: 'undefined' }
                     : substitute(expression.left, candidate.bindings)
                 }
-                references = references.map(candidate => candidate.kind === 'normal' ? { ...candidate, currentValue: memberValue(candidate) } : candidate)
+                references = references.flatMap(candidate => {
+                  if (candidate.kind !== 'normal') return [candidate]
+                  const value = memberValue(candidate)
+                  if (value?.type !== 'ObjectMethod' || value.kind !== 'get') return [{ ...candidate, currentValue: value }]
+                  return getterPaths(value, candidate.bindings).map(path => {
+                    if (path.kind === 'throw') return { kind: 'throw', bindings: path.bindings }
+                    return { ...candidate, bindings: path.bindings, currentValue: path.kind === 'return' ? path.value : { type: 'Identifier', name: 'undefined' } }
+                  })
+                })
               }
               const write = reference => caseExpressionPaths(expression.right, reference.bindings).flatMap(candidate => {
                 if (candidate.kind !== 'normal') return [candidate]

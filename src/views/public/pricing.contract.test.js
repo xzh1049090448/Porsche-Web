@@ -1257,9 +1257,17 @@ const staticBindingInitializers = (value, importer) => {
                   const primitive = boundStaticValue(receiver, candidate.environment)
                   if (selected.unknown && (primitive !== unknownStaticValue && primitive != null || candidate.receiver === 'primitive')) {
                     if (typeof primitive === 'string' && key === 'length') selected = { value: { type: 'NumericLiteral', value: primitive.length } }
+                    else if (typeof primitive === 'string' && /^\d+$/.test(key)) selected = Number(key) < primitive.length ? { value: { type: 'StringLiteral', value: primitive[Number(key)] } } : { missing: true }
                     else selected = inheritedKeys.has(key) ? { value: { type: 'BooleanLiteral', value: true } } : { missing: true }
                   }
-                  return { ...candidate, currentValue: selected.value ?? (selected.missing ? { type: 'Identifier', name: 'undefined' } : substituteFactoryBindings(expression.left, candidate.replacements)) }
+                  return { ...candidate, selected, currentValue: selected.value ?? (selected.missing ? { type: 'Identifier', name: 'undefined' } : substituteFactoryBindings(expression.left, candidate.replacements)) }
+                }).flatMap(candidate => {
+                  if (candidate.kind !== 'normal' || !candidate.selected?.getter) return [candidate]
+                  const getter = optionGetterValues(candidate.selected.getter, candidate.environment)
+                  const paths = getter.values.map(path => ({ ...candidate, environment: path.environment, currentValue: path.value }))
+                  if (getter.fallthrough) paths.push({ ...candidate, currentValue: { type: 'Identifier', name: 'undefined' } })
+                  if (getter.effect !== 'cannotThrow') paths.push({ kind: 'throw', expression: unknownThrown, replacements: candidate.replacements, environment: candidate.environment })
+                  return paths
                 })
               }
               const write = reference => caseExpressionPaths(expression.right, reference.replacements, reference.environment).flatMap(candidate => {
@@ -1357,10 +1365,11 @@ const staticBindingInitializers = (value, importer) => {
       })
     }
     function optionGetterValues(getter, local, resolving = new Set()) {
-      const effect = optionGetterEffect(getter, local, resolving)
       const completions = setupReturns(getter.body, new Map(local), true)
       const values = completions.filter(path => path.kind === 'return' && path.expression).map(path => ({ value: path.expression, environment: path.environment }))
-      return { effect, values, incomplete: completions.some(path => path.kind !== 'return') }
+      const throws = completions.some(path => path.kind === 'throw')
+      const effect = throws ? completions.some(path => path.kind !== 'throw') ? 'mayThrow' : 'mustThrow' : 'cannotThrow'
+      return { effect, values, fallthrough: completions.some(path => path.kind === 'normal'), incomplete: completions.some(path => path.kind !== 'return') }
     }
     const resolvedLocalValues = (expression, local, resolving = new Set()) => {
       expression = unwrapExpression(expression)
@@ -1579,7 +1588,7 @@ const staticBindingInitializers = (value, importer) => {
         return values.some((value, index) => value !== node[index]) ? values : node
       }
       if (node.type === 'Identifier' && replacements.has(node.name) && !shadowed.has(node.name)) {
-        const isStaticKey = (parent?.type === 'ObjectProperty' || parent?.type === 'ObjectMethod' || parent?.type === 'MemberExpression') && key === 'key' || parent?.type === 'MemberExpression' && key === 'property' && !parent.computed
+        const isStaticKey = (parent?.type === 'ObjectProperty' || parent?.type === 'ObjectMethod') && key === 'key' && !parent.computed || parent?.type === 'MemberExpression' && key === 'property' && !parent.computed
         if (!isStaticKey && !resolving.has(node.name)) return substituteFactoryBindings(replacements.get(node.name), replacements, shadowed, parent, key, new Set(resolving).add(node.name))
       }
       let nestedShadowed = shadowed

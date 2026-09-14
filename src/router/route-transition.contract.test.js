@@ -392,6 +392,7 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
                   const primitive = optionStaticValue(node)
                   if (primitive.known && primitive.value != null) {
                     if (typeof primitive.value === 'string' && key === 'length') return { type: 'NumericLiteral', value: primitive.value.length }
+                    if (typeof primitive.value === 'string' && /^\d+$/.test(key)) return Number(key) < primitive.value.length ? { type: 'StringLiteral', value: primitive.value[Number(key)] } : missingOptionValue
                     return inheritedKeys.has(key) ? { type: 'BooleanLiteral', value: true } : missingOptionValue
                   }
                   return undefined
@@ -402,7 +403,15 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
                   ? inheritedKeys.has(key) ? { type: 'BooleanLiteral', value: true } : missingOptionValue
                   : materializeOption(expression.left, candidate.local)
               }
-              references = references.map(candidate => candidate.kind === 'normal' ? { ...candidate, currentValue: memberValue(candidate) } : candidate)
+              references = references.flatMap(candidate => {
+                if (candidate.kind !== 'normal') return [candidate]
+                const value = memberValue(candidate)
+                if (value?.type !== 'ObjectMethod' || value.kind !== 'get') return [{ ...candidate, currentValue: value }]
+                return optionGetterPaths(value, candidate.local).map(path => {
+                  if (path.kind === 'throw') return { kind: 'throw', local: path.local }
+                  return { ...candidate, local: path.local, currentValue: path.kind === 'return' ? path.value : missingOptionValue }
+                })
+              })
             }
             const write = reference => caseExpressionPaths(expression.right, reference.local).flatMap(candidate => {
               if (candidate.kind !== 'normal') return [candidate]
