@@ -13,6 +13,16 @@ const pendingRecord = (browser, kind, extra = {}) => browser.write({
   suppressed: true,
   ...extra,
 })
+const assertUnresolvedAttempt = (actual, original, message) => {
+  assert.deepEqual({ epoch: actual.epoch, pending: actual.pending, suppressed: actual.suppressed }, original, message)
+  assert.equal(typeof actual.recoveryAttempt, 'string', message)
+  assert.ok(actual.recoveryAttempt, message)
+  assert.doesNotMatch(actual.recoveryAttempt, /^\d{10,}-/, `${message || 'recovery attempt'} must not encode a timestamp`)
+  for (const field of ['accessToken', 'access_token', 'user', 'error', 'errorBody', 'timestamp', 'expiresAt']) {
+    assert.equal(field in actual, false, `${message || 'recovery attempt'} must not store ${field}`)
+  }
+  return actual.recoveryAttempt
+}
 const sharedBrowserTabs = (initialRecord) => {
   let record = structuredClone(initialRecord)
   let queue = Promise.resolve()
@@ -261,7 +271,7 @@ test('logout uncertainty retains its marker for refresh-success logout failures 
     await assert.rejects(auth.recover(), undefined, name)
     assert.equal(refreshes, 1, name)
     assert.equal(logouts, recoverLogout ? 1 : 0, name)
-    assert.deepEqual(browser.read(), original, name)
+    assertUnresolvedAttempt(browser.read(), original, name)
     assert.equal(auth.state(), 'uncertain', name)
     assert.equal(auth.authIssue(), 'auth_uncertain', name)
     assert.equal(auth.accessToken(), null, name)
@@ -281,7 +291,7 @@ test('logout uncertainty retains its marker for refresh-success logout failures 
   await assert.rejects(auth.recover(), error => error.code === 'auth_invalid_response')
   assert.equal(refreshes, 1)
   assert.equal(logouts, 0)
-  assert.deepEqual(browser.read(), original)
+  assertUnresolvedAttempt(browser.read(), original, 'invalid refresh')
 })
 
 test('logout uncertainty retries only on a second explicit recover and can then converge', async () => {
@@ -329,7 +339,7 @@ test('logout uncertainty fails closed when its durable record drifts or cannot s
     assert.equal(auth.user(), null, failureMode)
     assert.deepEqual(browser.messages, [], failureMode)
     if (failureMode === 'record-drift') assert.equal(browser.read().pending.operationId, 'other-operation')
-    else assert.deepEqual(browser.read(), original)
+    else assertUnresolvedAttempt(browser.read(), original, failureMode)
   }
 })
 
@@ -371,6 +381,89 @@ test('two managers recover logout once and both settle anonymous without credent
   const record = shared.read()
   assert.deepEqual(record, { epoch: record.epoch, pending: null, suppressed: false })
   assert.deepEqual(shared.messages, [{ type: 'invalidate', epoch: record.epoch }])
+})
+
+test('concurrent ambiguous logout recovery coalesces once before a later explicit retry converges', async () => {
+  const original = {
+    epoch: 'logout-epoch',
+    pending: { operationId: 'logout-pending', kind: 'logout', epoch: 'logout-epoch' },
+    suppressed: true,
+  }
+  const shared = sharedBrowserTabs(original)
+  let refreshes = 0; let logouts = 0; let allowSuccess = false
+  const makeManager = () => {
+    const browser = shared.createTab()
+    browser.id = undefined
+    return createAuthSessionManager({
+      browser,
+      refresh: async () => { refreshes++; return refreshed },
+      recoverLogout: async token => {
+        logouts++
+        assert.equal(token, 'fresh')
+        return { status: allowSuccess ? 204 : 500 }
+      },
+    })
+  }
+  const first = makeManager(); const peer = makeManager()
+
+  const concurrent = await Promise.allSettled([first.recover(), peer.recover()])
+  assert.deepEqual(concurrent.map(result => result.status), ['rejected', 'rejected'])
+  assert.equal(concurrent[0].reason.code, 'auth_logout_recovery_incomplete')
+  assert.equal(concurrent[1].reason.code, 'auth_recovery_coalesced')
+  assert.equal(refreshes, 1)
+  assert.equal(logouts, 1)
+  assert.equal(first.state(), 'uncertain')
+  assert.equal(peer.state(), 'uncertain')
+  assert.equal(first.accessToken(), null)
+  assert.equal(peer.accessToken(), null)
+  assert.equal(first.user(), null)
+  assert.equal(peer.user(), null)
+  assert.deepEqual(shared.messages, [])
+  const unresolved = shared.read()
+  const attempt = assertUnresolvedAttempt(unresolved, original)
+  let ordinarySends = 0
+  await assert.rejects(makeManager().cookieOperation('password', async () => { ordinarySends++ }), /auth_uncertain/)
+  assert.equal(ordinarySends, 0)
+  assert.equal(shared.read().recoveryAttempt, attempt)
+
+  allowSuccess = true
+  assert.deepEqual(await first.recover(), { state: 'anonymous' })
+  assert.equal(refreshes, 2)
+  assert.equal(logouts, 2)
+  const settled = shared.read()
+  assert.deepEqual(settled, { epoch: settled.epoch, pending: null, suppressed: false })
+  assert.equal(first.state(), 'anonymous')
+  assert.deepEqual(await peer.recover(), { state: 'anonymous', settledElsewhere: true })
+  assert.equal(peer.state(), 'anonymous')
+  assert.equal(refreshes, 2)
+  assert.equal(logouts, 2)
+})
+
+test('concurrent ambiguous login and refresh recovery coalesce to one refresh each', async () => {
+  for (const kind of ['login', 'refresh']) {
+    const original = {
+      epoch: `${kind}-epoch`,
+      pending: { operationId: `${kind}-pending`, kind, epoch: `${kind}-epoch` },
+      suppressed: true,
+    }
+    const shared = sharedBrowserTabs(original)
+    let refreshes = 0
+    const makeManager = () => createAuthSessionManager({
+      browser: shared.createTab(),
+      refresh: async () => { refreshes++; throw new TypeError('network failure') },
+    })
+    const first = makeManager(); const peer = makeManager()
+
+    const concurrent = await Promise.allSettled([first.recover(), peer.recover()])
+    assert.deepEqual(concurrent.map(result => result.status), ['rejected', 'rejected'], kind)
+    assert.equal(concurrent[1].reason.code, 'auth_recovery_coalesced', kind)
+    assert.equal(refreshes, 1, kind)
+    assert.equal(first.state(), 'uncertain', kind)
+    assert.equal(peer.state(), 'uncertain', kind)
+    assert.deepEqual(shared.messages, [], kind)
+    const unresolved = shared.read()
+    assertUnresolvedAttempt(unresolved, original, kind)
+  }
 })
 
 test('login and refresh uncertainty recover through one authoritative refresh', async () => {
@@ -430,7 +523,7 @@ test('uncertainty recovery failures preserve authoritative markers and publish n
     const original = browser.read(); let calls = 0
     const auth = createAuthSessionManager({ browser, refresh: async () => { calls++; return refresh() } })
     await assert.rejects(auth.recover(), name)
-    assert.deepEqual(browser.read(), original, name)
+    assertUnresolvedAttempt(browser.read(), original, name)
     assert.equal(calls, 1, name)
     assert.equal(auth.state(), 'uncertain', name)
     assert.equal(auth.authIssue(), 'auth_uncertain', name)
@@ -467,7 +560,7 @@ test('uncertainty recovery fails closed on durable-write failure and record or e
     assert.equal(auth.accessToken(), null)
     assert.equal(auth.user(), null)
     assert.deepEqual(browser.messages, [])
-    if (drift === 'storage-write') assert.deepEqual(browser.read(), original)
+    if (drift === 'storage-write') assertUnresolvedAttempt(browser.read(), original, drift)
     if (drift === 'record') assert.equal(browser.read().pending.operationId, 'other-operation')
     if (drift === 'epoch') assert.deepEqual(browser.read(), { epoch: 'other-epoch', pending: null, suppressed: false })
   }

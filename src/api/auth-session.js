@@ -101,11 +101,14 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
   const invalidators = new Set()
   const snapshotInvalidators = new Set()
   const id = () => browser?.id?.() || `${Date.now()}-${Math.random()}`
+  const recoveryId = () => globalThis.crypto?.randomUUID?.() || `recovery-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
   const notify = () => listeners.forEach(fn => fn({ accessToken: accessToken(), user, state, issue, epoch, generation, permissionRevision }))
   const accessToken = () => ['signingOut', 'uncertain'].includes(state) ? null : access
   const authIssue = () => issue
+  const hasRecoveryAttempt = record => Object.hasOwn(record || {}, 'recoveryAttempt')
+  const recoveryAttempt = record => hasRecoveryAttempt(record) ? record.recoveryAttempt : null
   const rememberUnresolved = record => {
-    if (typeof record?.epoch === 'string' && (record.pending || record.suppressed)) unresolvedEpoch = record.epoch
+    if (typeof record?.epoch === 'string' && (record.pending || record.suppressed || hasRecoveryAttempt(record))) unresolvedEpoch = record.epoch
   }
   const invalidate = () => { epoch = id(); invalidators.forEach(fn => fn()); notify() }
   const uncertain = (code = 'auth_uncertain') => {
@@ -121,7 +124,7 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
   }
   try {
     const record = read(); epoch = sharedEpoch = record.epoch
-    if (record.pending || record.suppressed) { state = 'uncertain'; issue = 'auth_uncertain'; rememberUnresolved(record) }
+    if (record.pending || record.suppressed || hasRecoveryAttempt(record)) { state = 'uncertain'; issue = 'auth_uncertain'; rememberUnresolved(record) }
   } catch (error) { state = 'uncertain'; issue = error?.code || browser?.capabilityCode?.() || 'auth_uncertain' }
 
   function clearSession() {
@@ -159,7 +162,7 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
     if (record.epoch !== sharedEpoch) {
       sharedEpoch = record.epoch; clearSession(); throw failure('identity_changed')
     }
-    if (record.suppressed) { uncertain(); throw failure('identity_changed') }
+    if (record.suppressed || hasRecoveryAttempt(record)) { uncertain(); throw failure('identity_changed') }
     if (record.pending && record.pending.kind !== 'refresh') throw failure('identity_changed')
     if (context.epoch !== epoch || state === 'signingOut' || state === 'uncertain') throw failure('identity_changed')
   }
@@ -195,7 +198,7 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
       return await browser.lock(async () => {
         const record = read()
         if (record.epoch !== expected) { sharedEpoch = record.epoch; clearSession(); throw failure('identity_changed') }
-        if (record.pending || record.suppressed) { uncertain(); throw failure('auth_uncertain') }
+        if (record.pending || record.suppressed || hasRecoveryAttempt(record)) { uncertain(); throw failure('auth_uncertain') }
         const pending = { operationId: id(), kind, epoch: expected }
         const pendingRecord = { ...record, pending }
         browser.write(pendingRecord) // Must succeed before sending anything.
@@ -282,16 +285,18 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
     if (!record || typeof record !== 'object' || Array.isArray(record)
         || typeof record.epoch !== 'string' || !record.epoch
         || typeof record.suppressed !== 'boolean'
+        || hasRecoveryAttempt(record) && (typeof record.recoveryAttempt !== 'string' || !record.recoveryAttempt)
         || !(record.pending === null || record.pending && typeof record.pending === 'object' && !Array.isArray(record.pending))) return false
     if (record.pending === null) return true
     return typeof record.pending.operationId === 'string' && !!record.pending.operationId
       && recoverableKinds.has(record.pending.kind)
       && record.pending.epoch === record.epoch
   }
-  const cleanRecoveryRecord = record => validRecoveryRecord(record) && record.pending === null && record.suppressed === false
-  const matchesRecoveryRecord = (current, original) => validRecoveryRecord(current)
+  const cleanRecoveryRecord = record => validRecoveryRecord(record) && record.pending === null && record.suppressed === false && !hasRecoveryAttempt(record)
+  const matchesRecoveryRecord = (current, original) => validRecoveryRecord(current) && validRecoveryRecord(original)
     && current.epoch === original.epoch
     && current.suppressed === original.suppressed
+    && recoveryAttempt(current) === recoveryAttempt(original)
     && (original.pending === null
       ? current.pending === null
       : current.pending?.operationId === original.pending.operationId
@@ -312,6 +317,7 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
       throw failure(code)
     }
     try {
+      const observed = read()
       return await browser.lock(async () => {
         const original = read()
         if (!validRecoveryRecord(original)) throw failure('auth_recovery_unsupported')
@@ -319,14 +325,23 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
           settleAnonymous(original.epoch)
           return { state: 'anonymous', settledElsewhere: true }
         }
+        if (recoveryAttempt(original) !== recoveryAttempt(observed)) throw failure('auth_recovery_coalesced')
+        if (!matchesRecoveryRecord(original, observed)) throw failure('identity_changed')
         const kind = original.pending?.kind
           || (original.pending === null && original.suppressed ? 'logout' : null)
+          || (original.pending === null && hasRecoveryAttempt(original) ? 'refresh' : null)
           || (cleanRecoveryRecord(original) && capabilityIssues.has(priorIssue) ? 'refresh' : null)
         if (!recoverableKinds.has(kind)) throw failure('auth_recovery_unsupported')
 
+        const nextAttempt = recoveryId()
+        if (typeof nextAttempt !== 'string' || !nextAttempt || nextAttempt === recoveryAttempt(original)) throw failure('auth_coordination_invalid')
+        const attempting = { ...original, recoveryAttempt: nextAttempt }
+        browser.write(attempting)
+        rememberUnresolved(attempting)
+
         const settle = authenticated => {
           const current = read()
-          if (!matchesRecoveryRecord(current, original)) throw failure('identity_changed')
+          if (!matchesRecoveryRecord(current, attempting)) throw failure('identity_changed')
           const nextEpoch = id()
           if (typeof nextEpoch !== 'string' || !nextEpoch || nextEpoch === original.epoch) throw failure('auth_coordination_invalid')
           browser.write({ epoch: nextEpoch, pending: null, suppressed: false })
@@ -370,7 +385,7 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
   })
   return { accessToken, authIssue, user: () => user, state: () => state, capture, assertCurrent, assertSnapshot, replacePermissionProjection, setSession, clearSession,
     cookieOperation, refreshAndRetry, ensureSession, logout, recover,
-    requireAvailable() { const record = read(); if (state === 'uncertain' || record.pending || record.suppressed) throw failure('auth_uncertain') },
+    requireAvailable() { const record = read(); if (state === 'uncertain' || record.pending || record.suppressed || hasRecoveryAttempt(record)) throw failure('auth_uncertain') },
     onInvalidate(fn) { invalidators.add(fn); return () => invalidators.delete(fn) },
     onSnapshotInvalidate(fn) { snapshotInvalidators.add(fn); return () => snapshotInvalidators.delete(fn) },
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) },
