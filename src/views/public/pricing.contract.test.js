@@ -1002,10 +1002,14 @@ const staticBindingInitializers = (value, importer) => {
         ? [sequenceEffect([expressionEffect(property.argument, environment, resolving), objectSpreadOperationEffect(property.argument, environment, resolving)])]
         : [property.computed ? expressionEffect(property.key, environment, resolving) : 'cannotThrow', property.type === 'ObjectMethod' ? 'cannotThrow' : expressionEffect(property.value, environment, resolving)]))
       if (['CallExpression', 'OptionalCallExpression'].includes(node.type)) {
-        const calleeEffect = sequenceEffect([expressionEffect(node.callee, environment, resolving, chain || node.type === 'OptionalCallExpression'), ...node.arguments.map(argument => expressionEffect(argument.type === 'SpreadElement' ? argument.argument : argument, environment, resolving))])
+        const calleeEffect = expressionEffect(node.callee, environment, resolving, chain || node.type === 'OptionalCallExpression')
         if (calleeEffect === 'mustThrow') return 'mustThrow'
         const calleeNullish = expressionNullish(node.callee, environment, resolving, chain || node.type === 'OptionalCallExpression')
         if (((chain || node.type === 'OptionalCallExpression') && calleeNullish === 'short-circuit') || (node.optional && calleeNullish === 'nullish')) return calleeEffect
+        const argumentEffect = sequenceEffect(node.arguments.map(argument => expressionEffect(argument.type === 'SpreadElement' ? argument.argument : argument, environment, resolving)))
+        const prerequisite = sequenceEffect([calleeEffect, argumentEffect])
+        const mayShortCircuit = (chain || node.type === 'OptionalCallExpression' || node.optional) && calleeNullish === 'unknown'
+        if (prerequisite === 'mustThrow') return mayShortCircuit ? 'mayThrow' : 'mustThrow'
         const functions = factoryFunctions(node.callee, environment, resolving)
         const invocation = unwrapExpression(node.callee)?.type === 'Identifier' && safeOptionWrappers.has(node.callee.name)
           ? 'cannotThrow'
@@ -1023,18 +1027,20 @@ const staticBindingInitializers = (value, importer) => {
               })
             }))
             : 'mayThrow'
-        return sequenceEffect([calleeEffect, invocation])
+        return sequenceEffect([prerequisite, invocation])
       }
       if (['NewExpression', 'AwaitExpression', 'TaggedTemplateExpression'].includes(node.type)) return 'mayThrow'
       if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
         const receiverEffect = expressionEffect(node.object, environment, resolving, chain || node.type === 'OptionalMemberExpression')
+        if (receiverEffect === 'mustThrow') return 'mustThrow'
+        const receiverNullish = expressionNullish(node.object, environment, resolving, chain || node.type === 'OptionalMemberExpression')
+        if (receiverNullish === 'short-circuit') return chain || node.type === 'OptionalMemberExpression' ? receiverEffect : 'mustThrow'
+        if (receiverNullish === 'nullish' && node.optional) return receiverEffect
         const propertyEffect = node.computed ? expressionEffect(node.property, environment, resolving) : 'cannotThrow'
         const prerequisite = sequenceEffect([receiverEffect, propertyEffect])
-        if (prerequisite === 'mustThrow') return 'mustThrow'
-        const receiverNullish = expressionNullish(node.object, environment, resolving, chain || node.type === 'OptionalMemberExpression')
-        if (receiverNullish === 'short-circuit') return chain || node.type === 'OptionalMemberExpression' ? prerequisite : 'mustThrow'
-        if (receiverNullish === 'nullish') return node.optional ? prerequisite : prerequisite === 'cannotThrow' ? 'mustThrow' : 'mayThrow'
         if (receiverNullish === 'unknown') return 'mayThrow'
+        if (prerequisite === 'mustThrow') return 'mustThrow'
+        if (receiverNullish === 'nullish') return prerequisite === 'cannotThrow' ? 'mustThrow' : 'mayThrow'
         const key = node.computed ? staticPropertyKey(node.property) : node.property?.name
         const selectedValue = key === undefined ? { unknown: true } : factorySelection(node.object, key, environment, resolving)
         if (selectedValue.getter) return sequenceEffect([prerequisite, optionGetterEffect(selectedValue.getter, environment, resolving)])
@@ -1051,16 +1057,22 @@ const staticBindingInitializers = (value, importer) => {
       }
       return sequenceEffect(effects)
     }
-    const setupReturns = (body, baseLocal = new Map()) => {
+    const setupReturns = (body, baseLocal = new Map(), includeCompletions = false) => {
       const unknownThrown = { type: 'Identifier', name: '__unknown_thrown_value__' }
       const localCallPaths = (expression, environment, replacements, resolving) => {
         expression = unwrapExpression(expression)
         if (!['CallExpression', 'OptionalCallExpression'].includes(expression?.type)) return undefined
+        const calleeNullish = expressionNullish(expression.callee, environment, resolving, expression.type === 'OptionalCallExpression')
+        const optional = expression.type === 'OptionalCallExpression' || expression.optional
+        if (optional && ['nullish', 'short-circuit'].includes(calleeNullish)) return [{ kind: 'normal', replacements, environment }]
+        const shortCircuitPaths = optional && calleeNullish === 'unknown' ? [{ kind: 'normal', replacements, environment }] : []
+        const argumentEffect = sequenceEffect(expression.arguments.map(argument => expressionEffect(argument.type === 'SpreadElement' ? argument.argument : argument, environment, resolving)))
+        if (argumentEffect === 'mustThrow') return shortCircuitPaths.concat({ kind: 'throw', expression: unknownThrown, replacements, environment })
         const key = expression.callee?.type === 'Identifier' ? expression.callee.name : `iife:${expression.callee?.start ?? expression.start}`
         if (resolving.has(key)) return [{ kind: 'normal', replacements, environment }, { kind: 'throw', expression: unknownThrown, replacements, environment }]
         const functions = factoryFunctions(expression.callee, environment, resolving)
         if (!functions.length) return undefined
-        return functions.flatMap(fn => {
+        const invokedPaths = functions.flatMap(fn => {
           const local = new Map(environment)
           const bound = new Map(replacements)
           const localNames = new Set()
@@ -1096,6 +1108,7 @@ const staticBindingInitializers = (value, importer) => {
               : { ...path, replacements: completedReplacements, environment: completedEnvironment }
           })
         })
+        return shortCircuitPaths.concat(invokedPaths, argumentEffect === 'mayThrow' ? [{ kind: 'throw', expression: unknownThrown, replacements, environment }] : [])
       }
       const directCall = node => {
         node = unwrapExpression(node)
@@ -1144,6 +1157,7 @@ const staticBindingInitializers = (value, importer) => {
             : catchesUnknown && effect === 'mayThrow' ? [returned, { kind: 'throw', expression: unknownThrown, replacements, environment }] : [returned]
         }
         if (node.type === 'ThrowStatement') return [{ kind: 'throw', expression: substituteFactoryBindings(node.argument, replacements), replacements, environment }]
+        if (node.type === 'BreakStatement') return [{ kind: 'break', replacements, environment }]
         if (node.type === 'VariableDeclaration') {
           let paths = [{ kind: 'normal', replacements, environment }]
           for (const declaration of node.declarations) paths = paths.flatMap(path => {
@@ -1199,6 +1213,31 @@ const staticBindingInitializers = (value, importer) => {
             ? flow(condition ? node.consequent : node.alternate, replacements, catchesUnknown, environment, resolving)
             : [...flow(node.consequent, replacements, catchesUnknown, environment, resolving), ...flow(node.alternate, replacements, catchesUnknown, environment, resolving)]
         }
+        if (node.type === 'SwitchStatement') {
+          const discriminant = substituteFactoryBindings(node.discriminant, replacements)
+          const effect = expressionEffect(discriminant, environment)
+          if (effect === 'mustThrow') return catchesUnknown ? [{ kind: 'throw', expression: unknownThrown, replacements, environment }] : []
+          const known = boundStaticValue(discriminant, environment)
+          const cases = node.cases || []
+          const defaultIndex = cases.findIndex(branch => !branch.test)
+          let entries
+          if (known !== unknownStaticValue) {
+            const matched = cases.findIndex(branch => branch.test && boundStaticValue(substituteFactoryBindings(branch.test, replacements), environment) !== unknownStaticValue && Object.is(boundStaticValue(substituteFactoryBindings(branch.test, replacements), environment), known))
+            entries = [matched >= 0 ? matched : defaultIndex].filter(index => index >= 0)
+            if (!entries.length) entries = [-1]
+          } else {
+            entries = cases.map((_, index) => index)
+            if (defaultIndex < 0) entries.push(-1)
+          }
+          const paths = entries.flatMap(entry => {
+            if (entry < 0) return [{ kind: 'normal', replacements: new Map(replacements), environment: new Map(environment) }]
+            let branches = [{ kind: 'normal', replacements: new Map(replacements), environment: new Map(environment) }]
+            for (let index = entry; index < cases.length; index += 1) branches = branches.flatMap(path => path.kind === 'normal' ? flowStatements(cases[index].consequent, path.replacements, catchesUnknown, path.environment, resolving) : [path])
+            return branches.map(path => path.kind === 'break' ? { ...path, kind: 'normal' } : path)
+          })
+          if (catchesUnknown && effect === 'mayThrow') paths.push({ kind: 'throw', expression: unknownThrown, replacements, environment })
+          return paths
+        }
         if (node.type === 'TryStatement') {
           let paths = flow(node.block, replacements, true, environment, resolving).flatMap(path => {
             if (path.kind !== 'throw' || !node.handler) return [path]
@@ -1218,7 +1257,8 @@ const staticBindingInitializers = (value, importer) => {
           ? catchesUnknown ? [{ kind: 'throw', expression: unknownThrown, replacements, environment }] : []
           : catchesUnknown && effect === 'mayThrow' ? [normal, { kind: 'throw', expression: unknownThrown, replacements, environment }] : [normal]
       }
-      return flow(body, new Map(), false, new Map(baseLocal), new Set(), true).filter(path => path.kind === 'return' && path.expression)
+      const paths = flow(body, new Map(), false, new Map(baseLocal), new Set(), true)
+      return includeCompletions ? paths : paths.filter(path => path.kind === 'return' && path.expression)
     }
     function optionGetterEffect(getter, local, resolving = new Set()) {
       if (resolving.has(getter)) return 'mayThrow'
@@ -1230,8 +1270,9 @@ const staticBindingInitializers = (value, importer) => {
     }
     function optionGetterValues(getter, local, resolving = new Set()) {
       const effect = optionGetterEffect(getter, local, resolving)
-      const values = setupReturns(getter.body, new Map(local)).map(path => ({ value: path.expression, environment: path.environment }))
-      return { effect, values }
+      const completions = setupReturns(getter.body, new Map(local), true)
+      const values = completions.filter(path => path.kind === 'return' && path.expression).map(path => ({ value: path.expression, environment: path.environment }))
+      return { effect, values, fallsThrough: completions.some(path => path.kind === 'normal') }
     }
     const resolvedLocalValues = (expression, local, resolving = new Set()) => {
       expression = unwrapExpression(expression)
@@ -1316,7 +1357,8 @@ const staticBindingInitializers = (value, importer) => {
         }
         return false
       }
-      return { values, safe: visit(fn.body, true) }
+      const completions = setupReturns(fn.body, new Map(local), true)
+      return { values, safe: visit(fn.body, true) && !completions.some(path => path.kind === 'normal') }
     }
     const factoryPatternNames = (pattern, names = []) => {
       pattern = unwrapExpression(pattern)
@@ -1517,7 +1559,7 @@ const staticBindingInitializers = (value, importer) => {
         if (selected.getter) {
           const result = optionGetterValues(selected.getter, local, resolving)
           const states = result.values.flatMap(path => objectStates(path.value, path.environment, new Set(resolving).add(selected.getter)))
-          return result.effect === 'cannotThrow' ? states : result.effect === 'mustThrow' ? [{ map: new Map(), unknown: true }] : states.concat({ map: new Map(), unknown: true })
+          return result.effect === 'cannotThrow' && !result.fallsThrough ? states : result.effect === 'mustThrow' ? [{ map: new Map(), unknown: true }] : states.concat({ map: new Map(), unknown: true })
         }
         return selected.value ? objectStates(selected.value, local, resolving) : [{ map: new Map(), unknown: true }]
       }
@@ -1547,7 +1589,7 @@ const staticBindingInitializers = (value, importer) => {
           if (value?.type === 'ObjectMethod' && value.kind === 'get') {
             const getter = optionGetterValues(value, local)
             values.push(...getter.values.map(path => path.value))
-            if (getter.effect !== 'cannotThrow') { uncertain = true; invalidOptionsExport = true }
+            if (getter.effect !== 'cannotThrow' || getter.fallsThrough) { uncertain = true; invalidOptionsExport = true }
           } else values.push(value)
         }
         else if (state.unknown) uncertain = true

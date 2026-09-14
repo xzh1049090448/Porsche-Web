@@ -293,6 +293,7 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
         return result
       }
       if (statement.type === 'ThrowStatement') return [{ ...path, kind: 'throw' }]
+      if (statement.type === 'BreakStatement') return [{ ...path, kind: 'break' }]
       if (statement.type === 'VariableDeclaration') {
         let paths = [path]
         for (const declaration of statement.declarations) paths = paths.flatMap(current => {
@@ -330,11 +331,36 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
         if (catches && effect === 'mayThrow') result.push({ ...path, kind: 'throw' })
         return result
       }
+      if (statement.type === 'SwitchStatement') {
+        const discriminant = materializeOption(statement.discriminant, path.local)
+        const effect = optionExpressionEffect(discriminant, path.local)
+        if (effect === 'mustThrow') return catches ? [{ ...path, kind: 'throw' }] : []
+        const known = optionStaticValue(discriminant)
+        const cases = statement.cases || []
+        const defaultIndex = cases.findIndex(item => !item.test)
+        let entries
+        if (known.known) {
+          const match = cases.findIndex(item => item.test && optionStaticValue(materializeOption(item.test, path.local)).known && Object.is(optionStaticValue(materializeOption(item.test, path.local)).value, known.value))
+          entries = [match >= 0 ? match : defaultIndex].filter(index => index >= 0)
+          if (!entries.length) entries = [-1]
+        } else {
+          entries = cases.map((_, index) => index)
+          if (defaultIndex < 0) entries.push(-1)
+        }
+        const result = entries.flatMap(entry => {
+          if (entry < 0) return [{ ...path, local: new Map(path.local) }]
+          let branches = [{ ...path, local: new Map(path.local) }]
+          for (let index = entry; index < cases.length; index += 1) branches = statements(cases[index].consequent, branches, catches)
+          return branches.map(branch => branch.kind === 'break' ? { ...branch, kind: 'normal' } : branch)
+        })
+        if (catches && effect === 'mayThrow') result.push({ ...path, kind: 'throw' })
+        return result
+      }
       if (statement.type === 'TryStatement') {
         let result = one(statement.block, { ...path, local: new Map(path.local) }, true).flatMap(candidate => candidate.kind === 'throw' && statement.handler
           ? one(statement.handler.body, { ...candidate, kind: 'normal', local: new Map(candidate.local) }, false)
           : [candidate])
-        if (statement.finalizer) result = result.flatMap(candidate => one(statement.finalizer, { ...candidate, kind: 'normal', local: new Map(candidate.local) }, true).map(finalPath => finalPath.kind === 'normal' ? candidate : finalPath))
+        if (statement.finalizer) result = result.flatMap(candidate => one(statement.finalizer, { ...candidate, kind: 'normal', local: new Map(candidate.local) }, true).map(finalPath => finalPath.kind === 'normal' ? { ...candidate, local: finalPath.local } : finalPath))
         return result
       }
       const effect = optionExpressionEffect(materializeOption(statement.expression, path.local), path.local)
@@ -342,13 +368,13 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
       if (catches && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
       return result
     }
-    return statements(getter.body?.body || []).filter(path => path.kind === 'return')
+    return statements(getter.body?.body || [], undefined, true)
   }
   const optionAccessValues = (value, local) => {
     if (value?.type !== 'ObjectMethod' || value.kind !== 'get') return [value]
-    const effect = callableBodyEffect(value.body, expression => optionExpressionEffect(expression, local), optionStaticValue)
-    const values = optionGetterPaths(value, local).map(path => path.value)
-    return effect === 'cannotThrow' ? values : effect === 'mustThrow' ? [optionUnknown] : values.concat(optionUnknown)
+    const paths = optionGetterPaths(value, local)
+    const values = paths.filter(path => path.kind === 'return').map(path => path.value)
+    return paths.some(path => path.kind !== 'return') || !values.length ? values.concat(optionUnknown) : values
   }
   const optionCandidates = (expression, local, resolving = new Set()) => {
     expression = unwrapScriptExpression(expression)

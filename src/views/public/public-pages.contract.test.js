@@ -185,6 +185,7 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
           return result
         }
         if (statement.type === 'ThrowStatement') return [{ ...path, kind: 'throw' }]
+        if (statement.type === 'BreakStatement') return [{ ...path, kind: 'break' }]
         if (statement.type === 'VariableDeclaration') {
           let paths = [path]
           for (const declaration of statement.declarations) paths = paths.flatMap(current => {
@@ -222,11 +223,36 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
           if (catches && effect === 'mayThrow') result.push({ ...path, kind: 'throw' })
           return result
         }
+        if (statement.type === 'SwitchStatement') {
+          const discriminant = substitute(statement.discriminant, path.bindings)
+          const effect = expressionEffect(discriminant, path.bindings)
+          if (effect === 'mustThrow') return catches ? [{ ...path, kind: 'throw' }] : []
+          const known = staticValue(discriminant)
+          const cases = statement.cases || []
+          const defaultIndex = cases.findIndex(item => !item.test)
+          let entries
+          if (known !== unknownStaticValue) {
+            const match = cases.findIndex(item => item.test && staticValue(substitute(item.test, path.bindings)) !== unknownStaticValue && Object.is(staticValue(substitute(item.test, path.bindings)), known))
+            entries = [match >= 0 ? match : defaultIndex].filter(index => index >= 0)
+            if (!entries.length) entries = [-1]
+          } else {
+            entries = cases.map((_, index) => index)
+            if (defaultIndex < 0) entries.push(-1)
+          }
+          const result = entries.flatMap(entry => {
+            if (entry < 0) return [{ ...path, bindings: new Map(path.bindings) }]
+            let branches = [{ ...path, bindings: new Map(path.bindings) }]
+            for (let index = entry; index < cases.length; index += 1) branches = statements(cases[index].consequent, branches, catches)
+            return branches.map(branch => branch.kind === 'break' ? { ...branch, kind: 'normal' } : branch)
+          })
+          if (catches && effect === 'mayThrow') result.push({ ...path, kind: 'throw' })
+          return result
+        }
         if (statement.type === 'TryStatement') {
           let result = one(statement.block, { ...path, bindings: new Map(path.bindings) }, true).flatMap(candidate => candidate.kind === 'throw' && statement.handler
             ? one(statement.handler.body, { ...candidate, kind: 'normal', bindings: new Map(candidate.bindings) }, false)
             : [candidate])
-          if (statement.finalizer) result = result.flatMap(candidate => one(statement.finalizer, { ...candidate, kind: 'normal', bindings: new Map(candidate.bindings) }, true).map(finalPath => finalPath.kind === 'normal' ? candidate : finalPath))
+          if (statement.finalizer) result = result.flatMap(candidate => one(statement.finalizer, { ...candidate, kind: 'normal', bindings: new Map(candidate.bindings) }, true).map(finalPath => finalPath.kind === 'normal' ? { ...candidate, bindings: finalPath.bindings } : finalPath))
           return result
         }
         const effect = expressionEffect(substitute(statement.expression, path.bindings), path.bindings)
@@ -234,13 +260,13 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
         if (catches && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
         return result
       }
-      return statements(getter.body?.body || []).filter(path => path.kind === 'return')
+      return statements(getter.body?.body || [], undefined, true)
     }
     const getterValues = (value, target) => {
       if (value?.type !== 'ObjectMethod' || value.kind !== 'get') return [value]
-      const effect = inspectCallableEffect(value, target)
-      const values = getterPaths(value, target).map(path => path.value)
-      return effect === 'cannotThrow' ? values : effect === 'mustThrow' ? [throwingGetter] : values.concat(throwingGetter)
+      const paths = getterPaths(value, target)
+      const values = paths.filter(path => path.kind === 'return').map(path => path.value)
+      return paths.some(path => path.kind !== 'return') || !values.length ? values.concat(throwingGetter) : values
     }
     let exported = []
     const possibilities = (expression, resolving = new Set()) => {
