@@ -1220,26 +1220,52 @@ const staticBindingInitializers = (value, importer) => {
           const known = boundStaticValue(discriminant, environment)
           const cases = node.cases || []
           const defaultIndex = cases.findIndex(branch => !branch.test)
-          let searches = [{ kind: 'search' }]
+          const caseExpressionPaths = (expression, currentReplacements, currentEnvironment) => {
+            expression = unwrapExpression(expression)
+            if (expression?.type === 'SequenceExpression') {
+              let paths = [{ kind: 'normal', replacements: new Map(currentReplacements), environment: new Map(currentEnvironment), value: undefined }]
+              for (const item of expression.expressions) paths = paths.flatMap(candidate => candidate.kind === 'normal' ? caseExpressionPaths(item, candidate.replacements, candidate.environment) : [candidate])
+              return paths
+            }
+            if (expression?.type === 'AssignmentExpression' && expression.operator === '=') return caseExpressionPaths(expression.right, currentReplacements, currentEnvironment).map(candidate => {
+              if (candidate.kind !== 'normal') return candidate
+              const nextEnvironment = new Map(candidate.environment)
+              const nextReplacements = new Map(candidate.replacements)
+              bindFactoryPattern(expression.left, candidate.value, nextEnvironment, nextReplacements)
+              return { ...candidate, environment: nextEnvironment, replacements: nextReplacements }
+            })
+            if (expression?.type === 'ConditionalExpression') return caseExpressionPaths(expression.test, currentReplacements, currentEnvironment).flatMap(candidate => {
+              if (candidate.kind !== 'normal') return [candidate]
+              const condition = boundStaticValue(candidate.value, candidate.environment)
+              return condition !== unknownStaticValue
+                ? caseExpressionPaths(condition ? expression.consequent : expression.alternate, candidate.replacements, candidate.environment)
+                : [...caseExpressionPaths(expression.consequent, candidate.replacements, candidate.environment), ...caseExpressionPaths(expression.alternate, candidate.replacements, candidate.environment)]
+            })
+            const value = substituteFactoryBindings(expression, currentReplacements)
+            const testEffect = expressionEffect(value, currentEnvironment)
+            const outcomes = catchesUnknown && testEffect !== 'cannotThrow' ? [{ kind: 'throw', expression: unknownThrown, replacements: new Map(currentReplacements), environment: new Map(currentEnvironment) }] : []
+            if (testEffect !== 'mustThrow') outcomes.unshift({ kind: 'normal', value, replacements: new Map(currentReplacements), environment: new Map(currentEnvironment) })
+            return outcomes
+          }
+          let searches = [{ kind: 'search', replacements: new Map(replacements), environment: new Map(environment) }]
           for (let index = 0; index < cases.length; index += 1) {
             if (!cases[index].test) continue
             searches = searches.flatMap(search => {
               if (search.kind !== 'search') return [search]
-              const test = substituteFactoryBindings(cases[index].test, replacements)
-              const testEffect = expressionEffect(test, environment)
-              const outcomes = catchesUnknown && testEffect !== 'cannotThrow' ? [{ kind: 'throw', expression: unknownThrown, replacements, environment }] : []
-              if (testEffect === 'mustThrow') return outcomes
-              const candidate = boundStaticValue(test, environment)
-              if (known !== unknownStaticValue && candidate !== unknownStaticValue) return outcomes.concat(candidate === known ? { kind: 'entry', index } : { kind: 'search' })
-              return outcomes.concat({ kind: 'entry', index }, { kind: 'search' })
+              return caseExpressionPaths(cases[index].test, search.replacements, search.environment).flatMap(testPath => {
+                if (testPath.kind === 'throw') return [testPath]
+                const candidate = boundStaticValue(testPath.value, testPath.environment)
+                if (known !== unknownStaticValue && candidate !== unknownStaticValue) return [{ kind: candidate === known ? 'entry' : 'search', index, replacements: testPath.replacements, environment: testPath.environment }]
+                return [{ kind: 'entry', index, replacements: testPath.replacements, environment: testPath.environment }, { kind: 'search', replacements: new Map(testPath.replacements), environment: new Map(testPath.environment) }]
+              })
             })
           }
-          const entries = searches.map(search => search.kind === 'search' ? { kind: 'entry', index: defaultIndex } : search)
+          const entries = searches.map(search => search.kind === 'search' ? { ...search, kind: 'entry', index: defaultIndex } : search)
           const paths = entries.flatMap(entry => {
             if (entry.kind === 'throw') return [entry]
             const index = entry.index
-            if (index < 0) return [{ kind: 'normal', replacements: new Map(replacements), environment: new Map(environment) }]
-            let branches = [{ kind: 'normal', replacements: new Map(replacements), environment: new Map(environment) }]
+            if (index < 0) return [{ kind: 'normal', replacements: entry.replacements, environment: entry.environment }]
+            let branches = [{ kind: 'normal', replacements: entry.replacements, environment: entry.environment }]
             for (let caseIndex = index; caseIndex < cases.length; caseIndex += 1) branches = branches.flatMap(path => path.kind === 'normal' ? flowStatements(cases[caseIndex].consequent, path.replacements, catchesUnknown, path.environment, resolving) : [path])
             return branches.map(path => path.kind === 'break' ? { ...path, kind: 'normal' } : path)
           })

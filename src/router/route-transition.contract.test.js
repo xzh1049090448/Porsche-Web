@@ -338,26 +338,51 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
         const known = optionStaticValue(discriminant)
         const cases = statement.cases || []
         const defaultIndex = cases.findIndex(item => !item.test)
-        let searches = [{ kind: 'search' }]
+        const caseExpressionPaths = (expression, local) => {
+          expression = unwrapScriptExpression(expression)
+          if (expression?.type === 'SequenceExpression') {
+            let paths = [{ kind: 'normal', local: new Map(local), value: undefined }]
+            for (const item of expression.expressions) paths = paths.flatMap(candidate => candidate.kind === 'normal' ? caseExpressionPaths(item, candidate.local) : [candidate])
+            return paths
+          }
+          if (expression?.type === 'AssignmentExpression' && expression.operator === '=') return caseExpressionPaths(expression.right, local).map(candidate => {
+            if (candidate.kind !== 'normal') return candidate
+            const next = new Map(candidate.local)
+            bindOptionPattern(expression.left, candidate.value, next)
+            return { ...candidate, local: next }
+          })
+          if (expression?.type === 'ConditionalExpression') return caseExpressionPaths(expression.test, local).flatMap(candidate => {
+            if (candidate.kind !== 'normal') return [candidate]
+            const condition = optionStaticValue(candidate.value)
+            return condition.known
+              ? caseExpressionPaths(condition.value ? expression.consequent : expression.alternate, candidate.local)
+              : [...caseExpressionPaths(expression.consequent, candidate.local), ...caseExpressionPaths(expression.alternate, candidate.local)]
+          })
+          const value = materializeOption(expression, local)
+          const testEffect = optionExpressionEffect(value, local)
+          const outcomes = catches && testEffect !== 'cannotThrow' ? [{ kind: 'throw', local: new Map(local) }] : []
+          if (testEffect !== 'mustThrow') outcomes.unshift({ kind: 'normal', value, local: new Map(local) })
+          return outcomes
+        }
+        let searches = [{ kind: 'search', local: new Map(path.local) }]
         for (let index = 0; index < cases.length; index += 1) {
           if (!cases[index].test) continue
           searches = searches.flatMap(search => {
             if (search.kind !== 'search') return [search]
-            const test = materializeOption(cases[index].test, path.local)
-            const testEffect = optionExpressionEffect(test, path.local)
-            const outcomes = catches && testEffect !== 'cannotThrow' ? [{ kind: 'throw' }] : []
-            if (testEffect === 'mustThrow') return outcomes
-            const candidate = optionStaticValue(test)
-            if (known.known && candidate.known) return outcomes.concat(candidate.value === known.value ? { kind: 'entry', index } : { kind: 'search' })
-            return outcomes.concat({ kind: 'entry', index }, { kind: 'search' })
+            return caseExpressionPaths(cases[index].test, search.local).flatMap(testPath => {
+              if (testPath.kind === 'throw') return [{ kind: 'throw', local: testPath.local }]
+              const candidate = optionStaticValue(testPath.value)
+              if (known.known && candidate.known) return [{ kind: candidate.value === known.value ? 'entry' : 'search', index, local: testPath.local }]
+              return [{ kind: 'entry', index, local: testPath.local }, { kind: 'search', local: new Map(testPath.local) }]
+            })
           })
         }
-        const entries = searches.map(search => search.kind === 'search' ? { kind: 'entry', index: defaultIndex } : search)
+        const entries = searches.map(search => search.kind === 'search' ? { ...search, kind: 'entry', index: defaultIndex } : search)
         const result = entries.flatMap(entry => {
-          if (entry.kind === 'throw') return [{ ...path, kind: 'throw' }]
+          if (entry.kind === 'throw') return [{ ...path, kind: 'throw', local: entry.local }]
           const index = entry.index
-          if (index < 0) return [{ ...path, local: new Map(path.local) }]
-          let branches = [{ ...path, local: new Map(path.local) }]
+          if (index < 0) return [{ ...path, local: entry.local }]
+          let branches = [{ ...path, local: entry.local }]
           for (let caseIndex = index; caseIndex < cases.length; caseIndex += 1) branches = statements(cases[caseIndex].consequent, branches, catches)
           return branches.map(branch => branch.kind === 'break' ? { ...branch, kind: 'normal' } : branch)
         })
