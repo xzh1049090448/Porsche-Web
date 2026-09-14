@@ -524,10 +524,10 @@ git commit -m "docs: record prototype-faithful visual verification"
 
 - [ ] **Step 3: Generate a canonical whole-feature snapshot**
 
-Create a non-overlapping scope covering every path changed from `origin/main`. Because the feature implementation has already changed the current worktree, create a separate final-review worktree: check out `origin/main`, generate the canonical baseline there, fast-forward to the exact final commit without rewriting commits, generate `snapshot-final.json`, and run `verify`. Persist raw stdout bytes exclusively in `/private/tmp/porsche-web-home-pricing-final-review-20260913-01`; fail before writing if that directory already exists, and update this plan in a new commit with the next numeric suffix before retrying. Never overwrite or reuse an earlier snapshot.
+Create a non-overlapping scope covering every path changed from `origin/main`. Because the feature implementation has already changed the current worktree, create a separate final-review worktree: check out `origin/main`, generate the canonical baseline there, fast-forward to the exact final commit without rewriting commits, generate `snapshot-final.json`, and run `verify`. Persist raw stdout bytes exclusively in `/private/tmp/porsche-web-home-pricing-final-review-20260913-02`; fail before writing if that directory already exists, and update this plan in a new commit with the next numeric suffix before retrying. Never overwrite or reuse an earlier snapshot. Directory suffix `-01` was consumed by the superseded `3dda650` review whose independent specification verdict found the hash-navigation defect fixed by `49fa6e6`.
 
 ```bash
-review_dir=/private/tmp/porsche-web-home-pricing-final-review-20260913-01
+review_dir=/private/tmp/porsche-web-home-pricing-final-review-20260913-02
 test ! -e "$review_dir"
 mkdir -m 700 "$review_dir"
 python3 docs/agents/review_snapshot.py baseline --scope "$review_dir/scope.json" --contract interface-contract.json --output - > "$review_dir/baseline.json"

@@ -2,11 +2,11 @@
 
 ## 2026-09-14：Home/Pricing 原型复用与全站紧凑字级本地验收
 
-- 按 `landing-prototype.html` 与 `pricing.html` 的已确认方向重构 Home/Pricing 展示结构，同时保留真实发布读取、Root 管理权限、价格缺失/隐藏、稳定 `modelKey`、危险 URL/富文本净化和既有路由行为。合入当前 `origin/main` 的被测代码 revision 为 `ae1bb1e20a02a2eead5e38baec6799d04b3a4e8e`，浏览器报告提交为 `c760dbc3b14341212a929eebce747b4712c84317`；一并纳入的认证不确定状态恢复链路已参加本轮完整回归。
+- 按 `landing-prototype.html` 与 `pricing.html` 的已确认方向重构 Home/Pricing 展示结构，同时保留真实发布读取、Root 管理权限、价格缺失/隐藏、稳定 `modelKey`、危险 URL/富文本净化和既有路由行为。合入当前 `origin/main` 后的被测代码 revision 为 `49fa6e672e1644fb68f7cbe02b72f051970a47a7`；一并纳入的认证不确定状态恢复链路已参加本轮完整回归。
 - 浏览器回归期间按 RED→GREEN 修复 Pricing 标题 30px、路由进入抢焦点、Console 壳层高度漂移、公共内容输入框 40px、Chat 折叠按钮 28px 以及桌面模型编辑对话框超出视口。普通页标题保持 20px，Home Hero 为 44/34px，正文/控件/辅助信息为 11–14px；移动 Chat 输入框保留 16px 防自动缩放特例，触控目标至少 44px。
-- 显式绑定 A03/A05/A06/A08/A14/PublicPricing 六份权威后端合同，在允许本机回环和浏览器的环境运行完整 `npm test`：1066/1066 PASS，0 fail、0 skip。`VITE_USE_MOCK=false npm run build`、production bundle checker、公共模块图（8 chunks、158113 JS bytes、20362 CSS bytes）通过；保留第三方 PURE 注释、静态/动态重复导入和大于 500kB chunk 警告。
-- 可见 Chromium production preview：Home/Pricing 14/14、public/console/guest 路由动效与焦点 6/6、13 类功能页 × 3 视口 × 2 主题 78/78，共 98/98；意外 console/page error 均为 0。另在功能矩阵内完成 Element Plus 模型编辑和原生内容恢复对话框共 12 次边界/Escape 检查。原始 JSON/截图位于 `/private/tmp/porsche-web-home-pricing-browser-20260914`，仓库报告为 `docs/agents/validation/2026-09-13-home-pricing-motion-typography-browser.md`。
-- 全功能 canonical review 原始材料目录为 `/private/tmp/porsche-web-home-pricing-final-review-20260913-01`；已从 `origin/main` 基线建立精确 46 路径 scope，并在写入本记录前完成预快照 verify。最终规范/质量评审仅绑定该目录随后生成的 `snapshot-final.json`、最终 revision 与 `interface-contract.json`。
+- 显式绑定 A03/A05/A06/A08/A14/PublicPricing 六份权威后端合同，在允许本机回环和浏览器的环境运行完整 `npm test`：1066/1066 PASS，0 fail、0 skip。`VITE_USE_MOCK=false npm run build`、production bundle checker、公共模块图（8 chunks、159417 JS bytes、20362 CSS bytes）通过；保留第三方 PURE 注释、静态/动态重复导入和大于 500kB chunk 警告。
+- 可见 Chromium production preview：Home/Pricing 14/14、public/console/guest 路由动效与焦点 6/6、13 类功能页 × 3 视口 × 2 主题 78/78，共 98/98；意外 console/page error 均为 0。动效矩阵额外确认同页 hash 保持 Home DOM 实例、不触发路由过渡并聚焦目标标题；功能矩阵另完成两类对话框共 12 次边界/Escape 检查。原始 JSON/截图位于 `/private/tmp/porsche-web-home-pricing-browser-20260914`，仓库报告为 `docs/agents/validation/2026-09-13-home-pricing-motion-typography-browser.md`。
+- `/private/tmp/porsche-web-home-pricing-final-review-20260913-01` 绑定 `3dda650` 的快照已因独立规格审查发现同页 hash 缺陷而失效并永久保留；该审查未进入质量阶段。修复提交 `49fa6e6` 以 RED→GREEN 契约和可见 Chromium 关闭缺陷，最终 canonical review 必须使用计划递增后的全新目录。
 - 状态边界不变：`web-012` 继续 `in_progress`；P08 生产内容真实性与法务/品牌文案仍 `BLOCKED_PRODUCT`，email push 仍为 TODO。真实公开 empty/ready/published 数据、真实 Root/普通用户、后端/上游、公开 HTTPS、数据库迁移、部署和生产验收均未运行；合成 published/loading/503 不作为线上通过。
 
 ## 2026-09-12：全站视觉统一本地前端候选与 production mock 隔离修复
