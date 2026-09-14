@@ -6,6 +6,7 @@
 - 浏览器回归期间按 RED→GREEN 修复 Pricing 标题 30px、路由进入抢焦点、Console 壳层高度漂移、公共内容输入框 40px、Chat 折叠按钮 28px 以及桌面模型编辑对话框超出视口。普通页标题保持 20px，Home Hero 为 44/34px，正文/控件/辅助信息为 11–14px；移动 Chat 输入框保留 16px 防自动缩放特例，触控目标至少 44px。
 - 显式绑定 A03/A05/A06/A08/A14/PublicPricing 六份权威后端合同，在允许本机回环和浏览器的环境运行完整 `npm test`：1066/1066 PASS，0 fail、0 skip。`VITE_USE_MOCK=false npm run build`、production bundle checker、公共模块图（8 chunks、158113 JS bytes、20362 CSS bytes）通过；保留第三方 PURE 注释、静态/动态重复导入和大于 500kB chunk 警告。
 - 可见 Chromium production preview：Home/Pricing 14/14、public/console/guest 路由动效与焦点 6/6、13 类功能页 × 3 视口 × 2 主题 78/78，共 98/98；意外 console/page error 均为 0。另在功能矩阵内完成 Element Plus 模型编辑和原生内容恢复对话框共 12 次边界/Escape 检查。原始 JSON/截图位于 `/private/tmp/porsche-web-home-pricing-browser-20260914`，仓库报告为 `docs/agents/validation/2026-09-13-home-pricing-motion-typography-browser.md`。
+- 全功能 canonical review 原始材料目录为 `/private/tmp/porsche-web-home-pricing-final-review-20260913-01`；已从 `origin/main` 基线建立精确 46 路径 scope，并在写入本记录前完成预快照 verify。最终规范/质量评审仅绑定该目录随后生成的 `snapshot-final.json`、最终 revision 与 `interface-contract.json`。
 - 状态边界不变：`web-012` 继续 `in_progress`；P08 生产内容真实性与法务/品牌文案仍 `BLOCKED_PRODUCT`，email push 仍为 TODO。真实公开 empty/ready/published 数据、真实 Root/普通用户、后端/上游、公开 HTTPS、数据库迁移、部署和生产验收均未运行；合成 published/loading/503 不作为线上通过。
 
 ## 2026-09-12：全站视觉统一本地前端候选与 production mock 隔离修复
