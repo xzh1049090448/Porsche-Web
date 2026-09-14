@@ -2877,6 +2877,50 @@ test('homepage full-bleed backgrounds avoid viewport-width overflow arithmetic',
   assert.match(section, /public-content-section__inner/)
 })
 
+test('provider floats stay inside the viewport at the scrollbar breakpoint', () => {
+  const shell = source('../../styles/public-shell.scss')
+  const content = source('../../styles/public-content.scss')
+  const rule = (css, selector) => {
+    const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const match = css.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`))
+    assert.ok(match, `${selector} must retain an explicit layout rule`)
+    return match[1]
+  }
+  const pixels = (declarations, property) => {
+    const match = declarations.match(new RegExp(`${property}:\\s*(-?\\d+)(?:px)?(?:\\s*;|\\s*$)`))
+    assert.ok(match, `${property} must remain an explicit numeric pixel boundary`)
+    return Number(match[1])
+  }
+  const inner = rule(shell, '.public-hero__inner')
+  const width = inner.match(/width:\s*min\((\d+)px,\s*calc\(100%\s*-\s*(\d+)px\)\)/)
+  assert.ok(width, 'hero inner must expose a capped width and safe horizontal gutter')
+  const [maxWidth, gutter] = width.slice(1).map(Number)
+  const provider = rule(content, '.hero-preview__provider')
+  assert.match(provider, /position:\s*absolute/)
+  assert.match(provider, /display:\s*inline-flex/)
+  assert.match(provider, /animation:\s*public-provider-float/)
+  assert.match(content, /@keyframes\s+public-provider-float\s*\{[^}]*transform:\s*translateY\(/s)
+  const baseRight = pixels(provider, 'right')
+  const providerOffsets = ['openai', 'anthropic', 'gemini', 'deepseek'].map(name => {
+    const variant = rule(content, `.hero-preview__provider--${name}`)
+    return /right:/.test(variant) ? pixels(variant, 'right') : baseRight
+  })
+  const narrowDesktop = content.match(/@media\s*\(min-width:\s*(\d+)px\)\s*and\s*\(max-width:\s*(\d+)px\)\s*\{\s*\.hero-preview__provider\s*\{([^}]*)\}/)
+  assert.ok(narrowDesktop, 'narrow desktop providers must define a scrollbar-safe responsive offset')
+  const [, narrowMin, narrowMax, narrowDeclarations] = narrowDesktop
+  const narrowRight = pixels(narrowDeclarations, 'right')
+  for (const { viewport, client } of [{ viewport: 768, client: 753 }, { viewport: 1290, client: 1275 }, { viewport: 1440, client: 1425 }]) {
+    const innerWidth = Math.min(maxWidth, client - gutter)
+    const innerRight = (client + innerWidth) / 2
+    const offsets = viewport >= Number(narrowMin) && viewport <= Number(narrowMax)
+      ? providerOffsets.map(() => narrowRight)
+      : providerOffsets
+    for (const right of offsets) {
+      assert.ok(innerRight - right <= client, `provider right edge must fit viewport ${viewport} with client width ${client}`)
+    }
+  }
+})
+
 test('public header traps mobile focus globally and removes its document listener', async () => withPublicDom(async ({ dom, breakpoint }) => {
   const keydownListeners = new Set()
   const add = dom.window.document.addEventListener.bind(dom.window.document)
