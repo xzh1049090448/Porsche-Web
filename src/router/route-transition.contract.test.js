@@ -1820,22 +1820,72 @@ const assertStableRouteShellRuntime = () => {
     const HashHost = defineComponent({
       setup: () => () => h('main', { id: 'public-content', tabindex: '-1' }, [h(RouteViewTransition, { keyMode: 'pathQuery', focusTarget: '#public-content' })]),
     })
+    const scrollEndListeners = new Set()
+    const timerHistory = []
+    const activeTimers = new Map()
+    let nextTimerId = 1
+    const nativeSetTimeout = globalThis.setTimeout
+    const nativeClearTimeout = globalThis.clearTimeout
+    globalThis.setTimeout = (callback, delay, ...args) => {
+      if (delay !== 700) return nativeSetTimeout(callback, delay, ...args)
+      const id = nextTimerId++
+      timerHistory.push({ id, callback })
+      activeTimers.set(id, callback)
+      return id
+    }
+    globalThis.clearTimeout = id => {
+      if (activeTimers.has(id)) activeTimers.delete(id)
+      else nativeClearTimeout(id)
+    }
+    const nativeAddEventListener = dom.window.addEventListener.bind(dom.window)
+    const nativeRemoveEventListener = dom.window.removeEventListener.bind(dom.window)
+    dom.window.addEventListener = (type, listener, options) => {
+      if (type === 'scrollend') scrollEndListeners.add(listener)
+      return nativeAddEventListener(type, listener, options)
+    }
+    dom.window.removeEventListener = (type, listener, options) => {
+      if (type === 'scrollend') scrollEndListeners.delete(listener)
+      return nativeRemoveEventListener(type, listener, options)
+    }
     const hashWrapper = mount(HashHost, { attachTo: document.body, global: { plugins: [hashRouter], stubs: { transition: false } } })
     await nextTick()
     await hashRouter.push('/#advantages')
     await nextTick()
+    assert.equal(scrollEndListeners.size, 1, 'hash navigation owns one pending scroll completion listener')
+    assert.equal(activeTimers.size, 1, 'hash navigation owns one fallback timer')
     dom.window.dispatchEvent(new dom.window.Event('scrollend'))
     await nextTick()
+    scrollEndListeners.clear()
     assert.deepEqual(hashCounts, { mounted: 1, unmounted: 0 }, 'same-page hash navigation must retain the active public page instance')
     assert.equal(document.activeElement?.id, 'advantages-title', 'hash navigation focuses the target section heading after scrolling')
     assert.equal(document.activeElement?.getAttribute('tabindex'), '-1', 'a non-interactive hash heading becomes programmatically focusable')
+
+    await hashRouter.push('/')
+    await nextTick()
+    const focusHistory = []
+    document.addEventListener('focusin', event => { focusHistory.push(event.target?.id) })
+    await hashRouter.push('/#advantages')
+    await nextTick()
+    assert.equal(scrollEndListeners.size, 1, 'the first rapid hash owns one listener')
+    const staleTimer = timerHistory.at(-1)
     await hashRouter.push('/#models')
     await nextTick()
+    assert.equal(scrollEndListeners.size, 1, 'the latest hash cancels the earlier listener before taking ownership')
+    assert.equal(activeTimers.size, 1, 'the latest hash cancels the earlier fallback timer before taking ownership')
+    const latestTimer = timerHistory.at(-1)
+    assert.notEqual(latestTimer.id, staleTimer.id)
+    staleTimer.callback()
+    await nextTick()
+    assert.equal(activeTimers.has(latestTimer.id), true, 'an already queued stale callback cannot cancel the latest fallback timer')
+    assert.equal(scrollEndListeners.size, 1, 'an already queued stale callback cannot remove the latest scroll listener')
+    assert.equal(focusHistory.includes('advantages-title'), false, 'an already queued stale callback cannot focus the previous heading')
     dom.window.dispatchEvent(new dom.window.Event('scrollend'))
     await nextTick()
     assert.deepEqual(hashCounts, { mounted: 1, unmounted: 0 }, 'a second same-page hash still retains the active public page instance')
     assert.equal(document.activeElement?.id, 'models-title', 'the latest hash owns focus after rapid same-page navigation')
     hashWrapper.unmount()
+    globalThis.setTimeout = nativeSetTimeout
+    globalThis.clearTimeout = nativeClearTimeout
     dom.window.close()
   `
   execFileSync(process.execPath, ['--input-type=module', '--eval', probe], { cwd: process.cwd(), stdio: 'pipe' })
@@ -1865,6 +1915,10 @@ test('shared route transition keys leaves while preserving same-page public hash
   assert.match(transition, /focusTarget\s*:\s*\{[\s\S]*?type\s*:\s*String[\s\S]*?required\s*:\s*true/)
   assert.match(transition, /keyMode\s*:\s*\{[\s\S]*?type\s*:\s*String[\s\S]*?default\s*:\s*['"]fullPath['"]/, 'fullPath leaf keys remain the shared default')
   assert.match(transition, /['"]pathQuery['"]/, 'the shared component supports a key that excludes only the hash fragment')
+  assert.match(transition, /async\s+function\s+queueHashFocus\s*\([^)]*\)\s*\{[\s\S]{0,120}?cancelHashFocus\(\)/, 'each hash navigation cancels the previous timer and scroll listener before taking ownership')
+  const hashFocusBody = transition.match(/async\s+function\s+focusHashHeading\s*\([^)]*\)\s*\{([\s\S]*?)\n\}\n\nasync\s+function\s+queueHashFocus/)?.[1] || ''
+  assert.match(hashFocusBody, /owner\s*!==\s*hashFocusOwner/, 'a delayed focus callback must still own the current focus epoch')
+  assert.match(hashFocusBody, /route\.hash\s*!==\s*hash/, 'a delayed focus callback must still own the current route hash')
   const transitionNode = elements(transition, 'Transition')[0]
   assert.equal(boundAttribute(transitionNode, 'onAfterEnter') || transitionNode.props.find(prop => prop.type === 7 && prop.name === 'on' && prop.arg?.content === 'after-enter')?.exp?.content, 'restoreFocus')
   const restore = transition.match(/async\s+function\s+restoreFocus\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/)?.[1] || ''

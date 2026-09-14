@@ -33,6 +33,7 @@ const { identityKey, focusTarget, keyMode } = defineProps({
 const route = useRoute()
 let hashFocusTimer = null
 let removeScrollEndListener = null
+let hashFocusOwner = 0
 
 function cancelHashFocus() {
   if (hashFocusTimer !== null) {
@@ -57,9 +58,9 @@ function resolveHashHeading(hash) {
   return anchor.querySelector('h1, h2, h3, h4, h5, h6, [role="heading"]')
 }
 
-async function focusHashHeading(hash) {
+async function focusHashHeading(hash, owner) {
   await nextTick()
-  if (route.hash !== hash || typeof document === 'undefined') return
+  if (owner !== hashFocusOwner || route.hash !== hash || typeof document === 'undefined') return
   const target = resolveHashHeading(hash) || document.querySelector(focusTarget)
   if (!target || target.contains(document.activeElement)) return
   if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1')
@@ -67,20 +68,24 @@ async function focusHashHeading(hash) {
 }
 
 async function queueHashFocus(hash) {
+  const owner = ++hashFocusOwner
   cancelHashFocus()
   await nextTick()
-  if (route.hash !== hash) return
+  if (owner !== hashFocusOwner || route.hash !== hash) return
   const reduced = typeof window === 'undefined' || window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
   if (reduced) {
-    hashFocusTimer = setTimeout(() => {
+    const timer = setTimeout(() => {
+      if (owner !== hashFocusOwner) return
       hashFocusTimer = null
-      void focusHashHeading(hash)
+      void focusHashHeading(hash, owner)
     }, 0)
+    hashFocusTimer = timer
     return
   }
   const finish = () => {
+    if (owner !== hashFocusOwner) return
     cancelHashFocus()
-    void focusHashHeading(hash)
+    void focusHashHeading(hash, owner)
   }
   window.addEventListener('scrollend', finish, { once: true })
   removeScrollEndListener = () => window.removeEventListener('scrollend', finish)
@@ -92,6 +97,7 @@ watch(
   (fullPath, previousFullPath) => {
     if (keyMode !== 'pathQuery' || fullPath === previousFullPath) return
     if (!route.hash) {
+      hashFocusOwner += 1
       cancelHashFocus()
       return
     }
@@ -100,7 +106,10 @@ watch(
   { flush: 'post' },
 )
 
-onBeforeUnmount(cancelHashFocus)
+onBeforeUnmount(() => {
+  hashFocusOwner += 1
+  cancelHashFocus()
+})
 
 async function restoreFocus() {
   await nextTick()
