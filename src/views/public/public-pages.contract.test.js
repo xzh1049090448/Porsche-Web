@@ -145,6 +145,7 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
       }
     }
     const member = (object, key) => ({ type: 'MemberExpression', object, property: { type: 'StringLiteral', value: String(key) }, computed: true })
+    const throwingGetter = { type: 'Identifier', name: '__possibly_throwing_getter__' }
     const select = (expression, key) => {
       expression = unwrapExpression(expression)
       if (expression?.type === 'ArrayExpression') return expression.elements[Number(key)]
@@ -167,6 +168,80 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
       if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bind(property.value, select(expression, staticPropertyKey(property.key)), target)
       if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bind(pattern.elements[index], select(expression, index), target)
     }
+    function getterPaths(getter, parentBindings) {
+      const statements = (items, seed = [{ kind: 'normal', bindings: new Map(parentBindings) }], catches = false) => {
+        let paths = seed
+        for (const statement of items || []) paths = paths.flatMap(path => path.kind === 'normal' ? one(statement, path, catches) : [path])
+        return paths
+      }
+      const one = (statement, path, catches) => {
+        if (!statement) return [path]
+        if (statement.type === 'BlockStatement') return statements(statement.body, [path], catches)
+        if (statement.type === 'ReturnStatement') {
+          const value = substitute(statement.argument, path.bindings)
+          const effect = expressionEffect(value, path.bindings)
+          const result = effect === 'mustThrow' ? [] : [{ ...path, kind: 'return', value }]
+          if (catches && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
+          return result
+        }
+        if (statement.type === 'ThrowStatement') return [{ ...path, kind: 'throw' }]
+        if (statement.type === 'VariableDeclaration') {
+          let paths = [path]
+          for (const declaration of statement.declarations) paths = paths.flatMap(current => {
+            const value = substitute(declaration.init, current.bindings)
+            const effect = expressionEffect(value, current.bindings)
+            const result = []
+            if (effect !== 'mustThrow') {
+              const next = new Map(current.bindings); bind(declaration.id, value, next)
+              result.push({ ...current, bindings: next })
+            }
+            if (catches && effect !== 'cannotThrow') result.push({ ...current, kind: 'throw' })
+            return result
+          })
+          return paths
+        }
+        if (statement.type === 'ExpressionStatement' && statement.expression?.type === 'AssignmentExpression' && statement.expression.operator === '=') {
+          const value = substitute(statement.expression.right, path.bindings)
+          const effect = expressionEffect(value, path.bindings)
+          const result = []
+          if (effect !== 'mustThrow') {
+            const next = new Map(path.bindings); bind(statement.expression.left, value, next)
+            result.push({ ...path, bindings: next })
+          }
+          if (catches && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
+          return result
+        }
+        if (statement.type === 'IfStatement') {
+          const test = substitute(statement.test, path.bindings)
+          const effect = expressionEffect(test, path.bindings)
+          if (effect === 'mustThrow') return catches ? [{ ...path, kind: 'throw' }] : []
+          const condition = staticValue(test)
+          const result = condition !== unknownStaticValue
+            ? one(condition ? statement.consequent : statement.alternate, { ...path, bindings: new Map(path.bindings) }, catches)
+            : [...one(statement.consequent, { ...path, bindings: new Map(path.bindings) }, catches), ...one(statement.alternate, { ...path, bindings: new Map(path.bindings) }, catches)]
+          if (catches && effect === 'mayThrow') result.push({ ...path, kind: 'throw' })
+          return result
+        }
+        if (statement.type === 'TryStatement') {
+          let result = one(statement.block, { ...path, bindings: new Map(path.bindings) }, true).flatMap(candidate => candidate.kind === 'throw' && statement.handler
+            ? one(statement.handler.body, { ...candidate, kind: 'normal', bindings: new Map(candidate.bindings) }, false)
+            : [candidate])
+          if (statement.finalizer) result = result.flatMap(candidate => one(statement.finalizer, { ...candidate, kind: 'normal', bindings: new Map(candidate.bindings) }, true).map(finalPath => finalPath.kind === 'normal' ? candidate : finalPath))
+          return result
+        }
+        const effect = expressionEffect(substitute(statement.expression, path.bindings), path.bindings)
+        const result = effect === 'mustThrow' ? [] : [path]
+        if (catches && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
+        return result
+      }
+      return statements(getter.body?.body || []).filter(path => path.kind === 'return')
+    }
+    const getterValues = (value, target) => {
+      if (value?.type !== 'ObjectMethod' || value.kind !== 'get') return [value]
+      const effect = inspectCallableEffect(value, target)
+      const values = getterPaths(value, target).map(path => path.value)
+      return effect === 'cannotThrow' ? values : effect === 'mustThrow' ? [throwingGetter] : values.concat(throwingGetter)
+    }
     let exported = []
     const possibilities = (expression, resolving = new Set()) => {
       expression = unwrapExpression(expression)
@@ -174,7 +249,9 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
       if (expression.type === 'Identifier' && bindings.has(expression.name) && !resolving.has(expression.name)) return possibilities(bindings.get(expression.name), new Set(resolving).add(expression.name))
       if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) {
         const key = expression.computed ? staticPropertyKey(expression.property) : expression.property?.name
-        return possibilities(expression.object, resolving).flatMap(object => ['ObjectExpression', 'ArrayExpression'].includes(object?.type) ? possibilities(select(object, key), resolving) : [])
+        return possibilities(expression.object, resolving).flatMap(object => ['ObjectExpression', 'ArrayExpression'].includes(object?.type)
+          ? getterValues(select(object, key), bindings).flatMap(value => possibilities(value, resolving))
+          : [])
       }
       if (expression.type === 'ConditionalExpression') return [...possibilities(expression.consequent, resolving), ...possibilities(expression.alternate, resolving)]
       if (expression.type === 'SequenceExpression') return possibilities(expression.expressions.at(-1), resolving)
@@ -295,7 +372,11 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
         const shortCircuited = ['MemberExpression', 'OptionalMemberExpression'].includes(object?.type) && expressionEffect(object, target, true) === 'cannotThrow' && object.optional
         if (nullish) return expression.optional ? nested : nested === 'cannotThrow' ? 'mustThrow' : 'mayThrow'
         if (shortCircuited) return chain || expression.type === 'OptionalMemberExpression' ? nested : 'mustThrow'
-        return ['ObjectExpression', 'ArrayExpression', 'StringLiteral', 'NumericLiteral', 'BooleanLiteral'].includes(object?.type) ? nested : 'mayThrow'
+        if (!['ObjectExpression', 'ArrayExpression', 'StringLiteral', 'NumericLiteral', 'BooleanLiteral'].includes(object?.type)) return 'mayThrow'
+        const key = expression.computed ? staticPropertyKey(expression.property) : expression.property?.name
+        const selected = ['ObjectExpression', 'ArrayExpression'].includes(object?.type) ? select(object, key) : undefined
+        const accessEffect = selected?.type === 'ObjectMethod' && selected.kind === 'get' ? inspectCallableEffect(selected, target) : 'cannotThrow'
+        return sequenceEffects([nested, accessEffect])
       }
       if (['CallExpression', 'OptionalCallExpression'].includes(expression.type)) {
         const callee = bindingValue(expression.callee, target)
@@ -402,17 +483,20 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
         return functions.flatMap(fn => factoryReturns(fn, candidate.arguments).flatMap(value => objectMaps(value, resolving)))
       }
       if (candidate?.type !== 'ObjectExpression') return []
-      const map = new Map()
+      let maps = [new Map()]
       for (const property of candidate.properties) {
-        if (property.type === 'SpreadElement') for (const spread of objectMaps(property.argument, resolving)) for (const [name, value] of spread) map.set(name, value)
+        if (property.type === 'SpreadElement') maps = maps.flatMap(map => objectMaps(property.argument, resolving).map(spread => new Map([...map, ...spread])))
         else {
-          const getterValues = property.type === 'ObjectMethod' && property.kind === 'get' ? factoryReturns(property, []) : []
-          map.set(staticPropertyKey(property.key), getterValues.length === 1 ? getterValues[0] : propertyExpression(property))
+          const values = getterValues(propertyExpression(property), bindings)
+          maps = maps.flatMap(map => values.map(value => new Map(map).set(staticPropertyKey(property.key), value)))
         }
       }
-      return [map]
+      return maps
     })
-    const registryPaths = exported.map(option => objectMaps(option).flatMap(options => options.has('components') ? objectMaps(options.get('components')) : []))
+    const registryPaths = exported.flatMap(option => {
+      const options = objectMaps(option)
+      return options.length ? options.map(map => map.has('components') ? objectMaps(map.get('components')) : []) : [[]]
+    })
     const registeredNames = new Set(registryPaths.flatMap(registries => registries.flatMap(registry => [...registry.keys()])))
     for (const registered of registeredNames) {
       if (registryPaths.length > 0 && registryPaths.every(registries => registries.length > 0 && registries.every(registry => registry.has(registered) && authoritative(registry.get(registered))))) wiredNames.add(normalizedComponentName(registered))

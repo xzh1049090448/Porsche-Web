@@ -276,13 +276,87 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     for (const name of new Set([...left.keys(), ...right.keys()])) merged.set(name, [...new Set([...(left.get(name) || []), ...(right.get(name) || [])])])
     return merged
   }
+  function optionGetterPaths(getter, parentLocal) {
+    const statements = (items, seed = [{ kind: 'normal', local: new Map(parentLocal) }], catches = false) => {
+      let paths = seed
+      for (const statement of items || []) paths = paths.flatMap(path => path.kind === 'normal' ? one(statement, path, catches) : [path])
+      return paths
+    }
+    const one = (statement, path, catches) => {
+      if (!statement) return [path]
+      if (statement.type === 'BlockStatement') return statements(statement.body, [path], catches)
+      if (statement.type === 'ReturnStatement') {
+        const value = materializeOption(statement.argument, path.local)
+        const effect = optionExpressionEffect(value, path.local)
+        const result = effect === 'mustThrow' ? [] : [{ ...path, kind: 'return', value }]
+        if (catches && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
+        return result
+      }
+      if (statement.type === 'ThrowStatement') return [{ ...path, kind: 'throw' }]
+      if (statement.type === 'VariableDeclaration') {
+        let paths = [path]
+        for (const declaration of statement.declarations) paths = paths.flatMap(current => {
+          const value = materializeOption(declaration.init, current.local)
+          const effect = optionExpressionEffect(value, current.local)
+          const result = []
+          if (effect !== 'mustThrow') {
+            const local = new Map(current.local); bindOptionPattern(declaration.id, value, local)
+            result.push({ ...current, local })
+          }
+          if (catches && effect !== 'cannotThrow') result.push({ ...current, kind: 'throw' })
+          return result
+        })
+        return paths
+      }
+      if (statement.type === 'ExpressionStatement' && statement.expression?.type === 'AssignmentExpression' && statement.expression.operator === '=') {
+        const value = materializeOption(statement.expression.right, path.local)
+        const effect = optionExpressionEffect(value, path.local)
+        const result = []
+        if (effect !== 'mustThrow') {
+          const local = new Map(path.local); bindOptionPattern(statement.expression.left, value, local)
+          result.push({ ...path, local })
+        }
+        if (catches && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
+        return result
+      }
+      if (statement.type === 'IfStatement') {
+        const test = materializeOption(statement.test, path.local)
+        const effect = optionExpressionEffect(test, path.local)
+        if (effect === 'mustThrow') return catches ? [{ ...path, kind: 'throw' }] : []
+        const condition = optionStaticValue(test)
+        const result = condition.known
+          ? one(condition.value ? statement.consequent : statement.alternate, { ...path, local: new Map(path.local) }, catches)
+          : [...one(statement.consequent, { ...path, local: new Map(path.local) }, catches), ...one(statement.alternate, { ...path, local: new Map(path.local) }, catches)]
+        if (catches && effect === 'mayThrow') result.push({ ...path, kind: 'throw' })
+        return result
+      }
+      if (statement.type === 'TryStatement') {
+        let result = one(statement.block, { ...path, local: new Map(path.local) }, true).flatMap(candidate => candidate.kind === 'throw' && statement.handler
+          ? one(statement.handler.body, { ...candidate, kind: 'normal', local: new Map(candidate.local) }, false)
+          : [candidate])
+        if (statement.finalizer) result = result.flatMap(candidate => one(statement.finalizer, { ...candidate, kind: 'normal', local: new Map(candidate.local) }, true).map(finalPath => finalPath.kind === 'normal' ? candidate : finalPath))
+        return result
+      }
+      const effect = optionExpressionEffect(materializeOption(statement.expression, path.local), path.local)
+      const result = effect === 'mustThrow' ? [] : [path]
+      if (catches && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
+      return result
+    }
+    return statements(getter.body?.body || []).filter(path => path.kind === 'return')
+  }
+  const optionAccessValues = (value, local) => {
+    if (value?.type !== 'ObjectMethod' || value.kind !== 'get') return [value]
+    const effect = callableBodyEffect(value.body, expression => optionExpressionEffect(expression, local), optionStaticValue)
+    const values = optionGetterPaths(value, local).map(path => path.value)
+    return effect === 'cannotThrow' ? values : effect === 'mustThrow' ? [optionUnknown] : values.concat(optionUnknown)
+  }
   const optionCandidates = (expression, local, resolving = new Set()) => {
     expression = unwrapScriptExpression(expression)
     if (!expression || resolving.size > 32) return []
     if (expression.type === 'Identifier' && local.has(expression.name) && !resolving.has(expression.name)) return local.get(expression.name).flatMap(value => optionCandidates(value, local, new Set(resolving).add(expression.name)))
     if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) {
       const name = expression.computed ? unwrapScriptExpression(expression.property)?.value : expression.property?.name
-      return effectiveOptionStates(expression.object, local, resolving).flatMap(state => state.map.has(String(name)) ? optionCandidates(state.map.get(String(name)), local, resolving) : [])
+      return effectiveOptionStates(expression.object, local, resolving).flatMap(state => state.map.has(String(name)) ? optionAccessValues(state.map.get(String(name)), local).flatMap(value => optionCandidates(value, local, resolving)) : [])
     }
     if (expression.type === 'ConditionalExpression') {
       const condition = optionStaticValue(expression.test)
@@ -362,15 +436,14 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) {
       const name = expression.computed ? unwrapScriptExpression(expression.property)?.value : expression.property?.name
       const objects = effectiveOptionStates(expression.object, local, resolving)
-      const values = objects.flatMap(state => state.map.has(String(name)) ? [state.map.get(String(name))] : [])
-      return values.length ? values.flatMap(value => effectiveOptionStates(value, local, resolving)) : [{ map: new Map(), unknown: true }]
+      const values = objects.flatMap(state => state.map.has(String(name)) ? optionAccessValues(state.map.get(String(name)), local) : [])
+      return values.length ? values.flatMap(value => value === optionUnknown ? [{ map: new Map(), unknown: true }] : effectiveOptionStates(value, local, resolving)) : [{ map: new Map(), unknown: true }]
     }
     if (expression.type !== 'ObjectExpression') return [{ map: new Map(), unknown: true }]
     let states = [{ map: new Map(), unknown: false }]
     for (const property of expression.properties) {
       if (property.type !== 'SpreadElement') {
-        const getterValues = property.type === 'ObjectMethod' && property.kind === 'get' ? factoryOptionReturns(property, [], local) : []
-        for (const state of states) state.map.set(String(scriptPropertyName(property)), getterValues.length === 1 ? getterValues[0].value : property.type === 'ObjectMethod' ? property : property.value)
+        for (const state of states) state.map.set(String(scriptPropertyName(property)), property.type === 'ObjectMethod' ? property : property.value)
         continue
       }
       const spreads = effectiveOptionStates(property.argument, local, resolving)
@@ -471,7 +544,11 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
       if (receiver === 'short-circuit') return chain || expression.type === 'OptionalMemberExpression' ? receiverEffect : 'mustThrow'
       if (receiver === 'nullish') return expression.optional ? receiverEffect : receiverEffect === 'cannotThrow' ? 'mustThrow' : 'mayThrow'
       if (receiver === 'unknown') return 'mayThrow'
-      return receiverEffect
+      const name = expression.computed ? unwrapScriptExpression(expression.property)?.value : expression.property?.name
+      const accessEffects = effectiveOptionStates(expression.object, local, resolving).flatMap(state => state.map.has(String(name)) ? [state.map.get(String(name))] : []).map(value => value?.type === 'ObjectMethod' && value.kind === 'get'
+        ? callableBodyEffect(value.body, item => optionExpressionEffect(item, local, resolving), optionStaticValue)
+        : 'cannotThrow')
+      return sequenceOptionEffects([receiverEffect, accessEffects.length ? alternativeOptionEffects(accessEffects) : 'cannotThrow'])
     }
     if (['CallExpression', 'OptionalCallExpression'].includes(expression.type)) {
       const calleeEffect = sequenceOptionEffects([optionExpressionEffect(expression.callee, local, resolving, chain || expression.type === 'OptionalCallExpression'), ...expression.arguments.map(argument => argument.type === 'SpreadElement' ? optionSpreadEffect(argument.argument, local, resolving, true) : optionExpressionEffect(argument, local, resolving))])
@@ -636,9 +713,10 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
   const stateOptionScopes = exportedOptionStates.map(state => {
     const scopes = new Set()
     const name = state.map.has('render') ? 'render' : 'setup'
-    if (state.map.has(name)) addOptionScope(state.map.get(name), new Set(), scopes, scopes)
+    const values = state.map.has(name) ? optionAccessValues(state.map.get(name), optionBindings) : []
+    for (const value of values) if (value !== optionUnknown) addOptionScope(value, new Set(), scopes, scopes)
     for (const scope of scopes) { componentScopes.add(scope); optionRootScopes.add(scope) }
-    return { state, scopes }
+    return { state: { ...state, unknown: state.unknown || values.includes(optionUnknown) }, scopes }
   })
   const nearestFunction = node => {
     for (let current = parents.get(node); current; current = parents.get(current)) if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(current.type)) return current

@@ -1010,9 +1010,18 @@ const staticBindingInitializers = (value, importer) => {
         const invocation = unwrapExpression(node.callee)?.type === 'Identifier' && safeOptionWrappers.has(node.callee.name)
           ? 'cannotThrow'
           : functions.length
-            ? alternativeEffect(functions.map(fn => resolving.has(fn) ? 'mayThrow' : callableBodyEffect(fn.body, value => expressionEffect(value, environment, new Set(resolving).add(fn)), value => {
-              const result = boundStaticValue(value, environment); return { known: result !== unknownStaticValue, value: result }
-            })))
+            ? alternativeEffect(functions.map(fn => {
+              if (resolving.has(fn)) return 'mayThrow'
+              const factoryLocal = new Map(environment)
+              const replacements = new Map()
+              for (let index = 0; index < (fn.params || []).length; index += 1) bindFactoryPattern(fn.params[index], node.arguments[index], factoryLocal, replacements)
+              const returned = safeFactoryReturns(fn, factoryLocal, replacements)
+              if (returned.safe) return 'cannotThrow'
+              const next = new Set(resolving).add(fn)
+              return callableBodyEffect(fn.body, value => expressionEffect(substituteFactoryBindings(value, replacements), factoryLocal, next), value => {
+                const result = boundStaticValue(substituteFactoryBindings(value, replacements), factoryLocal); return { known: result !== unknownStaticValue, value: result }
+              })
+            }))
             : 'mayThrow'
         return sequenceEffect([calleeEffect, invocation])
       }
@@ -1028,6 +1037,7 @@ const staticBindingInitializers = (value, importer) => {
         if (receiverNullish === 'unknown') return 'mayThrow'
         const key = node.computed ? staticPropertyKey(node.property) : node.property?.name
         const selectedValue = key === undefined ? { unknown: true } : factorySelection(node.object, key, environment, resolving)
+        if (selectedValue.getter) return sequenceEffect([prerequisite, optionGetterEffect(selectedValue.getter, environment, resolving)])
         return selectedValue.unknown ? 'mayThrow' : prerequisite
       }
       if (node.type === 'Identifier' && environment.has(node.name) && !resolving.has(node.name)) {
@@ -1210,6 +1220,19 @@ const staticBindingInitializers = (value, importer) => {
       }
       return flow(body, new Map(), false, new Map(baseLocal), new Set(), true).filter(path => path.kind === 'return' && path.expression)
     }
+    function optionGetterEffect(getter, local, resolving = new Set()) {
+      if (resolving.has(getter)) return 'mayThrow'
+      const next = new Set(resolving).add(getter)
+      return callableBodyEffect(getter.body, value => expressionEffect(value, local, next), value => {
+        const result = boundStaticValue(value, local)
+        return { known: result !== unknownStaticValue, value: result }
+      })
+    }
+    function optionGetterValues(getter, local, resolving = new Set()) {
+      const effect = optionGetterEffect(getter, local, resolving)
+      const values = setupReturns(getter.body, new Map(local)).map(path => ({ value: path.expression, environment: path.environment }))
+      return { effect, values }
+    }
     const resolvedLocalValues = (expression, local, resolving = new Set()) => {
       expression = unwrapExpression(expression)
       if (expression?.type === 'Identifier' && local.has(expression.name) && !resolving.has(expression.name)) return local.get(expression.name).flatMap(value => resolvedLocalValues(value, local, new Set(resolving).add(expression.name)))
@@ -1349,7 +1372,7 @@ const staticBindingInitializers = (value, importer) => {
         const propertyKey = staticPropertyKey(property.key)
         if (property.computed && propertyKey === undefined) return { unknown: true }
         if (propertyKey === String(key)) return property.type === 'ObjectMethod' && property.kind === 'get'
-          ? { unknown: true }
+          ? { getter: property }
           : { value: propertyExpression(property) }
       }
       return { missing: true }
@@ -1488,12 +1511,21 @@ const staticBindingInitializers = (value, importer) => {
           : [...objectStates(expression.consequent, local, resolving), ...objectStates(expression.alternate, local, resolving)]
       }
       if (expression.type === 'SequenceExpression') return objectStates(expression.expressions.at(-1), local, resolving)
+      if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) {
+        const key = expression.computed ? staticPropertyKey(expression.property) : expression.property?.name
+        const selected = key === undefined ? { unknown: true } : factorySelection(expression.object, key, local, resolving)
+        if (selected.getter) {
+          const result = optionGetterValues(selected.getter, local, resolving)
+          const states = result.values.flatMap(path => objectStates(path.value, path.environment, new Set(resolving).add(selected.getter)))
+          return result.effect === 'cannotThrow' ? states : result.effect === 'mustThrow' ? [{ map: new Map(), unknown: true }] : states.concat({ map: new Map(), unknown: true })
+        }
+        return selected.value ? objectStates(selected.value, local, resolving) : [{ map: new Map(), unknown: true }]
+      }
       if (expression.type !== 'ObjectExpression') return [{ map: new Map(), unknown: true }]
       let states = [{ map: new Map(), unknown: false }]
       for (const property of expression.properties) {
         if (property.type !== 'SpreadElement') {
-          const getter = property.type === 'ObjectMethod' && property.kind === 'get' ? safeFactoryReturns(property, new Map(local)) : { values: [] }
-          for (const state of states) state.map.set(staticPropertyKey(property.key), getter.values.length === 1 ? getter.values[0] : propertyExpression(property))
+          for (const state of states) state.map.set(staticPropertyKey(property.key), propertyExpression(property))
           continue
         }
         const spreads = objectStates(property.argument, local, resolving)
@@ -1506,11 +1538,18 @@ const staticBindingInitializers = (value, importer) => {
       }
       return states
     }
-    const stateValues = (states, key) => {
+    const stateValues = (states, key, local) => {
       const values = []
       let uncertain = false
       for (const state of states) {
-        if (state.map.has(key)) values.push(state.map.get(key))
+        if (state.map.has(key)) {
+          const value = state.map.get(key)
+          if (value?.type === 'ObjectMethod' && value.kind === 'get') {
+            const getter = optionGetterValues(value, local)
+            values.push(...getter.values.map(path => path.value))
+            if (getter.effect !== 'cannotThrow') { uncertain = true; invalidOptionsExport = true }
+          } else values.push(value)
+        }
         else if (state.unknown) uncertain = true
         else if (states.some(candidate => candidate.map.has(key))) uncertain = true
       }
@@ -1525,7 +1564,7 @@ const staticBindingInitializers = (value, importer) => {
       const returnedPaths = fn.body.type === 'BlockStatement' ? setupReturns(fn.body, local) : [{ expression: fn.body, environment: local }]
       const branches = returnedPaths.map(path => ({ states: objectStates(path.expression, path.environment), environment: path.environment }))
       const keys = new Set(branches.flatMap(branch => branch.states.flatMap(state => [...state.map.keys()])))
-      for (const key of keys) exposed.set(key, [...new Set(branches.flatMap(branch => stateValues(branch.states, key).flatMap(value => resolvedLocalValues(value, branch.environment))))])
+      for (const key of keys) exposed.set(key, [...new Set(branches.flatMap(branch => stateValues(branch.states, key, branch.environment).flatMap(value => resolvedLocalValues(value, branch.environment))))])
       return exposed
     }
     const reachableOptionValues = (expression, target, resolving = new Set()) => {
@@ -1542,22 +1581,14 @@ const staticBindingInitializers = (value, importer) => {
     }
     const exposeOptions = (declaration, target) => {
       const options = objectStates(declaration, target)
-      for (const state of options) for (const value of state.map.values()) {
-        if (value?.type !== 'ObjectMethod' || value.kind !== 'get') continue
-        const effect = callableBodyEffect(value.body, expression => expressionEffect(expression, target), expression => {
-          const result = boundStaticValue(expression, target)
-          return { known: result !== unknownStaticValue, value: result }
-        })
-        if (effect !== 'cannotThrow') invalidOptionsExport = true
-      }
       for (const name of ['setup', 'data']) {
-        const functions = stateValues(options, name).flatMap(value => reachableOptionValues(value, target))
+        const functions = stateValues(options, name, target).flatMap(value => reachableOptionValues(value, target))
         const branches = functions.map(fn => returnedObjectBindings(unwrapExpression(fn), target))
         for (const key of new Set(branches.flatMap(branch => [...branch.keys()]))) target.set(key, [...new Set(branches.flatMap(branch => branch.get(key) || [unknownObjectValue]))])
       }
       for (const name of ['computed', 'methods']) {
-        const registries = stateValues(options, name).flatMap(value => objectStates(value, target))
-        for (const key of new Set(registries.flatMap(state => [...state.map.keys()]))) target.set(key, stateValues(registries, key).flatMap(value => resolvedLocalValues(value, target)))
+        const registries = stateValues(options, name, target).flatMap(value => objectStates(value, target))
+        for (const key of new Set(registries.flatMap(state => [...state.map.keys()]))) target.set(key, stateValues(registries, key, target).flatMap(value => resolvedLocalValues(value, target)))
       }
     }
     let invalidOptionsExport = false
