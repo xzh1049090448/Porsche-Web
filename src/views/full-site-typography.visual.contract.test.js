@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vuePlugin from '@vitejs/plugin-vue'
+import { JSDOM } from 'jsdom'
 import postcss from 'postcss'
 import { compileString } from 'sass'
 
@@ -86,24 +87,27 @@ function mediaConditions(rule) {
 }
 
 function fontSizeDeclarations(path) {
-  return parsedStyles(path).flatMap(({ file, root }) => {
-    const found = []
+  const found = []
+  let order = 0
+  for (const { file, root } of parsedStyles(path)) {
     root.walkRules(rule => {
       const selectors = postcss.list.comma(rule.selector).map(normalizeSelector)
       rule.nodes.filter(node => node.type === 'decl' && node.prop === 'font-size').forEach(declaration => {
+        const declarationOrder = order++
         for (const selector of selectors) {
           found.push({
             file,
             selector,
             value: declaration.value.trim(),
-            important: declaration.important,
+            important: Boolean(declaration.important),
             media: mediaConditions(rule),
+            order: declarationOrder,
           })
         }
       })
     })
-    return found
-  })
+  }
+  return found
 }
 
 function mediaQueryApplies(query, width) {
@@ -119,12 +123,62 @@ function mediaQueryApplies(query, width) {
   })
 }
 
-function effectiveExactFontSize(path, selector, width) {
-  const expected = normalizeSelector(selector)
-  const candidates = fontSizeDeclarations(path).filter(item =>
-    item.selector === expected && item.media.every(query => mediaQueryApplies(query, width)))
-  const important = candidates.filter(item => item.important)
-  return (important.length ? important : candidates).at(-1)
+function selectorForDom(selector) {
+  let candidate = selector
+  let previous
+  do {
+    previous = candidate
+    candidate = candidate.replace(/::v-deep\(([^()]*)\)|:(?:deep|global|slotted)\(([^()]*)\)/g, (_match, legacy, modern) => legacy || modern)
+  } while (candidate !== previous)
+  candidate = candidate.replace(/\s*(?:>>>|\/deep\/)\s*/g, ' ')
+  if (/::[\w-]+/.test(candidate)) return null
+  return candidate
+}
+
+function selectorSpecificity(selector) {
+  let score = 0
+  let plain = ''
+  for (let cursor = 0; cursor < selector.length;) {
+    const match = /:([\w-]+)\s*\(/.exec(selector.slice(cursor))
+    if (!match) { plain += selector.slice(cursor); break }
+    const index = cursor + match.index
+    plain += selector.slice(cursor, index)
+    const open = selector.indexOf('(', index)
+    let end = open + 1
+    let depth = 1
+    for (; end < selector.length && depth > 0; end += 1) {
+      if (selector[end] === '(') depth += 1
+      else if (selector[end] === ')') depth -= 1
+    }
+    if (depth !== 0) { plain += selector.slice(index); break }
+    const name = match[1].toLowerCase()
+    if (name !== 'where') {
+      score += ['is', 'not', 'has'].includes(name)
+        ? Math.max(0, ...postcss.list.comma(selector.slice(open + 1, end - 1)).map(selectorSpecificity))
+        : 10
+    }
+    cursor = end
+  }
+  return score
+    + (plain.match(/#[\w-]+/g) || []).length * 100
+    + (plain.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10
+    + (plain.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
+}
+
+function effectiveMatchedFontSize(path, target, width) {
+  let winner
+  for (const declaration of fontSizeDeclarations(path)) {
+    if (!declaration.media.every(query => mediaQueryApplies(query, width))) continue
+    const selector = selectorForDom(declaration.selector)
+    if (!selector) continue
+    try { if (!target.matches(selector)) continue } catch { continue }
+    const candidate = { ...declaration, specificity: selectorSpecificity(selector) }
+    if (!winner
+      || Number(candidate.important) > Number(winner.important)
+      || (candidate.important === winner.important && (candidate.specificity > winner.specificity
+        || (candidate.specificity === winner.specificity && candidate.order > winner.order)))) winner = candidate
+  }
+  return winner
 }
 
 function classifyFontSize({ selector, value }) {
@@ -245,10 +299,12 @@ test('remaining functional titles and mobile labels use semantic tokens', () => 
 })
 
 test('chat welcome title resolves through the ordered desktop and mobile cascade', () => {
-  const desktop = effectiveExactFontSize('../components/chat/ChatMessageList.vue', '.welcome h2', 769)
-  const mobile = effectiveExactFontSize('../components/chat/ChatMessageList.vue', '.welcome h2', 768)
-  assert.equal(desktop?.value, '20px', `desktop .welcome h2 must resolve to 20px; found ${desktop?.value || 'no declaration'}`)
-  assert.equal(mobile?.value, 'var(--font-size-subtitle)', `<=768px .welcome h2 must resolve to --font-size-subtitle; found ${mobile?.value || 'no declaration'}`)
+  const dom = new JSDOM('<section class="message-list-shell conversation-surface"><div class="message-list"><div class="welcome"><h2>Welcome</h2></div></div></section>')
+  const title = dom.window.document.querySelector('.message-list-shell>.message-list>.welcome>h2')
+  const desktop = effectiveMatchedFontSize('../components/chat/ChatMessageList.vue', title, 769)
+  const mobile = effectiveMatchedFontSize('../components/chat/ChatMessageList.vue', title, 768)
+  assert.equal(desktop?.value, '20px', `desktop welcome title must resolve to 20px; winner ${desktop ? `${desktop.selector} => ${desktop.value}` : 'missing'}`)
+  assert.equal(mobile?.value, 'var(--font-size-subtitle)', `<=768px welcome title must resolve to --font-size-subtitle; winner ${mobile ? `${mobile.selector} => ${mobile.value}` : 'missing'}`)
   assert.ok(mobile?.media.some(query => /max-width\s*:\s*768px/i.test(query)), 'mobile .welcome h2 must be guarded by max-width: 768px')
 })
 
