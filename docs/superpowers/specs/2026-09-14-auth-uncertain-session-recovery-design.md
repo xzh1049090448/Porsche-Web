@@ -84,7 +84,7 @@
 1. 持有现有认证 Web Lock。
 2. 保存当前 `epoch` 和未决操作标识，并调用现有 `POST /api/v1/auth/refresh`。
 3. 收到 `200` 时按现有 `validateLoginResponse` 校验完整 `LoginResponse`。
-4. 响应有效且锁内记录仍匹配时，清除 `pending`/`suppressed`，保持原 `epoch`，再把 Access Token 和过滤后的 AuthUser 发布为 `authenticated`。
+4. 响应有效且锁内记录仍匹配时，清除 `pending`/`suppressed`，推进新的 `epoch` 并发布跨标签失效通知，再仅在发起恢复的标签页把 Access Token 和过滤后的 AuthUser 发布为 `authenticated`。
 5. 收到明确的 refresh `401` 时，清除 `pending`/`suppressed`，推进新的匿名 `epoch`，发布跨标签失效通知并进入 `anonymous`。
 6. 超时、取消、网络错误、`408`、`5xx`、响应解析失败、登录响应校验失败、协调记录漂移或存储写失败时，保留原未决记录并保持 `uncertain`。
 
@@ -113,7 +113,7 @@ refresh `403` 表示 Origin 或会话约束异常，不足以证明浏览器无�
 - 每个响应落地前再次比较 `epoch`、`operationId`、pending epoch 和 kind。任何变化都按 `identity_changed`/`auth_uncertain` 失败关闭。
 - 恢复期间不向 Pinia、DOM、日志或 BroadcastChannel 发布临时 Access Token 或用户数据。
 - BroadcastChannel 只发送失效类型和新 epoch；共享存储仍是权威来源。
-- 同时点击或多个标签页恢复时只允许一个流程发送请求；后续调用在锁内看到已收敛记录后直接同步匿名/已认证终态，不重复发送。
+- 同时点击或多个标签页恢复时只允许一个恢复流程发送请求。后续调用在锁内看到 epoch 已变化且记录已收敛后同步为 anonymous 并解除未决，不重复发送恢复请求。由于 Access Token 禁止跨标签共享，只有发起请求的标签页可进入 authenticated；其他标签页之后有独立访问需求时按正常初始化流程使用 Refresh Cookie 建立自己的内存会话。
 
 ## UI 与错误处理
 
@@ -166,7 +166,7 @@ logout 未决覆盖：
 
 并发与范围覆盖：
 
-- 两个 manager/标签页并发恢复只产生一条有效网络序列。
+- 两个 manager/标签页并发恢复只产生一条恢复网络序列；发起者可恢复 authenticated，观察到新 epoch 的另一标签页收敛为 anonymous 且不接收 Token/User。
 - BroadcastChannel 延迟或丢失时，共享存储仍阻止旧身份响应。
 - 页面刷新、组件卸载和请求取消不清除未决记录。
 - password、revoke-session、revoke-others 和未知 kind 返回 unsupported，零认证请求。
