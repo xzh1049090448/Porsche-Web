@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { createSessionRefresh } from './auth-refresh.js'
+import { createSessionRecovery } from './auth-refresh.js'
 import { installAuthInterceptors } from './auth-request-policy.js'
 import { authenticatedFetch as runAuthenticatedFetch, createAuthSessionManager } from './auth-session.js'
 import { createBrowserAuthAdapter } from './auth-browser.js'
@@ -11,9 +11,11 @@ const options = { baseURL: env.VITE_API_BASE ?? '', timeout: 120000, withCredent
 const handleUnauthorized = async () => (await import('../utils/auth-redirect.js')).handleUnauthorized()
 // Cookie operations use a separate transport with no session/retry interceptors.
 export const authTransport = axios.create(options)
+const sessionRecovery = createSessionRecovery({ useMock: USE_MOCK, transport: authTransport })
 export const authSession = createAuthSessionManager({
   browser: createBrowserAuthAdapter(),
-  refresh: createSessionRefresh({ useMock: USE_MOCK, transport: authTransport }),
+  refresh: sessionRecovery.refresh,
+  recoverLogout: sessionRecovery.logout,
 })
 function installBearerInterceptor(transport, auth) {
   transport.interceptors.request.use(config => {
