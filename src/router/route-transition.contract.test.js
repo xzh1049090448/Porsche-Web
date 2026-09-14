@@ -1833,7 +1833,9 @@ test('shared route transition keys leaf views by fullPath and identity epoch', a
   assert.equal(boundAttribute(transitionNode, 'onAfterEnter') || transitionNode.props.find(prop => prop.type === 7 && prop.name === 'on' && prop.arg?.content === 'after-enter')?.exp?.content, 'restoreFocus')
   const restore = transition.match(/async\s+function\s+restoreFocus\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/)?.[1] || ''
   assert.match(restore, /await\s+nextTick\(\)/, 'focus restoration waits for Vue nextTick')
-  assert.match(restore, /document\.querySelector\(focusTarget\)\?\.focus\(\{\s*preventScroll\s*:\s*true\s*\}\)/, 'focus restoration targets the active outlet without scrolling')
+  assert.match(restore, /const\s+target\s*=\s*document\.querySelector\(focusTarget\)/, 'focus restoration resolves the active outlet')
+  assert.match(restore, /target\.contains\(document\.activeElement\)/, 'focus restoration preserves a newer interaction inside the active outlet')
+  assert.match(restore, /target\.focus\(\{\s*preventScroll\s*:\s*true\s*\}\)/, 'focus restoration targets the active outlet without scrolling')
   assert.doesNotMatch(transition, /useUserStore|fetch\(|axios|\.push\(|\.replace\(/, 'transition stays presentation-only')
 })
 

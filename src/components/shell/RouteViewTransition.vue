@@ -27,6 +27,8 @@ const { identityKey, focusTarget, keyMode } = defineProps({
 
 async function restoreFocus() {
   await nextTick()
-  document.querySelector(focusTarget)?.focus({ preventScroll: true })
+  const target = document.querySelector(focusTarget)
+  if (!target || target.contains(document.activeElement)) return
+  target.focus({ preventScroll: true })
 }
 </script>
