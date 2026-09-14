@@ -226,7 +226,7 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
             const current = expressionEffect(declaration.init, next)
             if (current === 'mustThrow') effect = 'mustThrow'
             else if (current === 'mayThrow' && effect === 'cannotThrow') effect = 'mayThrow'
-            if (declaration.init && current !== 'mustThrow') bind(declaration.id, declaration.init, next)
+            if (current !== 'mustThrow') bind(declaration.id, declaration.init || { type: 'Identifier', name: 'undefined' }, next)
           }
           const result = effect === 'mustThrow' ? [] : [{ ...path, bindings: next }]
           if (catchesHere && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
@@ -1472,7 +1472,7 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
             const current = optionEffect(declaration.init, next)
             if (current === 'mustThrow') effect = 'mustThrow'
             else if (current === 'mayThrow' && effect === 'cannotThrow') effect = 'mayThrow'
-            if (current !== 'mustThrow') bindTopPattern(declaration.id, declaration.init, next)
+            if (current !== 'mustThrow') bindTopPattern(declaration.id, declaration.init || { type: 'Identifier', name: 'undefined' }, next)
           }
           const results = effect === 'mustThrow' ? [] : [{ ...path, bindings: next }]
           if (catchesHere && effect !== 'cannotThrow') results.push({ ...path, kind: 'throw' })
@@ -1619,39 +1619,70 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
       const value = staticValue(node)
       return [{ node, kind: value !== unknownStaticValue && !value ? 'nullish' : 'unknown', truthy: value === unknownStaticValue ? undefined : Boolean(value) }]
     }
+    const renderExpressionEffect = (node, chain = false) => {
+      node = unwrapExpression(node)
+      if (!node) return 'cannotThrow'
+      if (node.type === 'ChainExpression') return renderExpressionEffect(node.expression, true)
+      if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'NullLiteral', 'BigIntLiteral', 'ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod', 'Identifier'].includes(node.type)) return 'cannotThrow'
+      if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+        const object = unwrapExpression(node.object)
+        const nested = renderExpressionEffect(node.object, chain || node.type === 'OptionalMemberExpression')
+        if (nested === 'mustThrow') return 'mustThrow'
+        const nullish = object?.type === 'NullLiteral' || object?.type === 'Identifier' && object.name === 'undefined' || object?.type === 'UnaryExpression' && object.operator === 'void'
+        if (nullish) return node.optional ? nested : nested === 'cannotThrow' ? 'mustThrow' : 'mayThrow'
+        return ['ObjectExpression', 'ArrayExpression', 'StringLiteral', 'NumericLiteral', 'BooleanLiteral'].includes(object?.type) ? nested : 'mayThrow'
+      }
+      if (['CallExpression', 'OptionalCallExpression'].includes(node.type)) {
+        const callee = unwrapExpression(node.callee)
+        if (callee?.type === 'Identifier' && renderNames.has(callee.name)) return 'cannotThrow'
+        return 'mayThrow'
+      }
+      return 'cannotThrow'
+    }
     const returns = body => {
       body = unwrapExpression(body)
-      if (!body) return []
+      if (!body) return [undefined]
       if (body.type !== 'BlockStatement') return [body]
-      const values = []
-      const visit = statement => {
-        if (!statement) return
-        if (statement.type === 'ReturnStatement') { if (statement.argument) values.push(statement.argument); return }
-        if (statement.type === 'IfStatement') {
-          const condition = staticValue(statement.test)
-          if (condition !== unknownStaticValue) visit(condition ? statement.consequent : statement.alternate)
-          else { visit(statement.consequent); visit(statement.alternate) }
-          return
-        }
-        if (statement.type === 'SwitchStatement') {
-          const discriminant = staticValue(statement.discriminant)
-          const caseValues = statement.cases.map(branch => branch.test ? staticValue(branch.test) : undefined)
-          const fallback = statement.cases.findIndex(branch => !branch.test)
-          const known = discriminant !== unknownStaticValue && caseValues.every((value, index) => index === fallback || value !== unknownStaticValue)
-          const matched = known ? caseValues.findIndex((value, index) => index !== fallback && Object.is(value, discriminant)) : -1
-          const entries = known ? [matched >= 0 ? matched : fallback].filter(index => index >= 0) : statement.cases.map((_, index) => index)
-          for (const entry of entries) for (let index = entry; index < statement.cases.length; index += 1) {
-            const statements = statement.cases[index].consequent
-            const stop = statements.findIndex(child => child.type === 'BreakStatement')
-            for (const child of stop < 0 ? statements : statements.slice(0, stop)) visit(child)
-            if (stop >= 0) break
-          }
-          return
-        }
-        if (statement.type === 'BlockStatement') for (const child of statement.body) visit(child)
+      const statements = (items, seed = [{ kind: 'normal' }], catches = false) => {
+        let paths = seed
+        for (const statement of items || []) paths = paths.flatMap(path => path.kind === 'normal' ? one(statement, catches) : [path])
+        return paths
       }
-      visit(body)
-      return values
+      const one = (node, catches = false) => {
+        if (!node) return [{ kind: 'normal' }]
+        if (node.type === 'BlockStatement') return statements(node.body, [{ kind: 'normal' }], catches)
+        if (node.type === 'ReturnStatement') {
+          const effect = renderExpressionEffect(node.argument)
+          const result = effect === 'mustThrow' ? [] : [{ kind: 'return', expression: node.argument }]
+          if (catches && effect !== 'cannotThrow') result.push({ kind: 'throw' })
+          return result
+        }
+        if (node.type === 'ThrowStatement') return [{ kind: 'throw' }]
+        if (node.type === 'IfStatement') {
+          const condition = staticValue(node.test)
+          return condition !== unknownStaticValue ? one(condition ? node.consequent : node.alternate, catches) : [...one(node.consequent, catches), ...one(node.alternate, catches)]
+        }
+        if (node.type === 'TryStatement') {
+          let paths = one(node.block, true).flatMap(path => path.kind === 'throw' && node.handler ? one(node.handler.body, false) : [path])
+          if (node.finalizer) paths = paths.flatMap(path => one(node.finalizer, true).flatMap(finalPath => finalPath.kind === 'normal' ? [path] : [finalPath]))
+          return paths
+        }
+        if (node.type === 'SwitchStatement') {
+          const condition = staticValue(node.discriminant)
+          const fallback = node.cases.findIndex(branch => !branch.test)
+          const matched = condition !== unknownStaticValue ? node.cases.findIndex(branch => branch.test && staticValue(branch.test) !== unknownStaticValue && Object.is(staticValue(branch.test), condition)) : -1
+          const entries = condition !== unknownStaticValue ? [matched >= 0 ? matched : fallback].filter(index => index >= 0) : node.cases.map((_, index) => index).concat(fallback < 0 ? [-1] : [])
+          return entries.flatMap(entry => entry < 0 ? [{ kind: 'normal' }] : statements(node.cases.slice(entry).flatMap(branch => branch.consequent), [{ kind: 'normal' }], catches))
+        }
+        const expression = node.type === 'ExpressionStatement' ? node.expression : node.type === 'VariableDeclaration' ? node.declarations.map(item => item.init).filter(Boolean) : undefined
+        const effects = (Array.isArray(expression) ? expression : [expression]).map(value => renderExpressionEffect(value))
+        const must = effects.includes('mustThrow')
+        const may = effects.includes('mayThrow')
+        const result = must ? [] : [{ kind: 'normal' }]
+        if (catches && (must || may)) result.push({ kind: 'throw' })
+        return result
+      }
+      return statements(body.body).filter(path => path.kind !== 'throw').map(path => path.kind === 'return' ? path.expression : undefined)
     }
     const inspect = (node, resolving = new Set()) => {
       node = unwrapExpression(node)

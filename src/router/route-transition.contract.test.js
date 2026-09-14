@@ -223,9 +223,10 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     for (const imported of statement.specifiers) if ((imported.imported?.name ?? imported.imported?.value) === 'defineComponent') defineComponentNames.add(imported.local.name)
   }
   const optionMember = (object, name) => ({ type: 'MemberExpression', object, property: { type: 'StringLiteral', value: String(name) }, computed: true })
+  const missingOptionValue = { type: 'Identifier', name: 'undefined' }
   const bindOptionPattern = (pattern, value, target) => {
     pattern = unwrapScriptExpression(pattern)
-    if (pattern?.type === 'Identifier') { target.set(pattern.name, value ? [value] : []); return }
+    if (pattern?.type === 'Identifier') { target.set(pattern.name, [value || missingOptionValue]); return }
     if (pattern?.type === 'AssignmentPattern') { bindOptionPattern(pattern.left, value || pattern.right, target); return }
     if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bindOptionPattern(property.value, optionMember(value, scriptPropertyName(property)), target)
     if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bindOptionPattern(pattern.elements[index], optionMember(value, index), target)
@@ -722,23 +723,70 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     const value = staticValue(node)
     return [{ node, kind: value.known && !value.value ? 'nullish' : 'unknown', truthy: value.known ? Boolean(value.value) : undefined }]
   }
+  const renderExpressionEffect = (node, chain = false) => {
+    node = unwrapScriptExpression(node)
+    if (!node) return 'cannotThrow'
+    if (node.type === 'ChainExpression') return renderExpressionEffect(node.expression, true)
+    if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'NullLiteral', 'BigIntLiteral', 'ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod', 'Identifier'].includes(node.type)) return 'cannotThrow'
+    if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+      const object = unwrapScriptExpression(node.object)
+      const nested = renderExpressionEffect(node.object, chain || node.type === 'OptionalMemberExpression')
+      if (nested === 'mustThrow') return 'mustThrow'
+      const nullish = object?.type === 'NullLiteral' || object?.type === 'Identifier' && object.name === 'undefined' || object?.type === 'UnaryExpression' && object.operator === 'void'
+      if (nullish) return node.optional ? nested : nested === 'cannotThrow' ? 'mustThrow' : 'mayThrow'
+      return ['ObjectExpression', 'ArrayExpression', 'StringLiteral', 'NumericLiteral', 'BooleanLiteral'].includes(object?.type) ? nested : 'mayThrow'
+    }
+    if (['CallExpression', 'OptionalCallExpression'].includes(node.type)) {
+      const callee = unwrapScriptExpression(node.callee)
+      if (callee?.type === 'Identifier' && renderNames.has(callee.name)) return 'cannotThrow'
+      return 'mayThrow'
+    }
+    return 'cannotThrow'
+  }
   const returns = body => {
     body = unwrapScriptExpression(body)
-    if (!body) return []
+    if (!body) return [undefined]
     if (body.type !== 'BlockStatement') return [body]
-    const values = []
-    const visit = node => {
-      if (!node) return
-      if (node.type === 'ReturnStatement') { if (node.argument) values.push(node.argument); return }
-      if (node !== body && ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(node.type)) return
-      if (node.type === 'IfStatement') { const condition = staticValue(node.test); if (condition.known) visit(condition.value ? node.consequent : node.alternate); else { visit(node.consequent); visit(node.alternate) }; return }
-      for (const [key, value] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(key)) {
-        if (Array.isArray(value)) for (const child of value) visit(child)
-        else if (value?.type) visit(value)
-      }
+    const statements = (items, seed = [{ kind: 'normal' }], catches = false) => {
+      let paths = seed
+      for (const statement of items || []) paths = paths.flatMap(path => path.kind === 'normal' ? one(statement, catches) : [path])
+      return paths
     }
-    visit(body)
-    return values
+    const one = (node, catches = false) => {
+      if (!node) return [{ kind: 'normal' }]
+      if (node.type === 'BlockStatement') return statements(node.body, [{ kind: 'normal' }], catches)
+      if (node.type === 'ReturnStatement') {
+        const effect = renderExpressionEffect(node.argument)
+        const result = effect === 'mustThrow' ? [] : [{ kind: 'return', expression: node.argument }]
+        if (catches && effect !== 'cannotThrow') result.push({ kind: 'throw' })
+        return result
+      }
+      if (node.type === 'ThrowStatement') return [{ kind: 'throw' }]
+      if (node.type === 'IfStatement') {
+        const condition = staticValue(node.test)
+        return condition.known ? one(condition.value ? node.consequent : node.alternate, catches) : [...one(node.consequent, catches), ...one(node.alternate, catches)]
+      }
+      if (node.type === 'TryStatement') {
+        let paths = one(node.block, true).flatMap(path => path.kind === 'throw' && node.handler ? one(node.handler.body, false) : [path])
+        if (node.finalizer) paths = paths.flatMap(path => one(node.finalizer, true).flatMap(finalPath => finalPath.kind === 'normal' ? [path] : [finalPath]))
+        return paths
+      }
+      if (node.type === 'SwitchStatement') {
+        const condition = staticValue(node.discriminant)
+        const fallback = node.cases.findIndex(branch => !branch.test)
+        const matched = condition.known ? node.cases.findIndex(branch => branch.test && staticValue(branch.test).known && Object.is(staticValue(branch.test).value, condition.value)) : -1
+        const entries = condition.known ? [matched >= 0 ? matched : fallback].filter(index => index >= 0) : node.cases.map((_, index) => index).concat(fallback < 0 ? [-1] : [])
+        return entries.flatMap(entry => entry < 0 ? [{ kind: 'normal' }] : statements(node.cases.slice(entry).flatMap(branch => branch.consequent), [{ kind: 'normal' }], catches))
+      }
+      const expression = node.type === 'ExpressionStatement' ? node.expression : node.type === 'VariableDeclaration' ? node.declarations.map(item => item.init).filter(Boolean) : undefined
+      const effects = (Array.isArray(expression) ? expression : [expression]).map(value => renderExpressionEffect(value))
+      const must = effects.includes('mustThrow')
+      const may = effects.includes('mayThrow')
+      const result = must ? [] : [{ kind: 'normal' }]
+      if (catches && (must || may)) result.push({ kind: 'throw' })
+      return result
+    }
+    return statements(body.body).filter(path => path.kind !== 'throw').map(path => path.kind === 'return' ? path.expression : undefined)
   }
   const inspect = (node, resolving = new Set()) => {
     node = unwrapScriptExpression(node)
