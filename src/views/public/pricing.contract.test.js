@@ -895,43 +895,51 @@ const staticBindingInitializers = (value, importer) => {
       for (const name of new Set([...left.keys(), ...right.keys()])) merged.set(name, [...new Set([...(left.get(name) || []), ...(right.get(name) || [])])])
       return merged
     }
-    const expressionNullish = (node, environment, resolving = new Set()) => {
+    const expressionNullish = (node, environment, resolving = new Set(), chain = false) => {
       node = unwrapExpression(node)
-      if (node?.type === 'ChainExpression') return expressionNullish(node.expression, environment, resolving)
+      if (node?.type === 'ChainExpression') return expressionNullish(node.expression, environment, resolving, true)
       if (!node) return 'unknown'
-      if (node.type === 'NullLiteral' || node.type === 'Identifier' && node.name === 'undefined' || node.type === 'UnaryExpression' && node.operator === 'void') return true
-      if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'BigIntLiteral', 'ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return false
+      if (node.type === 'NullLiteral' || node.type === 'Identifier' && node.name === 'undefined' || node.type === 'UnaryExpression' && node.operator === 'void') return 'nullish'
+      if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'BigIntLiteral', 'ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return 'nonnull'
       if (node.type === 'Identifier' && environment.has(node.name) && !resolving.has(node.name)) {
         const values = environment.get(node.name).map(value => expressionNullish(value, environment, new Set(resolving).add(node.name)))
         return values.length && values.every(value => value === values[0]) ? values[0] : 'unknown'
       }
       if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
-        const receiverNullish = expressionNullish(node.object, environment, resolving)
-        if (receiverNullish === true) return node.optional ? true : 'unknown'
+        const receiverNullish = expressionNullish(node.object, environment, resolving, chain || node.type === 'OptionalMemberExpression')
+        if (receiverNullish === 'short-circuit') return chain || node.type === 'OptionalMemberExpression' ? 'short-circuit' : 'unknown'
+        if (receiverNullish === 'nullish') return node.optional ? 'short-circuit' : 'unknown'
         if (receiverNullish === 'unknown') return 'unknown'
         const key = node.computed ? staticPropertyKey(node.property) : node.property?.name
         const selectedValue = key === undefined ? { unknown: true } : factorySelection(node.object, key, environment, resolving)
-        if (selectedValue.missing) return true
+        if (selectedValue.missing) return 'nullish'
         return selectedValue.value ? expressionNullish(selectedValue.value, environment, resolving) : 'unknown'
+      }
+      if (node.type === 'OptionalCallExpression') {
+        const calleeNullish = expressionNullish(node.callee, environment, resolving)
+        if (calleeNullish === 'short-circuit') return 'short-circuit'
+        if (calleeNullish === 'nullish' && node.optional) return 'short-circuit'
+        return 'unknown'
       }
       return 'unknown'
     }
-    const expressionMayThrow = (node, environment, resolving = new Set()) => {
+    const expressionMayThrow = (node, environment, resolving = new Set(), chain = false) => {
       node = unwrapExpression(node)
       if (!node || typeof node !== 'object') return false
-      if (node.type === 'ChainExpression') return expressionMayThrow(node.expression, environment, resolving)
+      if (node.type === 'ChainExpression') return expressionMayThrow(node.expression, environment, resolving, true)
       if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return false
-      if (node.type === 'OptionalCallExpression') {
-        if (expressionMayThrow(node.callee, environment, resolving)) return true
-        const calleeNullish = expressionNullish(node.callee, environment, resolving)
-        if (node.optional && calleeNullish === true) return false
+      if (['CallExpression', 'OptionalCallExpression'].includes(node.type)) {
+        if (expressionMayThrow(node.callee, environment, resolving, chain || node.type === 'OptionalCallExpression')) return true
+        const calleeNullish = expressionNullish(node.callee, environment, resolving, chain || node.type === 'OptionalCallExpression')
+        if (((chain || node.type === 'OptionalCallExpression') && calleeNullish === 'short-circuit') || (node.optional && calleeNullish === 'nullish')) return false
         return true
       }
-      if (['CallExpression', 'NewExpression', 'AwaitExpression', 'TaggedTemplateExpression'].includes(node.type)) return true
+      if (['NewExpression', 'AwaitExpression', 'TaggedTemplateExpression'].includes(node.type)) return true
       if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
-        if (expressionMayThrow(node.object, environment, resolving) || node.computed && expressionMayThrow(node.property, environment, resolving)) return true
-        const receiverNullish = expressionNullish(node.object, environment, resolving)
-        if (receiverNullish === true) return !node.optional
+        if (expressionMayThrow(node.object, environment, resolving, chain || node.type === 'OptionalMemberExpression') || node.computed && expressionMayThrow(node.property, environment, resolving)) return true
+        const receiverNullish = expressionNullish(node.object, environment, resolving, chain || node.type === 'OptionalMemberExpression')
+        if (receiverNullish === 'short-circuit') return !(chain || node.type === 'OptionalMemberExpression')
+        if (receiverNullish === 'nullish') return !node.optional
         if (receiverNullish === 'unknown') return true
         const key = node.computed ? staticPropertyKey(node.property) : node.property?.name
         const selectedValue = key === undefined ? { unknown: true } : factorySelection(node.object, key, environment, resolving)
@@ -1095,9 +1103,9 @@ const staticBindingInitializers = (value, importer) => {
         }
         return false
       }
-      const visit = node => {
+      const visit = (node, root = false) => {
         if (!node) return true
-        if (node.type === 'ReturnStatement') { if (node.argument) values.push(node.argument); return true }
+        if (node.type === 'ReturnStatement') { if (node.argument) values.push(substituteFactoryBindings(node.argument, replacements)); return true }
         if (node.type === 'EmptyStatement' || node.type === 'FunctionDeclaration') {
           if (node.id) { local.set(node.id.name, [node]); replacements.set(node.id.name, node) }
           return true
@@ -1110,7 +1118,20 @@ const staticBindingInitializers = (value, importer) => {
           }
           return safe
         }
-        if (node.type === 'BlockStatement') { let safe = true; for (const statement of node.body) safe = visit(statement) && safe; return safe }
+        if (node.type === 'BlockStatement') {
+          const savedLocal = root ? undefined : new Map(local)
+          const savedReplacements = root ? undefined : new Map(replacements)
+          for (const statement of node.body) if (statement.type === 'FunctionDeclaration' && statement.id) {
+            local.set(statement.id.name, [statement]); replacements.set(statement.id.name, statement)
+          }
+          let safe = true
+          for (const statement of node.body) safe = visit(statement) && safe
+          if (!root) {
+            local.clear(); for (const [name, value] of savedLocal) local.set(name, value)
+            replacements.clear(); for (const [name, value] of savedReplacements) replacements.set(name, value)
+          }
+          return safe
+        }
         if (node.type === 'IfStatement') {
           const condition = boundStaticValue(node.test, local)
           return condition !== unknownStaticValue
@@ -1119,7 +1140,7 @@ const staticBindingInitializers = (value, importer) => {
         }
         return false
       }
-      return { values, safe: visit(fn.body) }
+      return { values, safe: visit(fn.body, true) }
     }
     const factoryPatternNames = (pattern, names = []) => {
       pattern = unwrapExpression(pattern)
