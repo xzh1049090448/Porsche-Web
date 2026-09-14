@@ -89,6 +89,7 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
   let state = 'initializing'
   let epoch = 'initial'
   let sharedEpoch = 'initial'
+  let unresolvedEpoch = null
   let generation = 0
   let permissionRevision = 0
   let issue = null
@@ -117,7 +118,7 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
   }
   try {
     const record = read(); epoch = sharedEpoch = record.epoch
-    if (record.pending || record.suppressed) { state = 'uncertain'; issue = 'auth_uncertain' }
+    if (record.pending || record.suppressed) { state = 'uncertain'; issue = 'auth_uncertain'; unresolvedEpoch = record.epoch }
   } catch (error) { state = 'uncertain'; issue = error?.code || browser?.capabilityCode?.() || 'auth_uncertain' }
 
   function clearSession() {
@@ -127,21 +128,21 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
     invalidate()
   }
   function setSession(next) {
-    issue = null
+    issue = null; unresolvedEpoch = null
     if (user?.guid !== next.user?.guid) invalidate()
     access = next.accessToken || null; user = sessionUser(next.user); generation++; permissionRevision++
     snapshotInvalidators.forEach(fn => fn())
     state = access && user ? 'authenticated' : 'anonymous'; notify()
   }
   function settleAnonymous(nextEpoch) {
-    access = null; user = null; state = 'anonymous'; issue = null
+    access = null; user = null; state = 'anonymous'; issue = null; unresolvedEpoch = null
     epoch = sharedEpoch = nextEpoch
     generation++; permissionRevision++
     snapshotInvalidators.forEach(fn => fn())
     notify()
   }
   function settleAuthenticated(data, nextEpoch) {
-    access = data.access_token; user = sessionUser(data.user); state = 'authenticated'; issue = null
+    access = data.access_token; user = sessionUser(data.user); state = 'authenticated'; issue = null; unresolvedEpoch = null
     epoch = sharedEpoch = nextEpoch
     generation++; permissionRevision++
     snapshotInvalidators.forEach(fn => fn())
@@ -302,7 +303,7 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
       return await browser.lock(async () => {
         const original = read()
         if (!validRecoveryRecord(original)) throw failure('auth_recovery_unsupported')
-        if (original.epoch !== sharedEpoch && cleanRecoveryRecord(original)) {
+        if (cleanRecoveryRecord(original) && original.epoch !== (unresolvedEpoch ?? sharedEpoch)) {
           settleAnonymous(original.epoch)
           return { state: 'anonymous', settledElsewhere: true }
         }

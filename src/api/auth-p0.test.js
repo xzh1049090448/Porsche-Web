@@ -13,6 +13,36 @@ const pendingRecord = (browser, kind, extra = {}) => browser.write({
   suppressed: true,
   ...extra,
 })
+const sharedBrowserTabs = (initialRecord) => {
+  let record = structuredClone(initialRecord)
+  let queue = Promise.resolve()
+  let nextId = 0
+  const tabs = new Set()
+  const messages = []
+  const createTab = () => {
+    const subscribers = new Set()
+    const tab = {
+      get available() { return true },
+      probe: () => ({ available: true, code: null }),
+      read: () => structuredClone(record),
+      write: next => { record = structuredClone(next) },
+      lock: fn => { const next = queue.then(fn); queue = next.catch(() => {}); return next },
+      publish: message => {
+        messages.push(structuredClone(message))
+        for (const peer of tabs) {
+          if (peer === tab) continue
+          for (const subscriber of peer.subscribers) subscriber(structuredClone(message))
+        }
+      },
+      subscribe: fn => { subscribers.add(fn); return () => subscribers.delete(fn) },
+      id: () => `shared-operation-${++nextId}`,
+      subscribers,
+    }
+    tabs.add(tab)
+    return tab
+  }
+  return { createTab, messages, read: () => structuredClone(record) }
+}
 
 test('POST generation 401 is returned once without refresh or clearing identity', async () => {
   let refreshes = 0; let requests = 0
@@ -284,6 +314,32 @@ test('concurrent uncertainty recovery is single-flight', async () => {
   wait.resolve(refreshed)
   assert.deepEqual(await Promise.all([first, second]), [{ state: 'authenticated' }, { state: 'authenticated' }])
   assert.equal(calls, 1)
+})
+
+test('prompt cross-tab invalidate preserves settled-elsewhere recovery', async () => {
+  const shared = sharedBrowserTabs({
+    epoch: 'unresolved-epoch',
+    pending: { operationId: 'login-pending', kind: 'login', epoch: 'unresolved-epoch' },
+    suppressed: true,
+  })
+  const firstBrowser = shared.createTab(); const peerBrowser = shared.createTab(); let refreshes = 0
+  const first = createAuthSessionManager({ browser: firstBrowser, refresh: async () => { refreshes++; return refreshed } })
+  const peer = createAuthSessionManager({ browser: peerBrowser, refresh: async () => { refreshes++; return refreshed } })
+  const firstRecovery = first.recover(); const peerRecovery = peer.recover()
+  assert.deepEqual(await firstRecovery, { state: 'authenticated' })
+  assert.deepEqual(await peerRecovery, { state: 'anonymous', settledElsewhere: true })
+  assert.equal(refreshes, 1)
+  assert.equal(first.state(), 'authenticated')
+  assert.equal(first.accessToken(), 'fresh')
+  assert.deepEqual(first.user(), user)
+  assert.equal(peer.state(), 'anonymous')
+  assert.equal(peer.authIssue(), null)
+  assert.equal(peer.accessToken(), null)
+  assert.equal(peer.user(), null)
+  const record = shared.read()
+  assert.deepEqual(record, { epoch: record.epoch, pending: null, suppressed: false })
+  assert.notEqual(record.epoch, 'unresolved-epoch')
+  assert.deepEqual(shared.messages, [{ type: 'invalidate', epoch: record.epoch }])
 })
 
 test('malformed uncertainty records are unsupported without network', async () => {
