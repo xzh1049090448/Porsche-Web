@@ -18,10 +18,19 @@ export function createBrowserAuthAdapter(environment = globalThis) {
 
   function ensureChannel() {
     if (!channel) {
-      channel = new environment.BroadcastChannel(LOCK)
-      channel.addEventListener('message', event => {
-        subscribers.forEach(fn => fn(event.data))
-      })
+      let nextChannel
+      try {
+        nextChannel = new environment.BroadcastChannel(LOCK)
+        nextChannel.addEventListener('message', event => {
+          for (const fn of subscribers) {
+            try { fn(event.data) } catch { /* Isolate subscriber failures. */ }
+          }
+        })
+        channel = nextChannel
+      } catch (error) {
+        try { nextChannel?.close?.() } catch { /* Leave the live channel unset. */ }
+        throw error
+      }
     }
     return channel
   }
@@ -34,12 +43,14 @@ export function createBrowserAuthAdapter(environment = globalThis) {
       storage.setItem(PROBE_KEY, '1')
       if (storage.getItem(PROBE_KEY) !== '1') throw Error('probe_not_persisted')
       storage.removeItem(PROBE_KEY)
-      ensureChannel()
-      return (capability = { available: true, code: null })
     } catch {
       try { storage?.removeItem(PROBE_KEY) } catch { /* keep unavailable */ }
       return (capability = { available: false, code: 'auth_storage_unavailable' })
     }
+    try { ensureChannel() } catch {
+      return (capability = { available: false, code: 'auth_broadcast_channel_unavailable' })
+    }
+    return (capability = { available: true, code: null })
   }
 
   try {

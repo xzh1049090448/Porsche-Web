@@ -8,7 +8,8 @@ function environment() {
   const entries = new Map([['llm_platform_token', 'old'], ['llm_platform_user', 'old'], ['llm_platform_theme', 'dark'], ['llm_platform_locale', 'en']])
   const messages = []; const locks = []; const channels = []
   const storageFailures = { get: false, set: false, remove: false }
-  return { entries, messages, locks, channels, storageFailures, isSecureContext: true, crypto: { randomUUID: () => 'operation' },
+  const channelFailures = { construct: false, listen: false }
+  const env = { entries, messages, locks, channels, storageFailures, channelFailures, channelAttempts: 0, isSecureContext: true, crypto: { randomUUID: () => 'operation' },
     localStorage: {
       getItem: key => { if (storageFailures.get) throw Error('get denied'); return entries.get(key) },
       setItem: (key, value) => { if (storageFailures.set) throw Error('set denied'); entries.set(key, value) },
@@ -16,13 +17,22 @@ function environment() {
     },
     navigator: { locks: { request: async (name, options, fn) => { locks.push([name, options]); return fn() } } },
     BroadcastChannel: class {
-      constructor() { this.listeners = new Set(); channels.push(this) }
+      constructor() {
+        env.channelAttempts++
+        if (channelFailures.construct) throw Error('constructor denied')
+        this.listeners = new Set(); this.closed = false; channels.push(this)
+      }
       postMessage(value) { messages.push(value) }
-      addEventListener(type, listener) { if (type === 'message') this.listeners.add(listener) }
+      addEventListener(type, listener) {
+        if (channelFailures.listen) throw Error('listener denied')
+        if (type === 'message') this.listeners.add(listener)
+      }
       removeEventListener(type, listener) { if (type === 'message') this.listeners.delete(listener) }
       emit(data) { this.listeners.forEach(listener => listener({ data })) }
+      close() { this.closed = true }
     },
   }
+  return env
 }
 test('browser adapter cleans old credentials preserving preferences, and broadcasts only epoch', async () => {
   const env = environment(); const browser = createBrowserAuthAdapter(env)
@@ -83,6 +93,43 @@ test('subscription made while unavailable activates after probe and can be remov
   assert.deepEqual(received, [{ type: 'invalidate', epoch: 'after' }])
   browser.publish({ type: 'other', epoch: 'broadcast', accessToken: 'secret', profile: 'private', sid: 'secret' })
   assert.deepEqual(env.messages, [{ type: 'invalidate', epoch: 'broadcast' }])
+})
+test('BroadcastChannel constructor failure is recoverable without retaining the probe key', () => {
+  const env = environment()
+  env.channelFailures.construct = true
+  const browser = createBrowserAuthAdapter(env)
+  const received = []
+  browser.subscribe(message => received.push(message))
+  assert.deepEqual(browser.probe(), { available: false, code: 'auth_broadcast_channel_unavailable' })
+  assert.equal(env.entries.has('porsche_auth_probe_v1'), false)
+  env.channelFailures.construct = false
+  assert.deepEqual(browser.probe(), { available: true, code: null })
+  env.channels[0].emit({ type: 'invalidate', epoch: 'recovered' })
+  assert.deepEqual(received, [{ type: 'invalidate', epoch: 'recovered' }])
+})
+test('BroadcastChannel listener registration failure closes temporary channel and retries', () => {
+  const env = environment()
+  env.channelFailures.listen = true
+  const browser = createBrowserAuthAdapter(env)
+  const received = []
+  browser.subscribe(message => received.push(message))
+  assert.deepEqual(browser.probe(), { available: false, code: 'auth_broadcast_channel_unavailable' })
+  assert.equal(env.entries.has('porsche_auth_probe_v1'), false)
+  assert.equal(env.channels.every(channel => channel.closed), true)
+  env.channelFailures.listen = false
+  assert.deepEqual(browser.probe(), { available: true, code: null })
+  assert.equal(env.channels.length, 3)
+  env.channels[2].emit({ type: 'invalidate', epoch: 'recovered' })
+  assert.deepEqual(received, [{ type: 'invalidate', epoch: 'recovered' }])
+})
+test('subscriber failure does not block later subscribers', () => {
+  const env = environment()
+  const browser = createBrowserAuthAdapter(env)
+  const received = []
+  browser.subscribe(() => { throw Error('subscriber failed') })
+  browser.subscribe(message => received.push(message))
+  assert.doesNotThrow(() => env.channels[0].emit({ type: 'invalidate', epoch: 'next' }))
+  assert.deepEqual(received, [{ type: 'invalidate', epoch: 'next' }])
 })
 test('error display supports nested errors and detail while ignoring HTML/text/Blob', () => {
   assert.equal(authErrorMessage({ response: { data: { error: { code: 'auth_invalid_credentials', message: '用户名或密码错误' } } } }), '用户名或密码错误')
