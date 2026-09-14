@@ -373,6 +373,57 @@ test('runtime login and refresh uncertainty retain settled-elsewhere evidence', 
   }
 })
 
+test('pending epoch survives a transient post-request read failure', async () => {
+  for (const kind of ['login', 'refresh']) {
+    const shared = sharedBrowserTabs({ epoch: 'clean-epoch', pending: null, suppressed: false })
+    const firstBrowser = shared.createTab(); const read = firstBrowser.read
+    let failNextRead = false; let originalCalls = 0; let recoveryCalls = 0
+    firstBrowser.read = () => {
+      if (failNextRead) { failNextRead = false; throw new Error('transient storage read failure') }
+      return read()
+    }
+    const first = createAuthSessionManager({ browser: firstBrowser, refresh: async () => { recoveryCalls++; return refreshed } })
+    await assert.rejects(first.cookieOperation(kind, async () => {
+      originalCalls++
+      failNextRead = true
+      throw new TypeError('ambiguous request failure')
+    }), /transient storage read failure/)
+    assert.equal(first.state(), 'uncertain')
+    assert.equal(shared.read().pending.kind, kind)
+    assert.equal(shared.read().suppressed, false)
+
+    const peer = createAuthSessionManager({
+      browser: shared.createTab(),
+      refresh: async () => { recoveryCalls++; return refreshed },
+    })
+    assert.deepEqual(await peer.recover(), { state: 'authenticated' })
+    assert.deepEqual(await first.recover(), { state: 'anonymous', settledElsewhere: true })
+    assert.equal(originalCalls, 1)
+    assert.equal(recoveryCalls, 1)
+    assert.equal(first.state(), 'anonymous')
+    assert.equal(first.authIssue(), null)
+    assert.equal(first.accessToken(), null)
+    assert.equal(first.user(), null)
+    const record = shared.read()
+    assert.deepEqual(record, { epoch: record.epoch, pending: null, suppressed: false })
+    assert.deepEqual(shared.messages, [{ type: 'invalidate', epoch: record.epoch }])
+  }
+})
+
+test('runtime unsupported operation markers never use refresh recovery', async () => {
+  for (const kind of ['password', 'revoke-session']) {
+    const browser = browserFixture(); let refreshes = 0
+    const auth = createAuthSessionManager({ browser, refresh: async () => { refreshes++; return refreshed } })
+    await assert.rejects(auth.cookieOperation(kind, async () => { throw new TypeError('network failure') }), /network failure/)
+    await assert.rejects(auth.recover(), error => error.code === 'auth_recovery_unsupported')
+    assert.equal(browser.read().pending.kind, kind)
+    assert.equal(auth.state(), 'uncertain')
+    assert.equal(auth.accessToken(), null)
+    assert.equal(auth.user(), null)
+    assert.equal(refreshes, 0)
+  }
+})
+
 test('malformed uncertainty records are unsupported without network', async () => {
   const browser = browserFixture()
   browser.write({ epoch: 'initial', pending: { operationId: 'bad', kind: 'login', epoch: 'other' }, suppressed: true })

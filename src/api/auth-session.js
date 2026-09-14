@@ -197,7 +197,9 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
         if (record.epoch !== expected) { sharedEpoch = record.epoch; clearSession(); throw failure('identity_changed') }
         if (record.pending || record.suppressed) { uncertain(); throw failure('auth_uncertain') }
         const pending = { operationId: id(), kind, epoch: expected }
-        browser.write({ ...record, pending }) // Must succeed before sending anything.
+        const pendingRecord = { ...record, pending }
+        browser.write(pendingRecord) // Must succeed before sending anything.
+        rememberUnresolved(pendingRecord)
         const matches = current => current.epoch === pending.epoch && current.pending?.operationId === pending.operationId && current.pending?.epoch === pending.epoch
         try {
           const result = await action(access)
@@ -207,6 +209,7 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
           const identityChange = options.identityChange === true
           const nextEpoch = identityChange ? id() : expected
           browser.write({ epoch: nextEpoch, pending: null, suppressed: false })
+          unresolvedEpoch = null
           sharedEpoch = nextEpoch
           if (identityChange) {
             invalidate()
@@ -228,6 +231,7 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
               : { ...current, suppressed: true }
             rememberUnresolved(next)
             browser.write(next)
+            if (!next.pending && !next.suppressed) unresolvedEpoch = null
           } else {
             rememberUnresolved(current)
           }
