@@ -2696,6 +2696,8 @@ test('catalog exposes desktop filters/table, mobile drawer/cards and accessible 
   assertProperty(tableCss, '.pricing-table th', 'padding', '10px 12px', 'desktop headers keep compact cell padding')
   assertProperty(tableCss, '.pricing-table td', 'padding', '10px 12px', 'desktop rows keep compact cell padding')
   assertProperty(cardsCss, '.pricing-card', 'border-radius', '10px', 'mobile results keep the approved compact card radius')
+  assertProperty(cardsCss, '.pricing-card dl', 'grid-template-columns', 'repeat(2, minmax(0, 1fr))', 'maximum contract prices must not enlarge either mobile price column')
+  assertProperty(cardsCss, '.pricing-card dd', 'overflow-wrap', 'anywhere', 'maximum contract prices must wrap instead of overflowing the mobile card')
   assert.match(styles, /\.pricing-drawer\s*\{[^}]*width\s*:\s*min\(340px,\s*90vw\)/s, 'mobile drawer width must remain bounded by the viewport')
   assert.match(table, /\.pricing-table\s+tbody\s+tr:hover\s*\{[^}]*background\s*:/s, 'desktop result rows need the approved subtle hover')
   assert.match(table, /\.pricing-table\s+(?:td\s+strong|code)[^{]*\{[^}]*font-family\s*:\s*ui-monospace/s, 'prices or model keys must use a monospace stack')

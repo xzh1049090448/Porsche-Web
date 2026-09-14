@@ -120,11 +120,12 @@ test('mounted mobile cards render the real input and output catalog prices with 
   ])
   const Cards = (await import(`${cardsURL}#${Date.now()}`)).default
   const { mount } = await import('@vue/test-utils')
-  const wrapper = mount(Cards, { props: { models: [{ modelKey: 'real/model', displayName: 'Real model', provider: 'Provider', inputPrice: '1.25', outputPrice: '6.50', priceVisibility: 'visible', publicDisplayGroup: 'Published', updatedAt: '2026-09-14T00:00:00Z', capabilities: ['chat'], endpointTypes: ['responses'] }] }, global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+  const maximumContractPrice = '999999999999.99999999'
+  const wrapper = mount(Cards, { props: { models: [{ modelKey: 'real/model', displayName: 'Real model', provider: 'Provider', inputPrice: maximumContractPrice, outputPrice: maximumContractPrice, priceVisibility: 'visible', publicDisplayGroup: 'Published', updatedAt: '2026-09-14T00:00:00Z', capabilities: ['chat'], endpointTypes: ['responses'] }] }, global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
   const prices = wrapper.findAll('.pricing-card-price')
   assert.equal(prices.length, 2)
   assert.deepEqual(prices.map(group => group.find('dt').text()), ['pricingCatalog.inputPrice', 'pricingCatalog.outputPrice'])
-  assert.deepEqual(prices.map(group => group.find('dd').text()), ['1.25pricingCatalog.unit', '6.50pricingCatalog.unit'])
+  assert.deepEqual(prices.map(group => group.find('dd').text()), [`${maximumContractPrice}pricingCatalog.unit`, `${maximumContractPrice}pricingCatalog.unit`])
   wrapper.unmount()
 })
 
