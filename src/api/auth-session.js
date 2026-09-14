@@ -107,6 +107,20 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
   const authIssue = () => issue
   const hasRecoveryAttempt = record => Object.hasOwn(record || {}, 'recoveryAttempt')
   const recoveryAttempt = record => hasRecoveryAttempt(record) ? record.recoveryAttempt : null
+  const coordinationRecord = (record, changes = {}) => {
+    const source = { ...record, ...changes }
+    const pending = source.pending === null ? null : {
+      operationId: source.pending?.operationId,
+      kind: source.pending?.kind,
+      epoch: source.pending?.epoch,
+    }
+    return {
+      epoch: source.epoch,
+      pending,
+      suppressed: source.suppressed,
+      ...(hasRecoveryAttempt(source) ? { recoveryAttempt: source.recoveryAttempt } : {}),
+    }
+  }
   const rememberUnresolved = record => {
     if (typeof record?.epoch === 'string' && (record.pending || record.suppressed || hasRecoveryAttempt(record))) unresolvedEpoch = record.epoch
   }
@@ -198,9 +212,10 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
       return await browser.lock(async () => {
         const record = read()
         if (record.epoch !== expected) { sharedEpoch = record.epoch; clearSession(); throw failure('identity_changed') }
+        if (state === 'uncertain') throw failure('auth_uncertain')
         if (record.pending || record.suppressed || hasRecoveryAttempt(record)) { uncertain(); throw failure('auth_uncertain') }
         const pending = { operationId: id(), kind, epoch: expected }
-        const pendingRecord = { ...record, pending }
+        const pendingRecord = coordinationRecord(record, { pending })
         browser.write(pendingRecord) // Must succeed before sending anything.
         rememberUnresolved(pendingRecord)
         const matches = current => current.epoch === pending.epoch && current.pending?.operationId === pending.operationId && current.pending?.epoch === pending.epoch
@@ -229,9 +244,9 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
         } catch (error) {
           const current = read()
           if (matches(current)) {
-            const next = definiteFailure(error)
-              ? { ...current, pending: null, suppressed: kind === 'logout' }
-              : { ...current, suppressed: true }
+            const next = coordinationRecord(current, definiteFailure(error)
+              ? { pending: null, suppressed: kind === 'logout' }
+              : { suppressed: true })
             rememberUnresolved(next)
             browser.write(next)
             if (!next.pending && !next.suppressed) unresolvedEpoch = null
@@ -339,7 +354,7 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
 
           const nextAttempt = recoveryId()
           if (typeof nextAttempt !== 'string' || !nextAttempt || nextAttempt === recoveryAttempt(original)) throw failure('auth_coordination_invalid')
-          const attempting = { ...original, recoveryAttempt: nextAttempt }
+          const attempting = coordinationRecord(original, { recoveryAttempt: nextAttempt })
           browser.write(attempting)
           rememberUnresolved(attempting)
 
@@ -392,7 +407,16 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
   }
   browser?.subscribe?.(message => {
     if (message?.type !== 'invalidate' || message.epoch === sharedEpoch) return
-    try { sharedEpoch = read().epoch } catch { /* remain closed */ }
+    try {
+      const previousSharedEpoch = sharedEpoch
+      const record = read()
+      if (!recoveryPromise && state === 'uncertain' && !access && !user && cleanRecoveryRecord(record)
+          && record.epoch !== (unresolvedEpoch ?? previousSharedEpoch)) {
+        settleAnonymous(record.epoch)
+        return
+      }
+      sharedEpoch = record.epoch
+    } catch { /* remain closed */ }
     clearSession()
   })
   return { accessToken, authIssue, user: () => user, state: () => state, capture, assertCurrent, assertSnapshot, replacePermissionProjection, setSession, clearSession,

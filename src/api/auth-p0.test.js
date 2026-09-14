@@ -399,6 +399,76 @@ test('two managers recover logout once and both settle anonymous without credent
   assert.deepEqual(shared.messages, [{ type: 'invalidate', epoch: record.epoch }])
 })
 
+test('a peer passively settles anonymous when another tab publishes a clean recovered epoch', async () => {
+  const shared = sharedBrowserTabs({
+    epoch: 'login-epoch',
+    pending: { operationId: 'login-pending', kind: 'login', epoch: 'login-epoch' },
+    suppressed: true,
+  })
+  let refreshes = 0
+  const owner = createAuthSessionManager({
+    browser: shared.createTab(),
+    refresh: async () => { refreshes++; return refreshed },
+  })
+  const peer = createAuthSessionManager({ browser: shared.createTab() })
+  const peerSnapshots = []
+  peer.subscribe(snapshot => peerSnapshots.push(structuredClone(snapshot)))
+
+  assert.deepEqual(await owner.recover(), { state: 'authenticated' })
+  assert.equal(refreshes, 1)
+  assert.equal(owner.state(), 'authenticated')
+  assert.equal(peer.state(), 'anonymous')
+  assert.equal(peer.authIssue(), null)
+  assert.equal(peer.accessToken(), null)
+  assert.equal(peer.user(), null)
+  assert.equal(peerSnapshots.at(-1).state, 'anonymous')
+  assert.equal(peerSnapshots.at(-1).issue, null)
+  assert.equal(peerSnapshots.at(-1).accessToken, null)
+})
+
+test('an uncertain manager cannot send a cookie operation after its durable record becomes clean', async () => {
+  const browser = browserFixture()
+  pendingRecord(browser, 'login')
+  const auth = createAuthSessionManager({ browser })
+  browser.write({ epoch: 'initial', pending: null, suppressed: false })
+  let sends = 0
+
+  await assert.rejects(
+    auth.cookieOperation('login', async () => { sends++; return refreshed }),
+    error => error.code === 'auth_uncertain',
+  )
+  assert.equal(sends, 0)
+  assert.equal(auth.state(), 'uncertain')
+  assert.equal(auth.authIssue(), 'auth_uncertain')
+  assert.deepEqual(browser.read(), { epoch: 'initial', pending: null, suppressed: false })
+})
+
+test('ambiguous recovery rewrites coordination records without unknown or sensitive fields', async () => {
+  const browser = browserFixture()
+  browser.write({
+    epoch: 'sensitive-epoch',
+    pending: { operationId: 'refresh-pending', kind: 'refresh', epoch: 'sensitive-epoch', sid: 'nested-secret' },
+    suppressed: true,
+    accessToken: 'must-not-remain',
+    sid: 'must-not-remain',
+    user: { guid: '100' },
+    serverBody: 'must-not-remain',
+  })
+  const auth = createAuthSessionManager({
+    browser,
+    refresh: async () => { throw new TypeError('ambiguous network failure') },
+  })
+
+  await assert.rejects(auth.recover())
+  const record = browser.read()
+  assert.deepEqual(Object.keys(record).sort(), ['epoch', 'pending', 'recoveryAttempt', 'suppressed'])
+  assert.deepEqual(Object.keys(record.pending).sort(), ['epoch', 'kind', 'operationId'])
+  assert.equal(record.epoch, 'sensitive-epoch')
+  assert.equal(record.pending.kind, 'refresh')
+  assert.equal(record.suppressed, true)
+  assert.equal(typeof record.recoveryAttempt, 'string')
+})
+
 test('concurrent ambiguous logout recovery coalesces once before a later explicit retry converges', async () => {
   const original = {
     epoch: 'logout-epoch',
@@ -449,8 +519,8 @@ test('concurrent ambiguous logout recovery coalesces once before a later explici
   const settled = shared.read()
   assert.deepEqual(settled, { epoch: settled.epoch, pending: null, suppressed: false })
   assert.equal(first.state(), 'anonymous')
-  assert.deepEqual(await peer.recover(), { state: 'anonymous', settledElsewhere: true })
   assert.equal(peer.state(), 'anonymous')
+  assert.equal(peer.authIssue(), null)
   assert.equal(refreshes, 2)
   assert.equal(logouts, 2)
 })
@@ -753,8 +823,7 @@ test('runtime login and refresh uncertainty retain settled-elsewhere evidence', 
     const peerBrowser = shared.createTab()
     const peer = createAuthSessionManager({ browser: peerBrowser, refresh: async () => { recoveryCalls++; return refreshed } })
     assert.deepEqual(await peer.recover(), { state: 'authenticated' })
-    assert.equal(first.state(), 'uncertain')
-    assert.deepEqual(await first.recover(), { state: 'anonymous', settledElsewhere: true })
+    assert.equal(first.state(), 'anonymous')
     assert.equal(originalCalls, 1)
     assert.equal(recoveryCalls, 1)
     assert.equal(peer.state(), 'authenticated')
@@ -793,7 +862,7 @@ test('pending epoch survives a transient post-request read failure', async () =>
       refresh: async () => { recoveryCalls++; return refreshed },
     })
     assert.deepEqual(await peer.recover(), { state: 'authenticated' })
-    assert.deepEqual(await first.recover(), { state: 'anonymous', settledElsewhere: true })
+    assert.equal(first.state(), 'anonymous')
     assert.equal(originalCalls, 1)
     assert.equal(recoveryCalls, 1)
     assert.equal(first.state(), 'anonymous')
