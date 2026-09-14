@@ -12,7 +12,7 @@ export function createPageHandoff({
       clearTimer(timer)
       timer = null
     }
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
       location.assign(path)
       return
     }

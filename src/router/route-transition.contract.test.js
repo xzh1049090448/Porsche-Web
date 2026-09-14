@@ -1801,6 +1801,29 @@ test('router preserves guarded cross-bootstrap handoff and explicit scroll behav
   assert.deepEqual(assigned, ['/register?from=pricing', '/chat'], 'reduced motion navigates immediately')
   assert.equal(timers.size, 1, 'reduced motion does not schedule another timer')
 
+  for (const [media, label] of [[undefined, 'missing matchMedia'], [() => undefined, 'undefined media result']]) {
+    const fallbackClasses = []
+    const fallbackAssigned = []
+    const fallbackTimers = new Map()
+    const fallbackCleared = []
+    let fallbackTimer = 0
+    const dependencies = {
+      document: { documentElement: { classList: { add: value => fallbackClasses.push(value) } } },
+      location: { assign: path => fallbackAssigned.push(path) },
+      setTimer: (callback, delay) => { const id = ++fallbackTimer; fallbackTimers.set(id, { callback, delay }); return id },
+      clearTimer: id => { fallbackCleared.push(id); fallbackTimers.delete(id) },
+    }
+    if (media) dependencies.matchMedia = media
+    const fallbackHandoff = createPageHandoff(dependencies)
+    assert.doesNotThrow(() => fallbackHandoff('/stale'), `${label} falls back to the animated path`)
+    fallbackHandoff('/latest')
+    assert.deepEqual(fallbackClasses, ['route-handoff-leaving', 'route-handoff-leaving'])
+    assert.deepEqual(fallbackCleared, [1], `${label} still cancels the stale timer`)
+    assert.equal(fallbackTimers.get(2)?.delay, 200)
+    fallbackTimers.get(2).callback()
+    assert.deepEqual(fallbackAssigned, ['/latest'], `${label} navigates only the latest path after 200ms`)
+  }
+
   for (const [configuration, label] of [
     [{ handoff() {} }, 'missing mode'],
     [{ mode: 'public' }, 'missing handoff'],
