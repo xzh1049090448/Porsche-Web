@@ -8,6 +8,7 @@
 - 可见 Chromium production preview：Home/Pricing 14/14、public/console/guest 路由动效与焦点 6/6、13 类功能页 × 3 视口 × 2 主题 78/78，共 98/98；意外 console/page error 均为 0。动效矩阵额外确认同页 hash 保持 Home DOM 实例、不触发路由过渡并聚焦目标标题；功能矩阵另完成两类对话框共 12 次边界/Escape 检查。原始 JSON/截图位于 `/private/tmp/porsche-web-home-pricing-browser-20260914`，仓库报告为 `docs/agents/validation/2026-09-13-home-pricing-motion-typography-browser.md`。
 - `/private/tmp/porsche-web-home-pricing-final-review-20260913-01` 绑定 `3dda650` 的快照已因独立规格审查发现同页 hash 缺陷而失效并永久保留；该审查未进入质量阶段。修复提交 `49fa6e6` 以 RED→GREEN 契约和可见 Chromium 关闭缺陷，最终 canonical review 必须使用计划递增后的全新目录。
 - `/private/tmp/porsche-web-home-pricing-final-review-20260913-02` 绑定 `5adcb10` 的快照获得 SPEC_PASS 后，被独立质量审查以 hash timer 竞态测试假通过判为 QUALITY_FAIL 并失效保留。受控 timer 回归随后复现旧回调取消最新焦点任务的生产竞态；`d93ae47` 以递增所有权令牌修复，并证明删除取消逻辑或所有权检查两种 mutation 均会 RED。最终 canonical review 必须使用计划递增后的全新目录。
+- 最终 canonical review 原始材料目录为 `/private/tmp/porsche-web-home-pricing-final-review-20260913-03`；已从 `origin/main` 基线建立精确 46 路径 scope，并在写入本记录前完成竞态修复后的预快照 verify。最终规范/质量评审仅绑定该目录的 `snapshot-final.json`、最终 revision 与 `interface-contract.json`。
 - 状态边界不变：`web-012` 继续 `in_progress`；P08 生产内容真实性与法务/品牌文案仍 `BLOCKED_PRODUCT`，email push 仍为 TODO。真实公开 empty/ready/published 数据、真实 Root/普通用户、后端/上游、公开 HTTPS、数据库迁移、部署和生产验收均未运行；合成 published/loading/503 不作为线上通过。
 
 ## 2026-09-12：全站视觉统一本地前端候选与 production mock 隔离修复
