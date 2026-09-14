@@ -3,7 +3,7 @@
 ## 结论与边界
 
 - 结果：`PASS_LOCAL_SYNTHETIC`
-- 被测实现提交：`49fa6e672e1644fb68f7cbe02b72f051970a47a7`
+- 被测实现提交：`d93ae47aa1243b4e476dc33ccac2a9d2c20e5c4d`
 - 被测地址：`http://127.0.0.1:4173`
 - 启动方式：`VITE_USE_MOCK=false` 的 production build 与 Vite preview
 - 浏览器：Playwright Chromium，可见模式
@@ -57,9 +57,9 @@
 
 | 路由类型 | 常规动效 | reduced motion | 最终焦点 | 固定壳层 |
 | --- | --- | --- | --- | --- |
-| public → public | leave 0.2s、enter 0.35s；总观测 1029ms | 两段均 0.00001s；总观测 268ms | `#public-content` | 页头 1425×56，前后不变 |
-| console → console | leave 0.2s、enter 0.35s；总观测 1096ms | 两段均 0.00001s；总观测 247ms | `#console-content` | 顶栏 1440×56、侧栏 240×844，前后不变 |
-| guest → console | leave 0.2s、enter 0.35s；总观测 1013ms | 两段均 0.00001s；总观测 166ms | `#console-content` | 进入后壳层稳定 |
+| public → public | leave 0.2s、enter 0.35s；总观测 1006ms | 两段均 0.00001s；总观测 289ms | `#public-content` | 页头 1425×56，前后不变 |
+| console → console | leave 0.2s、enter 0.35s；总观测 1073ms | 两段均 0.00001s；总观测 204ms | `#console-content` | 顶栏 1440×56、侧栏 240×844，前后不变 |
+| guest → console | leave 0.2s、enter 0.35s；总观测 1022ms | 两段均 0.00001s；总观测 181ms | `#console-content` | 进入后壳层稳定 |
 
 过渡属性仅为 `opacity`。public → public 额外通过快速双导航、浏览器后退和前进。同页 `/#advantages` 导航保持原 Home DOM 实例、不触发路由过渡，并在滚动完成后把焦点放到 `#advantages-title`。最终焦点在路由内容节点内，路由进入不会覆盖已经位于目标内容中的焦点。
 
@@ -101,6 +101,7 @@
 | Chat 折叠按钮仅 28×28px | `dcc6b87` | 按钮使用共享 44px 触控尺寸 |
 | 桌面模型编辑对话框高度超过视口 | `032a882` | 12 次对话框边界及 Escape 检查通过 |
 | 同页 hash 导航重建 Home 且未聚焦目标标题 | `49fa6e6` | 组件实例保持、连续 hash 最新焦点契约及可见 Chromium 回归通过 |
+| 已入队旧 hash 回调可取消最新焦点任务 | `d93ae47` | 可控 timer/listener 竞态回归通过；删除取消或所有权保护均被 mutation 拒绝 |
 
 所有浏览器发现的产品缺陷均先由聚焦 RED 测试复现，再修改生产代码并转绿。
 
