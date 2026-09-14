@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vuePlugin from '@vitejs/plugin-vue'
@@ -34,11 +35,26 @@ function descriptor(path) {
   return parsed.descriptor
 }
 
+function componentScopeAttribute(path) {
+  const url = new URL(path, import.meta.url).href
+  return `data-v-${createHash('sha256').update(url).digest('hex').slice(0, 8)}`
+}
+
 function resolveLocalVueImport(fromPath, source) {
   if (!source.endsWith('.vue')) return null
   if (source.startsWith('@/')) return new URL(source.slice(2), new URL('../', import.meta.url)).href
   if (source.startsWith('.')) return new URL(source, new URL(fromPath, import.meta.url)).href
   return null
+}
+
+function localVueImports(path) {
+  const component = descriptor(path)
+  if (!component.script && !component.scriptSetup) return []
+  const compiled = vueCompiler.compileScript(component, { id: path })
+  const bindingSources = Object.values(compiled.imports || {}).map(binding => binding.source)
+  const astSources = [...(compiled.scriptAst || []), ...(compiled.scriptSetupAst || [])]
+    .filter(node => node.type === 'ImportDeclaration').map(node => node.source.value)
+  return [...new Set([...bindingSources, ...astSources])].map(source => resolveLocalVueImport(path, source)).filter(Boolean)
 }
 
 function localVueImportGraph(roots) {
@@ -48,18 +64,26 @@ function localVueImportGraph(roots) {
     const path = pending.shift()
     if (seen.has(path)) continue
     seen.add(path)
-    const component = descriptor(path)
-    if (!component.script && !component.scriptSetup) continue
-    const compiled = vueCompiler.compileScript(component, { id: path })
-    const bindingSources = Object.values(compiled.imports || {}).map(binding => binding.source)
-    const astSources = [...(compiled.scriptAst || []), ...(compiled.scriptSetupAst || [])]
-      .filter(node => node.type === 'ImportDeclaration').map(node => node.source.value)
-    for (const source of new Set([...bindingSources, ...astSources])) {
-      const resolved = resolveLocalVueImport(path, source)
-      if (resolved && !seen.has(resolved)) pending.push(resolved)
-    }
+    for (const resolved of localVueImports(path)) if (!seen.has(resolved)) pending.push(resolved)
   }
   return seen
+}
+
+function localVueStyleOrder(roots) {
+  const ordered = []
+  const visited = new Set()
+  const visiting = new Set()
+  const visit = path => {
+    const resolved = new URL(path, import.meta.url).href
+    if (visited.has(resolved) || visiting.has(resolved)) return
+    visiting.add(resolved)
+    for (const imported of localVueImports(resolved)) visit(imported)
+    visiting.delete(resolved)
+    visited.add(resolved)
+    if (descriptor(resolved).styles.length) ordered.push(resolved)
+  }
+  for (const root of roots) visit(root)
+  return ordered
 }
 
 function auditedStylePaths() {
@@ -107,10 +131,11 @@ function templateElementPath(path, predicate) {
   return found
 }
 
-function minimalDomFromTemplatePath(path) {
+function minimalDomFromTemplatePath(path, scopeAttributes = []) {
   return path.reduceRight((content, node) => {
     if (node.tag === 'template') return content
-    const attributes = staticAttributes(node).map(([name, value]) => value === undefined ? name : `${name}="${value.replaceAll('&', '&amp;').replaceAll('"', '&quot;')}"`).join(' ')
+    const attributes = [...staticAttributes(node), ...scopeAttributes.map(name => [name, undefined])]
+      .map(([name, value]) => value === undefined ? name : `${name}="${value.replaceAll('&', '&amp;').replaceAll('"', '&quot;')}"`).join(' ')
     return `<${node.tag}${attributes ? ` ${attributes}` : ''}>${content}</${node.tag}>`
   }, 'Welcome')
 }
@@ -120,10 +145,17 @@ function parsedStyles(path) {
     const styles = descriptor(path).styles
     assert.ok(styles.length > 0, `${path} must expose styles for its typography contract`)
     return styles.map((style, index) => {
-      const css = style.lang === 'scss'
+      const preprocessed = style.lang === 'scss'
         ? compileString(style.content, { url: new URL(path, import.meta.url), logger: { warn() {}, debug() {} } }).css
         : style.content
-      return { file: `${path}#style-${index + 1}`, root: postcss.parse(css, { from: path }) }
+      const compiled = vueCompiler.compileStyle({
+        source: preprocessed,
+        filename: new URL(path, import.meta.url).pathname,
+        id: componentScopeAttribute(path),
+        scoped: style.scoped,
+      })
+      assert.deepEqual(compiled.errors, [], `${path} scoped style must compile`)
+      return { file: `${path}#style-${index + 1}`, root: postcss.parse(compiled.code, { from: path }), scopeAttribute: style.scoped ? componentScopeAttribute(path) : null }
     })
   }
   const source = read(path)
@@ -131,12 +163,14 @@ function parsedStyles(path) {
   return [{ file: path, root: postcss.parse(css, { from: path }) }]
 }
 
+const selectorWithoutScope = selector => normalizeSelector(selector.replace(/\[data-v-[a-f0-9]{8}\]/g, ''))
+
 function declarations(path, selector, property = 'font-size') {
   const expected = normalizeSelector(selector)
   return parsedStyles(path).flatMap(({ file, root }) => {
     const values = []
     root.walkRules(rule => {
-      if (!postcss.list.comma(rule.selector).some(candidate => normalizeSelector(candidate) === expected)) return
+      if (!postcss.list.comma(rule.selector).some(candidate => selectorWithoutScope(candidate) === expected)) return
       rule.walkDecls(property, declaration => values.push({ file, selector, value: declaration.value.trim() }))
     })
     return values
@@ -354,7 +388,8 @@ function computedFontSize(declarations, target, width, resolvingElements = new S
 
 function templateFixture(path, predicate) {
   const elements = templateElementPath(path, predicate)
-  const dom = new JSDOM(minimalDomFromTemplatePath(elements))
+  const scopes = descriptor(path).styles.some(style => style.scoped) ? [componentScopeAttribute(path)] : []
+  const dom = new JSDOM(minimalDomFromTemplatePath(elements, scopes))
   let target = dom.window.document.body.firstElementChild
   while (target?.firstElementChild) target = target.firstElementChild
   assert.ok(target, `${path} template fixture must create a target`)
@@ -362,15 +397,17 @@ function templateFixture(path, predicate) {
 }
 
 function cascadeStylePaths() {
-  const imported = [...localVueImportGraph(representativeVueRoots)].filter(path => descriptor(path).styles.length > 0)
+  const imported = localVueStyleOrder(representativeVueRoots)
   return ['../styles/tokens.scss', '../styles/foundations.scss', '../styles/public-shell.scss', '../styles/global.scss', '../styles/mobile.scss', '../styles/console-shell.scss', '../styles/public-pricing.scss', ...imported]
 }
 
-function classifyFontSize({ selector, value }) {
+function classifyFontSize(declaration) {
+  const selector = selectorWithoutScope(declaration.selector)
+  const { value } = declaration
   if (selector === '.model-icon' && value === '10px') return 'technical icon glyph'
   if (selector === '.pricing-drawer>header button' && value === '28px') return 'technical close glyph'
   if (['.theme-toggle', '.conv-more', '.conv-delete', '.send-btn'].includes(selector) && value === '18px') return 'technical icon control'
-  if (selector === '.markdown-body :deep(code)' && value === '0.9em') return 'independent inline code scale'
+  if (selector === '.markdown-body code' && value === '0.9em') return 'independent inline code scale'
 
   const token = /^var\(--font-size-([a-z-]+)\)$/.exec(value)?.[1]
   if (compactTokens.has(token)) return 'compact semantic token'
@@ -491,7 +528,7 @@ test('chat welcome title resolves through the ordered desktop and mobile cascade
     node.tag === 'h2' && path.some(ancestor => staticClasses(ancestor).includes('welcome')))
   assert.equal(templatePath[0].tag, 'div', 'cascade fixture root tag must come from the real ChatMessageList template')
   assert.ok(staticClasses(templatePath[0]).includes('message-list-shell'), 'cascade fixture root class must come from the real ChatMessageList template')
-  const dom = new JSDOM(minimalDomFromTemplatePath(templatePath))
+  const dom = new JSDOM(minimalDomFromTemplatePath(templatePath, [componentScopeAttribute('../components/chat/ChatMessageList.vue')]))
   const title = dom.window.document.querySelector('.message-list-shell>.message-list>.welcome>h2')
   const desktop = effectiveMatchedFontSize('../components/chat/ChatMessageList.vue', title, 769)
   const mobile = effectiveMatchedFontSize('../components/chat/ChatMessageList.vue', title, 768)
@@ -542,6 +579,18 @@ test('all repaired targets resolve their final cascade to compact pixels', () =>
     const evidence = actual?.winner ? `${actual.winner.file} ${actual.winner.selector} => ${actual.winner.value} (${actual.resolved})` : 'no winning declaration'
     assert.equal(actual?.px, expected(width), `${name} must resolve to ${expected(width)}px at ${width}px; winner ${evidence}`)
   }
+})
+
+test('Vue parent and child scope attributes follow component-root boundaries', () => {
+  const parentScope = componentScopeAttribute('../components/chat/ChatMessageList.vue')
+  const childScope = componentScopeAttribute('../components/chat/MarkdownContent.vue')
+  const dom = new JSDOM(`<div class="message-list-shell" ${parentScope}><div class="markdown-body" ${parentScope} ${childScope}><h1>Markdown heading</h1></div></div>`)
+  const childRoot = dom.window.document.querySelector('.markdown-body')
+  const heading = childRoot.querySelector('h1')
+  assert.ok(childRoot.hasAttribute(parentScope) && childRoot.hasAttribute(childScope), 'child component root must carry parent and child scope attributes')
+  assert.ok(!heading.hasAttribute(parentScope) && !heading.hasAttribute(childScope), 'runtime v-html descendants must not inherit component scope attributes')
+  const actual = computedFontSize(cascadeDeclarations(cascadeStylePaths()), heading, 768)
+  assert.equal(actual?.px, 20, `Markdown child heading must resolve inside its own :deep rule; winner ${actual?.winner?.file || 'missing'} ${actual?.winner?.selector || ''} => ${actual?.winner?.value || ''}`)
 })
 
 test('display typography is limited to the approved hero and price exceptions', () => {
