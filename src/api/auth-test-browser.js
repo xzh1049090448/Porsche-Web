@@ -3,7 +3,9 @@ export function browserFixture() {
   let queue = Promise.resolve()
   const messages = []
   return {
-    available: true, messages,
+    get available() { return true },
+    probe: () => ({ available: true, code: null }),
+    messages,
     read: () => structuredClone(record),
     write: (next) => { record = structuredClone(next) },
     lock: (fn) => { const next = queue.then(fn); queue = next.catch(() => {}); return next },
