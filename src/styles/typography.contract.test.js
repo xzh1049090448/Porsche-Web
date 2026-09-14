@@ -5,6 +5,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vuePlugin from '@vitejs/plugin-vue'
 import { compileString } from 'sass'
+import { JSDOM } from 'jsdom'
 
 const vueCompiler = (() => {
   const plugin = vuePlugin()
@@ -102,10 +103,20 @@ const elementMessageCascade = parseCssRules(`
 `)
 const elementControlCascade = parseCssRules(`
   .el-input__wrapper, .el-select__wrapper { min-height: 32px; }
+  .el-select--small .el-select__wrapper { min-height: 24px; }
+  .el-select--large .el-select__wrapper { min-height: 40px; }
   .el-button { width: auto; height: 32px; min-width: 0; min-height: 0; }
-  .el-pagination button, .el-pager li { width: 32px; height: 32px; min-width: 0; min-height: 0; }
+  .el-pagination .btn-prev, .el-pagination .btn-next, .el-pager li { min-width: 32px; height: 32px; }
+  .el-pagination--small .btn-prev, .el-pagination--small .btn-next, .el-pagination--small .el-pager li { min-width: 24px; height: 24px; }
+  .el-pagination--large .btn-prev, .el-pagination--large .btn-next, .el-pagination--large .el-pager li { min-width: 40px; height: 40px; }
   ${read('./global.scss')}
 `)
+const controlDocument = new JSDOM(`
+  <div class="el-select el-select--small"><div id="select-small" class="el-select__wrapper"></div></div>
+  <div class="el-select el-select--large"><div id="select-large" class="el-select__wrapper"></div></div>
+  <div class="el-pagination el-pagination--small"><button id="pagination-small-prev" class="btn-prev"></button><ul class="el-pager"><li id="pagination-small-page"></li></ul><button id="pagination-small-next" class="btn-next"></button></div>
+  <div class="el-pagination el-pagination--large"><button id="pagination-large-prev" class="btn-prev"></button><ul class="el-pager"><li id="pagination-large-page"></li></ul><button id="pagination-large-next" class="btn-next"></button></div>
+`).window.document
 const componentStyle = path => {
   const style = read(path).match(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/i)?.[1]
   assert.ok(style, `${path} must expose a style block`)
@@ -1269,6 +1280,38 @@ const assertRuntimeMinimumControl = (stylesheet, selector, property, message, wi
     assert.ok(Number.isFinite(effective) && effective >= 44, `${message} at ${width}px with reduced motion ${reduced}; found min=${JSON.stringify(minimumValue)}, ${axis}=${JSON.stringify(preferredValue)}, max=${JSON.stringify(maximumValue)}`)
   }
 }
+const assertElementMinimumControl = (stylesheet, element, property, message, widths = allScreenWidths) => {
+  const axis = property.endsWith('height') ? 'height' : 'width'
+  const pixels = value => value === 'var(--control-min-size)' ? 44 : Number(value?.match(/^(\d+(?:\.\d+)?)px$/)?.[1])
+  for (const width of widths) for (const reduced of [false, true]) {
+    const value = name => {
+      let winner
+      for (const rule of stylesheet) {
+        if (!mediaMatchesScreen(rule.media, width, reduced)) continue
+        const matching = rule.selectors.filter(selector => {
+          try { return element.matches(selector) } catch { return false }
+        })
+        if (!matching.length) continue
+        const specificity = Math.max(...matching.map(selectorSpecificity))
+        for (const declaration of rule.declarations.filter(candidate => candidate.property === name)) {
+          const candidate = { ...declaration, specificity }
+          if (!winner || Number(candidate.important) > Number(winner.important) || (candidate.important === winner.important && (candidate.specificity > winner.specificity || (candidate.specificity === winner.specificity && candidate.order > winner.order)))) winner = candidate
+        }
+      }
+      return winner?.value.trim()
+    }
+    const minimumValue = value(`min-${axis}`)
+    const preferredValue = value(axis)
+    const maximumValue = value(`max-${axis}`)
+    const minimum = pixels(minimumValue)
+    const preferred = pixels(preferredValue)
+    const maximum = maximumValue === 'none' ? Number.POSITIVE_INFINITY : pixels(maximumValue)
+    const effective = Number.isFinite(minimum)
+      ? (Number.isFinite(preferred) ? Math.max(minimum, Number.isFinite(maximum) ? Math.min(preferred, maximum) : preferred) : minimum)
+      : (Number.isFinite(preferred) ? (Number.isFinite(maximum) ? Math.min(preferred, maximum) : preferred) : Number.NaN)
+    assert.ok(Number.isFinite(effective) && effective >= 44, `${message} at ${width}px with reduced motion ${reduced}; found min=${JSON.stringify(minimumValue)}, ${axis}=${JSON.stringify(preferredValue)}, max=${JSON.stringify(maximumValue)}`)
+  }
+}
 test('semantic typography tokens keep the approved exact pixel scale', () => {
   const expected = {
     xs: '11px', sm: '12px', body: '14px', subtitle: '16px',
@@ -1323,13 +1366,15 @@ test('typography stays at real size and interactive controls retain 44px targets
     assertMinimumControl(publicShell, selector, 'min-width', `${selector} keeps the shared touch target width`)
     assertMinimumControl(publicShell, selector, 'min-height', `${selector} keeps the shared touch target height`)
   }
-  const elementControlSelectors = ['.el-input__wrapper', '.el-select__wrapper', '.el-button', '.el-pagination button', '.el-pager li']
-  for (const selector of elementControlSelectors) {
-    assertRuntimeMinimumControl(elementControlCascade, selector, 'min-height', `${selector} overrides the vendor control height`)
+  for (const id of ['select-small', 'select-large']) assertElementMinimumControl(elementControlCascade, controlDocument.getElementById(id), 'min-height', `${id} overrides its Element Plus size variant`)
+  for (const id of ['pagination-small-prev', 'pagination-small-page', 'pagination-small-next', 'pagination-large-prev', 'pagination-large-page', 'pagination-large-next']) {
+    const element = controlDocument.getElementById(id)
+    assertElementMinimumControl(elementControlCascade, element, 'min-height', `${id} retains a 44px height across the real pagination cascade`)
+    assertElementMinimumControl(elementControlCascade, element, 'min-width', `${id} overrides the Element Plus pagination width variant`)
   }
-  for (const selector of ['.el-button', '.el-pagination button', '.el-pager li']) {
-    assertRuntimeMinimumControl(elementControlCascade, selector, 'min-width', `${selector} retains an accessible control width`)
-  }
+  assertRuntimeMinimumControl(elementControlCascade, '.el-input__wrapper', 'min-height', '.el-input__wrapper overrides the vendor control height')
+  assertRuntimeMinimumControl(elementControlCascade, '.el-button', 'min-height', '.el-button overrides the vendor control height')
+  assertRuntimeMinimumControl(elementControlCascade, '.el-button', 'min-width', '.el-button retains an accessible control width')
   assertRuntimeMinimumControl(loginControlCascade, '.submit-btn', 'min-height', 'login submit button overrides its scoped 40px height')
   assertRuntimeMinimumControl(registerControlCascade, '.submit-btn', 'min-height', 'register submit button retains an accessible height')
   assertMinimumControl(consoleShell, '.user-trigger', 'min-height', 'console user control keeps the shared touch target')

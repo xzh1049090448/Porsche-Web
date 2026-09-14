@@ -48,6 +48,18 @@
   min-height: var(--control-min-size);
 }
 
+.el-select--small .el-select__wrapper,
+.el-select--large .el-select__wrapper {
+  min-height: var(--control-min-size);
+}
+
+.el-pagination .btn-prev,
+.el-pagination .btn-next,
+.el-pagination .el-pager li {
+  min-width: var(--control-min-size);
+  min-height: var(--control-min-size);
+}
+
 .el-button,
 .el-pagination button,
 .el-pager li {
