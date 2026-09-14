@@ -1265,18 +1265,21 @@ const staticBindingInitializers = (value, importer) => {
                   if (candidate.kind !== 'normal' || !candidate.selected?.getter) return [candidate]
                   const getter = optionGetterValues(candidate.selected.getter, candidate.environment)
                   const localNames = new Set()
-                  const collectLocals = node => {
+                  for (const parameter of candidate.selected.getter.params || []) for (const name of factoryPatternNames(parameter)) localNames.add(name)
+                  for (const statement of candidate.selected.getter.body?.body || []) {
+                    if (statement.type === 'VariableDeclaration') for (const declaration of statement.declarations) for (const name of factoryPatternNames(declaration.id)) localNames.add(name)
+                    if (['FunctionDeclaration', 'ClassDeclaration'].includes(statement.type) && statement.id) localNames.add(statement.id.name)
+                  }
+                  const collectVarLocals = node => {
                     if (!node || typeof node !== 'object') return
-                    if (node !== candidate.selected.getter && ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(node.type)) { if (node.type === 'FunctionDeclaration') for (const name of factoryPatternNames(node.id)) localNames.add(name); return }
-                    if (node.type === 'VariableDeclarator') for (const name of factoryPatternNames(node.id)) localNames.add(name)
-                    if (node.type === 'ClassDeclaration' && node.id) localNames.add(node.id.name)
-                    if (node.type === 'CatchClause') for (const name of factoryPatternNames(node.param)) localNames.add(name)
+                    if (node !== candidate.selected.getter && ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(node.type)) return
+                    if (node.type === 'VariableDeclaration' && node.kind === 'var') for (const declaration of node.declarations) for (const name of factoryPatternNames(declaration.id)) localNames.add(name)
                     for (const [name, child] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(name)) {
-                      if (Array.isArray(child)) for (const item of child) collectLocals(item)
-                      else collectLocals(child)
+                      if (Array.isArray(child)) for (const item of child) collectVarLocals(item)
+                      else collectVarLocals(child)
                     }
                   }
-                  collectLocals(candidate.selected.getter.body)
+                  collectVarLocals(candidate.selected.getter.body)
                   const mergeOuter = path => {
                     const environment = new Map(candidate.environment)
                     const replacements = new Map(candidate.replacements)
@@ -1357,10 +1360,23 @@ const staticBindingInitializers = (value, importer) => {
         if (node.type === 'TryStatement') {
           let paths = flow(node.block, replacements, true, environment, resolving).flatMap(path => {
             if (path.kind !== 'throw' || !node.handler) return [path]
+            const catchNames = factoryPatternNames(node.handler.param)
             const catchLocal = new Map(path.environment)
             const catchReplacements = new Map(path.replacements)
-            if (path.expression !== unknownThrown) bindFactoryPattern(node.handler.param, path.expression, catchLocal, catchReplacements)
-            return flow(node.handler.body, catchReplacements, false, catchLocal, resolving)
+            bindFactoryPattern(node.handler.param, path.expression, catchLocal, catchReplacements)
+            for (const name of catchNames) {
+              if (!catchLocal.has(name)) catchLocal.set(name, [unknownThrown])
+              if (!catchReplacements.has(name)) catchReplacements.set(name, unknownThrown)
+            }
+            return flow(node.handler.body, catchReplacements, false, catchLocal, resolving).map(catchPath => {
+              const nextEnvironment = new Map(catchPath.environment)
+              const nextReplacements = new Map(catchPath.replacements)
+              for (const name of catchNames) {
+                if (path.environment.has(name)) nextEnvironment.set(name, path.environment.get(name)); else nextEnvironment.delete(name)
+                if (path.replacements.has(name)) nextReplacements.set(name, path.replacements.get(name)); else nextReplacements.delete(name)
+              }
+              return { ...catchPath, environment: nextEnvironment, replacements: nextReplacements }
+            })
           })
           if (node.finalizer) paths = paths.flatMap(path => flow(node.finalizer, path.replacements, true, path.environment, resolving).flatMap(finalPath => finalPath.kind === 'normal' ? [{ ...path, replacements: finalPath.replacements, environment: finalPath.environment }] : [finalPath]))
           return paths

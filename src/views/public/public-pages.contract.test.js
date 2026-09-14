@@ -169,6 +169,38 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
       if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bind(pattern.elements[index], select(expression, index), target)
     }
     function getterPaths(getter, parentBindings) {
+      const patternNames = (pattern, names = []) => {
+        pattern = unwrapExpression(pattern)
+        if (pattern?.type === 'Identifier') names.push(pattern.name)
+        else if (pattern?.type === 'AssignmentPattern') patternNames(pattern.left, names)
+        else if (pattern?.type === 'RestElement') patternNames(pattern.argument, names)
+        else if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) patternNames(property.type === 'RestElement' ? property.argument : property.value, names)
+        else if (pattern?.type === 'ArrayPattern') for (const element of pattern.elements) if (element) patternNames(element, names)
+        return names
+      }
+      const functionLocals = new Set(getter.params?.flatMap(parameter => patternNames(parameter)) || [])
+      for (const statement of getter.body?.body || []) {
+        if (statement.type === 'VariableDeclaration') for (const declaration of statement.declarations) for (const name of patternNames(declaration.id)) functionLocals.add(name)
+        if (['FunctionDeclaration', 'ClassDeclaration'].includes(statement.type) && statement.id) functionLocals.add(statement.id.name)
+      }
+      const collectVarNames = node => {
+        if (!node || typeof node !== 'object') return
+        if (node !== getter && ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(node.type)) return
+        if (node.type === 'VariableDeclaration' && node.kind === 'var') for (const declaration of node.declarations) for (const name of patternNames(declaration.id)) functionLocals.add(name)
+        for (const [name, child] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(name)) {
+          if (Array.isArray(child)) for (const item of child) collectVarNames(item)
+          else collectVarNames(child)
+        }
+      }
+      collectVarNames(getter.body)
+      const restoreNames = (paths, before, names) => paths.map(path => {
+        const next = new Map(path.bindings)
+        for (const name of names) {
+          if (before.has(name)) next.set(name, before.get(name))
+          else next.delete(name)
+        }
+        return { ...path, bindings: next }
+      })
       const statements = (items, seed = [{ kind: 'normal', bindings: new Map(parentBindings) }], catches = false) => {
         let paths = seed
         for (const statement of items || []) paths = paths.flatMap(path => path.kind === 'normal' ? one(statement, path, catches) : [path])
@@ -176,7 +208,14 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
       }
       const one = (statement, path, catches) => {
         if (!statement) return [path]
-        if (statement.type === 'BlockStatement') return statements(statement.body, [path], catches)
+        if (statement.type === 'BlockStatement') {
+          const scopedNames = new Set()
+          for (const item of statement.body || []) {
+            if (item.type === 'VariableDeclaration' && item.kind !== 'var') for (const declaration of item.declarations) for (const name of patternNames(declaration.id)) scopedNames.add(name)
+            if (['FunctionDeclaration', 'ClassDeclaration'].includes(item.type) && item.id) scopedNames.add(item.id.name)
+          }
+          return restoreNames(statements(statement.body, [path], catches), path.bindings, scopedNames)
+        }
         if (statement.type === 'ReturnStatement') {
           const value = substitute(statement.argument, path.bindings)
           const effect = expressionEffect(value, path.bindings)
@@ -366,9 +405,13 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
           return result
         }
         if (statement.type === 'TryStatement') {
-          let result = one(statement.block, { ...path, bindings: new Map(path.bindings) }, true).flatMap(candidate => candidate.kind === 'throw' && statement.handler
-            ? one(statement.handler.body, { ...candidate, kind: 'normal', bindings: new Map(candidate.bindings) }, false)
-            : [candidate])
+          let result = one(statement.block, { ...path, bindings: new Map(path.bindings) }, true).flatMap(candidate => {
+            if (candidate.kind !== 'throw' || !statement.handler) return [candidate]
+            const catchNames = new Set(patternNames(statement.handler.param))
+            const catchBindings = new Map(candidate.bindings)
+            for (const name of catchNames) catchBindings.set(name, throwingGetter)
+            return restoreNames(one(statement.handler.body, { ...candidate, kind: 'normal', bindings: catchBindings }, false), candidate.bindings, catchNames)
+          })
           if (statement.finalizer) result = result.flatMap(candidate => one(statement.finalizer, { ...candidate, kind: 'normal', bindings: new Map(candidate.bindings) }, true).map(finalPath => finalPath.kind === 'normal' ? { ...candidate, bindings: finalPath.bindings } : finalPath))
           return result
         }
@@ -377,7 +420,11 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
         if (catches && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
         return result
       }
-      return statements(getter.body?.body || [], undefined, true)
+      return statements(getter.body?.body || [], undefined, true).map(path => {
+        const bindings = new Map(parentBindings)
+        for (const name of parentBindings.keys()) if (!functionLocals.has(name) && path.bindings.has(name)) bindings.set(name, path.bindings.get(name))
+        return { ...path, bindings }
+      })
     }
     const getterValues = (value, target) => {
       if (value?.type !== 'ObjectMethod' || value.kind !== 'get') return [value]
