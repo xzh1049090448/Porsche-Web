@@ -237,18 +237,42 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
               for (const item of expression.expressions) paths = paths.flatMap(candidate => candidate.kind === 'normal' ? caseExpressionPaths(item, candidate.bindings) : [candidate])
               return paths
             }
-            if (expression?.type === 'AssignmentExpression' && expression.operator === '=') return caseExpressionPaths(expression.right, currentBindings).map(candidate => {
-              if (candidate.kind !== 'normal') return candidate
-              const next = new Map(candidate.bindings)
-              bind(expression.left, candidate.value, next)
-              return { ...candidate, bindings: next }
-            })
+            if (expression?.type === 'AssignmentExpression' && expression.operator === '=') {
+              let references = [{ kind: 'normal', bindings: new Map(currentBindings) }]
+              if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.left?.type)) {
+                references = caseExpressionPaths(expression.left.object, currentBindings).flatMap(candidate => {
+                  if (candidate.kind !== 'normal') return [candidate]
+                  const value = staticValue(candidate.value)
+                  const definitelyObject = ['ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(unwrapExpression(candidate.value)?.type)
+                  if (value !== unknownStaticValue && value == null) return [{ kind: 'throw', bindings: candidate.bindings }]
+                  const paths = [{ kind: 'normal', bindings: candidate.bindings }]
+                  if (value === unknownStaticValue && !definitelyObject && catches) paths.push({ kind: 'throw', bindings: new Map(candidate.bindings) })
+                  return paths
+                })
+                if (expression.left.computed) references = references.flatMap(candidate => candidate.kind === 'normal'
+                  ? caseExpressionPaths(expression.left.property, candidate.bindings).map(propertyPath => ({ ...propertyPath, value: undefined }))
+                  : [candidate])
+              }
+              return references.flatMap(reference => reference.kind === 'normal' ? caseExpressionPaths(expression.right, reference.bindings).map(candidate => {
+                if (candidate.kind !== 'normal') return candidate
+                const next = new Map(candidate.bindings)
+                bind(expression.left, candidate.value, next)
+                return { ...candidate, bindings: next }
+              }) : [reference])
+            }
             if (expression?.type === 'ConditionalExpression') return caseExpressionPaths(expression.test, currentBindings).flatMap(candidate => {
               if (candidate.kind !== 'normal') return [candidate]
               const condition = staticValue(candidate.value)
               return condition !== unknownStaticValue
                 ? caseExpressionPaths(condition ? expression.consequent : expression.alternate, candidate.bindings)
                 : [...caseExpressionPaths(expression.consequent, candidate.bindings), ...caseExpressionPaths(expression.alternate, candidate.bindings)]
+            })
+            if (expression?.type === 'LogicalExpression') return caseExpressionPaths(expression.left, currentBindings).flatMap(candidate => {
+              if (candidate.kind !== 'normal') return [candidate]
+              const left = staticValue(candidate.value)
+              const shortCircuits = left !== unknownStaticValue && (expression.operator === '&&' ? !left : expression.operator === '||' ? Boolean(left) : left != null)
+              if (left !== unknownStaticValue) return shortCircuits ? [candidate] : caseExpressionPaths(expression.right, candidate.bindings)
+              return [candidate, ...caseExpressionPaths(expression.right, new Map(candidate.bindings))]
             })
             const value = substitute(expression, currentBindings)
             const testEffect = expressionEffect(value, currentBindings)

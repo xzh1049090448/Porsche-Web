@@ -345,18 +345,42 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
             for (const item of expression.expressions) paths = paths.flatMap(candidate => candidate.kind === 'normal' ? caseExpressionPaths(item, candidate.local) : [candidate])
             return paths
           }
-          if (expression?.type === 'AssignmentExpression' && expression.operator === '=') return caseExpressionPaths(expression.right, local).map(candidate => {
-            if (candidate.kind !== 'normal') return candidate
-            const next = new Map(candidate.local)
-            bindOptionPattern(expression.left, candidate.value, next)
-            return { ...candidate, local: next }
-          })
+          if (expression?.type === 'AssignmentExpression' && expression.operator === '=') {
+            let references = [{ kind: 'normal', local: new Map(local) }]
+            if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.left?.type)) {
+              references = caseExpressionPaths(expression.left.object, local).flatMap(candidate => {
+                if (candidate.kind !== 'normal') return [candidate]
+                const value = optionStaticValue(candidate.value)
+                const definitelyObject = ['ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(unwrapScriptExpression(candidate.value)?.type)
+                if (value.known && value.value == null) return [{ kind: 'throw', local: candidate.local }]
+                const paths = [{ kind: 'normal', local: candidate.local }]
+                if (!value.known && !definitelyObject && catches) paths.push({ kind: 'throw', local: new Map(candidate.local) })
+                return paths
+              })
+              if (expression.left.computed) references = references.flatMap(candidate => candidate.kind === 'normal'
+                ? caseExpressionPaths(expression.left.property, candidate.local).map(propertyPath => ({ ...propertyPath, value: undefined }))
+                : [candidate])
+            }
+            return references.flatMap(reference => reference.kind === 'normal' ? caseExpressionPaths(expression.right, reference.local).map(candidate => {
+              if (candidate.kind !== 'normal') return candidate
+              const next = new Map(candidate.local)
+              bindOptionPattern(expression.left, candidate.value, next)
+              return { ...candidate, local: next }
+            }) : [reference])
+          }
           if (expression?.type === 'ConditionalExpression') return caseExpressionPaths(expression.test, local).flatMap(candidate => {
             if (candidate.kind !== 'normal') return [candidate]
             const condition = optionStaticValue(candidate.value)
             return condition.known
               ? caseExpressionPaths(condition.value ? expression.consequent : expression.alternate, candidate.local)
               : [...caseExpressionPaths(expression.consequent, candidate.local), ...caseExpressionPaths(expression.alternate, candidate.local)]
+          })
+          if (expression?.type === 'LogicalExpression') return caseExpressionPaths(expression.left, local).flatMap(candidate => {
+            if (candidate.kind !== 'normal') return [candidate]
+            const left = optionStaticValue(candidate.value)
+            const shortCircuits = left.known && (expression.operator === '&&' ? !left.value : expression.operator === '||' ? Boolean(left.value) : left.value != null)
+            if (left.known) return shortCircuits ? [candidate] : caseExpressionPaths(expression.right, candidate.local)
+            return [candidate, ...caseExpressionPaths(expression.right, new Map(candidate.local))]
           })
           const value = materializeOption(expression, local)
           const testEffect = optionExpressionEffect(value, local)

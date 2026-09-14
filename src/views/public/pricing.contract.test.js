@@ -1227,19 +1227,42 @@ const staticBindingInitializers = (value, importer) => {
               for (const item of expression.expressions) paths = paths.flatMap(candidate => candidate.kind === 'normal' ? caseExpressionPaths(item, candidate.replacements, candidate.environment) : [candidate])
               return paths
             }
-            if (expression?.type === 'AssignmentExpression' && expression.operator === '=') return caseExpressionPaths(expression.right, currentReplacements, currentEnvironment).map(candidate => {
-              if (candidate.kind !== 'normal') return candidate
-              const nextEnvironment = new Map(candidate.environment)
-              const nextReplacements = new Map(candidate.replacements)
-              bindFactoryPattern(expression.left, candidate.value, nextEnvironment, nextReplacements)
-              return { ...candidate, environment: nextEnvironment, replacements: nextReplacements }
-            })
+            if (expression?.type === 'AssignmentExpression' && expression.operator === '=') {
+              let references = [{ kind: 'normal', replacements: new Map(currentReplacements), environment: new Map(currentEnvironment) }]
+              if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.left?.type)) {
+                references = caseExpressionPaths(expression.left.object, currentReplacements, currentEnvironment).flatMap(candidate => {
+                  if (candidate.kind !== 'normal') return [candidate]
+                  const nullish = expressionNullish(candidate.value, candidate.environment)
+                  if (['nullish', 'short-circuit'].includes(nullish)) return [{ kind: 'throw', expression: unknownThrown, replacements: candidate.replacements, environment: candidate.environment }]
+                  const paths = [{ kind: 'normal', replacements: candidate.replacements, environment: candidate.environment }]
+                  if (nullish === 'unknown' && catchesUnknown) paths.push({ kind: 'throw', expression: unknownThrown, replacements: new Map(candidate.replacements), environment: new Map(candidate.environment) })
+                  return paths
+                })
+                if (expression.left.computed) references = references.flatMap(candidate => candidate.kind === 'normal'
+                  ? caseExpressionPaths(expression.left.property, candidate.replacements, candidate.environment).map(propertyPath => ({ ...propertyPath, value: undefined }))
+                  : [candidate])
+              }
+              return references.flatMap(reference => reference.kind === 'normal' ? caseExpressionPaths(expression.right, reference.replacements, reference.environment).map(candidate => {
+                if (candidate.kind !== 'normal') return candidate
+                const nextEnvironment = new Map(candidate.environment)
+                const nextReplacements = new Map(candidate.replacements)
+                bindFactoryPattern(expression.left, candidate.value, nextEnvironment, nextReplacements)
+                return { ...candidate, environment: nextEnvironment, replacements: nextReplacements }
+              }) : [reference])
+            }
             if (expression?.type === 'ConditionalExpression') return caseExpressionPaths(expression.test, currentReplacements, currentEnvironment).flatMap(candidate => {
               if (candidate.kind !== 'normal') return [candidate]
               const condition = boundStaticValue(candidate.value, candidate.environment)
               return condition !== unknownStaticValue
                 ? caseExpressionPaths(condition ? expression.consequent : expression.alternate, candidate.replacements, candidate.environment)
                 : [...caseExpressionPaths(expression.consequent, candidate.replacements, candidate.environment), ...caseExpressionPaths(expression.alternate, candidate.replacements, candidate.environment)]
+            })
+            if (expression?.type === 'LogicalExpression') return caseExpressionPaths(expression.left, currentReplacements, currentEnvironment).flatMap(candidate => {
+              if (candidate.kind !== 'normal') return [candidate]
+              const left = boundStaticValue(candidate.value, candidate.environment)
+              const shortCircuits = left !== unknownStaticValue && (expression.operator === '&&' ? !left : expression.operator === '||' ? Boolean(left) : left != null)
+              if (left !== unknownStaticValue) return shortCircuits ? [candidate] : caseExpressionPaths(expression.right, candidate.replacements, candidate.environment)
+              return [candidate, ...caseExpressionPaths(expression.right, new Map(candidate.replacements), new Map(candidate.environment))]
             })
             const value = substituteFactoryBindings(expression, currentReplacements)
             const testEffect = expressionEffect(value, currentEnvironment)
