@@ -1330,6 +1330,14 @@ test('foundations and global components map body, page and component text to sem
   assertMapping(elementMessageCascade, '.el-message__content', 'font-size', 'var(--font-size-body)', 'message content overrides the vendor font size with the body token')
 })
 
+test('responsive Element Plus dialogs remain bounded by the viewport', () => {
+  assertMapping(global, '.el-dialog.responsive-dialog', 'max-height', 'calc(100vh - 32px)', 'responsive dialogs keep a viewport-height bound')
+  assertMapping(global, '.el-dialog.responsive-dialog', 'margin', '16px auto', 'responsive dialogs keep their viewport margin inside the height bound')
+  for (const width of allScreenWidths) for (const reduced of [false, true]) {
+    assert.equal(effectiveValue(global, '.el-dialog.responsive-dialog .el-dialog__body', 'overflow-y', width, reduced, true), 'auto', `responsive dialog bodies own internal scrolling at ${width}px with reduced motion ${reduced}`)
+  }
+})
+
 test('public pages map hero, section and supporting copy to the shared typography scale', () => {
   const mobileWidths = allScreenWidths.filter(width => width <= 767)
   const desktopWidths = allScreenWidths.filter(width => width >= 768)

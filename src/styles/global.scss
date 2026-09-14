@@ -162,6 +162,18 @@
   --el-dialog-title-font-size: var(--font-size-subtitle);
 }
 
+.el-dialog.responsive-dialog {
+  display: flex;
+  max-height: calc(100vh - 32px);
+  flex-direction: column;
+  margin: 16px auto;
+}
+
+.el-dialog.responsive-dialog .el-dialog__body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .el-alert {
   --el-alert-title-font-size: var(--font-size-sm);
 }
