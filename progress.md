@@ -372,3 +372,11 @@
 - 前端 focused 8/8、全量 455/455、生产构建通过；可见 Chromium 七项业务检查及 390px 布局通过。Mock 登录后台 `/api/v1/auth/self` 因未启动本地后端出现两条 500 控制台噪声，金额演示本身没有真实 API/DB 调用。
 - 后端全量测试、构建与路由边界通过。合并后的真实 MySQL `0011–0013` 迁移链及 A08 `0013` down 兼容通过；新的完整 A08 service fixture 复跑因 disposable MySQL host mapping 瞬断未闭环，继续单独引用原 A08 真实服务证据。三轮本次 fixture 均 exact cleanup、label 残留为零。
 - 当前矩阵为 18 项 `PASS_LIMITED_SCOPE`、8 项阻塞；`web-012` 保持 `in_progress`。外部后端 `project_manager` 对本轮当前候选的书面确认尚未获得，生产迁移、部署、生产验收与真实业务账号均未运行。
+
+## 2026-09-14：未决认证会话恢复本地限定完成
+
+- 按已批准设计 `docs/superpowers/specs/2026-09-14-auth-uncertain-session-recovery-design.md` 在隔离工作树 `fix/auth-uncertain-recovery` 完成前端实现；后端源码、接口合同、Cookie 属性、依赖、部署与生产环境均未修改。
+- 候选 revision 为 `da7ec325e6fc939189cb7e391a19c5a8faa29991`，基线为 `origin/main@72c4d8c182486cc440da02cfc137a2260d85b8c8`，合同保持 `v1.0.0-p0/agreed_for_implementation`。能力探测、refresh/logout 无拦截恢复传输、跨标签 epoch/锁隔离、敏感协调字段白名单、登录页安全提示与 fail-closed 路由竞态均已覆盖。
+- 认证/UI/router 定向回归 `node --test src/api/auth-p0.test.js src/api/auth-session.test.js src/api/auth-response.test.js src/api/auth-request-policy.test.js src/api/auth-browser.test.js src/api/auth-refresh.test.js src/views/Login.auth-status.test.js src/router/auth-guard.test.js`：`86/86 PASS`；生产构建 `VITE_USE_MOCK=false npm run build`：PASS；`git diff --check`：PASS。独立规格复核与质量复核均 PASS。
+- 可见 Chromium 双标签 synthetic 验收 PASS：页面 A 从 `/login` 恢复到 `/chat`，页面 B 保持 `/login` 但解除未决提示并恢复登录按钮；refresh 请求严格 `1` 次，协调记录收敛为 `pending:null/suppressed:false`。聊天初始化因未配置模型 API 的 404 噪声不属于本次认证验收范围。
+- 本条只记录本地前端限定证据；真实 HTTPS 双标签浏览器、真实账号、后端联合验收、生产部署与 web-009 整体 M3 签收仍未运行，`web-009` 继续保持 `blocked`。
