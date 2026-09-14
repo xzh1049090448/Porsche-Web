@@ -24,6 +24,8 @@
 .pricing-filter-toggle,
 .pricing-drawer,
 .pricing-drawer-backdrop { display: none; }
+.pricing-drawer h2,
+.detail-price-card h2 { font-size: var(--font-size-subtitle); }
 .pricing-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin-top: 22px; }
 .pricing-pagination button,
 .pricing-pagination select { min-height: 44px; padding: 0 12px; border: 1px solid var(--public-border); border-radius: 8px; background: var(--public-card); color: var(--public-text); }

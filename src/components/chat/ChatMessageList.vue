@@ -667,7 +667,7 @@ watch(
     padding: 32px 16px;
 
     h2 {
-      font-size: 18px;
+      font-size: var(--font-size-subtitle);
     }
   }
 

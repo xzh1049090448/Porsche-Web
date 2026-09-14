@@ -179,7 +179,7 @@ function update(capability, effect) {
 <style scoped>
 .permission-editor { display: grid; gap: 16px; }
 .permission-editor__module { display: grid; gap: 8px; }
-.permission-editor__module h3 { margin: 0; font-size: 15px; }
+.permission-editor__module h3 { margin: 0; font-size: var(--font-size-subtitle); }
 .permission-editor__row { display: grid; grid-template-columns: minmax(260px, 1fr) auto; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--el-border-color-lighter); }
 .permission-editor__identity { display: grid; gap: 4px; min-width: 0; }
 .permission-editor__identity span { color: var(--el-text-color-secondary); font-size: 12px; }

@@ -1354,6 +1354,8 @@ test('console surfaces map brand, navigation, headings and statuses to semantic 
   assertMapping(consoleShell, '.page-header__description', 'font-size', 'var(--font-size-body)', 'console descriptions use body text')
   assertMapping(consoleShell, '.status-badge', 'font-size', 'var(--font-size-sm)', 'status badges use small text')
   assertMapping(consolePages, '.auth-brand h1', 'font-size', 'var(--font-size-page-title)', 'auth headings use the page-title token')
+  assertMapping(consolePages, '.console-page h2', 'font-size', 'var(--font-size-subtitle)', 'console section headings use subtitle text')
+  assertMapping(consolePages, '.console-page h3', 'font-size', 'var(--font-size-body)', 'console tertiary headings use body text')
 })
 
 test('typography stays at real size and interactive controls retain 44px targets', () => {
