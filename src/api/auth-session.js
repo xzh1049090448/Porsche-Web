@@ -83,7 +83,7 @@ const capabilityIssues = new Set([
 ])
 
 /** Pure authentication state machine. HTTP and browser coordination are injected. */
-export function createAuthSessionManager({ refresh, browser } = {}) {
+export function createAuthSessionManager({ refresh, recoverLogout, browser } = {}) {
   let access = null
   let user = null
   let state = 'initializing'
@@ -322,7 +322,7 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
         const kind = original.pending?.kind
           || (original.pending === null && original.suppressed ? 'logout' : null)
           || (cleanRecoveryRecord(original) && capabilityIssues.has(priorIssue) ? 'refresh' : null)
-        if (!recoverableKinds.has(kind) || kind === 'logout') throw failure('auth_recovery_unsupported')
+        if (!recoverableKinds.has(kind)) throw failure('auth_recovery_unsupported')
 
         const settle = authenticated => {
           const current = read()
@@ -336,14 +336,21 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
           return authenticated ? { state: 'authenticated' } : { state: 'anonymous' }
         }
 
+        let data
         try {
           const result = await refresh?.()
-          const data = validateLoginResponse(result?.data ?? result)
-          return settle(data)
+          data = validateLoginResponse(result?.data ?? result)
         } catch (error) {
           if (isDefiniteRefreshAnonymous(error)) return settle(null)
           throw error
         }
+        if (kind === 'logout') {
+          if (typeof recoverLogout !== 'function') throw failure('auth_logout_recovery_unavailable')
+          const result = await recoverLogout(data.access_token)
+          if (result?.status !== 204) throw failure('auth_logout_recovery_incomplete')
+          return settle(null)
+        }
+        return settle(data)
       })
     } catch (error) {
       uncertain(error?.code === 'auth_recovery_unsupported'
