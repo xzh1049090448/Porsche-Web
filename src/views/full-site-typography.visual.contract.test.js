@@ -50,6 +50,32 @@ function templateClasses(path) {
   return classes
 }
 
+function staticClasses(node) {
+  const attribute = node.props?.find(prop => prop.type === 6 && prop.name === 'class')
+  return attribute?.value?.content.split(/\s+/).filter(Boolean) || []
+}
+
+function templateElementPath(path, predicate) {
+  let found
+  const walk = (node, ancestors = []) => {
+    if (found || !node || typeof node !== 'object') return
+    const current = node.type === 1 ? [...ancestors, node] : ancestors
+    if (node.type === 1 && predicate(node, current)) { found = current; return }
+    for (const child of node.children || []) walk(child, current)
+    if (node.branches) for (const branch of node.branches) walk(branch, current)
+  }
+  walk(descriptor(path).template?.ast)
+  assert.ok(found, `${path} must expose the requested real template path`)
+  return found
+}
+
+function minimalDomFromTemplatePath(path) {
+  return path.reduceRight((content, node) => {
+    const classes = staticClasses(node)
+    return `<${node.tag}${classes.length ? ` class="${classes.join(' ')}"` : ''}>${content}</${node.tag}>`
+  }, 'Welcome')
+}
+
 function parsedStyles(path) {
   if (path.endsWith('.vue')) {
     const styles = descriptor(path).styles
@@ -299,7 +325,11 @@ test('remaining functional titles and mobile labels use semantic tokens', () => 
 })
 
 test('chat welcome title resolves through the ordered desktop and mobile cascade', () => {
-  const dom = new JSDOM('<section class="message-list-shell conversation-surface"><div class="message-list"><div class="welcome"><h2>Welcome</h2></div></div></section>')
+  const templatePath = templateElementPath('../components/chat/ChatMessageList.vue', (node, path) =>
+    node.tag === 'h2' && path.some(ancestor => staticClasses(ancestor).includes('welcome')))
+  assert.equal(templatePath[0].tag, 'div', 'cascade fixture root tag must come from the real ChatMessageList template')
+  assert.ok(staticClasses(templatePath[0]).includes('message-list-shell'), 'cascade fixture root class must come from the real ChatMessageList template')
+  const dom = new JSDOM(minimalDomFromTemplatePath(templatePath))
   const title = dom.window.document.querySelector('.message-list-shell>.message-list>.welcome>h2')
   const desktop = effectiveMatchedFontSize('../components/chat/ChatMessageList.vue', title, 769)
   const mobile = effectiveMatchedFontSize('../components/chat/ChatMessageList.vue', title, 768)
