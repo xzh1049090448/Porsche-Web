@@ -14,6 +14,18 @@ const vueCompiler = (() => {
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8')
 const normalizeSelector = selector => selector.trim().replace(/\s*([>+~])\s*/g, '$1').replace(/\s+/g, ' ')
 const tokenPixels = { xs: '11px', sm: '12px', body: '14px', subtitle: '16px', 'page-title': '20px' }
+const compactTokens = new Set(['xs', 'sm', 'body', 'subtitle', 'page-title', 'section-title'])
+
+const auditedStylePaths = [
+  './Login.vue', './Register.vue', './Chat.vue', './Billing.vue', './ApiKeys.vue', './Profile.vue',
+  './Users.vue', './UserDetail.vue', './PublicModelsAdmin.vue', './PublicPricingAdmin.vue',
+  './PublicContentAdmin.vue', './RootNotifications.vue',
+  '../components/public-admin/PublicModelForm.vue', '../components/public/PricingTable.vue',
+  '../components/public/PricingCards.vue', '../components/mobile/MobileDrawer.vue',
+  '../components/chat/ChatMessageList.vue', '../components/admin/UserPermissionEditor.vue',
+  '../styles/console-pages.scss', '../styles/global.scss', '../styles/console-shell.scss',
+  '../styles/mobile.scss', '../styles/public-pricing.scss', '../styles/public-shell.scss',
+]
 
 function descriptor(path) {
   const parsed = vueCompiler.parse(read(path), { filename: path })
@@ -63,6 +75,73 @@ function declarations(path, selector, property = 'font-size') {
     })
     return values
   })
+}
+
+function mediaConditions(rule) {
+  const conditions = []
+  for (let parent = rule.parent; parent; parent = parent.parent) {
+    if (parent.type === 'atrule' && parent.name.toLowerCase() === 'media') conditions.unshift(parent.params)
+  }
+  return conditions
+}
+
+function fontSizeDeclarations(path) {
+  return parsedStyles(path).flatMap(({ file, root }) => {
+    const found = []
+    root.walkRules(rule => {
+      const selectors = postcss.list.comma(rule.selector).map(normalizeSelector)
+      rule.nodes.filter(node => node.type === 'decl' && node.prop === 'font-size').forEach(declaration => {
+        for (const selector of selectors) {
+          found.push({
+            file,
+            selector,
+            value: declaration.value.trim(),
+            important: declaration.important,
+            media: mediaConditions(rule),
+          })
+        }
+      })
+    })
+    return found
+  })
+}
+
+function mediaQueryApplies(query, width) {
+  return postcss.list.comma(query).some(branch => {
+    const widthTerms = [...branch.matchAll(/\((min|max)-width\s*:\s*(\d+(?:\.\d+)?)px\)/gi)]
+    const remainder = branch
+      .replace(/\((min|max)-width\s*:\s*(\d+(?:\.\d+)?)px\)/gi, '')
+      .replace(/\b(?:only\s+)?screen\b/gi, '')
+      .replace(/\band\b/gi, '')
+      .trim()
+    if (remainder) return false
+    return widthTerms.every(([, bound, pixels]) => bound.toLowerCase() === 'min' ? width >= Number(pixels) : width <= Number(pixels))
+  })
+}
+
+function effectiveExactFontSize(path, selector, width) {
+  const expected = normalizeSelector(selector)
+  const candidates = fontSizeDeclarations(path).filter(item =>
+    item.selector === expected && item.media.every(query => mediaQueryApplies(query, width)))
+  const important = candidates.filter(item => item.important)
+  return (important.length ? important : candidates).at(-1)
+}
+
+function classifyFontSize({ selector, value }) {
+  if (selector === '.model-icon' && value === '10px') return 'technical icon glyph'
+  if (selector === '.pricing-drawer>header button' && value === '28px') return 'technical close glyph'
+
+  const token = /^var\(--font-size-([a-z-]+)\)$/.exec(value)?.[1]
+  if (compactTokens.has(token)) return 'compact semantic token'
+  if ((token === 'hero' || token === 'hero-mobile') && selector === '.public-hero h1') return 'Home hero exception'
+
+  const pixels = /^(\d+(?:\.\d+)?)px$/.exec(value)
+  if (!pixels) return null
+  const size = Number(pixels[1])
+  if ([11, 12, 13, 14, 16, 20, 30].includes(size)) return 'approved compact literal'
+  if (size >= 28 && size <= 36 && new Set(['.plan-card .price', '.detail-price-card strong']).has(selector)) return 'approved price exception'
+  if ([34, 44].includes(size) && selector === '.public-hero h1') return 'Home hero exception'
+  return null
 }
 
 function assertSemantic(path, selector, token, property = 'font-size') {
@@ -162,11 +241,26 @@ test('remaining functional titles and mobile labels use semantic tokens', () => 
     try { assertSemantic(...specification) }
     catch (error) { failures.push(error.message) }
   }
-  try {
-    assertAllowedValues('../components/chat/ChatMessageList.vue', '.welcome h2', new Set([
-      '20px', '16px', 'var(--font-size-page-title)', 'var(--font-size-subtitle)',
-    ]))
-  } catch (error) { failures.push(error.message) }
+  assert.deepEqual(failures, [], failures.join('\n'))
+})
+
+test('chat welcome title resolves through the ordered desktop and mobile cascade', () => {
+  const desktop = effectiveExactFontSize('../components/chat/ChatMessageList.vue', '.welcome h2', 769)
+  const mobile = effectiveExactFontSize('../components/chat/ChatMessageList.vue', '.welcome h2', 768)
+  assert.equal(desktop?.value, '20px', `desktop .welcome h2 must resolve to 20px; found ${desktop?.value || 'no declaration'}`)
+  assert.equal(mobile?.value, 'var(--font-size-subtitle)', `<=768px .welcome h2 must resolve to --font-size-subtitle; found ${mobile?.value || 'no declaration'}`)
+  assert.ok(mobile?.media.some(query => /max-width\s*:\s*768px/i.test(query)), 'mobile .welcome h2 must be guarded by max-width: 768px')
+})
+
+test('representative SFC and shared style declarations reject unscoped display type', () => {
+  const failures = []
+  for (const path of auditedStylePaths) {
+    for (const declaration of fontSizeDeclarations(path)) {
+      if (!classifyFontSize(declaration)) {
+        failures.push(`${declaration.file} ${declaration.selector} has unapproved font-size ${declaration.value}${declaration.media.length ? ` under ${declaration.media.join(' -> ')}` : ''}`)
+      }
+    }
+  }
   assert.deepEqual(failures, [], failures.join('\n'))
 })
 
