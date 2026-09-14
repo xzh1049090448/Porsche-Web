@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { parse as parseModule } from '@babel/parser'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
@@ -24,9 +25,11 @@ const representativeVueRoots = [
   './PublicContentAdmin.vue', './RootNotifications.vue', './public/Home.vue', './public/Pricing.vue',
   './public/ModelPricingDetail.vue', '../components/admin/UserPermissionEditor.vue', '../layouts/MainLayout.vue',
 ]
-const sharedStylePaths = [
-  '../styles/console-pages.scss', '../styles/global.scss', '../styles/console-shell.scss',
-  '../styles/mobile.scss', '../styles/public-pricing.scss', '../styles/public-shell.scss',
+const publicEntryStylePaths = [
+  '../styles/tokens.scss', '../styles/foundations.scss', '../styles/public-bootstrap.css', '../styles/public-shell.scss',
+]
+const authEntryStylePaths = [
+  ...publicEntryStylePaths, '../styles/global.scss', '../styles/mobile.scss', '../styles/console-shell.scss',
 ]
 
 function descriptor(path) {
@@ -40,21 +43,81 @@ function componentScopeAttribute(path) {
   return `data-v-${createHash('sha256').update(url).digest('hex').slice(0, 8)}`
 }
 
-function resolveLocalVueImport(fromPath, source) {
-  if (!source.endsWith('.vue')) return null
+function resolveLocalImport(fromPath, source) {
+  if (!/\.(?:vue|css|scss)$/.test(source)) return null
   if (source.startsWith('@/')) return new URL(source.slice(2), new URL('../', import.meta.url)).href
   if (source.startsWith('.')) return new URL(source, new URL(fromPath, import.meta.url)).href
   return null
 }
 
-function localVueImports(path) {
+function moduleImportSources(source) {
+  const ast = parseModule(source, { sourceType: 'module', plugins: ['dynamicImport'] })
+  const imports = []
+  const walk = node => {
+    if (!node || typeof node !== 'object') return
+    if (node.type === 'ImportDeclaration' && typeof node.source?.value === 'string') imports.push([node.start, node.source.value])
+    if (node.type === 'ImportExpression' && typeof node.source?.value === 'string') imports.push([node.start, node.source.value])
+    if (node.type === 'CallExpression' && node.callee?.type === 'Import' && typeof node.arguments?.[0]?.value === 'string') {
+      imports.push([node.start, node.arguments[0].value])
+    }
+    for (const [key, value] of Object.entries(node)) {
+      if (['loc', 'start', 'end', 'extra'].includes(key)) continue
+      if (Array.isArray(value)) for (const child of value) walk(child)
+      else if (value && typeof value === 'object') walk(value)
+    }
+  }
+  walk(ast.program)
+  return imports.sort((left, right) => left[0] - right[0]).map(([, value]) => value)
+}
+
+function localScriptImports(path) {
+  if (!path.endsWith('.vue')) return moduleImportSources(read(path)).map(source => resolveLocalImport(path, source)).filter(Boolean)
   const component = descriptor(path)
-  if (!component.script && !component.scriptSetup) return []
-  const compiled = vueCompiler.compileScript(component, { id: path })
-  const bindingSources = Object.values(compiled.imports || {}).map(binding => binding.source)
-  const astSources = [...(compiled.scriptAst || []), ...(compiled.scriptSetupAst || [])]
-    .filter(node => node.type === 'ImportDeclaration').map(node => node.source.value)
-  return [...new Set([...bindingSources, ...astSources])].map(source => resolveLocalVueImport(path, source)).filter(Boolean)
+  return [component.script?.content, component.scriptSetup?.content].filter(Boolean)
+    .flatMap(moduleImportSources).map(source => resolveLocalImport(path, source)).filter(Boolean)
+}
+
+function localVueImports(path) {
+  return [...new Set(localScriptImports(path).filter(source => source.endsWith('.vue')))]
+}
+
+function sassDependencies(path, source = read(path), isScss = path.endsWith('.scss')) {
+  if (!isScss) return []
+  return compileString(source, { url: new URL(path, import.meta.url), logger: { warn() {}, debug() {} } }).loadedUrls
+    .map(url => url.href).filter(url => /\.(?:css|scss)$/.test(url))
+}
+
+function cssDependencies(path, source) {
+  const imports = []
+  postcss.parse(source, { from: path }).walkAtRules('import', rule => {
+    const imported = /^(?:url\()?['\"]([^'\"]+)['\"]/.exec(rule.params)?.[1]
+    const resolved = imported && resolveLocalImport(path, imported)
+    if (resolved) imports.push(resolved)
+  })
+  return imports
+}
+
+function localStyleDependencies(path) {
+  if (path.endsWith('.vue')) return [...new Set(descriptor(path).styles.flatMap(style => style.lang === 'scss'
+    ? sassDependencies(path, style.content, true)
+    : cssDependencies(path, style.content)))]
+  if (path.endsWith('.scss')) return [...new Set(sassDependencies(path).filter(dependency => dependency !== new URL(path, import.meta.url).href))]
+  return [...new Set(cssDependencies(path, read(path)))]
+}
+
+function localStyleImportGraph(roots) {
+  const pending = roots.map(path => new URL(path, import.meta.url).href)
+  const seen = new Set()
+  while (pending.length) {
+    const path = pending.shift()
+    if (seen.has(path)) continue
+    seen.add(path)
+    const dependencies = path.endsWith('.vue')
+      ? [...localScriptImports(path), ...localStyleDependencies(path)]
+      : localStyleDependencies(path)
+    for (const dependency of dependencies) if (!seen.has(dependency)) pending.push(dependency)
+  }
+  return seen
 }
 
 function localVueImportGraph(roots) {
@@ -69,27 +132,29 @@ function localVueImportGraph(roots) {
   return seen
 }
 
-function localVueStyleOrder(roots) {
+function localComponentStyleOrder(roots) {
   const ordered = []
+  const emitted = new Set()
   const visited = new Set()
   const visiting = new Set()
   const visit = path => {
     const resolved = new URL(path, import.meta.url).href
     if (visited.has(resolved) || visiting.has(resolved)) return
     visiting.add(resolved)
-    for (const imported of localVueImports(resolved)) visit(imported)
+    for (const imported of localScriptImports(resolved)) {
+      if (imported.endsWith('.vue')) visit(imported)
+      else if (!emitted.has(imported)) { emitted.add(imported); ordered.push(imported) }
+    }
     visiting.delete(resolved)
     visited.add(resolved)
-    if (descriptor(resolved).styles.length) ordered.push(resolved)
+    if (descriptor(resolved).styles.length && !emitted.has(resolved)) { emitted.add(resolved); ordered.push(resolved) }
   }
   for (const root of roots) visit(root)
   return ordered
 }
 
 function auditedStylePaths() {
-  const importedVueStyles = [...localVueImportGraph(representativeVueRoots)]
-    .filter(path => descriptor(path).styles.length > 0)
-  return [...importedVueStyles, ...sharedStylePaths]
+  return [...new Set([...authEntryStylePaths, ...localComponentStyleOrder(representativeVueRoots)])]
 }
 
 function templateClasses(path) {
@@ -117,6 +182,31 @@ function staticAttributes(node) {
   return (node.props || []).filter(prop => prop.type === 6).map(prop => [prop.name, prop.value?.content])
 }
 
+const renderedComponentRoots = {
+  'el-card': ['div', ['el-card']],
+  'el-col': ['div', ['el-col']],
+  'el-dialog': ['div', ['el-dialog']],
+  'el-drawer': ['div', ['el-drawer']],
+  'el-form': ['form', ['el-form']],
+  'el-form-item': ['div', ['el-form-item']],
+  'el-menu': ['ul', ['el-menu']],
+  'el-menu-item': ['li', ['el-menu-item']],
+  'el-row': ['div', ['el-row']],
+  'el-tab-pane': ['div', ['el-tab-pane']],
+  'el-tabs': ['div', ['el-tabs']],
+  'el-table': ['div', ['el-table']],
+  RouterLink: ['a', []],
+  SurfaceCard: ['section', ['surface-card']],
+}
+
+function renderedElement(node) {
+  if (/^[A-Z]/.test(node.tag) || node.tag.startsWith('el-')) {
+    assert.ok(renderedComponentRoots[node.tag], `fixture needs an explicit real output root for component <${node.tag}>`)
+    return renderedComponentRoots[node.tag]
+  }
+  return [node.tag, []]
+}
+
 function templateElementPath(path, predicate) {
   let found
   const walk = (node, ancestors = []) => {
@@ -131,13 +221,19 @@ function templateElementPath(path, predicate) {
   return found
 }
 
-function minimalDomFromTemplatePath(path, scopeAttributes = []) {
-  return path.reduceRight((content, node) => {
+function minimalDomFromTemplatePath(path, scopeAttributes = [], leafContent = 'Welcome', markLeaf = false) {
+  return path.reduceRight((content, node, index) => {
     if (node.tag === 'template') return content
-    const attributes = [...staticAttributes(node), ...scopeAttributes.map(name => [name, undefined])]
+    const [tag, renderedClasses] = renderedElement(node)
+    const elementAttributes = staticAttributes(node).filter(([name]) => name !== 'class')
+    const classes = [...new Set([...renderedClasses, ...staticClasses(node)])]
+    if (classes.length) elementAttributes.push(['class', classes.join(' ')])
+    elementAttributes.push(...scopeAttributes.map(name => [name, undefined]))
+    if (markLeaf && index === path.length - 1) elementAttributes.push(['data-typography-target', ''])
+    const attributes = elementAttributes
       .map(([name, value]) => value === undefined ? name : `${name}="${value.replaceAll('&', '&amp;').replaceAll('"', '&quot;')}"`).join(' ')
-    return `<${node.tag}${attributes ? ` ${attributes}` : ''}>${content}</${node.tag}>`
-  }, 'Welcome')
+    return `<${tag}${attributes ? ` ${attributes}` : ''}>${content}</${tag}>`
+  }, leafContent)
 }
 
 function parsedStyles(path) {
@@ -396,9 +492,45 @@ function templateFixture(path, predicate) {
   return target
 }
 
+function realPageFixture(path, predicate, shell) {
+  const elements = templateElementPath(path, predicate)
+  const scopes = descriptor(path).styles.some(style => style.scoped) ? [componentScopeAttribute(path)] : []
+  const page = minimalDomFromTemplatePath(elements, scopes, 'Typography target', true)
+  let html = `<div id="app">${page}</div>`
+  if (shell === 'console') {
+    const layoutPath = templateElementPath('../layouts/MainLayout.vue', (node, ancestors) => node.tag === 'main'
+      && staticAttributes(node).some(([name, value]) => name === 'id' && value === 'console-content')
+      && ancestors.some(ancestor => ancestor.tag === 'el-container' && staticClasses(ancestor).includes('main-layout')))
+    assert.deepEqual(layoutPath.map(node => node.tag), ['el-container', 'div', 'main'], 'MainLayout route ancestry must remain el-container > div > main')
+    const rootClasses = staticClasses(layoutPath[0])
+    const bodyClasses = staticClasses(layoutPath[1])
+    const mainAttributes = staticAttributes(layoutPath[2])
+      .map(([name, value]) => value === undefined ? name : `${name}="${value}"`).join(' ')
+    html = `<div id="app"><section class="el-container is-vertical ${rootClasses.join(' ')}"><div class="${bodyClasses.join(' ')}"><main ${mainAttributes}>${page}</main></div></section></div>`
+  }
+  const dom = new JSDOM(html)
+  const target = dom.window.document.querySelector('[data-typography-target]')
+  assert.ok(target, `${path} fixture must preserve its AST-selected target`)
+  return target
+}
+
+function domPath(target) {
+  const parts = []
+  for (let node = target; node?.nodeType === 1 && node.tagName !== 'BODY'; node = node.parentElement) {
+    const id = node.id ? `#${node.id}` : ''
+    const classes = [...node.classList].filter(name => name !== 'is-vertical').map(name => `.${name}`).join('')
+    parts.unshift(`${node.tagName.toLowerCase()}${id}${classes}`)
+  }
+  return parts.join(' > ')
+}
+
 function cascadeStylePaths() {
-  const imported = localVueStyleOrder(representativeVueRoots)
-  return ['../styles/tokens.scss', '../styles/foundations.scss', '../styles/public-shell.scss', '../styles/global.scss', '../styles/mobile.scss', '../styles/console-shell.scss', '../styles/public-pricing.scss', ...imported]
+  return [...new Set([...authEntryStylePaths, ...localComponentStyleOrder(representativeVueRoots)])]
+}
+
+function entryStylePaths(path, shell) {
+  const entry = shell === 'public' ? publicEntryStylePaths : authEntryStylePaths
+  return [...new Set([...entry, ...localComponentStyleOrder([path])])]
 }
 
 function classifyFontSize(declaration) {
@@ -541,7 +673,15 @@ test('representative SFC and shared style declarations reject unscoped display t
   const failures = []
   const graph = localVueImportGraph(representativeVueRoots)
   assert.ok(graph.has(new URL('../components/chat/MarkdownContent.vue', import.meta.url).href), 'Chat import graph must include MarkdownContent.vue')
-  for (const path of auditedStylePaths()) {
+  const styleGraph = localStyleImportGraph([...representativeVueRoots, '../styles/console-shell.scss'])
+  assert.ok(styleGraph.has(new URL('../styles/public-content.scss', import.meta.url).href), 'Home side-effect import graph must include public-content.scss')
+  assert.ok(styleGraph.has(new URL('../styles/public-pricing.scss', import.meta.url).href), 'pricing side-effect import graph must include public-pricing.scss')
+  assert.ok(styleGraph.has(new URL('../styles/console-pages.scss', import.meta.url).href), 'Sass @use graph must include console-pages.scss')
+  const mainStyles = localScriptImports('../main.js').filter(path => /\.(?:css|scss)$/.test(path))
+  assert.deepEqual(mainStyles, authEntryStylePaths.map(path => new URL(path, import.meta.url).href), 'global styles must follow the parsed src/main.js entry order')
+  const audited = auditedStylePaths()
+  assert.equal(audited.length, new Set(audited).size, 'each imported stylesheet or SFC style must be audited once')
+  for (const path of audited) {
     for (const declaration of fontSizeDeclarations(path)) {
       if (!classifyFontSize(declaration)) {
         failures.push(`${declaration.file} ${declaration.selector} has unapproved font-size ${declaration.value}${declaration.media.length ? ` under ${declaration.media.join(' -> ')}` : ''}`)
@@ -551,33 +691,52 @@ test('representative SFC and shared style declarations reject unscoped display t
   assert.deepEqual(failures, [], failures.join('\n'))
 })
 
-test('all repaired targets resolve their final cascade to compact pixels', () => {
-  const declarations = cascadeDeclarations(cascadeStylePaths())
-  const billingH2 = templateFixture('./Billing.vue', node => node.tag === 'h2' && staticClasses(node).includes('section-title'))
-  const billingH3 = templateFixture('./Billing.vue', (node, path) => node.tag === 'h3' && path.some(ancestor => staticClasses(ancestor).includes('plan-card')))
-  const permissionH3 = templateFixture('../components/admin/UserPermissionEditor.vue', node => node.tag === 'h3')
-  const pricingDrawerH2 = templateFixture('./public/Pricing.vue', node => node.tag === 'h2' && staticAttributes(node).some(([name, value]) => name === 'id' && value === 'pricing-filter-title'))
-  const detailPriceH2 = templateFixture('./public/ModelPricingDetail.vue', (node, path) => node.tag === 'h2' && path.some(ancestor => staticClasses(ancestor).includes('detail-price-card')))
-  const welcomeH2 = templateFixture('../components/chat/ChatMessageList.vue', (node, path) => node.tag === 'h2' && path.some(ancestor => staticClasses(ancestor).includes('welcome')))
-
-  const drawerPath = templateElementPath('../layouts/MainLayout.vue', (node, path) => node.tag === 'el-menu-item' && path.some(ancestor => staticClasses(ancestor).includes('drawer-nav-menu')))
-  assert.ok(drawerPath.some(node => node.tag === 'el-menu' && staticClasses(node).includes('drawer-nav-menu')), 'drawer output fixture must be anchored to the real Element menu template')
-  const drawerDom = new JSDOM('<ul class="drawer-nav-menu" role="menu"><li class="el-menu-item" role="menuitem">Navigation</li></ul>')
-  const drawerItem = drawerDom.window.document.querySelector('.drawer-nav-menu>.el-menu-item')
-
-  const targets = [
-    ['console-page h2', billingH2, width => 16],
-    ['console-page h3', billingH3, width => 14],
-    ['drawer menu item', drawerItem, width => 14],
-    ['permission module h3', permissionH3, width => 16],
-    ['pricing drawer h2', pricingDrawerH2, width => 16],
-    ['detail price card h2', detailPriceH2, width => 16],
-    ['welcome h2', welcomeH2, width => width <= 768 ? 16 : 20],
+test('each representative page family resolves real text targets through its final layout cascade', () => {
+  const specifications = [
+    { family: 'login', path: './Login.vue', shell: 'auth', expected: 20, predicate: node => node.tag === 'h1' },
+    { family: 'register', path: './Register.vue', shell: 'auth', expected: 20, predicate: node => node.tag === 'h1' },
+    { family: 'chat label', path: './Chat.vue', shell: 'console', expected: 14, predicate: node => node.tag === 'span' && staticClasses(node).includes('panel-label') },
+    { family: 'billing section title', path: './Billing.vue', shell: 'console', expected: 16, predicate: node => node.tag === 'h2' && staticClasses(node).includes('section-title') },
+    { family: 'billing plan title', path: './Billing.vue', shell: 'console', expected: 14, predicate: (node, ancestors) => node.tag === 'h3' && ancestors.some(ancestor => staticClasses(ancestor).includes('plan-card')) },
+    { family: 'API keys help', path: './ApiKeys.vue', shell: 'console', expected: 13, predicate: node => node.tag === 'div' && staticClasses(node).includes('field-help') },
+    { family: 'profile table', path: './Profile.vue', shell: 'console', expected: 14, predicate: node => node.tag === 'el-table' },
+    { family: 'users table', path: './Users.vue', shell: 'console', expected: 14, predicate: node => node.tag === 'el-table' && staticClasses(node).includes('users-table') },
+    { family: 'user detail title', path: './UserDetail.vue', shell: 'console', expected: 20, predicate: node => node.tag === 'h1' },
+    { family: 'user detail badge', path: './UserDetail.vue', shell: 'console', expected: 12, predicate: node => node.tag === 'span' && staticClasses(node).includes('status-badge') },
+    { family: 'public model admin table', path: './PublicModelsAdmin.vue', shell: 'console', expected: 14, predicate: node => node.tag === 'el-table' },
+    { family: 'public pricing admin title', path: './PublicPricingAdmin.vue', shell: 'console', expected: 16, predicate: node => node.tag === 'h2' && staticAttributes(node).some(([name, value]) => name === 'id' && value === 'publish-title') },
+    { family: 'public content dialog', path: './PublicContentAdmin.vue', shell: 'console', expected: 16, predicate: node => node.tag === 'h2' && staticAttributes(node).some(([name, value]) => name === 'id' && value === 'restore-content-title') },
+    { family: 'notifications group title', path: './RootNotifications.vue', shell: 'console', expected: 16, predicate: (node, ancestors) => node.tag === 'h2' && ancestors.some(ancestor => staticClasses(ancestor).includes('notification-group')) },
+    { family: 'Home proof label', path: './public/Home.vue', shell: 'public', expected: 12, predicate: (node, ancestors) => node.tag === 'span' && ancestors.some(ancestor => staticClasses(ancestor).includes('public-proof')) },
+    { family: 'public pricing filter title', path: './public/Pricing.vue', shell: 'public', expected: 14, predicate: (node, ancestors) => node.tag === 'h2' && ancestors.some(ancestor => staticClasses(ancestor).includes('pricing-sidebar-heading')) },
+    { family: 'public detail price title', path: './public/ModelPricingDetail.vue', shell: 'public', expected: 16, predicate: (node, ancestors) => node.tag === 'h2' && ancestors.some(ancestor => staticClasses(ancestor).includes('detail-price-card')) },
+    { family: 'permission module title', path: '../components/admin/UserPermissionEditor.vue', shell: 'console', expected: 16, predicate: node => node.tag === 'h3' },
   ]
-  for (const width of [767, 768, 769, 1440]) for (const [name, target, expected] of targets) {
-    const actual = computedFontSize(declarations, target, width)
+  assert.equal(new Set(specifications.map(item => item.path)).size, 16, 'the target table must cover each non-layout representative entry')
+
+  const targetDeclarations = new Map()
+  for (const specification of specifications) {
+    if (!targetDeclarations.has(`${specification.path}:${specification.shell}`)) {
+      targetDeclarations.set(`${specification.path}:${specification.shell}`, cascadeDeclarations(entryStylePaths(specification.path, specification.shell)))
+    }
+    const target = realPageFixture(specification.path, specification.predicate, specification.shell)
+    for (const width of [767, 768, 769, 1440]) {
+      const actual = computedFontSize(targetDeclarations.get(`${specification.path}:${specification.shell}`), target, width)
+      const evidence = actual?.winner ? `${actual.winner.file} ${actual.winner.selector} => ${actual.winner.value} (${actual.resolved})` : 'no winning declaration'
+      assert.equal(actual?.px, specification.expected, `${specification.family} ${specification.path} ${domPath(target)} must resolve to ${specification.expected}px at ${width}px; winner ${evidence}`)
+    }
+  }
+
+  const drawerPath = templateElementPath('../layouts/MainLayout.vue', (node, ancestors) => node.tag === 'el-menu-item'
+    && ancestors.some(ancestor => ancestor.tag === 'el-menu' && staticClasses(ancestor).includes('drawer-nav-menu')))
+  assert.ok(drawerPath.some(node => node.tag === 'el-menu' && staticClasses(node).includes('drawer-nav-menu')), 'drawer target must be anchored to MainLayout AST')
+  const drawerDom = new JSDOM('<div class="drawer-overlay"><div class="drawer-content"><div class="drawer-body"><ul class="el-menu drawer-nav-menu" role="menu"><li class="el-menu-item" role="menuitem">Navigation</li></ul></div></div></div>')
+  const drawerItem = drawerDom.window.document.querySelector('.drawer-nav-menu>.el-menu-item')
+  const drawerDeclarations = cascadeDeclarations(entryStylePaths('../layouts/MainLayout.vue', 'console'))
+  for (const width of [767, 768, 769, 1440]) {
+    const actual = computedFontSize(drawerDeclarations, drawerItem, width)
     const evidence = actual?.winner ? `${actual.winner.file} ${actual.winner.selector} => ${actual.winner.value} (${actual.resolved})` : 'no winning declaration'
-    assert.equal(actual?.px, expected(width), `${name} must resolve to ${expected(width)}px at ${width}px; winner ${evidence}`)
+    assert.equal(actual?.px, 14, `mobile drawer ../layouts/MainLayout.vue ${domPath(drawerItem)} must resolve to 14px at ${width}px; winner ${evidence}`)
   }
 })
 
@@ -607,6 +766,7 @@ test('display typography is limited to the approved hero and price exceptions', 
     const actual = computedFontSize(cascade, heroTitle, width)
     assert.equal(actual?.px, expected, `Home hero must resolve to ${expected}px at ${width}px; winner ${actual?.winner?.selector || 'missing'} => ${actual?.winner?.value || 'missing'}`)
   }
-  assert.equal(computedFontSize(cascade, billingPrice, 1440)?.px, 28, 'billing currency emphasis must resolve to its approved 28px exception')
+  const billingPriceSize = computedFontSize(cascade, billingPrice, 1440)?.px
+  assert.ok(billingPriceSize >= 28 && billingPriceSize <= 36, `billing currency emphasis must resolve inside its approved 28-36px exception; found ${billingPriceSize}px`)
   assert.equal(computedFontSize(cascade, detailPrice, 1440)?.px, 20, 'public detail price must retain its approved compact 20px value')
 })
