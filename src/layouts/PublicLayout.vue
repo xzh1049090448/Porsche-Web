@@ -22,7 +22,7 @@ export default {
     return () => h('div', { class: 'public-layout public-shell' }, [
       h('a', { class: 'public-skip-link', href: '#public-content' }, t('skip')),
       h(PublicHeader, { links: shellLinks.value }),
-      h('main', { id: 'public-content', tabindex: '-1' }, h(RouteViewTransition, { focusTarget: '#public-content' })),
+      h('main', { id: 'public-content', tabindex: '-1' }, h(RouteViewTransition, { focusTarget: '#public-content', keyMode: 'pathQuery' })),
       h(PublicFooter, { links: shellLinks.value }),
     ])
   },

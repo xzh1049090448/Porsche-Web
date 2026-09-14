@@ -1801,12 +1801,47 @@ const assertStableRouteShellRuntime = () => {
     assert.equal(document.activeElement, publicTarget, 'preview after-enter focuses its visible public landmark')
     assert.notEqual(document.activeElement?.id, 'old-hidden-auth-control', 'hidden old auth content must not receive focus')
     wrapper.unmount()
+
+    const hashCounts = { mounted: 0, unmounted: 0 }
+    const HashLeaf = defineComponent({
+      name: 'HashLeaf',
+      setup() {
+        onMounted(() => { hashCounts.mounted += 1 })
+        onUnmounted(() => { hashCounts.unmounted += 1 })
+        return () => h('div', [
+          h('section', { id: 'advantages' }, [h('h2', { id: 'advantages-title' }, 'Advantages')]),
+          h('section', { id: 'models' }, [h('h2', { id: 'models-title' }, 'Models')]),
+        ])
+      },
+    })
+    const hashRouter = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: HashLeaf }] })
+    await hashRouter.push('/')
+    await hashRouter.isReady()
+    const HashHost = defineComponent({
+      setup: () => () => h('main', { id: 'public-content', tabindex: '-1' }, [h(RouteViewTransition, { keyMode: 'pathQuery', focusTarget: '#public-content' })]),
+    })
+    const hashWrapper = mount(HashHost, { attachTo: document.body, global: { plugins: [hashRouter], stubs: { transition: false } } })
+    await nextTick()
+    await hashRouter.push('/#advantages')
+    await nextTick()
+    dom.window.dispatchEvent(new dom.window.Event('scrollend'))
+    await nextTick()
+    assert.deepEqual(hashCounts, { mounted: 1, unmounted: 0 }, 'same-page hash navigation must retain the active public page instance')
+    assert.equal(document.activeElement?.id, 'advantages-title', 'hash navigation focuses the target section heading after scrolling')
+    assert.equal(document.activeElement?.getAttribute('tabindex'), '-1', 'a non-interactive hash heading becomes programmatically focusable')
+    await hashRouter.push('/#models')
+    await nextTick()
+    dom.window.dispatchEvent(new dom.window.Event('scrollend'))
+    await nextTick()
+    assert.deepEqual(hashCounts, { mounted: 1, unmounted: 0 }, 'a second same-page hash still retains the active public page instance')
+    assert.equal(document.activeElement?.id, 'models-title', 'the latest hash owns focus after rapid same-page navigation')
+    hashWrapper.unmount()
     dom.window.close()
   `
   execFileSync(process.execPath, ['--input-type=module', '--eval', probe], { cwd: process.cwd(), stdio: 'pipe' })
 }
 
-test('shared route transition keys leaf views by fullPath and identity epoch', async () => {
+test('shared route transition keys leaves while preserving same-page public hash navigation', async () => {
   assertStableRouteShellRuntime()
   const transition = readRequired('../components/shell/RouteViewTransition.vue', 'shared route transition component')
   const mainLayout = read('../layouts/MainLayout.vue')
@@ -1829,6 +1864,7 @@ test('shared route transition keys leaf views by fullPath and identity epoch', a
   assert.match(transition, /identityKey\s*:\s*\{[\s\S]*?type\s*:\s*\[\s*String\s*,\s*Number\s*\][\s\S]*?default\s*:\s*['"]['"]/)
   assert.match(transition, /focusTarget\s*:\s*\{[\s\S]*?type\s*:\s*String[\s\S]*?required\s*:\s*true/)
   assert.match(transition, /keyMode\s*:\s*\{[\s\S]*?type\s*:\s*String[\s\S]*?default\s*:\s*['"]fullPath['"]/, 'fullPath leaf keys remain the shared default')
+  assert.match(transition, /['"]pathQuery['"]/, 'the shared component supports a key that excludes only the hash fragment')
   const transitionNode = elements(transition, 'Transition')[0]
   assert.equal(boundAttribute(transitionNode, 'onAfterEnter') || transitionNode.props.find(prop => prop.type === 7 && prop.name === 'on' && prop.arg?.content === 'after-enter')?.exp?.content, 'restoreFocus')
   const restore = transition.match(/async\s+function\s+restoreFocus\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/)?.[1] || ''
@@ -1837,6 +1873,8 @@ test('shared route transition keys leaf views by fullPath and identity epoch', a
   assert.match(restore, /target\.contains\(document\.activeElement\)/, 'focus restoration preserves a newer interaction inside the active outlet')
   assert.match(restore, /target\.focus\(\{\s*preventScroll\s*:\s*true\s*\}\)/, 'focus restoration targets the active outlet without scrolling')
   assert.doesNotMatch(transition, /useUserStore|fetch\(|axios|\.push\(|\.replace\(/, 'transition stays presentation-only')
+  const publicLayout = read('../layouts/PublicLayout.vue')
+  assert.match(publicLayout, /h\(RouteViewTransition,\s*\{[^}]*focusTarget:\s*['"]#public-content['"][^}]*keyMode:\s*['"]pathQuery['"][^}]*\}\)/, 'public child routes exclude hash fragments from their leaf key')
 })
 
 test('route transition is opacity-only with approved timings and immediate reduced motion', () => {
@@ -1874,7 +1912,7 @@ test('public and authenticated shells reuse the shared transition component', ()
   assert.ok(elements(authEntry, 'RouteViewTransition').some(node => boundAttribute(node, 'focus-target') === 'focusTarget'), 'authenticated bootstrap selects the active view focus target')
   assert.ok(elements(authEntry, 'RouteViewTransition').some(node => staticAttribute(node, 'key-mode') === 'component'), 'authenticated bootstrap keeps the active layout stable across child routes')
   assert.match(authEntry, /PublicContentPreview[\s\S]*?#public-content/, 'public content preview selects its visible main landmark')
-  assert.match(publicLayout, /h\(RouteViewTransition,\s*\{\s*focusTarget:\s*['"]#public-content['"]\s*\}\)/, 'public child outlet restores the public main landmark')
+  assert.match(publicLayout, /h\(RouteViewTransition,\s*\{\s*focusTarget:\s*['"]#public-content['"]\s*,\s*keyMode:\s*['"]pathQuery['"]\s*\}\)/, 'public child outlet restores the public main landmark without remounting for hash-only navigation')
   const consoleTransition = elements(mainLayout, 'RouteViewTransition').find(node => staticAttribute(node, 'focus-target') === '#console-content')
   assert.ok(consoleTransition, 'console content restores its main landmark')
   assert.match(mainLayout, /<main[^>]+id="console-content"[^>]*>[\s\S]*<RouteViewTransition/, 'console wrapper stays inside the stable shell main landmark')
