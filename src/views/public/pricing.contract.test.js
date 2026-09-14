@@ -1220,19 +1220,27 @@ const staticBindingInitializers = (value, importer) => {
           const known = boundStaticValue(discriminant, environment)
           const cases = node.cases || []
           const defaultIndex = cases.findIndex(branch => !branch.test)
-          let entries
-          if (known !== unknownStaticValue) {
-            const matched = cases.findIndex(branch => branch.test && boundStaticValue(substituteFactoryBindings(branch.test, replacements), environment) !== unknownStaticValue && Object.is(boundStaticValue(substituteFactoryBindings(branch.test, replacements), environment), known))
-            entries = [matched >= 0 ? matched : defaultIndex].filter(index => index >= 0)
-            if (!entries.length) entries = [-1]
-          } else {
-            entries = cases.map((_, index) => index)
-            if (defaultIndex < 0) entries.push(-1)
+          let searches = [{ kind: 'search' }]
+          for (let index = 0; index < cases.length; index += 1) {
+            if (!cases[index].test) continue
+            searches = searches.flatMap(search => {
+              if (search.kind !== 'search') return [search]
+              const test = substituteFactoryBindings(cases[index].test, replacements)
+              const testEffect = expressionEffect(test, environment)
+              const outcomes = catchesUnknown && testEffect !== 'cannotThrow' ? [{ kind: 'throw', expression: unknownThrown, replacements, environment }] : []
+              if (testEffect === 'mustThrow') return outcomes
+              const candidate = boundStaticValue(test, environment)
+              if (known !== unknownStaticValue && candidate !== unknownStaticValue) return outcomes.concat(candidate === known ? { kind: 'entry', index } : { kind: 'search' })
+              return outcomes.concat({ kind: 'entry', index }, { kind: 'search' })
+            })
           }
+          const entries = searches.map(search => search.kind === 'search' ? { kind: 'entry', index: defaultIndex } : search)
           const paths = entries.flatMap(entry => {
-            if (entry < 0) return [{ kind: 'normal', replacements: new Map(replacements), environment: new Map(environment) }]
+            if (entry.kind === 'throw') return [entry]
+            const index = entry.index
+            if (index < 0) return [{ kind: 'normal', replacements: new Map(replacements), environment: new Map(environment) }]
             let branches = [{ kind: 'normal', replacements: new Map(replacements), environment: new Map(environment) }]
-            for (let index = entry; index < cases.length; index += 1) branches = branches.flatMap(path => path.kind === 'normal' ? flowStatements(cases[index].consequent, path.replacements, catchesUnknown, path.environment, resolving) : [path])
+            for (let caseIndex = index; caseIndex < cases.length; caseIndex += 1) branches = branches.flatMap(path => path.kind === 'normal' ? flowStatements(cases[caseIndex].consequent, path.replacements, catchesUnknown, path.environment, resolving) : [path])
             return branches.map(path => path.kind === 'break' ? { ...path, kind: 'normal' } : path)
           })
           if (catchesUnknown && effect === 'mayThrow') paths.push({ kind: 'throw', expression: unknownThrown, replacements, environment })
@@ -1257,7 +1265,7 @@ const staticBindingInitializers = (value, importer) => {
           ? catchesUnknown ? [{ kind: 'throw', expression: unknownThrown, replacements, environment }] : []
           : catchesUnknown && effect === 'mayThrow' ? [normal, { kind: 'throw', expression: unknownThrown, replacements, environment }] : [normal]
       }
-      const paths = flow(body, new Map(), false, new Map(baseLocal), new Set(), true)
+      const paths = flow(body, new Map(), includeCompletions, new Map(baseLocal), new Set(), true)
       return includeCompletions ? paths : paths.filter(path => path.kind === 'return' && path.expression)
     }
     function optionGetterEffect(getter, local, resolving = new Set()) {

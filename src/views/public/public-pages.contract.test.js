@@ -230,19 +230,27 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
           const known = staticValue(discriminant)
           const cases = statement.cases || []
           const defaultIndex = cases.findIndex(item => !item.test)
-          let entries
-          if (known !== unknownStaticValue) {
-            const match = cases.findIndex(item => item.test && staticValue(substitute(item.test, path.bindings)) !== unknownStaticValue && Object.is(staticValue(substitute(item.test, path.bindings)), known))
-            entries = [match >= 0 ? match : defaultIndex].filter(index => index >= 0)
-            if (!entries.length) entries = [-1]
-          } else {
-            entries = cases.map((_, index) => index)
-            if (defaultIndex < 0) entries.push(-1)
+          let searches = [{ kind: 'search' }]
+          for (let index = 0; index < cases.length; index += 1) {
+            if (!cases[index].test) continue
+            searches = searches.flatMap(search => {
+              if (search.kind !== 'search') return [search]
+              const test = substitute(cases[index].test, path.bindings)
+              const testEffect = expressionEffect(test, path.bindings)
+              const outcomes = catches && testEffect !== 'cannotThrow' ? [{ kind: 'throw' }] : []
+              if (testEffect === 'mustThrow') return outcomes
+              const candidate = staticValue(test)
+              if (known !== unknownStaticValue && candidate !== unknownStaticValue) return outcomes.concat(candidate === known ? { kind: 'entry', index } : { kind: 'search' })
+              return outcomes.concat({ kind: 'entry', index }, { kind: 'search' })
+            })
           }
+          const entries = searches.map(search => search.kind === 'search' ? { kind: 'entry', index: defaultIndex } : search)
           const result = entries.flatMap(entry => {
-            if (entry < 0) return [{ ...path, bindings: new Map(path.bindings) }]
+            if (entry.kind === 'throw') return [{ ...path, kind: 'throw' }]
+            const index = entry.index
+            if (index < 0) return [{ ...path, bindings: new Map(path.bindings) }]
             let branches = [{ ...path, bindings: new Map(path.bindings) }]
-            for (let index = entry; index < cases.length; index += 1) branches = statements(cases[index].consequent, branches, catches)
+            for (let caseIndex = index; caseIndex < cases.length; caseIndex += 1) branches = statements(cases[caseIndex].consequent, branches, catches)
             return branches.map(branch => branch.kind === 'break' ? { ...branch, kind: 'normal' } : branch)
           })
           if (catches && effect === 'mayThrow') result.push({ ...path, kind: 'throw' })
