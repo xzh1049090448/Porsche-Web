@@ -202,7 +202,12 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
         return { ...path, bindings: next }
       })
       const statements = (items, seed = [{ kind: 'normal', bindings: new Map(parentBindings) }], catches = false) => {
-        let paths = seed
+        let paths = seed.map(path => {
+          if (path.kind !== 'normal') return path
+          const bindings = new Map(path.bindings)
+          for (const statement of items || []) if (statement?.type === 'FunctionDeclaration' && statement.id) bindings.set(statement.id.name, statement)
+          return { ...path, bindings }
+        })
         for (const statement of items || []) paths = paths.flatMap(path => path.kind === 'normal' ? one(statement, path, catches) : [path])
         return paths
       }
@@ -225,6 +230,11 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
         }
         if (statement.type === 'ThrowStatement') return [{ ...path, kind: 'throw' }]
         if (statement.type === 'BreakStatement') return [{ ...path, kind: 'break' }]
+        if (statement.type === 'ClassDeclaration') {
+          const bindings = new Map(path.bindings)
+          if (statement.id) bindings.set(statement.id.name, statement)
+          return [{ ...path, bindings }]
+        }
         if (statement.type === 'VariableDeclaration') {
           let paths = [path]
           for (const declaration of statement.declarations) paths = paths.flatMap(current => {
