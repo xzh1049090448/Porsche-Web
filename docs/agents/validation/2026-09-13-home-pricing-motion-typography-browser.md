@@ -3,7 +3,7 @@
 ## 结论与边界
 
 - 结果：`PASS_LOCAL_SYNTHETIC`
-- 被测实现提交：`032a8828fa617405834884510f212f6363777ba0`
+- 被测实现提交：`ae1bb1e20a02a2eead5e38baec6799d04b3a4e8e`
 - 被测地址：`http://127.0.0.1:4173`
 - 启动方式：`VITE_USE_MOCK=false` 的 production build 与 Vite preview
 - 浏览器：Playwright Chromium，可见模式
@@ -57,9 +57,9 @@
 
 | 路由类型 | 常规动效 | reduced motion | 最终焦点 | 固定壳层 |
 | --- | --- | --- | --- | --- |
-| public → public | leave 0.2s、enter 0.35s；总观测 1017ms | 两段均 0.00001s；总观测 212ms | `#public-content` | 页头 1425×56，前后不变 |
-| console → console | leave 0.2s、enter 0.35s；总观测 1029ms | 两段均 0.00001s；总观测 199ms | `#console-content` | 顶栏 1440×56、侧栏 240×844，前后不变 |
-| guest → console | leave 0.2s、enter 0.35s；总观测 1016ms | 两段均 0.00001s；总观测 168ms | `#console-content` | 进入后壳层稳定 |
+| public → public | leave 0.2s、enter 0.35s；总观测 1271ms | 两段均 0.00001s；总观测 273ms | `#public-content` | 页头 1425×56，前后不变 |
+| console → console | leave 0.2s、enter 0.35s；总观测 1078ms | 两段均 0.00001s；总观测 311ms | `#console-content` | 顶栏 1440×56、侧栏 240×844，前后不变 |
+| guest → console | leave 0.2s、enter 0.35s；总观测 1056ms | 两段均 0.00001s；总观测 213ms | `#console-content` | 进入后壳层稳定 |
 
 过渡属性仅为 `opacity`。public → public 额外通过快速双导航、浏览器后退和前进。最终焦点在路由内容节点内，路由进入不会覆盖已经位于目标内容中的焦点。
 
