@@ -7,6 +7,12 @@ const user = { guid: '100', username: 'alice', nickname: null, role: 'user', sta
 const session = { accessToken: 'old', user }
 const refreshed = { access_token: 'fresh', token_type: 'Bearer', expires_in: 300, user }
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
+const pendingRecord = (browser, kind, extra = {}) => browser.write({
+  epoch: 'initial',
+  pending: { operationId: `${kind}-pending`, kind, epoch: 'initial' },
+  suppressed: true,
+  ...extra,
+})
 
 test('POST generation 401 is returned once without refresh or clearing identity', async () => {
   let refreshes = 0; let requests = 0
@@ -107,8 +113,187 @@ test('unknown logout is persistent and reload does not refresh or clear matching
   let refreshes = 0
   const reload = createAuthSessionManager({ browser, refresh: async () => { refreshes++; return refreshed } })
   assert.equal(await reload.ensureSession(), false); assert.equal(refreshes, 0)
-  await assert.rejects(reload.recover(), /uncertain/)
+  await assert.rejects(reload.recover(), error => error.code === 'auth_recovery_unsupported')
+  assert.equal(reload.authIssue(), 'auth_recovery_unsupported')
   assert.equal(browser.read().pending.kind, 'logout')
+})
+
+test('login and refresh uncertainty recover through one authoritative refresh', async () => {
+  for (const kind of ['login', 'refresh']) {
+    const browser = browserFixture(); pendingRecord(browser, kind)
+    let refreshes = 0; let snapshotInvalidations = 0
+    const auth = createAuthSessionManager({ browser, refresh: async () => {
+      refreshes++
+      return { ...refreshed, user: { ...user, private_note: 'must-not-publish' } }
+    } })
+    assert.equal(auth.authIssue(), 'auth_uncertain')
+    auth.onSnapshotInvalidate(() => { snapshotInvalidations++ })
+    const snapshots = []; auth.subscribe(snapshot => snapshots.push(snapshot))
+    assert.deepEqual(await auth.recover(), { state: 'authenticated' })
+    const record = browser.read()
+    assert.equal(refreshes, 1)
+    assert.equal(auth.state(), 'authenticated')
+    assert.equal(auth.authIssue(), null)
+    assert.equal(auth.accessToken(), 'fresh')
+    assert.deepEqual(auth.user(), user)
+    assert.deepEqual(record, { epoch: record.epoch, pending: null, suppressed: false })
+    assert.notEqual(record.epoch, 'initial')
+    assert.equal(snapshotInvalidations, 1)
+    assert.deepEqual(browser.messages, [{ type: 'invalidate', epoch: record.epoch }])
+    assert.equal(snapshots.at(-1).issue, null)
+  }
+})
+
+test('authoritative refresh 401 settles login uncertainty as anonymous', async () => {
+  const browser = browserFixture(); pendingRecord(browser, 'login')
+  const auth = createAuthSessionManager({
+    browser,
+    refresh: async () => { throw { response: { status: 401 } } },
+  })
+  assert.deepEqual(await auth.recover(), { state: 'anonymous' })
+  const record = browser.read()
+  assert.equal(auth.state(), 'anonymous')
+  assert.equal(auth.authIssue(), null)
+  assert.equal(auth.accessToken(), null)
+  assert.equal(auth.user(), null)
+  assert.deepEqual(record, { epoch: record.epoch, pending: null, suppressed: false })
+  assert.notEqual(record.epoch, 'initial')
+  assert.deepEqual(browser.messages, [{ type: 'invalidate', epoch: record.epoch }])
+})
+
+test('uncertainty recovery failures preserve authoritative markers and publish no identity', async () => {
+  const cases = [
+    ['refresh 403', async () => { throw { response: { status: 403 } } }],
+    ['refresh 408', async () => { throw { response: { status: 408 } } }],
+    ['refresh 500', async () => { throw { response: { status: 500 } } }],
+    ['network error', async () => { throw new TypeError('network failure') }],
+    ['cancel error', async () => { throw Object.assign(new Error('cancelled'), { name: 'AbortError' }) }],
+    ['invalid LoginResponse', async () => ({})],
+  ]
+  for (const [name, refresh] of cases) {
+    const browser = browserFixture(); pendingRecord(browser, 'refresh')
+    const original = browser.read(); let calls = 0
+    const auth = createAuthSessionManager({ browser, refresh: async () => { calls++; return refresh() } })
+    await assert.rejects(auth.recover(), name)
+    assert.deepEqual(browser.read(), original, name)
+    assert.equal(calls, 1, name)
+    assert.equal(auth.state(), 'uncertain', name)
+    assert.equal(auth.authIssue(), 'auth_uncertain', name)
+    assert.equal(auth.accessToken(), null, name)
+    assert.equal(auth.user(), null, name)
+    assert.deepEqual(browser.messages, [], name)
+    assert.equal(await auth.ensureSession(), false, name)
+    assert.equal(calls, 1, `${name} must not retry automatically`)
+  }
+})
+
+test('uncertainty recovery fails closed on durable-write failure and record or epoch drift', async () => {
+  for (const drift of ['storage-write', 'record', 'epoch']) {
+    const browser = browserFixture(); pendingRecord(browser, 'login')
+    const original = browser.read(); const write = browser.write; let calls = 0
+    if (drift === 'storage-write') {
+      browser.write = next => {
+        if (next.pending === null) throw new Error('storage denied')
+        write(next)
+      }
+    }
+    const auth = createAuthSessionManager({ browser, refresh: async () => {
+      calls++
+      if (drift === 'record') write({ ...original, pending: { ...original.pending, operationId: 'other-operation' } })
+      if (drift === 'epoch') write({ epoch: 'other-epoch', pending: null, suppressed: false })
+      return refreshed
+    } })
+    const error = await auth.recover().catch(value => value)
+    if (drift === 'storage-write') assert.match(error.message, /storage denied/)
+    else assert.equal(error.code, 'identity_changed')
+    assert.equal(calls, 1)
+    assert.equal(auth.state(), 'uncertain')
+    assert.equal(auth.authIssue(), 'auth_uncertain')
+    assert.equal(auth.accessToken(), null)
+    assert.equal(auth.user(), null)
+    assert.deepEqual(browser.messages, [])
+    if (drift === 'storage-write') assert.deepEqual(browser.read(), original)
+    if (drift === 'record') assert.equal(browser.read().pending.operationId, 'other-operation')
+    if (drift === 'epoch') assert.deepEqual(browser.read(), { epoch: 'other-epoch', pending: null, suppressed: false })
+  }
+})
+
+test('recover probes capability before network and reports changing issues while already uncertain', async () => {
+  const base = browserFixture(); let available = false; let code = 'auth_storage_unavailable'; let calls = 0
+  const browser = {
+    ...base,
+    get available() { return available },
+    capabilityCode: () => code,
+    probe: () => ({ available, code }),
+  }
+  const auth = createAuthSessionManager({ browser, refresh: async () => { calls++; return refreshed } })
+  const snapshots = []; auth.subscribe(snapshot => snapshots.push(snapshot))
+  await assert.rejects(auth.recover(), error => error.code === 'auth_storage_unavailable')
+  code = 'auth_web_locks_unavailable'
+  await assert.rejects(auth.recover(), error => error.code === 'auth_web_locks_unavailable')
+  assert.equal(calls, 0)
+  assert.equal(auth.authIssue(), 'auth_web_locks_unavailable')
+  assert.equal(snapshots.at(-1).issue, 'auth_web_locks_unavailable')
+  auth.setSession(session)
+  assert.equal(auth.authIssue(), null)
+  assert.equal(snapshots.at(-1).issue, null)
+})
+
+test('recovery lock failure remains uncertain with an observable issue', async () => {
+  const base = browserFixture(); pendingRecord(base, 'login')
+  const browser = { ...base, lock: async () => { throw new Error('lock denied') } }
+  const auth = createAuthSessionManager({ browser, refresh: async () => assert.fail('must not refresh') })
+  await assert.rejects(auth.recover(), /lock denied/)
+  assert.equal(auth.state(), 'uncertain')
+  assert.equal(auth.authIssue(), 'auth_uncertain')
+})
+
+test('a restored capability recovers a clean uncertain record as refresh', async () => {
+  const base = browserFixture(); let available = false; let calls = 0
+  const browser = {
+    ...base,
+    get available() { return available },
+    capabilityCode: () => available ? null : 'auth_storage_unavailable',
+    probe: () => { available = true; return { available: true, code: null } },
+  }
+  const auth = createAuthSessionManager({ browser, refresh: async () => { calls++; return refreshed } })
+  assert.equal(auth.authIssue(), 'auth_storage_unavailable')
+  assert.deepEqual(await auth.recover(), { state: 'authenticated' })
+  assert.equal(calls, 1)
+})
+
+test('recovery adopts a clean epoch already settled by another tab without network', async () => {
+  const browser = browserFixture(); pendingRecord(browser, 'refresh')
+  let calls = 0
+  const auth = createAuthSessionManager({ browser, refresh: async () => { calls++ } })
+  browser.write({ epoch: 'settled-elsewhere', pending: null, suppressed: false })
+  assert.deepEqual(await auth.recover(), { state: 'anonymous', settledElsewhere: true })
+  assert.equal(auth.state(), 'anonymous')
+  assert.equal(auth.capture().epoch, 'settled-elsewhere')
+  assert.equal(calls, 0)
+  assert.deepEqual(browser.messages, [])
+})
+
+test('concurrent uncertainty recovery is single-flight', async () => {
+  const browser = browserFixture(); pendingRecord(browser, 'login')
+  const wait = deferred(); let calls = 0
+  const auth = createAuthSessionManager({ browser, refresh: () => { calls++; return wait.promise } })
+  const first = auth.recover(); const second = auth.recover()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(calls, 1)
+  wait.resolve(refreshed)
+  assert.deepEqual(await Promise.all([first, second]), [{ state: 'authenticated' }, { state: 'authenticated' }])
+  assert.equal(calls, 1)
+})
+
+test('malformed uncertainty records are unsupported without network', async () => {
+  const browser = browserFixture()
+  browser.write({ epoch: 'initial', pending: { operationId: 'bad', kind: 'login', epoch: 'other' }, suppressed: true })
+  let calls = 0
+  const auth = createAuthSessionManager({ browser, refresh: async () => { calls++ } })
+  await assert.rejects(auth.recover(), error => error.code === 'auth_recovery_unsupported')
+  assert.equal(calls, 0)
+  assert.equal(auth.authIssue(), 'auth_recovery_unsupported')
 })
 test('logout freezes old business immediately but waits for rotating refresh then uses its token once', async () => {
   const browser = browserFixture(); const wait = deferred(); let token

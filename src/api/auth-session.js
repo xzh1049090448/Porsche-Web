@@ -67,10 +67,20 @@ export function validateLoginResponse(data) {
   return data
 }
 
+const responseStatus = error => error?.response?.status ?? error?.status
 const definiteFailure = error => {
-  const status = error?.response?.status ?? error?.status
+  const status = responseStatus(error)
   return status >= 400 && status < 500 && status !== 408
 }
+const isDefiniteRefreshAnonymous = error => responseStatus(error) === 401
+const recoverableKinds = new Set(['login', 'refresh', 'logout'])
+const capabilityIssues = new Set([
+  'auth_capability_unavailable',
+  'auth_insecure_context',
+  'auth_web_locks_unavailable',
+  'auth_broadcast_channel_unavailable',
+  'auth_storage_unavailable',
+])
 
 /** Pure authentication state machine. HTTP and browser coordination are injected. */
 export function createAuthSessionManager({ refresh, browser } = {}) {
@@ -81,39 +91,61 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
   let sharedEpoch = 'initial'
   let generation = 0
   let permissionRevision = 0
+  let issue = null
   let refreshPromise = null
   let restorePromise = null
   let logoutPromise = null
+  let recoveryPromise = null
   const listeners = new Set()
   const invalidators = new Set()
   const snapshotInvalidators = new Set()
   const id = () => browser?.id?.() || `${Date.now()}-${Math.random()}`
-  const notify = () => listeners.forEach(fn => fn({ accessToken: accessToken(), user, state, epoch, generation, permissionRevision }))
+  const notify = () => listeners.forEach(fn => fn({ accessToken: accessToken(), user, state, issue, epoch, generation, permissionRevision }))
   const accessToken = () => ['signingOut', 'uncertain'].includes(state) ? null : access
+  const authIssue = () => issue
   const invalidate = () => { epoch = id(); invalidators.forEach(fn => fn()); notify() }
-  const uncertain = () => { if (state === 'uncertain') return; access = null; user = null; state = 'uncertain'; invalidate() }
+  const uncertain = (code = 'auth_uncertain') => {
+    issue = code
+    if (state === 'uncertain') { notify(); return }
+    access = null; user = null; state = 'uncertain'; invalidate()
+  }
   function read() {
-    if (!browser?.available) throw failure('auth_capability_unavailable')
+    if (!browser?.available) throw failure(browser?.capabilityCode?.() || 'auth_capability_unavailable')
     const record = browser.read()
     if (!record || typeof record.epoch !== 'string') throw failure('auth_coordination_invalid')
     return record
   }
   try {
     const record = read(); epoch = sharedEpoch = record.epoch
-    if (record.pending || record.suppressed) state = 'uncertain'
-  } catch { state = 'uncertain' }
+    if (record.pending || record.suppressed) { state = 'uncertain'; issue = 'auth_uncertain' }
+  } catch (error) { state = 'uncertain'; issue = error?.code || browser?.capabilityCode?.() || 'auth_uncertain' }
 
   function clearSession() {
     if ((state === 'anonymous' || state === 'uncertain') && !access && !user) return
     access = null; user = null
-    if (state !== 'uncertain') state = 'anonymous'
+    if (state !== 'uncertain') { state = 'anonymous'; issue = null }
     invalidate()
   }
   function setSession(next) {
+    issue = null
     if (user?.guid !== next.user?.guid) invalidate()
     access = next.accessToken || null; user = sessionUser(next.user); generation++; permissionRevision++
     snapshotInvalidators.forEach(fn => fn())
     state = access && user ? 'authenticated' : 'anonymous'; notify()
+  }
+  function settleAnonymous(nextEpoch) {
+    access = null; user = null; state = 'anonymous'; issue = null
+    epoch = sharedEpoch = nextEpoch
+    generation++; permissionRevision++
+    snapshotInvalidators.forEach(fn => fn())
+    notify()
+  }
+  function settleAuthenticated(data, nextEpoch) {
+    access = data.access_token; user = sessionUser(data.user); state = 'authenticated'; issue = null
+    epoch = sharedEpoch = nextEpoch
+    generation++; permissionRevision++
+    snapshotInvalidators.forEach(fn => fn())
+    notify()
   }
   function capture() { return { epoch, generation, permissionRevision, token: accessToken() } }
   function assertCurrent(context) {
@@ -233,19 +265,90 @@ export function createAuthSessionManager({ refresh, browser } = {}) {
       .finally(() => { logoutPromise = null })
     return logoutPromise
   }
-  async function recover() {
-    return browser?.lock(async () => {
-      const record = read()
-      if (record.pending || record.suppressed || state === 'uncertain') throw failure('auth_uncertain')
-      return false
-    }) ?? Promise.reject(failure('auth_capability_unavailable'))
+  const validRecoveryRecord = record => {
+    if (!record || typeof record !== 'object' || Array.isArray(record)
+        || typeof record.epoch !== 'string' || !record.epoch
+        || typeof record.suppressed !== 'boolean'
+        || !(record.pending === null || record.pending && typeof record.pending === 'object' && !Array.isArray(record.pending))) return false
+    if (record.pending === null) return true
+    return typeof record.pending.operationId === 'string' && !!record.pending.operationId
+      && recoverableKinds.has(record.pending.kind)
+      && record.pending.epoch === record.epoch
+  }
+  const cleanRecoveryRecord = record => validRecoveryRecord(record) && record.pending === null && record.suppressed === false
+  const matchesRecoveryRecord = (current, original) => validRecoveryRecord(current)
+    && current.epoch === original.epoch
+    && current.suppressed === original.suppressed
+    && (original.pending === null
+      ? current.pending === null
+      : current.pending?.operationId === original.pending.operationId
+        && current.pending?.kind === original.pending.kind
+        && current.pending?.epoch === original.pending.epoch)
+
+  async function recoverLocked() {
+    const priorIssue = issue
+    let capability
+    try {
+      capability = browser?.probe?.() ?? { available: !!browser?.available, code: browser?.capabilityCode?.() || 'auth_capability_unavailable' }
+    } catch {
+      capability = { available: false, code: browser?.capabilityCode?.() || 'auth_capability_unavailable' }
+    }
+    if (!capability?.available) {
+      const code = capability?.code || 'auth_capability_unavailable'
+      uncertain(code)
+      throw failure(code)
+    }
+    try {
+      return await browser.lock(async () => {
+        const original = read()
+        if (!validRecoveryRecord(original)) throw failure('auth_recovery_unsupported')
+        if (original.epoch !== sharedEpoch && cleanRecoveryRecord(original)) {
+          settleAnonymous(original.epoch)
+          return { state: 'anonymous', settledElsewhere: true }
+        }
+        const kind = original.pending?.kind
+          || (original.pending === null && original.suppressed ? 'logout' : null)
+          || (cleanRecoveryRecord(original) && capabilityIssues.has(priorIssue) ? 'refresh' : null)
+        if (!recoverableKinds.has(kind) || kind === 'logout') throw failure('auth_recovery_unsupported')
+
+        const settle = authenticated => {
+          const current = read()
+          if (!matchesRecoveryRecord(current, original)) throw failure('identity_changed')
+          const nextEpoch = id()
+          if (typeof nextEpoch !== 'string' || !nextEpoch || nextEpoch === original.epoch) throw failure('auth_coordination_invalid')
+          browser.write({ epoch: nextEpoch, pending: null, suppressed: false })
+          try { browser.publish?.({ type: 'invalidate', epoch: nextEpoch }) } catch { /* Durable storage remains authoritative. */ }
+          if (authenticated) settleAuthenticated(authenticated, nextEpoch)
+          else settleAnonymous(nextEpoch)
+          return authenticated ? { state: 'authenticated' } : { state: 'anonymous' }
+        }
+
+        try {
+          const result = await refresh?.()
+          const data = validateLoginResponse(result?.data ?? result)
+          return settle(data)
+        } catch (error) {
+          if (isDefiniteRefreshAnonymous(error)) return settle(null)
+          throw error
+        }
+      })
+    } catch (error) {
+      uncertain(error?.code === 'auth_recovery_unsupported'
+        ? 'auth_recovery_unsupported'
+        : capabilityIssues.has(error?.code) ? error.code : 'auth_uncertain')
+      throw error
+    }
+  }
+  function recover() {
+    if (!recoveryPromise) recoveryPromise = recoverLocked().finally(() => { recoveryPromise = null })
+    return recoveryPromise
   }
   browser?.subscribe?.(message => {
     if (message?.type !== 'invalidate' || message.epoch === sharedEpoch) return
     try { sharedEpoch = read().epoch } catch { /* remain closed */ }
     clearSession()
   })
-  return { accessToken, user: () => user, state: () => state, capture, assertCurrent, assertSnapshot, replacePermissionProjection, setSession, clearSession,
+  return { accessToken, authIssue, user: () => user, state: () => state, capture, assertCurrent, assertSnapshot, replacePermissionProjection, setSession, clearSession,
     cookieOperation, refreshAndRetry, ensureSession, logout, recover,
     requireAvailable() { const record = read(); if (state === 'uncertain' || record.pending || record.suppressed) throw failure('auth_uncertain') },
     onInvalidate(fn) { invalidators.add(fn); return () => invalidators.delete(fn) },
