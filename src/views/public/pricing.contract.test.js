@@ -895,13 +895,44 @@ const staticBindingInitializers = (value, importer) => {
       for (const name of new Set([...left.keys(), ...right.keys()])) merged.set(name, [...new Set([...(left.get(name) || []), ...(right.get(name) || [])])])
       return merged
     }
+    const expressionNullish = (node, environment, resolving = new Set()) => {
+      node = unwrapExpression(node)
+      if (node?.type === 'ChainExpression') return expressionNullish(node.expression, environment, resolving)
+      if (!node) return 'unknown'
+      if (node.type === 'NullLiteral' || node.type === 'Identifier' && node.name === 'undefined' || node.type === 'UnaryExpression' && node.operator === 'void') return true
+      if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'BigIntLiteral', 'ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return false
+      if (node.type === 'Identifier' && environment.has(node.name) && !resolving.has(node.name)) {
+        const values = environment.get(node.name).map(value => expressionNullish(value, environment, new Set(resolving).add(node.name)))
+        return values.length && values.every(value => value === values[0]) ? values[0] : 'unknown'
+      }
+      if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+        const receiverNullish = expressionNullish(node.object, environment, resolving)
+        if (receiverNullish === true) return node.optional ? true : 'unknown'
+        if (receiverNullish === 'unknown') return 'unknown'
+        const key = node.computed ? staticPropertyKey(node.property) : node.property?.name
+        const selectedValue = key === undefined ? { unknown: true } : factorySelection(node.object, key, environment, resolving)
+        if (selectedValue.missing) return true
+        return selectedValue.value ? expressionNullish(selectedValue.value, environment, resolving) : 'unknown'
+      }
+      return 'unknown'
+    }
     const expressionMayThrow = (node, environment, resolving = new Set()) => {
       node = unwrapExpression(node)
       if (!node || typeof node !== 'object') return false
+      if (node.type === 'ChainExpression') return expressionMayThrow(node.expression, environment, resolving)
       if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return false
-      if (['CallExpression', 'OptionalCallExpression', 'NewExpression', 'AwaitExpression', 'TaggedTemplateExpression'].includes(node.type)) return true
+      if (node.type === 'OptionalCallExpression') {
+        if (expressionMayThrow(node.callee, environment, resolving)) return true
+        const calleeNullish = expressionNullish(node.callee, environment, resolving)
+        if (node.optional && calleeNullish === true) return false
+        return true
+      }
+      if (['CallExpression', 'NewExpression', 'AwaitExpression', 'TaggedTemplateExpression'].includes(node.type)) return true
       if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
         if (expressionMayThrow(node.object, environment, resolving) || node.computed && expressionMayThrow(node.property, environment, resolving)) return true
+        const receiverNullish = expressionNullish(node.object, environment, resolving)
+        if (receiverNullish === true) return !node.optional
+        if (receiverNullish === 'unknown') return true
         const key = node.computed ? staticPropertyKey(node.property) : node.property?.name
         const selectedValue = key === undefined ? { unknown: true } : factorySelection(node.object, key, environment, resolving)
         return Boolean(selectedValue.unknown)
@@ -1067,7 +1098,10 @@ const staticBindingInitializers = (value, importer) => {
       const visit = node => {
         if (!node) return true
         if (node.type === 'ReturnStatement') { if (node.argument) values.push(node.argument); return true }
-        if (node.type === 'EmptyStatement' || node.type === 'FunctionDeclaration') { if (node.id) local.set(node.id.name, [node]); return true }
+        if (node.type === 'EmptyStatement' || node.type === 'FunctionDeclaration') {
+          if (node.id) { local.set(node.id.name, [node]); replacements.set(node.id.name, node) }
+          return true
+        }
         if (node.type === 'VariableDeclaration') {
           let safe = true
           for (const declaration of node.declarations) {
