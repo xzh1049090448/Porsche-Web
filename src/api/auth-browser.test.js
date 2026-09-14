@@ -4,18 +4,40 @@ import { createBrowserAuthAdapter } from './auth-browser.js'
 import { createAuthSessionManager } from './auth-session.js'
 import { authErrorMessage } from './auth-errors.js'
 
+const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
+
 function environment() {
   const entries = new Map([['llm_platform_token', 'old'], ['llm_platform_user', 'old'], ['llm_platform_theme', 'dark'], ['llm_platform_locale', 'en']])
   const messages = []; const locks = []; const channels = []
+  const activeLocks = new Set(); const lockQueues = new Map()
   const storageFailures = { get: false, set: false, remove: false }
   const channelFailures = { construct: false, listen: false }
+  const runLock = async (name, fn) => {
+    activeLocks.add(name)
+    try { return await fn({ name }) }
+    finally {
+      activeLocks.delete(name)
+      lockQueues.get(name)?.shift()?.()
+    }
+  }
+  const requestLock = (name, options, fn) => {
+    locks.push([name, options])
+    if (options.ifAvailable) return activeLocks.has(name) ? fn(null) : runLock(name, fn)
+    return new Promise((resolve, reject) => {
+      const run = () => runLock(name, fn).then(resolve, reject)
+      if (activeLocks.has(name)) {
+        const queue = lockQueues.get(name) || []
+        queue.push(run); lockQueues.set(name, queue)
+      } else run()
+    })
+  }
   const env = { entries, messages, locks, channels, storageFailures, channelFailures, channelAttempts: 0, isSecureContext: true, crypto: { randomUUID: () => 'operation' },
     localStorage: {
       getItem: key => { if (storageFailures.get) throw Error('get denied'); return entries.get(key) },
       setItem: (key, value) => { if (storageFailures.set) throw Error('set denied'); entries.set(key, value) },
       removeItem: key => { if (storageFailures.remove) throw Error('remove denied'); entries.delete(key) },
     },
-    navigator: { locks: { request: async (name, options, fn) => { locks.push([name, options]); return fn() } } },
+    navigator: { locks: { request: requestLock } },
     BroadcastChannel: class {
       constructor() {
         env.channelAttempts++
@@ -42,6 +64,36 @@ test('browser adapter cleans old credentials preserving preferences, and broadca
   browser.publish({ type: 'invalidate', epoch: 'new', accessToken: 'secret', profile: 'private', sid: 'secret' })
   assert.deepEqual(env.messages, [{ type: 'invalidate', epoch: 'new' }])
   await browser.lock(() => 1); assert.equal(env.locks[0][1].mode, 'exclusive')
+})
+test('recovery lock uses non-queued ownership and a busy follower waits only to inspect', async () => {
+  const env = environment(); const browser = createBrowserAuthAdapter(env); const gate = deferred()
+  let ownerStarted = false; let followerOwned = false; let followerInspected = false
+  const owner = browser.recoveryLock(async () => { ownerStarted = true; await gate.promise; return 'owner' }, () => assert.fail('owner must not inspect'))
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(ownerStarted, true)
+
+  const follower = browser.recoveryLock(async () => { followerOwned = true }, () => { followerInspected = true; return 'follower' })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(followerOwned, false)
+  assert.equal(followerInspected, false)
+  assert.deepEqual(env.locks.map(([name, options]) => [name, options]), [
+    ['porsche_auth_recovery_v1', { mode: 'exclusive', ifAvailable: true }],
+    ['porsche_auth_recovery_v1', { mode: 'exclusive', ifAvailable: true }],
+    ['porsche_auth_recovery_v1', { mode: 'exclusive' }],
+  ])
+
+  gate.resolve()
+  assert.equal(await owner, 'owner')
+  assert.equal(await follower, 'follower')
+  assert.equal(followerOwned, false)
+  assert.equal(followerInspected, true)
+})
+test('recovery lock releases active ownership when its owner throws', async () => {
+  const env = environment(); const browser = createBrowserAuthAdapter(env)
+  await assert.rejects(browser.recoveryLock(async () => { throw new Error('owner failed') }, () => assert.fail('owner must not inspect')), /owner failed/)
+  let owned = 0
+  assert.equal(await browser.recoveryLock(async () => { owned++; return 'retried' }, () => assert.fail('released lock must be available')), 'retried')
+  assert.equal(owned, 1)
 })
 test('probe identifies each unavailable browser capability without authentication traffic', async () => {
   const cases = [

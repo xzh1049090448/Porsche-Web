@@ -1,5 +1,6 @@
 const KEY = 'porsche_auth_coordination_v1'
 const LOCK = 'porsche_auth_cookie_v1'
+const RECOVERY_LOCK = 'porsche_auth_recovery_v1'
 const PROBE_KEY = 'porsche_auth_probe_v1'
 
 function capabilityFailure(environment) {
@@ -71,6 +72,10 @@ export function createBrowserAuthAdapter(environment = globalThis) {
     },
     write: record => storage.setItem(KEY, JSON.stringify(record)),
     lock: fn => environment.navigator.locks.request(LOCK, { mode: 'exclusive' }, fn),
+    recoveryLock: (owner, inspect) => environment.navigator.locks.request(RECOVERY_LOCK, { mode: 'exclusive', ifAvailable: true }, lock => {
+      if (lock) return owner()
+      return environment.navigator.locks.request(RECOVERY_LOCK, { mode: 'exclusive' }, inspect)
+    }),
     publish: message => channel?.postMessage({ type: 'invalidate', epoch: message.epoch }),
     subscribe: fn => {
       subscribers.add(fn)

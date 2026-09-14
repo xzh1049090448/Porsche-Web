@@ -293,15 +293,16 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
       && record.pending.epoch === record.epoch
   }
   const cleanRecoveryRecord = record => validRecoveryRecord(record) && record.pending === null && record.suppressed === false && !hasRecoveryAttempt(record)
-  const matchesRecoveryRecord = (current, original) => validRecoveryRecord(current) && validRecoveryRecord(original)
+  const matchesRecoverySemantics = (current, original) => validRecoveryRecord(current) && validRecoveryRecord(original)
     && current.epoch === original.epoch
     && current.suppressed === original.suppressed
-    && recoveryAttempt(current) === recoveryAttempt(original)
     && (original.pending === null
       ? current.pending === null
       : current.pending?.operationId === original.pending.operationId
         && current.pending?.kind === original.pending.kind
         && current.pending?.epoch === original.pending.epoch)
+  const matchesRecoveryRecord = (current, original) => matchesRecoverySemantics(current, original)
+    && recoveryAttempt(current) === recoveryAttempt(original)
 
   async function recoverLocked() {
     const priorIssue = issue
@@ -318,55 +319,66 @@ export function createAuthSessionManager({ refresh, recoverLogout, browser } = {
     }
     try {
       const observed = read()
-      return await browser.lock(async () => {
-        const original = read()
-        if (!validRecoveryRecord(original)) throw failure('auth_recovery_unsupported')
-        if (cleanRecoveryRecord(original) && original.epoch !== (unresolvedEpoch ?? sharedEpoch)) {
-          settleAnonymous(original.epoch)
-          return { state: 'anonymous', settledElsewhere: true }
-        }
-        if (recoveryAttempt(original) !== recoveryAttempt(observed)) throw failure('auth_recovery_coalesced')
-        if (!matchesRecoveryRecord(original, observed)) throw failure('identity_changed')
-        const kind = original.pending?.kind
-          || (original.pending === null && original.suppressed ? 'logout' : null)
-          || (original.pending === null && hasRecoveryAttempt(original) ? 'refresh' : null)
-          || (cleanRecoveryRecord(original) && capabilityIssues.has(priorIssue) ? 'refresh' : null)
-        if (!recoverableKinds.has(kind)) throw failure('auth_recovery_unsupported')
+      if (typeof browser?.recoveryLock !== 'function') throw failure('auth_recovery_lock_unavailable')
+      const settledElsewhere = current => {
+        settleAnonymous(current.epoch)
+        return { state: 'anonymous', settledElsewhere: true }
+      }
+      return await browser.recoveryLock(
+        () => browser.lock(async () => {
+          const original = read()
+          if (!validRecoveryRecord(original)) throw failure('auth_recovery_unsupported')
+          if (cleanRecoveryRecord(original) && original.epoch !== (unresolvedEpoch ?? sharedEpoch)) return settledElsewhere(original)
+          if (recoveryAttempt(original) !== recoveryAttempt(observed)) throw failure('auth_recovery_coalesced')
+          if (!matchesRecoveryRecord(original, observed)) throw failure('identity_changed')
+          const kind = original.pending?.kind
+            || (original.pending === null && original.suppressed ? 'logout' : null)
+            || (original.pending === null && hasRecoveryAttempt(original) ? 'refresh' : null)
+            || (cleanRecoveryRecord(original) && capabilityIssues.has(priorIssue) ? 'refresh' : null)
+          if (!recoverableKinds.has(kind)) throw failure('auth_recovery_unsupported')
 
-        const nextAttempt = recoveryId()
-        if (typeof nextAttempt !== 'string' || !nextAttempt || nextAttempt === recoveryAttempt(original)) throw failure('auth_coordination_invalid')
-        const attempting = { ...original, recoveryAttempt: nextAttempt }
-        browser.write(attempting)
-        rememberUnresolved(attempting)
+          const nextAttempt = recoveryId()
+          if (typeof nextAttempt !== 'string' || !nextAttempt || nextAttempt === recoveryAttempt(original)) throw failure('auth_coordination_invalid')
+          const attempting = { ...original, recoveryAttempt: nextAttempt }
+          browser.write(attempting)
+          rememberUnresolved(attempting)
 
-        const settle = authenticated => {
+          const settle = authenticated => {
+            const current = read()
+            if (!matchesRecoveryRecord(current, attempting)) throw failure('identity_changed')
+            const nextEpoch = id()
+            if (typeof nextEpoch !== 'string' || !nextEpoch || nextEpoch === original.epoch) throw failure('auth_coordination_invalid')
+            browser.write({ epoch: nextEpoch, pending: null, suppressed: false })
+            try { browser.publish?.({ type: 'invalidate', epoch: nextEpoch }) } catch { /* Durable storage remains authoritative. */ }
+            if (authenticated) settleAuthenticated(authenticated, nextEpoch)
+            else settleAnonymous(nextEpoch)
+            return authenticated ? { state: 'authenticated' } : { state: 'anonymous' }
+          }
+
+          let data
+          try {
+            const result = await refresh?.()
+            data = validateLoginResponse(result?.data ?? result)
+          } catch (error) {
+            if (isDefiniteRefreshAnonymous(error)) return settle(null)
+            throw error
+          }
+          if (kind === 'logout') {
+            if (typeof recoverLogout !== 'function') throw failure('auth_logout_recovery_unavailable')
+            const result = await recoverLogout(data.access_token)
+            if (result?.status !== 204) throw failure('auth_logout_recovery_incomplete')
+            return settle(null)
+          }
+          return settle(data)
+        }),
+        () => browser.lock(async () => {
           const current = read()
-          if (!matchesRecoveryRecord(current, attempting)) throw failure('identity_changed')
-          const nextEpoch = id()
-          if (typeof nextEpoch !== 'string' || !nextEpoch || nextEpoch === original.epoch) throw failure('auth_coordination_invalid')
-          browser.write({ epoch: nextEpoch, pending: null, suppressed: false })
-          try { browser.publish?.({ type: 'invalidate', epoch: nextEpoch }) } catch { /* Durable storage remains authoritative. */ }
-          if (authenticated) settleAuthenticated(authenticated, nextEpoch)
-          else settleAnonymous(nextEpoch)
-          return authenticated ? { state: 'authenticated' } : { state: 'anonymous' }
-        }
-
-        let data
-        try {
-          const result = await refresh?.()
-          data = validateLoginResponse(result?.data ?? result)
-        } catch (error) {
-          if (isDefiniteRefreshAnonymous(error)) return settle(null)
-          throw error
-        }
-        if (kind === 'logout') {
-          if (typeof recoverLogout !== 'function') throw failure('auth_logout_recovery_unavailable')
-          const result = await recoverLogout(data.access_token)
-          if (result?.status !== 204) throw failure('auth_logout_recovery_incomplete')
-          return settle(null)
-        }
-        return settle(data)
-      })
+          if (cleanRecoveryRecord(current) && current.epoch !== (unresolvedEpoch ?? sharedEpoch)) return settledElsewhere(current)
+          if (!validRecoveryRecord(current)) throw failure('auth_recovery_unsupported')
+          if (matchesRecoverySemantics(current, observed)) throw failure('auth_recovery_coalesced')
+          throw failure('identity_changed')
+        }),
+      )
     } catch (error) {
       uncertain(error?.code === 'auth_recovery_unsupported'
         ? 'auth_recovery_unsupported'

@@ -26,9 +26,19 @@ const assertUnresolvedAttempt = (actual, original, message) => {
 const sharedBrowserTabs = (initialRecord) => {
   let record = structuredClone(initialRecord)
   let queue = Promise.resolve()
+  let recoveryActive = false
+  const recoveryWaiters = []
   let nextId = 0
   const tabs = new Set()
   const messages = []
+  const runRecovery = async fn => {
+    recoveryActive = true
+    try { return await fn() }
+    finally {
+      recoveryActive = false
+      recoveryWaiters.shift()?.()
+    }
+  }
   const createTab = () => {
     const subscribers = new Set()
     const tab = {
@@ -37,6 +47,12 @@ const sharedBrowserTabs = (initialRecord) => {
       read: () => structuredClone(record),
       write: next => { record = structuredClone(next) },
       lock: fn => { const next = queue.then(fn); queue = next.catch(() => {}); return next },
+      recoveryLock: (owner, inspect) => {
+        if (!recoveryActive) return runRecovery(owner)
+        return new Promise((resolve, reject) => {
+          recoveryWaiters.push(() => runRecovery(inspect).then(resolve, reject))
+        })
+      },
       publish: message => {
         messages.push(structuredClone(message))
         for (const peer of tabs) {
@@ -463,6 +479,68 @@ test('concurrent ambiguous login and refresh recovery coalesce to one refresh ea
     assert.deepEqual(shared.messages, [], kind)
     const unresolved = shared.read()
     assertUnresolvedAttempt(unresolved, original, kind)
+  }
+})
+
+test('deferred overlap never promotes a waiting peer to recovery owner', async () => {
+  for (const kind of ['login', 'refresh', 'logout']) {
+    const original = {
+      epoch: `${kind}-overlap-epoch`,
+      pending: { operationId: `${kind}-overlap-pending`, kind, epoch: `${kind}-overlap-epoch` },
+      suppressed: true,
+    }
+    const shared = sharedBrowserTabs(original); const gate = deferred(); const started = deferred()
+    let refreshes = 0; let logouts = 0; let allowSuccess = false
+    const makeManager = () => createAuthSessionManager({
+      browser: shared.createTab(),
+      refresh: async () => {
+        refreshes++
+        if (kind !== 'logout' && !allowSuccess) {
+          if (refreshes === 1) started.resolve()
+          await gate.promise
+          throw new TypeError('ambiguous refresh')
+        }
+        return refreshed
+      },
+      recoverLogout: async token => {
+        logouts++
+        assert.equal(token, 'fresh')
+        if (!allowSuccess) {
+          if (logouts === 1) started.resolve()
+          await gate.promise
+          return { status: 500 }
+        }
+        return { status: 204 }
+      },
+    })
+    const owner = makeManager(); const peer = makeManager()
+    const ownerRecovery = owner.recover()
+    await started.promise
+    const active = shared.read()
+    assertUnresolvedAttempt(active, original, kind)
+
+    const peerRecovery = peer.recover()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    assert.equal(refreshes, 1, kind)
+    assert.equal(logouts, kind === 'logout' ? 1 : 0, kind)
+    gate.resolve()
+    const concurrent = await Promise.allSettled([ownerRecovery, peerRecovery])
+    assert.deepEqual(concurrent.map(result => result.status), ['rejected', 'rejected'], kind)
+    assert.equal(concurrent[1].reason.code, 'auth_recovery_coalesced', kind)
+    assert.equal(refreshes, 1, `${kind} waiting peer must not refresh`)
+    assert.equal(logouts, kind === 'logout' ? 1 : 0, `${kind} waiting peer must not logout`)
+    assert.equal(owner.state(), 'uncertain', kind)
+    assert.equal(peer.state(), 'uncertain', kind)
+    assert.equal(owner.accessToken(), null, kind)
+    assert.equal(peer.accessToken(), null, kind)
+    assert.equal(owner.user(), null, kind)
+    assert.equal(peer.user(), null, kind)
+    assert.deepEqual(shared.messages, [], kind)
+
+    allowSuccess = true
+    assert.deepEqual(await owner.recover(), kind === 'logout' ? { state: 'anonymous' } : { state: 'authenticated' }, kind)
+    assert.equal(refreshes, 2, `${kind} later click refreshes once`)
+    assert.equal(logouts, kind === 'logout' ? 2 : 0, `${kind} later click logs out once`)
   }
 })
 
