@@ -245,9 +245,17 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
       }
       if (expression.type === 'NullLiteral' || expression.type === 'Identifier' && expression.name === 'undefined') return 'cannotThrow'
       if (expression.type !== 'ObjectExpression') return ['StringLiteral', 'TemplateLiteral', 'NumericLiteral', 'BooleanLiteral', 'BigIntLiteral', 'ArrayExpression'].includes(expression.type) ? 'cannotThrow' : 'mayThrow'
-      return sequenceEffects(expression.properties.filter(property => property.type === 'ObjectMethod' && property.kind === 'get').map(property => callableBodyEffect(property.body, value => expressionEffect(value, target), value => {
-        const result = staticValue(substitute(value, target)); return { known: result !== unknownStaticValue, value: result }
-      })))
+      return sequenceEffects(expression.properties.filter(property => property.type === 'ObjectMethod' && property.kind === 'get').map(property => inspectCallableEffect(property, target)))
+    }
+    const activeCallables = new Set()
+    const inspectCallableEffect = (callable, target) => {
+      if (activeCallables.has(callable)) return 'mayThrow'
+      activeCallables.add(callable)
+      try {
+        return callableBodyEffect(callable.body, value => expressionEffect(value, target), value => {
+          const result = staticValue(substitute(value, target)); return { known: result !== unknownStaticValue, value: result }
+        })
+      } finally { activeCallables.delete(callable) }
     }
     const spreadEffect = (expression, target, iterable) => sequenceEffects([expressionEffect(expression, target), spreadOperationKind(expression, target, iterable)])
     const expressionEffect = (expression, target, chain = false) => {
@@ -293,7 +301,11 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
         const callee = bindingValue(expression.callee, target)
         const operands = sequenceEffects([expressionEffect(expression.callee, target, chain || expression.type === 'OptionalCallExpression'), ...expression.arguments.map(argument => argument.type === 'SpreadElement' ? spreadEffect(argument.argument, target, true) : expressionEffect(argument, target))])
         if (operands === 'mustThrow') return operands
-        const invocation = ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'].includes(callee?.type) && factoryReturns(callee, expression.arguments).length ? 'cannotThrow' : 'mayThrow'
+        const invocation = callee?.type === 'Identifier' && defineComponentNames.has(callee.name)
+          ? 'cannotThrow'
+          : ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'].includes(callee?.type)
+            ? inspectCallableEffect(callee, target)
+            : 'mayThrow'
         return sequenceEffects([operands, invocation])
       }
       if (expression.type === 'AssignmentExpression') return sequenceEffects([
@@ -312,7 +324,15 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
       const one = (statement, path, catchesHere) => {
         if (!statement) return [path]
         if (statement.type === 'BlockStatement') return flow(statement.body, path.bindings, catchesHere).map(result => ({ ...result, exports: path.exports.concat(result.exports) }))
-        if (statement.type === 'ExportDefaultDeclaration') return [{ ...path, exports: path.exports.concat(substitute(statement.declaration, path.bindings)) }]
+        if (statement.type === 'ExportDefaultDeclaration') {
+          const expression = substitute(statement.declaration, path.bindings)
+          const effect = expressionEffect(expression, path.bindings)
+          if (effect === 'mustThrow') return catchesHere ? [{ ...path, kind: 'throw' }] : []
+          const exports = path.exports.concat(expression, ...(effect === 'mayThrow' ? [{ type: 'Identifier', name: '__possibly_throwing_export__' }] : []))
+          const results = [{ ...path, exports }]
+          if (catchesHere && effect === 'mayThrow') results.push({ ...path, kind: 'throw' })
+          return results
+        }
         if (statement.type === 'FunctionDeclaration' || statement.type === 'ImportDeclaration' || statement.type === 'EmptyStatement') return [path]
         if (statement.type === 'ThrowStatement') return [{ ...path, kind: 'throw' }]
         if (statement.type === 'VariableDeclaration') {
@@ -385,7 +405,10 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
       const map = new Map()
       for (const property of candidate.properties) {
         if (property.type === 'SpreadElement') for (const spread of objectMaps(property.argument, resolving)) for (const [name, value] of spread) map.set(name, value)
-        else map.set(staticPropertyKey(property.key), propertyExpression(property))
+        else {
+          const getterValues = property.type === 'ObjectMethod' && property.kind === 'get' ? factoryReturns(property, []) : []
+          map.set(staticPropertyKey(property.key), getterValues.length === 1 ? getterValues[0] : propertyExpression(property))
+        }
       }
       return [map]
     })
@@ -1482,7 +1505,10 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
       const map = new Map()
       for (const property of candidate.properties) {
         if (property.type === 'SpreadElement') for (const spread of optionMaps(property.argument, resolving)) for (const [name, value] of spread) map.set(name, value)
-        else map.set(staticPropertyKey(property.key), propertyExpression(property))
+        else {
+          const getterValues = property.type === 'ObjectMethod' && property.kind === 'get' ? optionFactoryReturns(property, []) : []
+          map.set(staticPropertyKey(property.key), getterValues.length === 1 ? getterValues[0] : propertyExpression(property))
+        }
       }
       return [map]
     })
@@ -1529,9 +1555,17 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
       }
       if (expression.type === 'NullLiteral' || expression.type === 'Identifier' && expression.name === 'undefined') return 'cannotThrow'
       if (expression.type !== 'ObjectExpression') return ['StringLiteral', 'TemplateLiteral', 'NumericLiteral', 'BooleanLiteral', 'BigIntLiteral', 'ArrayExpression'].includes(expression.type) ? 'cannotThrow' : 'mayThrow'
-      return sequenceOptionEffects(expression.properties.filter(property => property.type === 'ObjectMethod' && property.kind === 'get').map(property => callableBodyEffect(property.body, value => optionEffect(value, local), value => {
-        const result = staticValue(replaceFactoryParams(value, local)); return { known: result !== unknownStaticValue, value: result }
-      })))
+      return sequenceOptionEffects(expression.properties.filter(property => property.type === 'ObjectMethod' && property.kind === 'get').map(property => inspectOptionCallableEffect(property, local)))
+    }
+    const activeOptionCallables = new Set()
+    const inspectOptionCallableEffect = (callable, local) => {
+      if (activeOptionCallables.has(callable)) return 'mayThrow'
+      activeOptionCallables.add(callable)
+      try {
+        return callableBodyEffect(callable.body, value => optionEffect(value, local), value => {
+          const result = staticValue(replaceFactoryParams(value, local)); return { known: result !== unknownStaticValue, value: result }
+        })
+      } finally { activeOptionCallables.delete(callable) }
     }
     const optionSpreadEffect = (expression, local, iterable) => sequenceOptionEffects([optionEffect(expression, local), optionSpreadOperationKind(expression, local, iterable)])
     const optionEffect = (expression, local, chain = false) => {
@@ -1578,7 +1612,11 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
         if (((chain || expression.type === 'OptionalCallExpression') && calleeNullish === 'short-circuit') || (expression.optional && calleeNullish === 'nullish')) return calleeEffect
         const callees = optionValues(expression.callee)
         const functions = callees.filter(callee => ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'].includes(callee?.type))
-        const invocation = functions.length && functions.every(fn => optionFactoryReturns(fn, expression.arguments).length > 0) ? 'cannotThrow' : 'mayThrow'
+        const invocation = callees.some(callee => callee?.type === 'Identifier' && defineComponentNames.has(callee.name))
+          ? 'cannotThrow'
+          : functions.length
+            ? alternativeOptionEffects(functions.map(fn => inspectOptionCallableEffect(fn, local)))
+            : 'mayThrow'
         return sequenceOptionEffects([calleeEffect, invocation])
       }
       if (expression.type === 'SequenceExpression') {
@@ -1610,7 +1648,15 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
       const flowOne = (statement, path, catchesHere) => {
         if (!statement) return [path]
         if (statement.type === 'BlockStatement') return topLevelFlow(statement.body, path.bindings, catchesHere).map(result => ({ ...result, exports: path.exports.concat(result.exports) }))
-        if (statement.type === 'ExportDefaultDeclaration') return [{ ...path, exports: path.exports.concat(replaceFactoryParams(statement.declaration, path.bindings)) }]
+        if (statement.type === 'ExportDefaultDeclaration') {
+          const expression = replaceFactoryParams(statement.declaration, path.bindings)
+          const effect = optionEffect(expression, path.bindings)
+          if (effect === 'mustThrow') return catchesHere ? [{ ...path, kind: 'throw' }] : []
+          const exports = path.exports.concat(expression, ...(effect === 'mayThrow' ? [{ type: 'Identifier', name: '__possibly_throwing_export__' }] : []))
+          const results = [{ ...path, exports }]
+          if (catchesHere && effect === 'mayThrow') results.push({ ...path, kind: 'throw' })
+          return results
+        }
         if (statement.type === 'ThrowStatement') return [{ ...path, kind: 'throw' }]
         if (statement.type === 'FunctionDeclaration' || statement.type === 'ImportDeclaration' || statement.type === 'EmptyStatement') return [path]
         if (statement.type === 'VariableDeclaration') {
@@ -1835,7 +1881,14 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
         const callee = unwrapExpression(node.callee)
         const operands = sequenceRenderEffects([renderExpressionEffect(node.callee, chain || node.type === 'OptionalCallExpression'), ...node.arguments.map(argument => argument.type === 'SpreadElement' ? renderSpreadEffect(argument.argument, true) : renderExpressionEffect(argument))])
         if (operands === 'mustThrow') return operands
-        return sequenceRenderEffects([operands, callee?.type === 'Identifier' && renderNames.has(callee.name) ? 'cannotThrow' : 'mayThrow'])
+        const invocation = callee?.type === 'Identifier' && renderNames.has(callee.name)
+          ? 'cannotThrow'
+          : ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'].includes(callee?.type)
+            ? callableBodyEffect(callee.body, renderExpressionEffect, value => {
+              const result = staticValue(value); return { known: result !== unknownStaticValue, value: result }
+            })
+            : 'mayThrow'
+        return sequenceRenderEffects([operands, invocation])
       }
       if (node.type === 'AssignmentExpression') return sequenceRenderEffects([
         ['MemberExpression', 'OptionalMemberExpression'].includes(unwrapExpression(node.left)?.type) ? renderExpressionEffect(node.left) : 'cannotThrow',
@@ -1864,8 +1917,20 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
           : Array.isArray(child) ? child.map(item => materialize(item, local, resolving, node, childKey)) : materialize(child, local, resolving, node, childKey)
         return copy
       }
+      const bindLocalPattern = (pattern, value, local) => {
+        pattern = unwrapExpression(pattern)
+        if (pattern?.type === 'Identifier') { local.set(pattern.name, value); return }
+        if (pattern?.type === 'AssignmentPattern') { bindLocalPattern(pattern.left, value || pattern.right, local); return }
+        if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bindLocalPattern(property.value, aliasMember(value, staticPropertyKey(property.key)), local)
+        if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bindLocalPattern(pattern.elements[index], aliasMember(value, index), local)
+      }
       const statements = (items, seed = [{ kind: 'normal', bindings: new Map() }], catches = false) => {
-        let paths = seed
+        let paths = seed.map(path => {
+          if (path.kind !== 'normal') return path
+          const bindings = new Map(path.bindings)
+          for (const statement of items || []) if (statement?.type === 'FunctionDeclaration' && statement.id) bindings.set(statement.id.name, statement)
+          return { ...path, bindings }
+        })
         for (const statement of items || []) paths = paths.flatMap(path => path.kind === 'normal' ? one(statement, path, catches) : [path])
         return paths
       }
@@ -1910,13 +1975,26 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
             const result = []
             if (effect !== 'mustThrow') {
               const next = new Map(current.bindings)
-              if (declaration.id?.type === 'Identifier') next.set(declaration.id.name, expression)
+              bindLocalPattern(declaration.id, expression, next)
               result.push({ ...current, bindings: next })
             }
             if (catches && effect !== 'cannotThrow') result.push({ ...current, kind: 'throw' })
             return result
           })
           return paths
+        }
+        if (node.type === 'ExpressionStatement' && unwrapExpression(node.expression)?.type === 'AssignmentExpression' && node.expression.operator === '=') {
+          const assignment = unwrapExpression(node.expression)
+          const right = materialize(assignment.right, path.bindings)
+          const effect = renderExpressionEffect({ ...assignment, right })
+          const result = []
+          if (effect !== 'mustThrow') {
+            const next = new Map(path.bindings)
+            bindLocalPattern(assignment.left, right, next)
+            result.push({ ...path, bindings: next })
+          }
+          if (catches && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
+          return result
         }
         const expression = materialize(node.type === 'ExpressionStatement' ? node.expression : undefined, path.bindings)
         const effect = renderExpressionEffect(expression)
@@ -1930,6 +2008,10 @@ const renderFunctionUsesImportedComponent = (value, expectedFile) => {
       node = unwrapExpression(node)
       if (!node) return false
       if (node.type === 'Identifier' && helpers.has(node.name) && !resolving.has(node.name)) { const values = returns(helpers.get(node.name).body); return values.length > 0 && values.every(result => inspect(result, new Set(resolving).add(node.name))) }
+      if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+        const value = memberValue(node.object, memberName(node), resolving)
+        return value ? inspect(value, resolving) : false
+      }
       if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(node.type)) { const values = returns(node.body); return values.length > 0 && values.every(result => inspect(result, resolving)) }
       if (node.type === 'ConditionalExpression') {
         const condition = staticValue(node.test)

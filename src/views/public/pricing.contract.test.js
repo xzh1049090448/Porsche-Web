@@ -7,6 +7,46 @@ import { publicText } from '../../i18n/public-runtime.js'
 import { formatPublicPrice, mapPublicModel, PUBLIC_PRICING } from '../../utils/public-catalog.js'
 import { publicPriceState } from '../../utils/public-pricing-query.js'
 
+const callableBodyEffect = (body, expressionEffect, staticCondition) => {
+  const expressionPaths = (expression, normalKind = 'normal') => {
+    const effect = expressionEffect(expression)
+    if (effect === 'mustThrow') return [{ kind: 'throw' }]
+    return effect === 'mayThrow' ? [{ kind: normalKind }, { kind: 'throw' }] : [{ kind: normalKind }]
+  }
+  const statements = (items, seed = [{ kind: 'normal' }]) => {
+    let paths = seed
+    for (const statement of items || []) paths = paths.flatMap(path => path.kind === 'normal' ? one(statement) : [path])
+    return paths
+  }
+  const one = statement => {
+    if (!statement) return [{ kind: 'normal' }]
+    if (statement.type === 'BlockStatement') return statements(statement.body)
+    if (statement.type === 'ReturnStatement') return expressionPaths(statement.argument, 'return')
+    if (statement.type === 'ThrowStatement') return [{ kind: 'throw' }]
+    if (statement.type === 'IfStatement') {
+      const effect = expressionEffect(statement.test)
+      const result = effect === 'mustThrow' ? [] : (() => {
+        const condition = staticCondition(statement.test)
+        return condition.known ? one(condition.value ? statement.consequent : statement.alternate) : [...one(statement.consequent), ...one(statement.alternate)]
+      })()
+      if (effect !== 'cannotThrow') result.push({ kind: 'throw' })
+      return result
+    }
+    if (statement.type === 'TryStatement') {
+      let paths = one(statement.block).flatMap(path => path.kind === 'throw' && statement.handler ? one(statement.handler.body) : [path])
+      if (statement.finalizer) paths = paths.flatMap(path => one(statement.finalizer).flatMap(finalPath => finalPath.kind === 'normal' ? [path] : [finalPath]))
+      return paths
+    }
+    if (statement.type === 'VariableDeclaration') return expressionPaths({ type: 'SequenceExpression', expressions: statement.declarations.map(item => item.init).filter(Boolean) })
+    if (statement.type === 'ExpressionStatement') return expressionPaths(statement.expression)
+    return [{ kind: 'normal' }]
+  }
+  const outcomes = body?.type === 'BlockStatement' ? statements(body.body) : expressionPaths(body, 'return')
+  const throws = outcomes.some(path => path.kind === 'throw')
+  const completes = outcomes.some(path => path.kind !== 'throw')
+  return throws ? completes ? 'mayThrow' : 'mustThrow' : 'cannotThrow'
+}
+
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 const vueCompiler = (() => {
   const plugin = vuePlugin()
@@ -772,8 +812,12 @@ const staticBindingInitializers = (value, importer) => {
     catch (error) { throw new Error(`pricing Vue script must parse cleanly: ${error.message}`, { cause: error }) }
     const member = (object, key) => ({ type: 'MemberExpression', object, property: { type: 'StringLiteral', value: String(key) }, computed: true })
     const authoritativeImports = new Set()
+    const safeOptionWrappers = new Set()
     for (const statement of ast.program.body) if (statement.type === 'ImportDeclaration' && resolvesToAuthoritativeModule(statement.source.value)) {
       for (const specifier of statement.specifiers) if ((specifier.imported?.name ?? specifier.imported?.value) === 'publicPriceState') authoritativeImports.add(specifier.local.name)
+    }
+    for (const statement of ast.program.body) if (statement.type === 'ImportDeclaration' && statement.source.value === 'vue') {
+      for (const specifier of statement.specifiers) if ((specifier.imported?.name ?? specifier.imported?.value) === 'defineComponent') safeOptionWrappers.add(specifier.local.name)
     }
     if (block === descriptor.scriptSetup) for (const name of authoritativeImports) publicPriceStateAuthority.templateNames.add(name)
     const patternNames = (pattern, names = []) => {
@@ -923,25 +967,54 @@ const staticBindingInitializers = (value, importer) => {
       }
       return 'unknown'
     }
-    const sequenceEffect = effects => {
-      let uncertain = false
-      for (const effect of effects) {
-        if (effect === 'mustThrow') return uncertain ? 'mayThrow' : 'mustThrow'
-        if (effect === 'mayThrow') uncertain = true
+    const sequenceEffect = effects => effects.includes('mustThrow') ? 'mustThrow' : effects.includes('mayThrow') ? 'mayThrow' : 'cannotThrow'
+    const alternativeEffect = effects => effects.every(effect => effect === 'mustThrow') ? 'mustThrow' : effects.every(effect => effect === 'cannotThrow') ? 'cannotThrow' : 'mayThrow'
+    const resolvedEffectCandidates = (node, environment, resolving = new Set()) => {
+      node = unwrapExpression(node)
+      if (!node || resolving.size > 32) return []
+      if (node.type === 'Identifier' && environment.has(node.name) && !resolving.has(node.name)) return environment.get(node.name).flatMap(value => resolvedEffectCandidates(value, environment, new Set(resolving).add(node.name)))
+      if (node.type === 'ConditionalExpression') {
+        const condition = boundStaticValue(node.test, environment)
+        return condition !== unknownStaticValue
+          ? resolvedEffectCandidates(condition ? node.consequent : node.alternate, environment, resolving)
+          : [...resolvedEffectCandidates(node.consequent, environment, resolving), ...resolvedEffectCandidates(node.alternate, environment, resolving)]
       }
-      return uncertain ? 'mayThrow' : 'cannotThrow'
+      return [node]
+    }
+    const objectSpreadOperationEffect = (node, environment, resolving) => {
+      const candidates = resolvedEffectCandidates(node, environment, resolving)
+      if (!candidates.length) return 'mayThrow'
+      return alternativeEffect(candidates.map(candidate => {
+        candidate = unwrapExpression(candidate)
+        if (candidate?.type === 'NullLiteral' || candidate?.type === 'Identifier' && candidate.name === 'undefined') return 'cannotThrow'
+        if (candidate?.type !== 'ObjectExpression') return ['StringLiteral', 'TemplateLiteral', 'NumericLiteral', 'BooleanLiteral', 'BigIntLiteral', 'ArrayExpression'].includes(candidate?.type) ? 'cannotThrow' : 'mayThrow'
+        return sequenceEffect(candidate.properties.filter(property => property.type === 'ObjectMethod' && property.kind === 'get').map(property => callableBodyEffect(property.body, value => expressionEffect(value, environment, resolving), value => {
+          const result = boundStaticValue(value, environment); return { known: result !== unknownStaticValue, value: result }
+        })))
+      }))
     }
     const expressionEffect = (node, environment, resolving = new Set(), chain = false) => {
       node = unwrapExpression(node)
       if (!node || typeof node !== 'object') return 'cannotThrow'
       if (node.type === 'ChainExpression') return expressionEffect(node.expression, environment, resolving, true)
       if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return 'cannotThrow'
+      if (node.type === 'ObjectExpression') return sequenceEffect(node.properties.flatMap(property => property.type === 'SpreadElement'
+        ? [sequenceEffect([expressionEffect(property.argument, environment, resolving), objectSpreadOperationEffect(property.argument, environment, resolving)])]
+        : [property.computed ? expressionEffect(property.key, environment, resolving) : 'cannotThrow', property.type === 'ObjectMethod' ? 'cannotThrow' : expressionEffect(property.value, environment, resolving)]))
       if (['CallExpression', 'OptionalCallExpression'].includes(node.type)) {
-        const calleeEffect = expressionEffect(node.callee, environment, resolving, chain || node.type === 'OptionalCallExpression')
+        const calleeEffect = sequenceEffect([expressionEffect(node.callee, environment, resolving, chain || node.type === 'OptionalCallExpression'), ...node.arguments.map(argument => expressionEffect(argument.type === 'SpreadElement' ? argument.argument : argument, environment, resolving))])
         if (calleeEffect === 'mustThrow') return 'mustThrow'
         const calleeNullish = expressionNullish(node.callee, environment, resolving, chain || node.type === 'OptionalCallExpression')
         if (((chain || node.type === 'OptionalCallExpression') && calleeNullish === 'short-circuit') || (node.optional && calleeNullish === 'nullish')) return calleeEffect
-        return 'mayThrow'
+        const functions = factoryFunctions(node.callee, environment, resolving)
+        const invocation = unwrapExpression(node.callee)?.type === 'Identifier' && safeOptionWrappers.has(node.callee.name)
+          ? 'cannotThrow'
+          : functions.length
+            ? alternativeEffect(functions.map(fn => resolving.has(fn) ? 'mayThrow' : callableBodyEffect(fn.body, value => expressionEffect(value, environment, new Set(resolving).add(fn)), value => {
+              const result = boundStaticValue(value, environment); return { known: result !== unknownStaticValue, value: result }
+            })))
+            : 'mayThrow'
+        return sequenceEffect([calleeEffect, invocation])
       }
       if (['NewExpression', 'AwaitExpression', 'TaggedTemplateExpression'].includes(node.type)) return 'mayThrow'
       if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
@@ -1419,7 +1492,8 @@ const staticBindingInitializers = (value, importer) => {
       let states = [{ map: new Map(), unknown: false }]
       for (const property of expression.properties) {
         if (property.type !== 'SpreadElement') {
-          for (const state of states) state.map.set(staticPropertyKey(property.key), propertyExpression(property))
+          const getter = property.type === 'ObjectMethod' && property.kind === 'get' ? safeFactoryReturns(property, new Map(local)) : { values: [] }
+          for (const state of states) state.map.set(staticPropertyKey(property.key), getter.values.length === 1 ? getter.values[0] : propertyExpression(property))
           continue
         }
         const spreads = objectStates(property.argument, local, resolving)
@@ -1468,6 +1542,14 @@ const staticBindingInitializers = (value, importer) => {
     }
     const exposeOptions = (declaration, target) => {
       const options = objectStates(declaration, target)
+      for (const state of options) for (const value of state.map.values()) {
+        if (value?.type !== 'ObjectMethod' || value.kind !== 'get') continue
+        const effect = callableBodyEffect(value.body, expression => expressionEffect(expression, target), expression => {
+          const result = boundStaticValue(expression, target)
+          return { known: result !== unknownStaticValue, value: result }
+        })
+        if (effect !== 'cannotThrow') invalidOptionsExport = true
+      }
       for (const name of ['setup', 'data']) {
         const functions = stateValues(options, name).flatMap(value => reachableOptionValues(value, target))
         const branches = functions.map(fn => returnedObjectBindings(unwrapExpression(fn), target))
@@ -1478,6 +1560,7 @@ const staticBindingInitializers = (value, importer) => {
         for (const key of new Set(registries.flatMap(state => [...state.map.keys()]))) target.set(key, stateValues(registries, key).flatMap(value => resolvedLocalValues(value, target)))
       }
     }
+    let invalidOptionsExport = false
     const process = (statements, target, scoped = false) => {
       const scopedNames = new Set()
       const previous = new Map()
@@ -1496,8 +1579,15 @@ const staticBindingInitializers = (value, importer) => {
         if (!node) continue
         if (node.type === 'FunctionDeclaration' && node.id) target.set(node.id.name, [node])
         else if (node.type === 'VariableDeclaration') for (const declaration of node.declarations) bindPattern(declaration.id, declaration.init, target)
-        else if (node.type === 'ExportDefaultDeclaration') exposeOptions(node.declaration, target)
-        else if (node.type === 'ExpressionStatement') applyExpression(node.expression, target)
+        else if (node.type === 'ExportDefaultDeclaration') {
+          const effect = expressionEffect(node.declaration, target)
+          if (effect === 'cannotThrow') exposeOptions(node.declaration, target)
+          else invalidOptionsExport = true
+        }
+        else if (node.type === 'ExpressionStatement') {
+          if (expressionEffect(node.expression, target) === 'mustThrow') { invalidOptionsExport = true; break }
+          applyExpression(node.expression, target)
+        }
         else if (node.type === 'BlockStatement') process(node.body, target, true)
         else if (node.type === 'IfStatement') {
           const condition = staticValue(node.test)
@@ -1550,6 +1640,7 @@ const staticBindingInitializers = (value, importer) => {
       }
     }
     process(ast.program.body, bindings)
+    if (invalidOptionsExport) throw new Error('pricing Options export must be statically non-throwing before template bindings are exposed')
   }
   Object.defineProperty(bindings, 'publicPriceStateAuthority', { value: publicPriceStateAuthority })
   return bindings

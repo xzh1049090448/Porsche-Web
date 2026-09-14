@@ -369,7 +369,8 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     let states = [{ map: new Map(), unknown: false }]
     for (const property of expression.properties) {
       if (property.type !== 'SpreadElement') {
-        for (const state of states) state.map.set(String(scriptPropertyName(property)), property.type === 'ObjectMethod' ? property : property.value)
+        const getterValues = property.type === 'ObjectMethod' && property.kind === 'get' ? factoryOptionReturns(property, [], local) : []
+        for (const state of states) state.map.set(String(scriptPropertyName(property)), getterValues.length === 1 ? getterValues[0].value : property.type === 'ObjectMethod' ? property : property.value)
         continue
       }
       const spreads = effectiveOptionStates(property.argument, local, resolving)
@@ -435,7 +436,11 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (!expression) return 'cannotThrow'
     if (expression.type === 'ChainExpression') return optionExpressionEffect(expression.expression, local, resolving, true)
     if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'NullLiteral', 'BigIntLiteral', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(expression.type)) return 'cannotThrow'
-    if (expression.type === 'Identifier') return 'cannotThrow'
+    if (expression.type === 'Identifier') {
+      if (!local.has(expression.name) || resolving.has(expression.name)) return 'cannotThrow'
+      const effects = local.get(expression.name).map(value => optionExpressionEffect(value, local, new Set(resolving).add(expression.name)))
+      return effects.length ? alternativeOptionEffects(effects) : 'cannotThrow'
+    }
     if (expression.type === 'ObjectExpression') return sequenceOptionEffects(expression.properties.flatMap(property => property.type === 'SpreadElement'
       ? [optionSpreadEffect(property.argument, local, resolving, false)]
       : [property.computed ? optionExpressionEffect(property.key, local, resolving) : 'cannotThrow', property.type === 'ObjectMethod' ? 'cannotThrow' : optionExpressionEffect(property.value, local, resolving)]))
@@ -474,7 +479,11 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
       const calleeNullish = optionNullish(expression.callee, local, resolving, chain || expression.type === 'OptionalCallExpression')
       if (((chain || expression.type === 'OptionalCallExpression') && calleeNullish === 'short-circuit') || (expression.optional && calleeNullish === 'nullish')) return calleeEffect
       const functions = optionFunctions(expression.callee, local, resolving)
-      const invocation = functions.length && functions.every(fn => factoryOptionReturns(fn, expression.arguments, local).length > 0) ? 'cannotThrow' : 'mayThrow'
+      const invocation = optionCandidates(expression.callee, local, resolving).some(candidate => candidate?.type === 'Identifier' && defineComponentNames.has(candidate.name))
+        ? 'cannotThrow'
+        : functions.length
+          ? alternativeOptionEffects(functions.map(fn => resolving.has(fn) ? 'mayThrow' : callableBodyEffect(fn.body, value => optionExpressionEffect(value, local, new Set(resolving).add(fn)), optionStaticValue)))
+          : 'mayThrow'
       return sequenceOptionEffects([calleeEffect, invocation])
     }
     if (expression.type === 'SequenceExpression') {
@@ -565,7 +574,12 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
       }
       else if (statement.type === 'ExpressionStatement' && optionExpressionEffect(statement.expression, target) === 'mustThrow') return false
       else if (statement.type === 'ThrowStatement') return false
-      else if (statement.type === 'ExportDefaultDeclaration') exportedOptionStates.push(...effectiveOptionStates(statement.declaration, target))
+      else if (statement.type === 'ExportDefaultDeclaration') {
+        const effect = optionExpressionEffect(statement.declaration, target)
+        if (effect === 'mustThrow') return false
+        exportedOptionStates.push(...effectiveOptionStates(statement.declaration, target))
+        if (effect === 'mayThrow') exportedOptionStates.push({ map: new Map(), unknown: true })
+      }
       else if (statement.type === 'BlockStatement') { if (!processOptionStatements(statement.body, target)) return false }
       else if (statement.type === 'TryStatement') {
         const paths = flowOptionStatements([statement], target).filter(path => path.kind === 'normal')
@@ -875,7 +889,12 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
       const callee = unwrapScriptExpression(node.callee)
       const operands = sequenceRenderEffects([renderExpressionEffect(node.callee, chain || node.type === 'OptionalCallExpression'), ...node.arguments.map(argument => argument.type === 'SpreadElement' ? renderSpreadEffect(argument.argument, true) : renderExpressionEffect(argument))])
       if (operands === 'mustThrow') return operands
-      return sequenceRenderEffects([operands, callee?.type === 'Identifier' && renderNames.has(callee.name) ? 'cannotThrow' : 'mayThrow'])
+      const invocation = callee?.type === 'Identifier' && renderNames.has(callee.name)
+        ? 'cannotThrow'
+        : ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'].includes(callee?.type)
+          ? callableBodyEffect(callee.body, renderExpressionEffect, staticValue)
+          : 'mayThrow'
+      return sequenceRenderEffects([operands, invocation])
     }
     if (node.type === 'AssignmentExpression') return sequenceRenderEffects([
       ['MemberExpression', 'OptionalMemberExpression'].includes(unwrapScriptExpression(node.left)?.type) ? renderExpressionEffect(node.left) : 'cannotThrow',
@@ -904,8 +923,20 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
         : Array.isArray(child) ? child.map(item => materialize(item, local, resolving, node, childKey)) : materialize(child, local, resolving, node, childKey)
       return copy
     }
+    const bindLocalPattern = (pattern, value, local) => {
+      pattern = unwrapScriptExpression(pattern)
+      if (pattern?.type === 'Identifier') { local.set(pattern.name, value); return }
+      if (pattern?.type === 'AssignmentPattern') { bindLocalPattern(pattern.left, value || pattern.right, local); return }
+      if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bindLocalPattern(property.value, optionMember(value, scriptPropertyName(property)), local)
+      if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bindLocalPattern(pattern.elements[index], optionMember(value, index), local)
+    }
     const statements = (items, seed = [{ kind: 'normal', bindings: new Map() }], catches = false) => {
-      let paths = seed
+      let paths = seed.map(path => {
+        if (path.kind !== 'normal') return path
+        const bindings = new Map(path.bindings)
+        for (const statement of items || []) if (statement?.type === 'FunctionDeclaration' && statement.id) bindings.set(statement.id.name, statement)
+        return { ...path, bindings }
+      })
       for (const statement of items || []) paths = paths.flatMap(path => path.kind === 'normal' ? one(statement, path, catches) : [path])
       return paths
     }
@@ -950,13 +981,26 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
           const result = []
           if (effect !== 'mustThrow') {
             const next = new Map(current.bindings)
-            if (declaration.id?.type === 'Identifier') next.set(declaration.id.name, expression)
+            bindLocalPattern(declaration.id, expression, next)
             result.push({ ...current, bindings: next })
           }
           if (catches && effect !== 'cannotThrow') result.push({ ...current, kind: 'throw' })
           return result
         })
         return paths
+      }
+      if (node.type === 'ExpressionStatement' && unwrapScriptExpression(node.expression)?.type === 'AssignmentExpression' && node.expression.operator === '=') {
+        const assignment = unwrapScriptExpression(node.expression)
+        const right = materialize(assignment.right, path.bindings)
+        const effect = renderExpressionEffect({ ...assignment, right })
+        const result = []
+        if (effect !== 'mustThrow') {
+          const next = new Map(path.bindings)
+          bindLocalPattern(assignment.left, right, next)
+          result.push({ ...path, bindings: next })
+        }
+        if (catches && effect !== 'cannotThrow') result.push({ ...path, kind: 'throw' })
+        return result
       }
       const expression = materialize(node.type === 'ExpressionStatement' ? node.expression : undefined, path.bindings)
       const effect = renderExpressionEffect(expression)
