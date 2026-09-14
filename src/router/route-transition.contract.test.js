@@ -271,6 +271,15 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) if (property.type !== 'RestElement') bindOptionPattern(property.value, optionMember(value, scriptPropertyName(property)), target)
     if (pattern?.type === 'ArrayPattern') for (let index = 0; index < pattern.elements.length; index += 1) if (pattern.elements[index]?.type !== 'RestElement') bindOptionPattern(pattern.elements[index], optionMember(value, index), target)
   }
+  const optionPatternNames = (pattern, names = []) => {
+    pattern = unwrapScriptExpression(pattern)
+    if (pattern?.type === 'Identifier') names.push(pattern.name)
+    else if (pattern?.type === 'AssignmentPattern') optionPatternNames(pattern.left, names)
+    else if (pattern?.type === 'RestElement') optionPatternNames(pattern.argument, names)
+    else if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) optionPatternNames(property.type === 'RestElement' ? property.argument : property.value, names)
+    else if (pattern?.type === 'ArrayPattern') for (const item of pattern.elements) if (item) optionPatternNames(item, names)
+    return names
+  }
   const mergeOptionBindings = (left, right) => {
     const merged = new Map()
     for (const name of new Set([...left.keys(), ...right.keys()])) merged.set(name, [...new Set([...(left.get(name) || []), ...(right.get(name) || [])])])
@@ -421,7 +430,6 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
                   if (node !== value && ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(node.type)) { if (node.type === 'FunctionDeclaration') collectPattern(node.id); return }
                   if (node.type === 'VariableDeclarator') collectPattern(node.id)
                   if (node.type === 'ClassDeclaration') collectPattern(node.id)
-                  if (node.type === 'CatchClause') collectPattern(node.param)
                   for (const [name, child] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(name)) {
                     if (Array.isArray(child)) for (const item of child) collectLocals(item)
                     else collectLocals(child)
@@ -504,9 +512,20 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
         return result
       }
       if (statement.type === 'TryStatement') {
-        let result = one(statement.block, { ...path, local: new Map(path.local) }, true).flatMap(candidate => candidate.kind === 'throw' && statement.handler
-          ? one(statement.handler.body, { ...candidate, kind: 'normal', local: new Map(candidate.local) }, false)
-          : [candidate])
+        let result = one(statement.block, { ...path, local: new Map(path.local) }, true).flatMap(candidate => {
+          if (candidate.kind !== 'throw' || !statement.handler) return [candidate]
+          const catchNames = optionPatternNames(statement.handler.param)
+          const catchLocal = new Map(candidate.local)
+          for (const name of catchNames) catchLocal.set(name, [optionUnknown])
+          return one(statement.handler.body, { ...candidate, kind: 'normal', local: catchLocal }, false).map(catchPath => {
+            const local = new Map(catchPath.local)
+            for (const name of catchNames) {
+              if (candidate.local.has(name)) local.set(name, candidate.local.get(name))
+              else local.delete(name)
+            }
+            return { ...catchPath, local }
+          })
+        })
         if (statement.finalizer) result = result.flatMap(candidate => one(statement.finalizer, { ...candidate, kind: 'normal', local: new Map(candidate.local) }, true).map(finalPath => finalPath.kind === 'normal' ? { ...candidate, local: finalPath.local } : finalPath))
         return result
       }
@@ -561,6 +580,18 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
       }
       for (const parameter of node.params || []) remove(parameter)
       if (node.id) remove(node.id)
+    }
+    if (node.type === 'CatchClause') {
+      scopedLocal = new Map(local)
+      const removeCatchBinding = pattern => {
+        pattern = unwrapScriptExpression(pattern)
+        if (pattern?.type === 'Identifier') scopedLocal.delete(pattern.name)
+        else if (pattern?.type === 'AssignmentPattern') removeCatchBinding(pattern.left)
+        else if (pattern?.type === 'RestElement') removeCatchBinding(pattern.argument)
+        else if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) removeCatchBinding(property.type === 'RestElement' ? property.argument : property.value)
+        else if (pattern?.type === 'ArrayPattern') for (const item of pattern.elements) if (item) removeCatchBinding(item)
+      }
+      removeCatchBinding(node.param)
     }
     let changed = false
     const copy = {}
