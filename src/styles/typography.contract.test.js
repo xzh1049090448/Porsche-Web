@@ -96,6 +96,10 @@ const root = path => parseCssRules(read(path))
 const tokens = root('./tokens.scss')
 const foundations = root('./foundations.scss')
 const global = root('./global.scss')
+const elementMessageCascade = parseCssRules(`
+  .el-message__content { font-size: 14px; }
+  ${read('./global.scss')}
+`)
 const publicShell = root('./public-shell.scss')
 const publicContent = root('./public-content.scss')
 const consoleShell = root('./console-shell.scss')
@@ -1251,6 +1255,7 @@ test('foundations and global components map body, page and component text to sem
   assertMapping(global, '.page-title', 'font-size', 'var(--font-size-page-title)', 'page titles use the page-title token')
   assertMapping(global, '.el-dialog', '--el-dialog-title-font-size', 'var(--font-size-subtitle)', 'dialog titles use the subtitle token')
   assertMapping(global, '.el-alert', '--el-alert-title-font-size', 'var(--font-size-sm)', 'alert titles use the small token')
+  assertMapping(elementMessageCascade, '.el-message__content', 'font-size', 'var(--font-size-body)', 'message content overrides the vendor font size with the body token')
 })
 
 test('public pages map hero, section and supporting copy to the shared typography scale', () => {
