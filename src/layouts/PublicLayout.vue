@@ -1,8 +1,8 @@
 <script>
 import { computed, h, onMounted, onUnmounted, provide } from 'vue'
-import { RouterView } from 'vue-router'
 import PublicHeader from '@/components/public/PublicHeader.vue'
 import PublicFooter from '@/components/public/PublicFooter.vue'
+import RouteViewTransition from '@/components/shell/RouteViewTransition.vue'
 import { usePublicContentStore } from '@/stores/publicContent.js'
 import { createPublicLayoutPublication } from '@/stores/publicHomePublication.js'
 import { usePublicI18n } from '@/i18n/public-runtime.js'
@@ -22,7 +22,7 @@ export default {
     return () => h('div', { class: 'public-layout public-shell' }, [
       h('a', { class: 'public-skip-link', href: '#public-content' }, t('skip')),
       h(PublicHeader, { links: shellLinks.value }),
-      h('main', { id: 'public-content', tabindex: '-1' }, h(RouterView)),
+      h('main', { id: 'public-content', tabindex: '-1' }, h(RouteViewTransition, { focusTarget: '#public-content' })),
       h(PublicFooter, { links: shellLinks.value }),
     ])
   },

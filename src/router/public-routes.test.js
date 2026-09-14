@@ -62,9 +62,11 @@ test('route inventory freezes public, guest, authenticated, Root, and DEV metada
   assert.ok(source.includes('const developmentOnlyRoutes = import.meta.env?.DEV ? ['))
   const routerURL = new URL('../../node_modules/vue-router/vue-router.node.mjs', import.meta.url).href
   const redirectURL = new URL('../utils/auth-redirect.js', import.meta.url).href
+  const transitionURL = new URL('./page-transition.js', import.meta.url).href
   const devSource = source
     .replace("from 'vue-router'", `from '${routerURL}'`)
     .replace("from '../utils/auth-redirect.js'", `from '${redirectURL}'`)
+    .replace("from './page-transition.js'", `from '${transitionURL}'`)
     .replace('import.meta.env?.DEV', 'true')
     .replace('export default createAppRouter()', 'export default null')
   const devModule = await import(`data:text/javascript;base64,${Buffer.from(devSource).toString('base64')}#dev-routes`)

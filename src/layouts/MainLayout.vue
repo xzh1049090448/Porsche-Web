@@ -38,7 +38,7 @@
           </template>
         </el-menu>
       </MobileDrawer>
-      <main id="console-content" class="console-workspace" tabindex="-1"><router-view :key="userStore.identityEpoch" /></main>
+      <main id="console-content" class="console-workspace" tabindex="-1"><RouteViewTransition :identity-key="userStore.identityEpoch" focus-target="#console-content" /></main>
     </div>
   </el-container>
 </template>
@@ -58,6 +58,7 @@ import ThemeToggle from '@/components/ThemeToggle.vue'
 import LocaleToggle from '@/components/LocaleToggle.vue'
 import AuthStatus from '@/components/AuthStatus.vue'
 import RootNotificationBadge from '@/components/RootNotificationBadge.vue'
+import RouteViewTransition from '@/components/shell/RouteViewTransition.vue'
 import { useBreakpoint } from '@/composables/useBreakpoint'
 import { useI18n } from '@/composables/useI18n'
 import { installRuntimeRootGuard } from '@/router/runtime-root-guard.js'

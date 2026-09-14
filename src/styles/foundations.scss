@@ -66,6 +66,24 @@ a:hover {
   border: 0 !important;
 }
 
+.route-fade-enter-active {
+  transition: opacity 350ms ease;
+}
+
+.route-fade-leave-active {
+  transition: opacity 200ms ease;
+}
+
+.route-fade-enter-from,
+.route-fade-leave-to {
+  opacity: 0;
+}
+
+html.route-handoff-leaving #app {
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -74,5 +92,14 @@ a:hover {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .route-fade-enter-active,
+  .route-fade-leave-active {
+    transition-duration: 0.01ms;
+  }
+
+  html.route-handoff-leaving #app {
+    transition-duration: 0.01ms;
   }
 }

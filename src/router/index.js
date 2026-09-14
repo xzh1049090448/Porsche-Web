@@ -1,5 +1,6 @@
 import { createMemoryHistory, createRouter, createWebHistory } from 'vue-router'
 import { safeAuthRedirect } from '../utils/auth-redirect.js'
+import { createPageHandoff } from './page-transition.js'
 
 const mainLayout = () => import('@/layouts/MainLayout.vue')
 
@@ -168,11 +169,24 @@ export function createAppRouter(
   history = typeof window === 'undefined' ? createMemoryHistory() : createWebHistory(),
   options = {},
 ) {
-  const router = createRouter({ history, routes })
+  const matchMedia = options.matchMedia ?? (typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia.bind(window)
+    : () => ({ matches: false }))
+  const scrollBehavior = (to, _from, savedPosition) => {
+    if (savedPosition) return savedPosition
+    if (to.hash) return { el: to.hash, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }
+    return { top: 0 }
+  }
+  const router = createRouter({ history, routes, scrollBehavior })
   const mode = options.bootstrapMode ?? (typeof window === 'undefined' ? 'public' : bootstrapModeForPath(router, window.location.pathname))
+  const handoff = options.handoff ?? createPageHandoff({
+    document: options.document ?? (typeof document === 'undefined' ? undefined : document),
+    location: options.location ?? (typeof window === 'undefined' ? undefined : window.location),
+    matchMedia,
+  })
   installBootstrapHandoff(router, {
     mode,
-    handoff: options.handoff ?? (path => window.location.assign(path)),
+    handoff,
   })
   installAuthGuard(router, options.loadUserStore)
   let browserStorage = null

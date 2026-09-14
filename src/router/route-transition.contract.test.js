@@ -1449,13 +1449,7 @@ const parseCssRules = source => {
   parseScope(clean)
   return rules
 }
-const styleRoot = source => {
-  const parsed = vueCompiler.parse(source, { filename: 'route-transition-contract.vue' })
-  assert.deepEqual(parsed.errors, [], `component SFC must parse cleanly: ${parsed.errors.map(String).join('; ')}`)
-  const styles = parsed.descriptor.styles.map(style => style.content).join('\n')
-  assert.ok(styles, 'shared route transition must contain CSS')
-  return parseCssRules(styles)
-}
+const styleSheetRoot = source => parseCssRules(source).filter(rule => rule.selectors.some(selector => /route-fade/.test(selector)))
 const mediaQueryIsScreen = query => {
   if (/(?:^|\s|\()print(?:\s|$|\))/i.test(query) && !/not\s+print/i.test(query)) return false
   if (/not\s+screen/i.test(query)) return false
@@ -1711,7 +1705,7 @@ const assertImmediateReducedMotion = (rules, selector, widths) => {
 const effectiveProperty = (rules, selector, property, width, reduced = false) => effectiveProperties(rules, selector, width, reduced).get(property)
 
 test('shared route transition keys leaf views by fullPath and identity epoch', () => {
-  const transition = readRequired('../components/shell/RouteTransition.vue', 'shared route transition component')
+  const transition = readRequired('../components/shell/RouteViewTransition.vue', 'shared route transition component')
   const mainLayout = read('../layouts/MainLayout.vue')
   assert.ok(elements(transition, 'RouterView').some(node => node.props.some(prop => prop.type === 7 && prop.name === 'slot')), 'RouterView must expose its slot')
   const leaf = elements(transition, 'component').find(node => boundAttribute(node, 'is')?.trim() === 'Component')
@@ -1725,20 +1719,29 @@ test('shared route transition keys leaf views by fullPath and identity epoch', (
   assert.equal(keyComposesRouteIdentity(keyExpression, identityName, transition), true, 'rendered leaf :key must compose route.fullPath and identity epoch through a template, array, + chain, or verified helper')
   assert.equal(declaresComponentProp(transition, identityName), true, `${identityName} must be declared as a component prop`)
   assert.equal(shadowsComponentProp(transition, identityName), false, `${identityName} must come from the declared prop rather than an unrelated binding`)
-  const mainTransition = elements(mainLayout, 'RouteTransition')[0]
+  const mainTransition = elements(mainLayout, 'RouteViewTransition')[0]
   assert.ok(mainTransition, 'console layout must render the shared route transition')
   const identityAttribute = identityName === 'identityKey' ? 'identity-key' : 'identity-epoch'
   assert.equal(boundAttribute(mainTransition, identityAttribute)?.replace(/\s+/g, ''), 'userStore.identityEpoch', `console layout must pass userStore.identityEpoch into ${identityName}`)
+  assert.match(transition, /identityKey\s*:\s*\{[\s\S]*?type\s*:\s*\[\s*String\s*,\s*Number\s*\][\s\S]*?default\s*:\s*['"]['"]/)
+  assert.match(transition, /focusTarget\s*:\s*\{[\s\S]*?type\s*:\s*String[\s\S]*?required\s*:\s*true/)
+  const transitionNode = elements(transition, 'Transition')[0]
+  assert.equal(boundAttribute(transitionNode, 'onAfterEnter') || transitionNode.props.find(prop => prop.type === 7 && prop.name === 'on' && prop.arg?.content === 'after-enter')?.exp?.content, 'restoreFocus')
+  const restore = transition.match(/async\s+function\s+restoreFocus\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/)?.[1] || ''
+  assert.match(restore, /await\s+nextTick\(\)/, 'focus restoration waits for Vue nextTick')
+  assert.match(restore, /document\.querySelector\(focusTarget\)\?\.focus\(\{\s*preventScroll\s*:\s*true\s*\}\)/, 'focus restoration targets the active outlet without scrolling')
+  assert.doesNotMatch(transition, /useUserStore|fetch\(|axios|\.push\(|\.replace\(/, 'transition stays presentation-only')
 })
 
 test('route transition is opacity-only with approved timings and immediate reduced motion', () => {
-  const transition = readRequired('../components/shell/RouteTransition.vue', 'shared route transition component')
+  const transition = readRequired('../components/shell/RouteViewTransition.vue', 'shared route transition component')
+  const foundations = read('../styles/foundations.scss')
   const transitionNode = elements(transition, 'Transition')[0]
   assert.ok(transitionNode, 'shared route component must render Vue Transition')
   assert.equal(staticAttribute(transitionNode, 'mode'), 'out-in')
   const name = staticAttribute(transitionNode, 'name')
   assert.ok(name, 'Vue Transition must have a static CSS name')
-  const root = styleRoot(transition)
+  const root = styleSheetRoot(foundations)
   const widths = representativeScreenWidths(root)
   assertEveryPhaseOpacityOnly(root, name, widths)
   assertOpacityTransition(root, `.${name}-enter-active`, 350, widths)
@@ -1748,20 +1751,56 @@ test('route transition is opacity-only with approved timings and immediate reduc
   }
   assertImmediateReducedMotion(root, `.${name}-enter-active`, widths)
   assertImmediateReducedMotion(root, `.${name}-leave-active`, widths)
+  for (const rule of parseCssRules(foundations).filter(item => item.selectors.some(selector => /route-handoff/.test(selector)))) {
+    for (const { property } of rule.declarations) assert.ok(property === 'opacity' || property.startsWith('transition-') || property === 'transition', `hard handoff must not declare ${property}`)
+  }
 })
 
 test('public and authenticated shells reuse the shared transition component', () => {
+  const app = read('../App.vue')
   const publicLayout = read('../layouts/PublicLayout.vue')
   const authEntry = read('../bootstrap/AuthApp.vue')
   const mainLayout = read('../layouts/MainLayout.vue')
-  for (const [source, label] of [[publicLayout, 'public child outlet'], [authEntry, 'authenticated top-level outlet'], [mainLayout, 'console content outlet']]) assert.equal(importsComponent(source, '@/components/shell/RouteTransition.vue'), true, `${label} imports the shared transition`)
-  assert.equal(renderFunctionUsesComponent(publicLayout, '@/components/shell/RouteTransition.vue'), true, 'public child outlet uses the shared transition in its reachable render function')
-  assert.ok(elements(authEntry, 'RouteTransition').length > 0, 'authenticated entry renders the shared transition')
-  assert.ok(elements(mainLayout, 'RouteTransition').length > 0, 'console content renders the shared transition')
+  for (const [source, label] of [[app, 'public top-level outlet'], [publicLayout, 'public child outlet'], [authEntry, 'authenticated top-level outlet'], [mainLayout, 'console content outlet']]) assert.equal(importsComponent(source, '@/components/shell/RouteViewTransition.vue'), true, `${label} imports the shared transition`)
+  assert.equal(renderFunctionUsesComponent(publicLayout, '@/components/shell/RouteViewTransition.vue'), true, 'public child outlet uses the shared transition in its reachable render function')
+  assert.ok(elements(app, 'RouteViewTransition').some(node => staticAttribute(node, 'focus-target') === '#public-content'), 'public bootstrap restores the public main landmark')
+  assert.ok(elements(authEntry, 'RouteViewTransition').some(node => staticAttribute(node, 'focus-target') === '#console-content, .auth-page input'), 'authenticated bootstrap targets the visible console or auth control')
+  assert.match(publicLayout, /h\(RouteViewTransition,\s*\{\s*focusTarget:\s*['"]#public-content['"]\s*\}\)/, 'public child outlet restores the public main landmark')
+  const consoleTransition = elements(mainLayout, 'RouteViewTransition').find(node => staticAttribute(node, 'focus-target') === '#console-content')
+  assert.ok(consoleTransition, 'console content restores its main landmark')
+  assert.match(mainLayout, /<main[^>]+id="console-content"[^>]*>[\s\S]*<RouteViewTransition/, 'console wrapper stays inside the stable shell main landmark')
 })
 
 test('router preserves guarded cross-bootstrap handoff and explicit scroll behavior', async () => {
-  const { createAppRouter, installBootstrapHandoff } = await import('./index.js')
+  const [{ createAppRouter, installBootstrapHandoff }, { createPageHandoff }] = await Promise.all([import('./index.js'), import('./page-transition.js')])
+  const classes = []
+  const assigned = []
+  const timers = new Map()
+  const cleared = []
+  let nextTimer = 0
+  let reduced = false
+  const handoff = createPageHandoff({
+    document: { documentElement: { classList: { add: value => classes.push(value) } } },
+    location: { assign: path => assigned.push(path) },
+    matchMedia: query => ({ matches: reduced && query === '(prefers-reduced-motion: reduce)' }),
+    setTimer: (callback, delay) => { const id = ++nextTimer; timers.set(id, { callback, delay }); return id },
+    clearTimer: id => { cleared.push(id); timers.delete(id) },
+  })
+
+  handoff('/login')
+  assert.deepEqual(classes, ['route-handoff-leaving'])
+  assert.equal(timers.get(1)?.delay, 200)
+  handoff('/register?from=pricing')
+  assert.deepEqual(cleared, [1], 'a repeated handoff cancels the stale destination timer')
+  assert.equal(timers.get(2)?.delay, 200)
+  timers.get(2).callback()
+  assert.deepEqual(assigned, ['/register?from=pricing'], 'only the latest delayed path navigates')
+
+  reduced = true
+  handoff('/chat')
+  assert.deepEqual(assigned, ['/register?from=pricing', '/chat'], 'reduced motion navigates immediately')
+  assert.equal(timers.size, 1, 'reduced motion does not schedule another timer')
+
   for (const [configuration, label] of [
     [{ handoff() {} }, 'missing mode'],
     [{ mode: 'public' }, 'missing handoff'],
@@ -1782,6 +1821,7 @@ test('router preserves guarded cross-bootstrap handoff and explicit scroll behav
 
   const router = createAppRouter(createMemoryHistory(), {
     bootstrapMode: 'public', handoff() {},
+    matchMedia: () => ({ matches: false }),
     loadUserStore: async () => ({ ensureSession: async () => {}, isLoggedIn: false }),
   })
   const scroll = router.options.scrollBehavior
@@ -1789,7 +1829,12 @@ test('router preserves guarded cross-bootstrap handoff and explicit scroll behav
   const saved = { left: 12, top: 34 }
   assert.deepEqual(await scroll({ path: '/pricing', fullPath: '/pricing', hash: '' }, { path: '/', fullPath: '/', hash: '' }, saved), saved, 'pop navigation restores saved position')
   const hash = await scroll({ path: '/', fullPath: '/#faq', hash: '#faq' }, { path: '/pricing', fullPath: '/pricing', hash: '' }, null)
-  assert.equal(hash?.el, '#faq', 'hash navigation targets its anchor')
+  assert.deepEqual(hash, { el: '#faq', behavior: 'smooth' }, 'hash navigation targets its anchor smoothly')
+  const reducedRouter = createAppRouter(createMemoryHistory(), {
+    bootstrapMode: 'public', handoff() {}, matchMedia: () => ({ matches: true }),
+    loadUserStore: async () => ({ ensureSession: async () => {}, isLoggedIn: false }),
+  })
+  assert.deepEqual(await reducedRouter.options.scrollBehavior({ path: '/', fullPath: '/#faq', hash: '#faq' }, { path: '/pricing', fullPath: '/pricing', hash: '' }, null), { el: '#faq', behavior: 'auto' }, 'reduced motion uses immediate hash scrolling')
   const next = await scroll({ path: '/pricing', fullPath: '/pricing', hash: '' }, { path: '/', fullPath: '/', hash: '' }, null)
   assert.equal(next?.top, 0, 'new-route navigation starts at the top')
 })

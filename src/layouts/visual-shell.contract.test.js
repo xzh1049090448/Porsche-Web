@@ -52,6 +52,7 @@ async function mountedMainLayout() {
     ['@/components/shell/ConsoleSidebar.vue', sidebarStub], ['@/components/shell/AppBrand.vue', componentStub],
     ['@/components/LocaleToggle.vue', componentStub], ['@/components/AuthStatus.vue', componentStub],
     ['@/components/RootNotificationBadge.vue', componentStub], ['@/composables/useBreakpoint', breakpointStub],
+    ['@/components/shell/RouteViewTransition.vue', componentStub],
     ['@/composables/useI18n', i18nStub], ['@/router/runtime-root-guard.js', rootGuardStub],
     ['element-plus', elementStub],
   ])
@@ -109,7 +110,7 @@ test('authenticated navigation keeps users.read and Root visibility semantics', 
     '/admin/public-content',
     '/admin/notifications',
   ]) assert.match(mainLayout, new RegExp(path.replaceAll('/', '\\/')))
-  assert.match(mainLayout, /<router-view :key="userStore\.identityEpoch"/)
+  assert.match(mainLayout, /<RouteViewTransition :identity-key="userStore\.identityEpoch"/)
 
   const userStore = await read('../stores/user.js')
   assert.match(userStore, /const identityEpoch = ref\(authSession\.capture\(\)\.epoch\)/)
@@ -170,9 +171,10 @@ test('navigation mount restores every JSDOM global descriptor', () => {
 })
 
 test('application startup preserves public/auth bootstrap and recovery boundaries', async () => {
-  const [main, router] = await Promise.all([
+  const [main, router, pageTransition] = await Promise.all([
     read('../main.js'),
     read('../router/index.js'),
+    read('../router/page-transition.js'),
   ])
 
   assert.match(main, /bootstrapModeForPath\(router, window\.location\.pathname\)/)
@@ -180,7 +182,8 @@ test('application startup preserves public/auth bootstrap and recovery boundarie
   assert.match(main, /mountPublicApp:[\s\S]*createPinia\(\)/)
   assert.match(main, /createLazyLoadFailureHandler/)
   assert.match(main, /fallback:\s*\(\) => renderSafeLoadError\(\)/)
-  assert.match(router, /window\.location\.assign\(path\)/)
+  assert.match(router, /createPageHandoff/)
+  assert.match(pageTransition, /location\.assign\(path\)/)
   assert.match(router, /installBootstrapHandoff/)
   assert.match(router, /installLoadFailureRecovery/)
 })
