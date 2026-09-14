@@ -371,14 +371,39 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     }
     return 'unknown'
   }
+  const sequenceOptionEffects = effects => effects.includes('mustThrow') ? 'mustThrow' : effects.includes('mayThrow') ? 'mayThrow' : 'cannotThrow'
+  const alternativeOptionEffects = effects => effects.every(effect => effect === 'mustThrow') ? 'mustThrow' : effects.every(effect => effect === 'cannotThrow') ? 'cannotThrow' : 'mayThrow'
   const optionExpressionEffect = (expression, local, resolving = new Set(), chain = false) => {
     expression = unwrapScriptExpression(expression)
     if (!expression) return 'cannotThrow'
     if (expression.type === 'ChainExpression') return optionExpressionEffect(expression.expression, local, resolving, true)
-    if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'NullLiteral', 'BigIntLiteral', 'ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(expression.type)) return 'cannotThrow'
+    if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'NullLiteral', 'BigIntLiteral', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(expression.type)) return 'cannotThrow'
     if (expression.type === 'Identifier') return 'cannotThrow'
+    if (expression.type === 'ObjectExpression') return sequenceOptionEffects(expression.properties.flatMap(property => property.type === 'SpreadElement'
+      ? [optionExpressionEffect(property.argument, local, resolving)]
+      : [property.computed ? optionExpressionEffect(property.key, local, resolving) : 'cannotThrow', property.type === 'ObjectMethod' ? 'cannotThrow' : optionExpressionEffect(property.value, local, resolving)]))
+    if (expression.type === 'ArrayExpression') return sequenceOptionEffects(expression.elements.filter(Boolean).map(element => optionExpressionEffect(element.type === 'SpreadElement' ? element.argument : element, local, resolving)))
+    if (expression.type === 'ConditionalExpression') {
+      const testEffect = optionExpressionEffect(expression.test, local, resolving)
+      if (testEffect === 'mustThrow') return testEffect
+      const condition = optionStaticValue(expression.test)
+      const branchEffect = condition.known
+        ? optionExpressionEffect(condition.value ? expression.consequent : expression.alternate, local, resolving)
+        : alternativeOptionEffects([optionExpressionEffect(expression.consequent, local, resolving), optionExpressionEffect(expression.alternate, local, resolving)])
+      return sequenceOptionEffects([testEffect, branchEffect])
+    }
+    if (expression.type === 'LogicalExpression') {
+      const leftEffect = optionExpressionEffect(expression.left, local, resolving)
+      if (leftEffect === 'mustThrow') return leftEffect
+      const left = optionStaticValue(expression.left)
+      if (left.known) {
+        const usesRight = expression.operator === '&&' ? Boolean(left.value) : expression.operator === '||' ? !left.value : left.value == null
+        return sequenceOptionEffects([leftEffect, usesRight ? optionExpressionEffect(expression.right, local, resolving) : 'cannotThrow'])
+      }
+      return sequenceOptionEffects([leftEffect, alternativeOptionEffects(['cannotThrow', optionExpressionEffect(expression.right, local, resolving)])])
+    }
     if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) {
-      const receiverEffect = optionExpressionEffect(expression.object, local, resolving, chain || expression.type === 'OptionalMemberExpression')
+      const receiverEffect = sequenceOptionEffects([optionExpressionEffect(expression.object, local, resolving, chain || expression.type === 'OptionalMemberExpression'), expression.computed ? optionExpressionEffect(expression.property, local, resolving) : 'cannotThrow'])
       if (receiverEffect === 'mustThrow') return 'mustThrow'
       const receiver = optionNullish(expression.object, local, resolving, chain || expression.type === 'OptionalMemberExpression')
       if (receiver === 'short-circuit') return chain || expression.type === 'OptionalMemberExpression' ? receiverEffect : 'mustThrow'
@@ -387,22 +412,25 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
       return receiverEffect
     }
     if (['CallExpression', 'OptionalCallExpression'].includes(expression.type)) {
-      const calleeEffect = optionExpressionEffect(expression.callee, local, resolving, chain || expression.type === 'OptionalCallExpression')
+      const calleeEffect = sequenceOptionEffects([optionExpressionEffect(expression.callee, local, resolving, chain || expression.type === 'OptionalCallExpression'), ...expression.arguments.map(argument => optionExpressionEffect(argument.type === 'SpreadElement' ? argument.argument : argument, local, resolving))])
       if (calleeEffect === 'mustThrow') return 'mustThrow'
       const calleeNullish = optionNullish(expression.callee, local, resolving, chain || expression.type === 'OptionalCallExpression')
       if (((chain || expression.type === 'OptionalCallExpression') && calleeNullish === 'short-circuit') || (expression.optional && calleeNullish === 'nullish')) return calleeEffect
       const functions = optionFunctions(expression.callee, local, resolving)
-      if (functions.length && functions.every(fn => factoryOptionReturns(fn, expression.arguments, local).length > 0)) return 'cannotThrow'
-      return 'mayThrow'
+      const invocation = functions.length && functions.every(fn => factoryOptionReturns(fn, expression.arguments, local).length > 0) ? 'cannotThrow' : 'mayThrow'
+      return sequenceOptionEffects([calleeEffect, invocation])
     }
     if (expression.type === 'SequenceExpression') {
-      for (const item of expression.expressions) {
-        const effect = optionExpressionEffect(item, local, resolving)
-        if (effect !== 'cannotThrow') return effect
-      }
-      return 'cannotThrow'
+      return sequenceOptionEffects(expression.expressions.map(item => optionExpressionEffect(item, local, resolving)))
     }
-    return 'cannotThrow'
+    if (expression.type === 'AssignmentExpression') return sequenceOptionEffects([
+      ['MemberExpression', 'OptionalMemberExpression'].includes(unwrapScriptExpression(expression.left)?.type) ? optionExpressionEffect(expression.left, local, resolving) : 'cannotThrow',
+      optionExpressionEffect(expression.right, local, resolving),
+    ])
+    if (expression.type === 'TemplateLiteral') return sequenceOptionEffects(expression.expressions.map(item => optionExpressionEffect(item, local, resolving)))
+    if (expression.type === 'UnaryExpression' || expression.type === 'UpdateExpression' || expression.type === 'AwaitExpression') return optionExpressionEffect(expression.argument, local, resolving)
+    if (expression.type === 'BinaryExpression') return sequenceOptionEffects([optionExpressionEffect(expression.left, local, resolving), optionExpressionEffect(expression.right, local, resolving)])
+    return 'mayThrow'
   }
   const flowOptionStatements = (statements, initial, catches = false) => {
     let paths = [{ kind: 'normal', bindings: new Map(initial) }]
@@ -424,7 +452,7 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
         return result
       }
       if (statement.type === 'ExpressionStatement' && statement.expression?.type === 'AssignmentExpression' && statement.expression.operator === '=') {
-        const effect = optionExpressionEffect(statement.expression.right, bindings)
+        const effect = optionExpressionEffect(statement.expression, bindings)
         const result = []
         if (effect !== 'mustThrow') {
           const next = new Map(bindings)
@@ -435,10 +463,14 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
         return result
       }
       if (statement.type === 'IfStatement') {
+        const testEffect = optionExpressionEffect(statement.test, bindings)
+        if (testEffect === 'mustThrow') return catchesHere ? [{ kind: 'throw', bindings }] : []
         const condition = optionStaticValue(statement.test)
-        return condition.known
+        const results = condition.known
           ? flowOne(condition.value ? statement.consequent : statement.alternate, new Map(bindings), catchesHere)
           : [...flowOne(statement.consequent, new Map(bindings), catchesHere), ...flowOne(statement.alternate, new Map(bindings), catchesHere)]
+        if (catchesHere && testEffect === 'mayThrow') results.push({ kind: 'throw', bindings })
+        return results
       }
       if (statement.type === 'TryStatement') {
         let results = flowOne(statement.block, bindings, true).flatMap(path => path.kind === 'throw' && statement.handler
@@ -471,7 +503,7 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
         }
       }
       else if (statement.type === 'ExpressionStatement' && statement.expression?.type === 'AssignmentExpression' && statement.expression.operator === '=') {
-        if (optionExpressionEffect(statement.expression.right, target) === 'mustThrow') return false
+        if (optionExpressionEffect(statement.expression, target) === 'mustThrow') return false
         bindOptionPattern(statement.expression.left, statement.expression.right, target)
       }
       else if (statement.type === 'ExpressionStatement' && optionExpressionEffect(statement.expression, target) === 'mustThrow') return false
@@ -485,6 +517,7 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
         target.clear(); for (const [name, values] of merged) target.set(name, values)
       }
       else if (statement.type === 'IfStatement') {
+        if (optionExpressionEffect(statement.test, target) === 'mustThrow') return false
         const condition = optionStaticValue(statement.test)
         if (condition.known) {
           const branch = condition.value ? statement.consequent : statement.alternate
@@ -723,14 +756,40 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     const value = staticValue(node)
     return [{ node, kind: value.known && !value.value ? 'nullish' : 'unknown', truthy: value.known ? Boolean(value.value) : undefined }]
   }
+  const sequenceRenderEffects = effects => effects.includes('mustThrow') ? 'mustThrow' : effects.includes('mayThrow') ? 'mayThrow' : 'cannotThrow'
+  const alternativeRenderEffects = effects => effects.every(effect => effect === 'mustThrow') ? 'mustThrow' : effects.every(effect => effect === 'cannotThrow') ? 'cannotThrow' : 'mayThrow'
   const renderExpressionEffect = (node, chain = false) => {
     node = unwrapScriptExpression(node)
     if (!node) return 'cannotThrow'
     if (node.type === 'ChainExpression') return renderExpressionEffect(node.expression, true)
-    if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'NullLiteral', 'BigIntLiteral', 'ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod', 'Identifier'].includes(node.type)) return 'cannotThrow'
+    if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'NullLiteral', 'BigIntLiteral', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod', 'Identifier'].includes(node.type)) return 'cannotThrow'
+    if (node.type === 'ObjectExpression') return sequenceRenderEffects(node.properties.flatMap(property => property.type === 'SpreadElement'
+      ? [renderExpressionEffect(property.argument)]
+      : [property.computed ? renderExpressionEffect(property.key) : 'cannotThrow', property.type === 'ObjectMethod' ? 'cannotThrow' : renderExpressionEffect(property.value)]))
+    if (node.type === 'ArrayExpression') return sequenceRenderEffects(node.elements.filter(Boolean).map(element => renderExpressionEffect(element.type === 'SpreadElement' ? element.argument : element)))
+    if (node.type === 'ConditionalExpression') {
+      const testEffect = renderExpressionEffect(node.test)
+      if (testEffect === 'mustThrow') return testEffect
+      const condition = staticValue(node.test)
+      const branchEffect = condition.known
+        ? renderExpressionEffect(condition.value ? node.consequent : node.alternate)
+        : alternativeRenderEffects([renderExpressionEffect(node.consequent), renderExpressionEffect(node.alternate)])
+      return sequenceRenderEffects([testEffect, branchEffect])
+    }
+    if (node.type === 'LogicalExpression') {
+      const leftEffect = renderExpressionEffect(node.left)
+      if (leftEffect === 'mustThrow') return leftEffect
+      const left = staticValue(node.left)
+      if (left.known) {
+        const usesRight = node.operator === '&&' ? Boolean(left.value) : node.operator === '||' ? !left.value : left.value == null
+        return sequenceRenderEffects([leftEffect, usesRight ? renderExpressionEffect(node.right) : 'cannotThrow'])
+      }
+      return sequenceRenderEffects([leftEffect, alternativeRenderEffects(['cannotThrow', renderExpressionEffect(node.right)])])
+    }
+    if (node.type === 'SequenceExpression') return sequenceRenderEffects(node.expressions.map(item => renderExpressionEffect(item)))
     if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
       const object = unwrapScriptExpression(node.object)
-      const nested = renderExpressionEffect(node.object, chain || node.type === 'OptionalMemberExpression')
+      const nested = sequenceRenderEffects([renderExpressionEffect(node.object, chain || node.type === 'OptionalMemberExpression'), node.computed ? renderExpressionEffect(node.property) : 'cannotThrow'])
       if (nested === 'mustThrow') return 'mustThrow'
       const nullish = object?.type === 'NullLiteral' || object?.type === 'Identifier' && object.name === 'undefined' || object?.type === 'UnaryExpression' && object.operator === 'void'
       if (nullish) return node.optional ? nested : nested === 'cannotThrow' ? 'mustThrow' : 'mayThrow'
@@ -738,10 +797,18 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     }
     if (['CallExpression', 'OptionalCallExpression'].includes(node.type)) {
       const callee = unwrapScriptExpression(node.callee)
-      if (callee?.type === 'Identifier' && renderNames.has(callee.name)) return 'cannotThrow'
-      return 'mayThrow'
+      const operands = sequenceRenderEffects([renderExpressionEffect(node.callee, chain || node.type === 'OptionalCallExpression'), ...node.arguments.map(argument => renderExpressionEffect(argument.type === 'SpreadElement' ? argument.argument : argument))])
+      if (operands === 'mustThrow') return operands
+      return sequenceRenderEffects([operands, callee?.type === 'Identifier' && renderNames.has(callee.name) ? 'cannotThrow' : 'mayThrow'])
     }
-    return 'cannotThrow'
+    if (node.type === 'AssignmentExpression') return sequenceRenderEffects([
+      ['MemberExpression', 'OptionalMemberExpression'].includes(unwrapScriptExpression(node.left)?.type) ? renderExpressionEffect(node.left) : 'cannotThrow',
+      renderExpressionEffect(node.right),
+    ])
+    if (node.type === 'TemplateLiteral') return sequenceRenderEffects(node.expressions.map(item => renderExpressionEffect(item)))
+    if (node.type === 'UnaryExpression' || node.type === 'UpdateExpression' || node.type === 'AwaitExpression') return renderExpressionEffect(node.argument)
+    if (node.type === 'BinaryExpression') return sequenceRenderEffects([renderExpressionEffect(node.left), renderExpressionEffect(node.right)])
+    return 'mayThrow'
   }
   const returns = body => {
     body = unwrapScriptExpression(body)
@@ -763,8 +830,12 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
       }
       if (node.type === 'ThrowStatement') return [{ kind: 'throw' }]
       if (node.type === 'IfStatement') {
+        const testEffect = renderExpressionEffect(node.test)
+        if (testEffect === 'mustThrow') return catches ? [{ kind: 'throw' }] : []
         const condition = staticValue(node.test)
-        return condition.known ? one(condition.value ? node.consequent : node.alternate, catches) : [...one(node.consequent, catches), ...one(node.alternate, catches)]
+        const paths = condition.known ? one(condition.value ? node.consequent : node.alternate, catches) : [...one(node.consequent, catches), ...one(node.alternate, catches)]
+        if (catches && testEffect === 'mayThrow') paths.push({ kind: 'throw' })
+        return paths
       }
       if (node.type === 'TryStatement') {
         let paths = one(node.block, true).flatMap(path => path.kind === 'throw' && node.handler ? one(node.handler.body, false) : [path])
