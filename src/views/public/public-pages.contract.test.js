@@ -247,12 +247,51 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
                   const definitelyObject = ['ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(receiverNode?.type)
                   const primitive = value !== unknownStaticValue && value != null || receiverNode?.type === 'BigIntLiteral'
                     || receiverNode?.type === 'CallExpression' && receiverNode.callee?.type === 'Identifier' && receiverNode.callee.name === 'Symbol'
-                  return value !== unknownStaticValue && value == null ? [{ kind: 'throw', bindings: candidate.bindings }] : [{ ...candidate, receiver: definitelyObject ? 'object' : primitive ? 'primitive' : 'unknown' }]
+                  return value !== unknownStaticValue && value == null ? [{ kind: 'throw', bindings: candidate.bindings }] : [{ ...candidate, receiverValue: candidate.value, receiver: definitelyObject ? 'object' : primitive ? 'primitive' : 'unknown' }]
                 })
                 if (expression.left.computed) references = references.flatMap(candidate => candidate.kind === 'normal'
-                  ? caseExpressionPaths(expression.left.property, candidate.bindings).map(propertyPath => ({ ...propertyPath, value: undefined }))
+                  ? caseExpressionPaths(expression.left.property, candidate.bindings).map(propertyPath => ({ ...candidate, ...propertyPath, receiverValue: candidate.receiverValue, propertyValue: propertyPath.value, value: undefined }))
                   : [candidate])
-                references = references.map(candidate => candidate.kind === 'normal' ? { ...candidate, currentValue: substitute(expression.left, candidate.bindings) } : candidate)
+                const inheritedKeys = new Set(['constructor', 'toString', 'toLocaleString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable', '__proto__'])
+                const memberValue = candidate => {
+                  const property = expression.left.computed ? staticValue(candidate.propertyValue) : expression.left.property?.name
+                  if (property === unknownStaticValue) return substitute(expression.left, candidate.bindings)
+                  const key = String(property)
+                  const read = (node, resolving = new Set()) => {
+                    node = unwrapExpression(node)
+                    if (node?.type === 'Identifier' && candidate.bindings.has(node.name) && !resolving.has(node.name)) return read(candidate.bindings.get(node.name), new Set(resolving).add(node.name))
+                    if (node?.type === 'ArrayExpression' && /^\d+$/.test(key)) return node.elements[Number(key)] ?? { type: 'Identifier', name: 'undefined' }
+                    if (node?.type === 'ArrayExpression' && key === 'length') return { type: 'NumericLiteral', value: node.elements.length }
+                    if (node?.type === 'ArrayExpression' && inheritedKeys.has(key)) return { type: 'BooleanLiteral', value: true }
+                    if (node?.type === 'ObjectExpression') {
+                      let selected = { type: 'Identifier', name: 'undefined' }
+                      for (const item of node.properties) {
+                        if (item.type === 'SpreadElement') {
+                          const spread = read(item.argument, resolving)
+                          if (spread === undefined) selected = undefined
+                          else if (!(spread.type === 'Identifier' && spread.name === 'undefined')) selected = spread
+                        } else {
+                          const itemKey = item.computed ? staticValue(substitute(item.key, candidate.bindings)) : staticPropertyKey(item.key)
+                          if (itemKey === unknownStaticValue || itemKey === undefined) selected = undefined
+                          else if (String(itemKey) === key) selected = propertyExpression(item)
+                        }
+                      }
+                      return selected?.type === 'Identifier' && selected.name === 'undefined' && inheritedKeys.has(key) ? { type: 'BooleanLiteral', value: true } : selected
+                    }
+                    const primitive = staticValue(node)
+                    if (primitive !== unknownStaticValue && primitive != null) {
+                      if (typeof primitive === 'string' && key === 'length') return { type: 'NumericLiteral', value: primitive.length }
+                      return inheritedKeys.has(key) ? { type: 'BooleanLiteral', value: true } : { type: 'Identifier', name: 'undefined' }
+                    }
+                    return undefined
+                  }
+                  const selected = read(candidate.receiverValue)
+                  if (selected !== undefined) return selected
+                  return candidate.receiver === 'primitive'
+                    ? inheritedKeys.has(key) ? { type: 'BooleanLiteral', value: true } : { type: 'Identifier', name: 'undefined' }
+                    : substitute(expression.left, candidate.bindings)
+                }
+                references = references.map(candidate => candidate.kind === 'normal' ? { ...candidate, currentValue: memberValue(candidate) } : candidate)
               }
               const write = reference => caseExpressionPaths(expression.right, reference.bindings).flatMap(candidate => {
                 if (candidate.kind !== 'normal') return [candidate]

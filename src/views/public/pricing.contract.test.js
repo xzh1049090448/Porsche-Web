@@ -1240,12 +1240,27 @@ const staticBindingInitializers = (value, importer) => {
                     || receiverNode?.type === 'CallExpression' && receiverNode.callee?.type === 'Identifier' && receiverNode.callee.name === 'Symbol'
                   return ['nullish', 'short-circuit'].includes(nullish)
                     ? [{ kind: 'throw', expression: unknownThrown, replacements: candidate.replacements, environment: candidate.environment }]
-                    : [{ ...candidate, receiver: primitive ? 'primitive' : nullish === 'nonnull' ? 'object' : 'unknown' }]
+                    : [{ ...candidate, receiverValue: candidate.value, receiver: primitive ? 'primitive' : nullish === 'nonnull' ? 'object' : 'unknown' }]
                 })
                 if (expression.left.computed) references = references.flatMap(candidate => candidate.kind === 'normal'
-                  ? caseExpressionPaths(expression.left.property, candidate.replacements, candidate.environment).map(propertyPath => ({ ...propertyPath, value: undefined }))
+                  ? caseExpressionPaths(expression.left.property, candidate.replacements, candidate.environment).map(propertyPath => ({ ...candidate, ...propertyPath, receiverValue: candidate.receiverValue, propertyValue: propertyPath.value, value: undefined }))
                   : [candidate])
-                references = references.map(candidate => candidate.kind === 'normal' ? { ...candidate, currentValue: substituteFactoryBindings(expression.left, candidate.replacements) } : candidate)
+                const inheritedKeys = new Set(['constructor', 'toString', 'toLocaleString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable', '__proto__'])
+                references = references.map(candidate => {
+                  if (candidate.kind !== 'normal') return candidate
+                  const property = expression.left.computed ? boundStaticValue(candidate.propertyValue, candidate.environment) : expression.left.property?.name
+                  if (property === unknownStaticValue) return { ...candidate, currentValue: substituteFactoryBindings(expression.left, candidate.replacements) }
+                  const key = String(property)
+                  const receiver = substituteFactoryBindings(candidate.receiverValue, candidate.replacements)
+                  let selected = factorySelection(receiver, key, candidate.environment)
+                  if (selected.missing && inheritedKeys.has(key)) selected = { value: { type: 'BooleanLiteral', value: true } }
+                  const primitive = boundStaticValue(receiver, candidate.environment)
+                  if (selected.unknown && (primitive !== unknownStaticValue && primitive != null || candidate.receiver === 'primitive')) {
+                    if (typeof primitive === 'string' && key === 'length') selected = { value: { type: 'NumericLiteral', value: primitive.length } }
+                    else selected = inheritedKeys.has(key) ? { value: { type: 'BooleanLiteral', value: true } } : { missing: true }
+                  }
+                  return { ...candidate, currentValue: selected.value ?? (selected.missing ? { type: 'Identifier', name: 'undefined' } : substituteFactoryBindings(expression.left, candidate.replacements)) }
+                })
               }
               const write = reference => caseExpressionPaths(expression.right, reference.replacements, reference.environment).flatMap(candidate => {
                 if (candidate.kind !== 'normal') return [candidate]

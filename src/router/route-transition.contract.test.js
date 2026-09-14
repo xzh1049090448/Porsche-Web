@@ -355,12 +355,54 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
                 const definitelyObject = ['ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(receiverNode?.type)
                 const primitive = value.known && value.value != null || receiverNode?.type === 'BigIntLiteral'
                   || receiverNode?.type === 'CallExpression' && receiverNode.callee?.type === 'Identifier' && receiverNode.callee.name === 'Symbol'
-                return value.known && value.value == null ? [{ kind: 'throw', local: candidate.local }] : [{ ...candidate, receiver: definitelyObject ? 'object' : primitive ? 'primitive' : 'unknown' }]
+                return value.known && value.value == null ? [{ kind: 'throw', local: candidate.local }] : [{ ...candidate, receiverValue: candidate.value, receiver: definitelyObject ? 'object' : primitive ? 'primitive' : 'unknown' }]
               })
               if (expression.left.computed) references = references.flatMap(candidate => candidate.kind === 'normal'
-                ? caseExpressionPaths(expression.left.property, candidate.local).map(propertyPath => ({ ...propertyPath, value: undefined }))
+                ? caseExpressionPaths(expression.left.property, candidate.local).map(propertyPath => ({ ...candidate, ...propertyPath, receiverValue: candidate.receiverValue, propertyValue: propertyPath.value, value: undefined }))
                 : [candidate])
-              references = references.map(candidate => candidate.kind === 'normal' ? { ...candidate, currentValue: materializeOption(expression.left, candidate.local) } : candidate)
+              const inheritedKeys = new Set(['constructor', 'toString', 'toLocaleString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable', '__proto__'])
+              const memberValue = candidate => {
+                const property = expression.left.computed ? optionStaticValue(candidate.propertyValue) : { known: true, value: expression.left.property?.name }
+                if (!property.known) return materializeOption(expression.left, candidate.local)
+                const key = String(property.value)
+                const select = (node, resolving = new Set()) => {
+                  node = unwrapScriptExpression(node)
+                  if (node?.type === 'Identifier' && candidate.local.has(node.name) && !resolving.has(node.name)) {
+                    const values = candidate.local.get(node.name)
+                    return values.length === 1 ? select(values[0], new Set(resolving).add(node.name)) : undefined
+                  }
+                  if (node?.type === 'ArrayExpression' && /^\d+$/.test(key)) return node.elements[Number(key)] ?? missingOptionValue
+                  if (node?.type === 'ArrayExpression' && key === 'length') return { type: 'NumericLiteral', value: node.elements.length }
+                  if (node?.type === 'ArrayExpression' && inheritedKeys.has(key)) return { type: 'BooleanLiteral', value: true }
+                  if (node?.type === 'ObjectExpression') {
+                    let selected = missingOptionValue
+                    for (const item of node.properties) {
+                      if (item.type === 'SpreadElement') {
+                        const spread = select(item.argument, resolving)
+                        if (spread === undefined) selected = undefined
+                        else if (spread !== missingOptionValue) selected = spread
+                      } else {
+                        const itemKey = item.computed ? optionStaticValue(materializeOption(item.key, candidate.local)) : { known: true, value: scriptPropertyName(item) }
+                        if (!itemKey.known) selected = undefined
+                        else if (String(itemKey.value) === key) selected = item.type === 'ObjectMethod' ? item : item.value
+                      }
+                    }
+                    return selected === missingOptionValue && inheritedKeys.has(key) ? { type: 'BooleanLiteral', value: true } : selected
+                  }
+                  const primitive = optionStaticValue(node)
+                  if (primitive.known && primitive.value != null) {
+                    if (typeof primitive.value === 'string' && key === 'length') return { type: 'NumericLiteral', value: primitive.value.length }
+                    return inheritedKeys.has(key) ? { type: 'BooleanLiteral', value: true } : missingOptionValue
+                  }
+                  return undefined
+                }
+                const selected = select(candidate.receiverValue)
+                if (selected !== undefined) return selected
+                return candidate.receiver === 'primitive'
+                  ? inheritedKeys.has(key) ? { type: 'BooleanLiteral', value: true } : missingOptionValue
+                  : materializeOption(expression.left, candidate.local)
+              }
+              references = references.map(candidate => candidate.kind === 'normal' ? { ...candidate, currentValue: memberValue(candidate) } : candidate)
             }
             const write = reference => caseExpressionPaths(expression.right, reference.local).flatMap(candidate => {
               if (candidate.kind !== 'normal') return [candidate]
