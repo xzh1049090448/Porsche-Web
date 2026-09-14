@@ -7,7 +7,7 @@
 
 .pricing-heading { max-width: 760px; }
 .pricing-heading h1,
-.pricing-detail-title { margin: 8px 0; font-size: var(--font-size-section-title); line-height: 1.05; letter-spacing: -.035em; }
+.pricing-detail-title { margin: 8px 0; font-size: var(--font-size-page-title); line-height: 1.05; letter-spacing: -.035em; }
 .pricing-heading p { color: var(--public-muted); font-size: var(--font-size-body); }
 .pricing-disclaimer,
 .detail-disclaimer { margin: 22px 0; padding: 14px 18px; border-left: 4px solid var(--public-primary); border-radius: 8px; background: color-mix(in srgb, var(--public-primary) 8%, var(--public-card)); color: var(--public-text); font-size: 13px; }

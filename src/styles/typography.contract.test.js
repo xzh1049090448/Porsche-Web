@@ -1340,7 +1340,8 @@ test('public pages map hero, section and supporting copy to the shared typograph
   assertMapping(publicContent, '.public-content-section__heading h2', 'font-size', 'var(--font-size-section-title)', 'public section headings use the section-title token')
   assertMapping(publicContent, '.public-not-found__status', 'font-size', 'var(--font-size-section-title)', 'public not-found status stays below the homepage hero scale')
   assertMapping(publicShell, '.public-hero h1', 'font-size', 'var(--font-size-hero-mobile)', 'mobile hero uses the hero-mobile token', mobileWidths)
-  assertMapping(publicPricing, '.pricing-heading h1', 'font-size', 'var(--font-size-section-title)', 'pricing headings use the section-title token')
+  assertMapping(publicPricing, '.pricing-heading h1', 'font-size', 'var(--font-size-page-title)', 'pricing headings use the compact page-title token')
+  assertMapping(publicPricing, '.pricing-detail-title', 'font-size', 'var(--font-size-page-title)', 'pricing detail headings use the compact page-title token')
   assertMapping(publicPricing, '.pricing-heading p', 'font-size', 'var(--font-size-body)', 'pricing supporting copy uses the body token')
 })
 
