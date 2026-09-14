@@ -237,28 +237,40 @@ const renderedComponentIsWired = (value, _name, expectedFile) => {
               for (const item of expression.expressions) paths = paths.flatMap(candidate => candidate.kind === 'normal' ? caseExpressionPaths(item, candidate.bindings) : [candidate])
               return paths
             }
-            if (expression?.type === 'AssignmentExpression' && expression.operator === '=') {
-              let references = [{ kind: 'normal', bindings: new Map(currentBindings) }]
+            if (expression?.type === 'AssignmentExpression' && ['=', '&&=', '||=', '??='].includes(expression.operator)) {
+              let references = [{ kind: 'normal', bindings: new Map(currentBindings), receiver: 'identifier', currentValue: substitute(expression.left, currentBindings) }]
               if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.left?.type)) {
                 references = caseExpressionPaths(expression.left.object, currentBindings).flatMap(candidate => {
                   if (candidate.kind !== 'normal') return [candidate]
                   const value = staticValue(candidate.value)
-                  const definitelyObject = ['ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(unwrapExpression(candidate.value)?.type)
-                  if (value !== unknownStaticValue && value == null) return [{ kind: 'throw', bindings: candidate.bindings }]
-                  const paths = [{ kind: 'normal', bindings: candidate.bindings }]
-                  if (value === unknownStaticValue && !definitelyObject && catches) paths.push({ kind: 'throw', bindings: new Map(candidate.bindings) })
-                  return paths
+                  const receiverNode = unwrapExpression(candidate.value)
+                  const definitelyObject = ['ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(receiverNode?.type)
+                  const primitive = value !== unknownStaticValue && value != null || receiverNode?.type === 'BigIntLiteral'
+                    || receiverNode?.type === 'CallExpression' && receiverNode.callee?.type === 'Identifier' && receiverNode.callee.name === 'Symbol'
+                  return value !== unknownStaticValue && value == null ? [{ kind: 'throw', bindings: candidate.bindings }] : [{ ...candidate, receiver: definitelyObject ? 'object' : primitive ? 'primitive' : 'unknown' }]
                 })
                 if (expression.left.computed) references = references.flatMap(candidate => candidate.kind === 'normal'
                   ? caseExpressionPaths(expression.left.property, candidate.bindings).map(propertyPath => ({ ...propertyPath, value: undefined }))
                   : [candidate])
+                references = references.map(candidate => candidate.kind === 'normal' ? { ...candidate, currentValue: substitute(expression.left, candidate.bindings) } : candidate)
               }
-              return references.flatMap(reference => reference.kind === 'normal' ? caseExpressionPaths(expression.right, reference.bindings).map(candidate => {
-                if (candidate.kind !== 'normal') return candidate
+              const write = reference => caseExpressionPaths(expression.right, reference.bindings).flatMap(candidate => {
+                if (candidate.kind !== 'normal') return [candidate]
                 const next = new Map(candidate.bindings)
                 bind(expression.left, candidate.value, next)
-                return { ...candidate, bindings: next }
-              }) : [reference])
+                const success = { ...candidate, bindings: next }
+                if (['nullish', 'primitive'].includes(reference.receiver)) return [{ kind: 'throw', bindings: next }]
+                return reference.receiver === 'unknown' && catches ? [success, { kind: 'throw', bindings: new Map(next) }] : [success]
+              })
+              return references.flatMap(reference => {
+                if (reference.kind !== 'normal') return [reference]
+                if (expression.operator === '=') return write(reference)
+                let current = staticValue(reference.currentValue)
+                if (current === unknownStaticValue && ['ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration'].includes(unwrapExpression(reference.currentValue)?.type)) current = true
+                const writes = current !== unknownStaticValue && (expression.operator === '&&=' ? Boolean(current) : expression.operator === '||=' ? !current : current == null)
+                if (current !== unknownStaticValue) return writes ? write(reference) : [{ ...reference, value: reference.currentValue }]
+                return [{ ...reference, value: reference.currentValue }, ...write({ ...reference, bindings: new Map(reference.bindings) })]
+              })
             }
             if (expression?.type === 'ConditionalExpression') return caseExpressionPaths(expression.test, currentBindings).flatMap(candidate => {
               if (candidate.kind !== 'normal') return [candidate]

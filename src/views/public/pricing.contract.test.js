@@ -1227,28 +1227,44 @@ const staticBindingInitializers = (value, importer) => {
               for (const item of expression.expressions) paths = paths.flatMap(candidate => candidate.kind === 'normal' ? caseExpressionPaths(item, candidate.replacements, candidate.environment) : [candidate])
               return paths
             }
-            if (expression?.type === 'AssignmentExpression' && expression.operator === '=') {
-              let references = [{ kind: 'normal', replacements: new Map(currentReplacements), environment: new Map(currentEnvironment) }]
+            if (expression?.type === 'AssignmentExpression' && ['=', '&&=', '||=', '??='].includes(expression.operator)) {
+              let references = [{ kind: 'normal', replacements: new Map(currentReplacements), environment: new Map(currentEnvironment), receiver: 'identifier', currentValue: substituteFactoryBindings(expression.left, currentReplacements) }]
               if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.left?.type)) {
                 references = caseExpressionPaths(expression.left.object, currentReplacements, currentEnvironment).flatMap(candidate => {
                   if (candidate.kind !== 'normal') return [candidate]
                   const nullish = expressionNullish(candidate.value, candidate.environment)
-                  if (['nullish', 'short-circuit'].includes(nullish)) return [{ kind: 'throw', expression: unknownThrown, replacements: candidate.replacements, environment: candidate.environment }]
-                  const paths = [{ kind: 'normal', replacements: candidate.replacements, environment: candidate.environment }]
-                  if (nullish === 'unknown' && catchesUnknown) paths.push({ kind: 'throw', expression: unknownThrown, replacements: new Map(candidate.replacements), environment: new Map(candidate.environment) })
-                  return paths
+                  const receiverNode = unwrapExpression(candidate.value)
+                  const receiverStatic = boundStaticValue(candidate.value, candidate.environment)
+                  const primitive = receiverStatic !== unknownStaticValue && receiverStatic != null
+                    || ['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'BigIntLiteral'].includes(receiverNode?.type)
+                    || receiverNode?.type === 'CallExpression' && receiverNode.callee?.type === 'Identifier' && receiverNode.callee.name === 'Symbol'
+                  return ['nullish', 'short-circuit'].includes(nullish)
+                    ? [{ kind: 'throw', expression: unknownThrown, replacements: candidate.replacements, environment: candidate.environment }]
+                    : [{ ...candidate, receiver: primitive ? 'primitive' : nullish === 'nonnull' ? 'object' : 'unknown' }]
                 })
                 if (expression.left.computed) references = references.flatMap(candidate => candidate.kind === 'normal'
                   ? caseExpressionPaths(expression.left.property, candidate.replacements, candidate.environment).map(propertyPath => ({ ...propertyPath, value: undefined }))
                   : [candidate])
+                references = references.map(candidate => candidate.kind === 'normal' ? { ...candidate, currentValue: substituteFactoryBindings(expression.left, candidate.replacements) } : candidate)
               }
-              return references.flatMap(reference => reference.kind === 'normal' ? caseExpressionPaths(expression.right, reference.replacements, reference.environment).map(candidate => {
-                if (candidate.kind !== 'normal') return candidate
+              const write = reference => caseExpressionPaths(expression.right, reference.replacements, reference.environment).flatMap(candidate => {
+                if (candidate.kind !== 'normal') return [candidate]
                 const nextEnvironment = new Map(candidate.environment)
                 const nextReplacements = new Map(candidate.replacements)
                 bindFactoryPattern(expression.left, candidate.value, nextEnvironment, nextReplacements)
-                return { ...candidate, environment: nextEnvironment, replacements: nextReplacements }
-              }) : [reference])
+                const success = { ...candidate, environment: nextEnvironment, replacements: nextReplacements }
+                if (['nullish', 'primitive'].includes(reference.receiver)) return [{ kind: 'throw', expression: unknownThrown, environment: nextEnvironment, replacements: nextReplacements }]
+                return reference.receiver === 'unknown' && catchesUnknown ? [success, { kind: 'throw', expression: unknownThrown, environment: new Map(nextEnvironment), replacements: new Map(nextReplacements) }] : [success]
+              })
+              return references.flatMap(reference => {
+                if (reference.kind !== 'normal') return [reference]
+                if (expression.operator === '=') return write(reference)
+                let current = boundStaticValue(reference.currentValue, reference.environment)
+                if (current === unknownStaticValue && ['ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(unwrapExpression(reference.currentValue)?.type)) current = true
+                const writes = current !== unknownStaticValue && (expression.operator === '&&=' ? Boolean(current) : expression.operator === '||=' ? !current : current == null)
+                if (current !== unknownStaticValue) return writes ? write(reference) : [{ ...reference, value: reference.currentValue }]
+                return [{ ...reference, value: reference.currentValue }, ...write({ ...reference, environment: new Map(reference.environment), replacements: new Map(reference.replacements) })]
+              })
             }
             if (expression?.type === 'ConditionalExpression') return caseExpressionPaths(expression.test, currentReplacements, currentEnvironment).flatMap(candidate => {
               if (candidate.kind !== 'normal') return [candidate]
@@ -1329,7 +1345,7 @@ const staticBindingInitializers = (value, importer) => {
       const effect = optionGetterEffect(getter, local, resolving)
       const completions = setupReturns(getter.body, new Map(local), true)
       const values = completions.filter(path => path.kind === 'return' && path.expression).map(path => ({ value: path.expression, environment: path.environment }))
-      return { effect, values, fallsThrough: completions.some(path => path.kind === 'normal') }
+      return { effect, values, incomplete: completions.some(path => path.kind !== 'return') }
     }
     const resolvedLocalValues = (expression, local, resolving = new Set()) => {
       expression = unwrapExpression(expression)
@@ -1616,7 +1632,7 @@ const staticBindingInitializers = (value, importer) => {
         if (selected.getter) {
           const result = optionGetterValues(selected.getter, local, resolving)
           const states = result.values.flatMap(path => objectStates(path.value, path.environment, new Set(resolving).add(selected.getter)))
-          return result.effect === 'cannotThrow' && !result.fallsThrough ? states : result.effect === 'mustThrow' ? [{ map: new Map(), unknown: true }] : states.concat({ map: new Map(), unknown: true })
+          return result.effect === 'cannotThrow' && !result.incomplete ? states : result.effect === 'mustThrow' ? [{ map: new Map(), unknown: true }] : states.concat({ map: new Map(), unknown: true })
         }
         return selected.value ? objectStates(selected.value, local, resolving) : [{ map: new Map(), unknown: true }]
       }
@@ -1646,7 +1662,7 @@ const staticBindingInitializers = (value, importer) => {
           if (value?.type === 'ObjectMethod' && value.kind === 'get') {
             const getter = optionGetterValues(value, local)
             values.push(...getter.values.map(path => path.value))
-            if (getter.effect !== 'cannotThrow' || getter.fallsThrough) { uncertain = true; invalidOptionsExport = true }
+            if (getter.effect !== 'cannotThrow' || getter.incomplete) { uncertain = true; invalidOptionsExport = true }
           } else values.push(value)
         }
         else if (state.unknown) uncertain = true
