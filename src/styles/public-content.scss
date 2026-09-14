@@ -16,7 +16,7 @@
 .capability-preview__cards i { min-height: 105px; border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: linear-gradient(145deg, var(--surface-card), var(--surface-hover)); }
 .public-content-section { padding: 88px 0; scroll-margin-top: 76px; }
 .public-content-section__heading { max-width: 720px; margin-bottom: 30px; }
-.public-content-section__heading h2 { margin: 0; font-size: clamp(28px, 4vw, 40px); letter-spacing: -.03em; }
+.public-content-section__heading h2 { margin: 0; font-size: var(--font-size-section-title); letter-spacing: -.03em; }
 .public-benefit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
 .public-benefit-grid .public-card { min-height: 180px; }
 .public-model-wall a { transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
@@ -24,7 +24,7 @@
 .public-document { max-width: 960px; }
 .public-document__header { padding-bottom: 28px; border-bottom: 1px solid var(--border-default); }
 .public-document__content { max-width: 760px; margin-top: 36px; }
-.public-document__meta { color: var(--text-secondary); }
+.public-document__meta { color: var(--text-secondary); font-size: var(--font-size-sm); }
 .public-document .table-of-contents { max-width: 760px; }
 .public-document__contact { max-width: 760px; margin-top: 44px; padding-top: 24px; border-top: 1px solid var(--border-default); }
 .public-not-found { width: min(680px, calc(100% - 32px)); margin: 12vh auto; padding: 48px; text-align: center; border: 1px solid var(--border-default); border-radius: var(--radius-xl); background: var(--surface-card); box-shadow: var(--shadow-md); }

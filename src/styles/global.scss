@@ -1,6 +1,12 @@
+:root {
+  --el-font-size-large: var(--font-size-subtitle);
+  --el-font-size-base: var(--font-size-body);
+  --el-font-size-small: var(--font-size-sm);
+}
+
 .page-title {
   margin: 0 0 16px;
-  font-size: 20px;
+  font-size: var(--font-size-page-title);
   font-weight: 600;
   line-height: 28px;
   color: var(--text-primary);
@@ -20,6 +26,34 @@
   --el-card-bg-color: var(--surface-card);
   --el-card-border-color: var(--border-default);
   color: var(--text-primary);
+}
+
+.el-form,
+.el-table,
+.el-button,
+.el-message {
+  font-size: var(--font-size-body);
+}
+
+.el-form-item__label,
+.el-table th.el-table__cell,
+.el-tag {
+  font-size: var(--font-size-sm);
+}
+
+.el-input,
+.el-textarea,
+.el-select {
+  --el-font-size-base: var(--font-size-body);
+}
+
+.el-button--small,
+.el-tag--small {
+  font-size: var(--font-size-sm);
+}
+
+.el-button--large {
+  font-size: var(--font-size-subtitle);
 }
 
 .el-menu {
@@ -94,11 +128,11 @@
 
 .el-dialog {
   --el-dialog-bg-color: var(--surface-card);
-  --el-dialog-title-font-size: 16px;
+  --el-dialog-title-font-size: var(--font-size-subtitle);
 }
 
 .el-alert {
-  --el-alert-title-font-size: 12px;
+  --el-alert-title-font-size: var(--font-size-sm);
 }
 
 @media (max-width: 768px) {
@@ -107,7 +141,7 @@
   }
 
   .page-title {
-    font-size: 18px;
+    font-size: var(--font-size-page-title);
     margin-bottom: 12px;
   }
 }
