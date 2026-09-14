@@ -205,7 +205,8 @@
         "2026-09-03 15:22：用户增加调用预算，按最小增量追加1次；总上限4、已用3、剩1，每次gpt-5.4-nano/max_tokens32。原调用记录保留，本次尚未发出第4次请求。",
         "2026-09-03：ad3f5b4有限object诊断候选本地相关包/race各175pass，默认全量304pass/98fixture skips，50公开响应+17正常摘要一致、独立规格/质量PASS；镜像2bc6b866/归档8154e46b已准备，未部署或新增生成。详见2026-09-03-m3-object-validation报告。",
         "2026-09-03 15:48：ad3f5b4已授权发布；第4次正常SSE子项PASS：200、meta→4 delta→[DONE]→done，1 POST/0 refresh，唯一请求哈希与运行日志匹配、全部保存阶段成功、tokens0→1。清理200/logout204，预算4/4耗尽。object拒绝本次未复现，根因未闭环；流内错误/取消等未测，整体M3 PARTIAL。go-004保持blocked、web-009保持in_progress，诊断功能passing不代表整体签收。 报告：docs/agents/2026-09-03-m3-object-release-and-retest.md",
-        "2026-09-03：ALIGN-20260903-02补齐首次对齐材料，A1–A8及r2的21接口获双方书面确认，前端开发者输出只读技术方案与自测计划；具体排期/资源/P1语义及M3剩余验收保留待定。无业务代码、部署或调用；docs/agents/2026-09-03-first-cross-team-alignment.md。"
+        "2026-09-03：ALIGN-20260903-02补齐首次对齐材料，A1–A8及r2的21接口获双方书面确认，前端开发者输出只读技术方案与自测计划；具体排期/资源/P1语义及M3剩余验收保留待定。无业务代码、部署或调用；docs/agents/2026-09-03-first-cross-team-alignment.md。",
+        "2026-09-14：auth-uncertain-session-recovery 前端限定实现通过；候选 da7ec325 绑定 origin/main@72c4d8c 与 interface-contract.json v1.0.0-p0/agreed_for_implementation。认证定向 86/86、全量 npm test 与 VITE_USE_MOCK=false 生产构建均通过，能力不可用、跨标签恢复、登录/刷新/退出 fail-closed 和路由竞态均有回归覆盖；独立规格与质量复核 PASS。可见 Chromium 双标签 synthetic 验收 PASS：单次 refresh 后发起页进入 /chat、观察页解除未决且仍在 /login。仅为本地前端修复证据，真实 HTTPS、真实账号、后端联合验收与生产发布仍未运行。"
       ],
       "notes": "ad3f5b4已授权发布；第4次正常SSE子项PASS：200、meta→4 delta→[DONE]→done，1 POST/0 refresh，唯一请求哈希与运行日志匹配、全部保存阶段成功、tokens0→1。清理200/logout204，预算4/4耗尽。object拒绝本次未复现，根因未闭环；流内错误/取消等未测，整体M3 PARTIAL。go-004保持blocked、web-009保持in_progress，诊断功能passing不代表整体签收。 默认测试98项DB/Redis fixture缺失SKIP仍保留。"
     },

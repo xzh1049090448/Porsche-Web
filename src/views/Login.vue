@@ -1,6 +1,6 @@
 <template>
   <div class="auth-page login-page">
-    <AuthStatus />
+    <AuthStatus @recovered="handleRecovered" />
     <div class="login-toolbar">
       <LocaleToggle />
       <ThemeToggle />
@@ -31,10 +31,10 @@
             @keyup.enter="submitPwd"
           />
         </el-form-item>
-        <el-button type="primary" class="submit-btn" :loading="loading" :disabled="userStore.authState === 'uncertain'" @click="submitPwd">
+        <el-button type="primary" class="submit-btn" :loading="loading" :disabled="authBlocked" @click="submitPwd">
           {{ t('login.submit') }}
         </el-button>
-        <el-button text class="register-link" @click="router.push('/register')">{{ t('login.register') }}</el-button>
+        <el-button text class="register-link" :disabled="authBlocked" @click="openRegistration">{{ t('login.register') }}</el-button>
       </el-form>
     </div>
   </div>
@@ -60,6 +60,7 @@ const { t } = useI18n()
 
 const loading = ref(false)
 const pwdFormRef = ref()
+const authBlocked = computed(() => userStore.authState === 'uncertain')
 
 const pwdForm = reactive({
   username: '',
@@ -72,6 +73,7 @@ const pwdRules = computed(() => ({
 }))
 
 async function submitPwd() {
+  if (authBlocked.value) return
   await pwdFormRef.value?.validate()
   loading.value = true
   try {
@@ -80,6 +82,17 @@ async function submitPwd() {
     router.replace(safeAuthRedirect(route.query.redirect, '/chat'))
   } catch (error) { ElMessage.error(authErrorMessage(error)) } finally {
     loading.value = false
+  }
+}
+
+function openRegistration() {
+  if (authBlocked.value) return
+  router.push('/register')
+}
+
+function handleRecovered(result) {
+  if (result?.state === 'authenticated') {
+    router.replace(safeAuthRedirect(route.query.redirect, '/chat'))
   }
 }
 </script>

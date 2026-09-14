@@ -10,6 +10,7 @@ export const useUserStore = defineStore('user', () => {
   const token = ref(authSession.accessToken())
   const authUser = ref(authSession.user())
   const authState = ref(authSession.state())
+  const authIssue = ref(authSession.authIssue())
   const identityEpoch = ref(authSession.capture().epoch)
   const permissionRevision = ref(authSession.capture().permissionRevision)
   const profile = ref(null)
@@ -19,7 +20,8 @@ export const useUserStore = defineStore('user', () => {
   profileState.subscribe(value => { profile.value = value; profileError.value = false })
   authSession.subscribe(next => {
     token.value = next.accessToken; authUser.value = next.user
-    authState.value = next.state; identityEpoch.value = next.epoch; permissionRevision.value = next.permissionRevision
+    authState.value = next.state; authIssue.value = next.issue
+    identityEpoch.value = next.epoch; permissionRevision.value = next.permissionRevision
     permissionProjection.value = next.user ? mapPermissionProjection(next.user) : null
   })
   const user = computed(() => { const value = mergeProfileDisplay(authUser.value, profile.value); return value && permissionProjection.value ? { ...value, ...permissionProjection.value } : value })
@@ -72,6 +74,6 @@ export const useUserStore = defineStore('user', () => {
     profileState.patch({ totalTokensUsed: stats.totalTokens })
     return stats
   }
-  return { token, user, authUser, profile, permissionProjection, permissionRevision, profileError, authState, identityEpoch, initialized, isLoggedIn, totalTokensUsed,
+  return { token, user, authUser, profile, permissionProjection, permissionRevision, profileError, authState, authIssue, identityEpoch, initialized, isLoggedIn, totalTokensUsed,
     setSession, clearSession, restoreSession, ensureSession, loginUsername, fetchProfile, fetchSelf, updateProfile, applyTokensUsed, refreshUsage, logout }
 })
