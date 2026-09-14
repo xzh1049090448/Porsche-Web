@@ -495,18 +495,34 @@ function templateFixture(path, predicate) {
 function realPageFixture(path, predicate, shell) {
   const elements = templateElementPath(path, predicate)
   const scopes = descriptor(path).styles.some(style => style.scoped) ? [componentScopeAttribute(path)] : []
-  const page = minimalDomFromTemplatePath(elements, scopes, 'Typography target', true)
+  let page = minimalDomFromTemplatePath(elements, scopes, 'Typography target', true)
   let html = `<div id="app">${page}</div>`
   if (shell === 'console') {
+    const layoutComponent = '../layouts/MainLayout.vue'
     const layoutPath = templateElementPath('../layouts/MainLayout.vue', (node, ancestors) => node.tag === 'main'
       && staticAttributes(node).some(([name, value]) => name === 'id' && value === 'console-content')
       && ancestors.some(ancestor => ancestor.tag === 'el-container' && staticClasses(ancestor).includes('main-layout')))
     assert.deepEqual(layoutPath.map(node => node.tag), ['el-container', 'div', 'main'], 'MainLayout route ancestry must remain el-container > div > main')
     const rootClasses = staticClasses(layoutPath[0])
     const bodyClasses = staticClasses(layoutPath[1])
+    const layoutScopes = descriptor(layoutComponent).styles.some(style => style.scoped) ? [componentScopeAttribute(layoutComponent)] : []
+    const layoutScopeMarkup = layoutScopes.join(' ')
+    if (layoutScopeMarkup) page = page.replace(/^<([^\s>]+)/, `<$1 ${layoutScopeMarkup}`)
     const mainAttributes = staticAttributes(layoutPath[2])
       .map(([name, value]) => value === undefined ? name : `${name}="${value}"`).join(' ')
-    html = `<div id="app"><section class="el-container is-vertical ${rootClasses.join(' ')}"><div class="${bodyClasses.join(' ')}"><main ${mainAttributes}>${page}</main></div></section></div>`
+    html = `<div id="app"><section class="el-container is-vertical ${rootClasses.join(' ')}" ${layoutScopeMarkup}><div class="${bodyClasses.join(' ')}" ${layoutScopeMarkup}><main ${mainAttributes} ${layoutScopeMarkup}>${page}</main></div></section></div>`
+  } else if (shell === 'public') {
+    const layoutComponent = '../layouts/PublicLayout.vue'
+    const layoutScopes = descriptor(layoutComponent).styles.some(style => style.scoped) ? [componentScopeAttribute(layoutComponent)] : []
+    const layoutScopeMarkup = layoutScopes.join(' ')
+    if (layoutScopeMarkup) page = page.replace(/^<([^\s>]+)/, `<$1 ${layoutScopeMarkup}`)
+    html = `<div id="app"><div class="public-layout public-shell" ${layoutScopeMarkup}><main id="public-content" tabindex="-1" ${layoutScopeMarkup}>${page}</main></div></div>`
+  } else if (shell === 'auth') {
+    const layoutComponent = '../bootstrap/AuthApp.vue'
+    const layoutScopes = descriptor(layoutComponent).styles.some(style => style.scoped) ? [componentScopeAttribute(layoutComponent)] : []
+    const layoutScopeMarkup = layoutScopes.join(' ')
+    if (layoutScopeMarkup) page = page.replace(/^<([^\s>]+)/, `<$1 ${layoutScopeMarkup}`)
+    html = `<div id="app">${page}</div>`
   }
   const dom = new JSDOM(html)
   const target = dom.window.document.querySelector('[data-typography-target]')
@@ -530,7 +546,12 @@ function cascadeStylePaths() {
 
 function entryStylePaths(path, shell) {
   const entry = shell === 'public' ? publicEntryStylePaths : authEntryStylePaths
-  return [...new Set([...entry, ...localComponentStyleOrder([path])])]
+  const routeParents = shell === 'console'
+    ? ['../bootstrap/AuthApp.vue', '../layouts/MainLayout.vue']
+    : shell === 'public'
+      ? ['../App.vue', '../layouts/PublicLayout.vue']
+      : ['../bootstrap/AuthApp.vue']
+  return [...new Set([...entry, ...localComponentStyleOrder([...routeParents, path])])]
 }
 
 function classifyFontSize(declaration) {
