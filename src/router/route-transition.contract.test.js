@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import test from 'node:test'
 import vuePlugin from '@vitejs/plugin-vue'
@@ -1704,7 +1705,109 @@ const assertImmediateReducedMotion = (rules, selector, widths) => {
 }
 const effectiveProperty = (rules, selector, property, width, reduced = false) => effectiveProperties(rules, selector, width, reduced).get(property)
 
-test('shared route transition keys leaf views by fullPath and identity epoch', () => {
+const assertStableRouteShellRuntime = () => {
+  const probe = String.raw`
+    import assert from 'node:assert/strict'
+    import { readFile } from 'node:fs/promises'
+    import { resolve } from 'node:path'
+    import { pathToFileURL } from 'node:url'
+    import { JSDOM } from 'jsdom'
+
+    const dom = new JSDOM('<!doctype html><html><body><div class="auth-page" hidden><input id="old-hidden-auth-control"></div></body></html>', { url: 'https://local.test/chat', pretendToBeVisual: true })
+    for (const key of ['window', 'document', 'navigator', 'history', 'location', 'Node', 'Element', 'HTMLElement', 'SVGElement', 'Event', 'MouseEvent', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame']) {
+      const value = ['getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame'].includes(key) ? dom.window[key].bind(dom.window) : dom.window[key]
+      Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
+    }
+
+    const [{ parse, compileScript, compileTemplate }, { mount }, vue, vueRouter] = await Promise.all([
+      import('@vue/compiler-sfc'), import('@vue/test-utils'), import('vue'), import('vue-router'),
+    ])
+    const { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref } = vue
+    const { createMemoryHistory, createRouter, RouterView, useRoute } = vueRouter
+    const dataModule = source => 'data:text/javascript;base64,' + Buffer.from(source).toString('base64')
+    const vueURL = pathToFileURL(resolve('node_modules/vue/index.mjs')).href
+    const routerURL = pathToFileURL(resolve('node_modules/vue-router/vue-router.node.mjs')).href
+    const compile = async (file, id, replacements) => {
+      const source = await readFile(resolve(file), 'utf8')
+      const descriptor = parse(source, { filename: file }).descriptor
+      const script = compileScript(descriptor, { id, genDefaultAs: '__sfc__' })
+      const template = compileTemplate({ id, filename: file, source: descriptor.template.content, compilerOptions: { bindingMetadata: script.bindings } })
+      assert.deepEqual(template.errors, [])
+      let code = script.content + '\n' + template.code + '\n__sfc__.render=render\nexport default __sfc__'
+      for (const [specifier, replacement] of replacements) {
+        code = code.replaceAll("from '" + specifier + "'", "from '" + replacement + "'")
+          .replaceAll('from "' + specifier + '"', "from '" + replacement + "'")
+      }
+      return dataModule(code) + '#' + id
+    }
+    const routeURL = await compile('src/components/shell/RouteViewTransition.vue', 'route-view-runtime', [['vue', vueURL], ['vue-router', routerURL]])
+    const i18nURL = dataModule('export const useI18n=()=>({elementLocale:{}})')
+    const authURL = await compile('src/bootstrap/AuthApp.vue', 'auth-app-runtime', [['vue', vueURL], ['vue-router', routerURL], ['@/composables/useI18n', i18nURL], ['@/components/shell/RouteViewTransition.vue', routeURL]])
+    const [{ default: RouteViewTransition }, { default: AuthApp }] = await Promise.all([import(routeURL), import(authURL)])
+
+    const counts = { shellMounted: 0, shellUnmounted: 0, aMounted: 0, aUnmounted: 0, bMounted: 0, bUnmounted: 0 }
+    const epoch = ref(0)
+    const leaf = (name, mounted, unmounted) => defineComponent({
+      name,
+      setup() {
+        onMounted(() => { counts[mounted] += 1 })
+        onUnmounted(() => { counts[unmounted] += 1 })
+        return () => h('p', { id: name }, name)
+      },
+    })
+    const LeafA = leaf('leaf-a', 'aMounted', 'aUnmounted')
+    const LeafB = leaf('leaf-b', 'bMounted', 'bUnmounted')
+    const Shell = defineComponent({
+      name: 'StableShell',
+      setup() {
+        onMounted(() => { counts.shellMounted += 1 })
+        onUnmounted(() => { counts.shellUnmounted += 1 })
+        return () => h('main', { id: 'console-content', tabindex: '-1' }, [h(RouteViewTransition, { identityKey: epoch.value, focusTarget: '#console-content' })])
+      },
+    })
+    const Preview = defineComponent({ name: 'Preview', setup: () => () => h('main', { id: 'public-content', tabindex: '-1' }, 'preview') })
+    const router = createRouter({ history: createMemoryHistory(), routes: [
+      { path: '/chat', component: Shell, meta: { requiresAuth: true }, children: [{ path: '', component: LeafA }] },
+      { path: '/billing', component: Shell, meta: { requiresAuth: true }, children: [{ path: '', component: LeafB }] },
+      { path: '/admin/public-content/preview', name: 'PublicContentPreview', component: Preview, meta: { requiresAuth: true } },
+    ] })
+    await router.push('/chat')
+    await router.isReady()
+    const Pass = defineComponent({ setup: (_, { slots }) => () => h('div', slots.default?.()) })
+    const wrapper = mount(AuthApp, { attachTo: document.body, global: { plugins: [router], stubs: { ElConfigProvider: Pass, transition: false } } })
+    const settle = async () => { await nextTick(); await new Promise(resolve => setTimeout(resolve, 250)); await nextTick() }
+    await settle()
+    const consoleTarget = document.querySelector('#console-content')
+    assert.ok(consoleTarget)
+    assert.notEqual(document.activeElement, consoleTarget, 'initial render must not focus before an enter completes')
+
+    const navigation = router.push('/billing')
+    assert.notEqual(document.activeElement, consoleTarget, 'focus must wait for after-enter')
+    await navigation
+    await settle()
+    assert.deepEqual(counts, { shellMounted: 1, shellUnmounted: 0, aMounted: 1, aUnmounted: 1, bMounted: 1, bUnmounted: 0 }, 'same layout must stay mounted while its leaf changes')
+    assert.equal(document.activeElement, consoleTarget, 'leaf after-enter restores the stable console landmark')
+
+    epoch.value += 1
+    await settle()
+    assert.equal(counts.shellMounted, 1, 'identity epoch must not remount the shell')
+    assert.equal(counts.bMounted, 2, 'identity epoch remounts the active leaf')
+    assert.equal(counts.bUnmounted, 1, 'identity epoch disposes the prior leaf')
+
+    await router.push('/admin/public-content/preview')
+    await settle()
+    const publicTarget = document.querySelector('#public-content')
+    assert.ok(publicTarget, 'preview exposes its focus target')
+    assert.equal(document.activeElement, publicTarget, 'preview after-enter focuses its visible public landmark')
+    assert.notEqual(document.activeElement?.id, 'old-hidden-auth-control', 'hidden old auth content must not receive focus')
+    wrapper.unmount()
+    dom.window.close()
+  `
+  execFileSync(process.execPath, ['--input-type=module', '--eval', probe], { cwd: process.cwd(), stdio: 'pipe' })
+}
+
+test('shared route transition keys leaf views by fullPath and identity epoch', async () => {
+  assertStableRouteShellRuntime()
   const transition = readRequired('../components/shell/RouteViewTransition.vue', 'shared route transition component')
   const mainLayout = read('../layouts/MainLayout.vue')
   assert.ok(elements(transition, 'RouterView').some(node => node.props.some(prop => prop.type === 7 && prop.name === 'slot')), 'RouterView must expose its slot')
@@ -1725,6 +1828,7 @@ test('shared route transition keys leaf views by fullPath and identity epoch', (
   assert.equal(boundAttribute(mainTransition, identityAttribute)?.replace(/\s+/g, ''), 'userStore.identityEpoch', `console layout must pass userStore.identityEpoch into ${identityName}`)
   assert.match(transition, /identityKey\s*:\s*\{[\s\S]*?type\s*:\s*\[\s*String\s*,\s*Number\s*\][\s\S]*?default\s*:\s*['"]['"]/)
   assert.match(transition, /focusTarget\s*:\s*\{[\s\S]*?type\s*:\s*String[\s\S]*?required\s*:\s*true/)
+  assert.match(transition, /keyMode\s*:\s*\{[\s\S]*?type\s*:\s*String[\s\S]*?default\s*:\s*['"]fullPath['"]/, 'fullPath leaf keys remain the shared default')
   const transitionNode = elements(transition, 'Transition')[0]
   assert.equal(boundAttribute(transitionNode, 'onAfterEnter') || transitionNode.props.find(prop => prop.type === 7 && prop.name === 'on' && prop.arg?.content === 'after-enter')?.exp?.content, 'restoreFocus')
   const restore = transition.match(/async\s+function\s+restoreFocus\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/)?.[1] || ''
@@ -1764,7 +1868,10 @@ test('public and authenticated shells reuse the shared transition component', ()
   for (const [source, label] of [[app, 'public top-level outlet'], [publicLayout, 'public child outlet'], [authEntry, 'authenticated top-level outlet'], [mainLayout, 'console content outlet']]) assert.equal(importsComponent(source, '@/components/shell/RouteViewTransition.vue'), true, `${label} imports the shared transition`)
   assert.equal(renderFunctionUsesComponent(publicLayout, '@/components/shell/RouteViewTransition.vue'), true, 'public child outlet uses the shared transition in its reachable render function')
   assert.ok(elements(app, 'RouteViewTransition').some(node => staticAttribute(node, 'focus-target') === '#public-content'), 'public bootstrap restores the public main landmark')
-  assert.ok(elements(authEntry, 'RouteViewTransition').some(node => staticAttribute(node, 'focus-target') === '#console-content, .auth-page input'), 'authenticated bootstrap targets the visible console or auth control')
+  assert.ok(elements(app, 'RouteViewTransition').some(node => staticAttribute(node, 'key-mode') === 'component'), 'public bootstrap keeps the active layout stable across child routes')
+  assert.ok(elements(authEntry, 'RouteViewTransition').some(node => boundAttribute(node, 'focus-target') === 'focusTarget'), 'authenticated bootstrap selects the active view focus target')
+  assert.ok(elements(authEntry, 'RouteViewTransition').some(node => staticAttribute(node, 'key-mode') === 'component'), 'authenticated bootstrap keeps the active layout stable across child routes')
+  assert.match(authEntry, /PublicContentPreview[\s\S]*?#public-content/, 'public content preview selects its visible main landmark')
   assert.match(publicLayout, /h\(RouteViewTransition,\s*\{\s*focusTarget:\s*['"]#public-content['"]\s*\}\)/, 'public child outlet restores the public main landmark')
   const consoleTransition = elements(mainLayout, 'RouteViewTransition').find(node => staticAttribute(node, 'focus-target') === '#console-content')
   assert.ok(consoleTransition, 'console content restores its main landmark')
@@ -1796,10 +1903,12 @@ test('router preserves guarded cross-bootstrap handoff and explicit scroll behav
   timers.get(2).callback()
   assert.deepEqual(assigned, ['/register?from=pricing'], 'only the latest delayed path navigates')
 
+  handoff('/stale-before-reduced')
   reduced = true
   handoff('/chat')
   assert.deepEqual(assigned, ['/register?from=pricing', '/chat'], 'reduced motion navigates immediately')
-  assert.equal(timers.size, 1, 'reduced motion does not schedule another timer')
+  assert.deepEqual(cleared, [1, 3], 'reduced motion cancels a pending animated handoff')
+  assert.equal(timers.has(3), false, 'the cancelled path cannot navigate after the immediate handoff')
 
   for (const [media, label] of [[undefined, 'missing matchMedia'], [() => undefined, 'undefined media result']]) {
     const fallbackClasses = []
@@ -1823,6 +1932,15 @@ test('router preserves guarded cross-bootstrap handoff and explicit scroll behav
     fallbackTimers.get(2).callback()
     assert.deepEqual(fallbackAssigned, ['/latest'], `${label} navigates only the latest path after 200ms`)
   }
+
+  const incapableClasses = []
+  const incapableHandoff = createPageHandoff({
+    document: { documentElement: { classList: { add: value => incapableClasses.push(value) } } },
+    location: {},
+    setTimer: () => { throw new Error('an incapable handoff must not schedule navigation') },
+  })
+  assert.doesNotThrow(() => incapableHandoff('/chat'))
+  assert.deepEqual(incapableClasses, [], 'the leaving class is only added when navigation and DOM capabilities exist')
 
   for (const [configuration, label] of [
     [{ handoff() {} }, 'missing mode'],
@@ -1853,6 +1971,15 @@ test('router preserves guarded cross-bootstrap handoff and explicit scroll behav
   assert.deepEqual(await scroll({ path: '/pricing', fullPath: '/pricing', hash: '' }, { path: '/', fullPath: '/', hash: '' }, saved), saved, 'pop navigation restores saved position')
   const hash = await scroll({ path: '/', fullPath: '/#faq', hash: '#faq' }, { path: '/pricing', fullPath: '/pricing', hash: '' }, null)
   assert.deepEqual(hash, { el: '#faq', behavior: 'smooth' }, 'hash navigation targets its anchor smoothly')
+  const unavailableMediaRouter = createAppRouter(createMemoryHistory(), {
+    bootstrapMode: 'public', handoff() {}, matchMedia: () => undefined,
+    loadUserStore: async () => ({ ensureSession: async () => {}, isLoggedIn: false }),
+  })
+  assert.deepEqual(
+    await unavailableMediaRouter.options.scrollBehavior({ path: '/', fullPath: '/#faq', hash: '#faq' }, { path: '/pricing', fullPath: '/pricing', hash: '' }, null),
+    { el: '#faq', behavior: 'smooth' },
+    'an unavailable motion query falls back to smooth hash scrolling',
+  )
   const reducedRouter = createAppRouter(createMemoryHistory(), {
     bootstrapMode: 'public', handoff() {}, matchMedia: () => ({ matches: true }),
     loadUserStore: async () => ({ ensureSession: async () => {}, isLoggedIn: false }),
@@ -1860,4 +1987,8 @@ test('router preserves guarded cross-bootstrap handoff and explicit scroll behav
   assert.deepEqual(await reducedRouter.options.scrollBehavior({ path: '/', fullPath: '/#faq', hash: '#faq' }, { path: '/pricing', fullPath: '/pricing', hash: '' }, null), { el: '#faq', behavior: 'auto' }, 'reduced motion uses immediate hash scrolling')
   const next = await scroll({ path: '/pricing', fullPath: '/pricing', hash: '' }, { path: '/', fullPath: '/', hash: '' }, null)
   assert.equal(next?.top, 0, 'new-route navigation starts at the top')
+
+  const serverRouter = createAppRouter(createMemoryHistory())
+  await assert.doesNotReject(() => serverRouter.push('/chat'), 'the default cross-bootstrap guard is safe without browser globals')
+  assert.equal(serverRouter.currentRoute.value.fullPath, '/', 'a server-side cross-bootstrap handoff still aborts the guarded navigation')
 })

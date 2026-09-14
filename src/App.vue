@@ -1,5 +1,5 @@
 <template>
-  <RouteViewTransition focus-target="#public-content" />
+  <RouteViewTransition key-mode="component" focus-target="#public-content" />
 </template>
 
 <script setup>

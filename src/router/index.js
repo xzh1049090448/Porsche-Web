@@ -174,7 +174,7 @@ export function createAppRouter(
     : () => ({ matches: false }))
   const scrollBehavior = (to, _from, savedPosition) => {
     if (savedPosition) return savedPosition
-    if (to.hash) return { el: to.hash, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }
+    if (to.hash) return { el: to.hash, behavior: matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ? 'auto' : 'smooth' }
     return { top: 0 }
   }
   const router = createRouter({ history, routes, scrollBehavior })
