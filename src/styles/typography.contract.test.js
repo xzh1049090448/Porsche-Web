@@ -100,6 +100,19 @@ const elementMessageCascade = parseCssRules(`
   .el-message__content { font-size: 14px; }
   ${read('./global.scss')}
 `)
+const elementControlCascade = parseCssRules(`
+  .el-input__wrapper, .el-select__wrapper { min-height: 32px; }
+  .el-button { width: auto; height: 32px; min-width: 0; min-height: 0; }
+  .el-pagination button, .el-pager li { width: 32px; height: 32px; min-width: 0; min-height: 0; }
+  ${read('./global.scss')}
+`)
+const componentStyle = path => {
+  const style = read(path).match(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/i)?.[1]
+  assert.ok(style, `${path} must expose a style block`)
+  return compileString(style).css
+}
+const loginControlCascade = parseCssRules(`${read('./global.scss')}\n${componentStyle('../views/Login.vue')}`)
+const registerControlCascade = parseCssRules(`${read('./global.scss')}\n${componentStyle('../views/Register.vue')}`)
 const publicShell = root('./public-shell.scss')
 const publicContent = root('./public-content.scss')
 const consoleShell = root('./console-shell.scss')
@@ -1240,6 +1253,22 @@ const assertMinimumControl = (stylesheet, selector, property, message, widths = 
     }
   }
 }
+const assertRuntimeMinimumControl = (stylesheet, selector, property, message, widths = allScreenWidths) => {
+  const axis = property.endsWith('height') ? 'height' : 'width'
+  const pixels = value => value === 'var(--control-min-size)' ? 44 : Number(value?.match(/^(\d+(?:\.\d+)?)px$/)?.[1])
+  for (const width of widths) for (const reduced of [false, true]) {
+    const minimumValue = effectiveValue(stylesheet, selector, `min-${axis}`, width, reduced, true)
+    const preferredValue = effectiveValue(stylesheet, selector, axis, width, reduced, true)
+    const maximumValue = effectiveValue(stylesheet, selector, `max-${axis}`, width, reduced, true)
+    const minimum = pixels(minimumValue)
+    const preferred = pixels(preferredValue)
+    const maximum = maximumValue === 'none' ? Number.POSITIVE_INFINITY : pixels(maximumValue)
+    const effective = Number.isFinite(minimum)
+      ? (Number.isFinite(preferred) ? Math.max(minimum, Number.isFinite(maximum) ? Math.min(preferred, maximum) : preferred) : minimum)
+      : (Number.isFinite(preferred) ? (Number.isFinite(maximum) ? Math.min(preferred, maximum) : preferred) : Number.NaN)
+    assert.ok(Number.isFinite(effective) && effective >= 44, `${message} at ${width}px with reduced motion ${reduced}; found min=${JSON.stringify(minimumValue)}, ${axis}=${JSON.stringify(preferredValue)}, max=${JSON.stringify(maximumValue)}`)
+  }
+}
 test('semantic typography tokens keep the approved exact pixel scale', () => {
   const expected = {
     xs: '11px', sm: '12px', body: '14px', subtitle: '16px',
@@ -1266,6 +1295,7 @@ test('public pages map hero, section and supporting copy to the shared typograph
   assertMapping(publicShell, '.public-lead', 'font-size', 'var(--font-size-subtitle)', 'lead copy uses the subtitle token')
   assertMapping(publicShell, '.public-eyebrow', 'font-size', 'var(--font-size-sm)', 'eyebrows use the small token')
   assertMapping(publicContent, '.public-content-section__heading h2', 'font-size', 'var(--font-size-section-title)', 'public section headings use the section-title token')
+  assertMapping(publicContent, '.public-not-found__status', 'font-size', 'var(--font-size-section-title)', 'public not-found status stays below the homepage hero scale')
   assertMapping(publicShell, '.public-hero h1', 'font-size', 'var(--font-size-hero-mobile)', 'mobile hero uses the hero-mobile token', mobileWidths)
   assertMapping(publicPricing, '.pricing-heading h1', 'font-size', 'var(--font-size-section-title)', 'pricing headings use the section-title token')
   assertMapping(publicPricing, '.pricing-heading p', 'font-size', 'var(--font-size-body)', 'pricing supporting copy uses the body token')
@@ -1293,6 +1323,15 @@ test('typography stays at real size and interactive controls retain 44px targets
     assertMinimumControl(publicShell, selector, 'min-width', `${selector} keeps the shared touch target width`)
     assertMinimumControl(publicShell, selector, 'min-height', `${selector} keeps the shared touch target height`)
   }
+  const elementControlSelectors = ['.el-input__wrapper', '.el-select__wrapper', '.el-button', '.el-pagination button', '.el-pager li']
+  for (const selector of elementControlSelectors) {
+    assertRuntimeMinimumControl(elementControlCascade, selector, 'min-height', `${selector} overrides the vendor control height`)
+  }
+  for (const selector of ['.el-button', '.el-pagination button', '.el-pager li']) {
+    assertRuntimeMinimumControl(elementControlCascade, selector, 'min-width', `${selector} retains an accessible control width`)
+  }
+  assertRuntimeMinimumControl(loginControlCascade, '.submit-btn', 'min-height', 'login submit button overrides its scoped 40px height')
+  assertRuntimeMinimumControl(registerControlCascade, '.submit-btn', 'min-height', 'register submit button retains an accessible height')
   assertMinimumControl(consoleShell, '.user-trigger', 'min-height', 'console user control keeps the shared touch target')
   for (const selector of ['.pricing-pagination button', '.pricing-pagination select', '.pricing-detail-back', '.pricing-console-cta']) assertMinimumControl(publicPricing, selector, 'min-height', `${selector} keeps a 44px target`)
   assertMinimumControl(publicPricing, '.pricing-filter-toggle', 'min-height', 'mobile pricing filter keeps a 44px target', mobileWidths)

@@ -39,6 +39,21 @@
   font-size: var(--font-size-body);
 }
 
+.el-input__wrapper,
+.el-select__wrapper,
+.el-button,
+.el-pagination button,
+.el-pager li,
+.submit-btn {
+  min-height: var(--control-min-size);
+}
+
+.el-button,
+.el-pagination button,
+.el-pager li {
+  min-width: var(--control-min-size);
+}
+
 .el-form-item__label,
 .el-table th.el-table__cell,
 .el-tag {
