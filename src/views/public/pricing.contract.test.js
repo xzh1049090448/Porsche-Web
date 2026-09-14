@@ -1251,7 +1251,7 @@ const staticBindingInitializers = (value, importer) => {
                   const property = expression.left.computed ? boundStaticValue(candidate.propertyValue, candidate.environment) : expression.left.property?.name
                   if (property === unknownStaticValue) return { ...candidate, currentValue: substituteFactoryBindings(expression.left, candidate.replacements) }
                   const key = String(property)
-                  const receiver = substituteFactoryBindings(candidate.receiverValue, candidate.replacements)
+                  const receiver = expression.left.object
                   let selected = factorySelection(receiver, key, candidate.environment)
                   if (selected.missing && inheritedKeys.has(key)) selected = { value: { type: 'BooleanLiteral', value: true } }
                   const primitive = boundStaticValue(receiver, candidate.environment)
@@ -1264,9 +1264,29 @@ const staticBindingInitializers = (value, importer) => {
                 }).flatMap(candidate => {
                   if (candidate.kind !== 'normal' || !candidate.selected?.getter) return [candidate]
                   const getter = optionGetterValues(candidate.selected.getter, candidate.environment)
-                  const paths = getter.values.map(path => ({ ...candidate, environment: path.environment, currentValue: path.value }))
-                  if (getter.fallthrough) paths.push({ ...candidate, currentValue: { type: 'Identifier', name: 'undefined' } })
-                  if (getter.effect !== 'cannotThrow') paths.push({ kind: 'throw', expression: unknownThrown, replacements: candidate.replacements, environment: candidate.environment })
+                  const localNames = new Set()
+                  const collectLocals = node => {
+                    if (!node || typeof node !== 'object') return
+                    if (node !== candidate.selected.getter && ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(node.type)) { if (node.type === 'FunctionDeclaration') for (const name of factoryPatternNames(node.id)) localNames.add(name); return }
+                    if (node.type === 'VariableDeclarator') for (const name of factoryPatternNames(node.id)) localNames.add(name)
+                    if (node.type === 'ClassDeclaration' && node.id) localNames.add(node.id.name)
+                    if (node.type === 'CatchClause') for (const name of factoryPatternNames(node.param)) localNames.add(name)
+                    for (const [name, child] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(name)) {
+                      if (Array.isArray(child)) for (const item of child) collectLocals(item)
+                      else collectLocals(child)
+                    }
+                  }
+                  collectLocals(candidate.selected.getter.body)
+                  const mergeOuter = path => {
+                    const environment = new Map(candidate.environment)
+                    const replacements = new Map(candidate.replacements)
+                    for (const name of candidate.environment.keys()) if (!localNames.has(name) && path.environment.has(name)) environment.set(name, path.environment.get(name))
+                    for (const name of candidate.replacements.keys()) if (!localNames.has(name) && path.replacements?.has(name)) replacements.set(name, path.replacements.get(name))
+                    return { environment, replacements }
+                  }
+                  const paths = getter.values.map(path => ({ ...candidate, ...mergeOuter(path), currentValue: path.value }))
+                  for (const path of getter.fallthroughs) paths.push({ ...candidate, ...mergeOuter(path), currentValue: { type: 'Identifier', name: 'undefined' } })
+                  for (const path of getter.throws) paths.push({ kind: 'throw', expression: unknownThrown, ...mergeOuter(path) })
                   return paths
                 })
               }
@@ -1366,10 +1386,11 @@ const staticBindingInitializers = (value, importer) => {
     }
     function optionGetterValues(getter, local, resolving = new Set()) {
       const completions = setupReturns(getter.body, new Map(local), true)
-      const values = completions.filter(path => path.kind === 'return' && path.expression).map(path => ({ value: path.expression, environment: path.environment }))
-      const throws = completions.some(path => path.kind === 'throw')
-      const effect = throws ? completions.some(path => path.kind !== 'throw') ? 'mayThrow' : 'mustThrow' : 'cannotThrow'
-      return { effect, values, fallthrough: completions.some(path => path.kind === 'normal'), incomplete: completions.some(path => path.kind !== 'return') }
+      const values = completions.filter(path => path.kind === 'return' && path.expression).map(path => ({ value: path.expression, environment: path.environment, replacements: path.replacements }))
+      const throws = completions.filter(path => path.kind === 'throw')
+      const fallthroughs = completions.filter(path => path.kind === 'normal')
+      const effect = throws.length ? completions.some(path => path.kind !== 'throw') ? 'mayThrow' : 'mustThrow' : 'cannotThrow'
+      return { effect, values, throws, fallthroughs, fallthrough: fallthroughs.length > 0, incomplete: completions.some(path => path.kind !== 'return') }
     }
     const resolvedLocalValues = (expression, local, resolving = new Set()) => {
       expression = unwrapExpression(expression)
@@ -1508,7 +1529,8 @@ const staticBindingInitializers = (value, importer) => {
           if (!spread.missing) return spread
           continue
         }
-        const propertyKey = staticPropertyKey(property.key)
+        const computedKey = property.computed ? boundStaticValue(property.key, local) : undefined
+        const propertyKey = property.computed ? computedKey === unknownStaticValue ? undefined : String(computedKey) : staticPropertyKey(property.key)
         if (property.computed && propertyKey === undefined) return { unknown: true }
         if (propertyKey === String(key)) return property.type === 'ObjectMethod' && property.kind === 'get'
           ? { getter: property }

@@ -397,7 +397,7 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
                   }
                   return undefined
                 }
-                const selected = select(candidate.receiverValue)
+                const selected = select(expression.left.object)
                 if (selected !== undefined) return selected
                 return candidate.receiver === 'primitive'
                   ? inheritedKeys.has(key) ? { type: 'BooleanLiteral', value: true } : missingOptionValue
@@ -407,9 +407,36 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
                 if (candidate.kind !== 'normal') return [candidate]
                 const value = memberValue(candidate)
                 if (value?.type !== 'ObjectMethod' || value.kind !== 'get') return [{ ...candidate, currentValue: value }]
+                const localNames = new Set()
+                const collectPattern = pattern => {
+                  pattern = unwrapScriptExpression(pattern)
+                  if (pattern?.type === 'Identifier') localNames.add(pattern.name)
+                  else if (pattern?.type === 'AssignmentPattern') collectPattern(pattern.left)
+                  else if (pattern?.type === 'RestElement') collectPattern(pattern.argument)
+                  else if (pattern?.type === 'ObjectPattern') for (const property of pattern.properties) collectPattern(property.type === 'RestElement' ? property.argument : property.value)
+                  else if (pattern?.type === 'ArrayPattern') for (const item of pattern.elements) collectPattern(item)
+                }
+                const collectLocals = node => {
+                  if (!node || typeof node !== 'object') return
+                  if (node !== value && ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod'].includes(node.type)) { if (node.type === 'FunctionDeclaration') collectPattern(node.id); return }
+                  if (node.type === 'VariableDeclarator') collectPattern(node.id)
+                  if (node.type === 'ClassDeclaration') collectPattern(node.id)
+                  if (node.type === 'CatchClause') collectPattern(node.param)
+                  for (const [name, child] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(name)) {
+                    if (Array.isArray(child)) for (const item of child) collectLocals(item)
+                    else collectLocals(child)
+                  }
+                }
+                collectLocals(value.body)
+                const mergeOuter = getterLocal => {
+                  const merged = new Map(candidate.local)
+                  for (const name of candidate.local.keys()) if (!localNames.has(name) && getterLocal.has(name)) merged.set(name, getterLocal.get(name))
+                  return merged
+                }
                 return optionGetterPaths(value, candidate.local).map(path => {
-                  if (path.kind === 'throw') return { kind: 'throw', local: path.local }
-                  return { ...candidate, local: path.local, currentValue: path.kind === 'return' ? path.value : missingOptionValue }
+                  const local = mergeOuter(path.local)
+                  if (path.kind === 'throw') return { kind: 'throw', local }
+                  return { ...candidate, local, currentValue: path.kind === 'return' ? path.value : missingOptionValue }
                 })
               })
             }
@@ -515,7 +542,9 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     node = unwrapScriptExpression(node)
     if (!node || typeof node !== 'object') return node
     if (node.type === 'Identifier' && local.has(node.name) && !resolving.has(node.name)) {
-      const staticKey = parent?.type === 'MemberExpression' && key === 'property' && !parent.computed || ['ObjectProperty', 'ObjectMethod'].includes(parent?.type) && key === 'key' && !parent.computed
+      const staticKey = parent?.type === 'MemberExpression' && key === 'property' && !parent.computed
+        || ['ObjectProperty', 'ObjectMethod'].includes(parent?.type) && key === 'key' && !parent.computed
+        || parent?.type === 'AssignmentExpression' && key === 'left'
       const values = local.get(node.name)
       if (!staticKey && values.length === 1) return materializeOption(values[0], local, new Set(resolving).add(node.name))
     }
