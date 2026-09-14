@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import vuePlugin from '@vitejs/plugin-vue'
+import { compileScript, compileTemplate, parse as parseSfc } from '@vue/compiler-sfc'
+import { JSDOM } from 'jsdom'
 import { messages } from '../../i18n/messages.js'
 import { publicMessages } from '../../i18n/public-messages.js'
 import { routes } from '../../router/index.js'
@@ -47,6 +49,81 @@ const callableBodyEffect = (body, expressionEffect, staticCondition) => {
 }
 
 const source = path => readFileSync(new URL(path, import.meta.url), 'utf8')
+const dataModule = value => `data:text/javascript;base64,${Buffer.from(value).toString('base64')}`
+const domGlobalKeys = ['window', 'document', 'navigator', 'Node', 'Element', 'HTMLElement', 'SVGElement', 'XMLSerializer', 'Event', 'MouseEvent', 'KeyboardEvent', 'matchMedia', 'getComputedStyle', 'localStorage']
+const originalDomDescriptors = new Map(domGlobalKeys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
+const installDomGlobals = dom => {
+  for (const key of domGlobalKeys) {
+    const value = key === 'getComputedStyle' ? dom.window.getComputedStyle.bind(dom.window) : dom.window[key]
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
+  }
+}
+const restoreDomGlobals = () => {
+  for (const [key, descriptor] of originalDomDescriptors) {
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+    else delete globalThis[key]
+  }
+}
+const compilePublicComponent = async ({ path, filename, id, sourceOverride, replacements = new Map() }) => {
+  const value = sourceOverride ?? source(path)
+  const descriptor = parseSfc(value, { filename }).descriptor
+  const script = compileScript(descriptor, { id, genDefaultAs: '__sfc__' })
+  let code = script.content
+  if (descriptor.template) {
+    const template = compileTemplate({ id, filename, source: descriptor.template.content, compilerOptions: { bindingMetadata: script.bindings } })
+    assert.deepEqual(template.errors, [], `${filename} template must compile`)
+    code += `\n${template.code}\n__sfc__.render=render`
+  }
+  code += '\nexport default __sfc__'
+  const vueURL = new URL('../../../node_modules/vue/index.mjs', import.meta.url).href
+  const allReplacements = new Map([['vue', vueURL], ...replacements])
+  for (const [specifier, replacement] of allReplacements) code = code
+    .replaceAll(`from '${specifier}'`, `from '${replacement}'`)
+    .replaceAll(`from "${specifier}"`, `from '${replacement}'`)
+  const url = `${dataModule(code)}#${id}-${Date.now()}-${Math.random()}`
+  return { url, module: await import(url) }
+}
+const publicComponentStubs = () => {
+  const vueURL = new URL('../../../node_modules/vue/index.mjs', import.meta.url).href
+  const router = dataModule(`import{h}from'${vueURL}';export const useRouter=()=>globalThis.__publicTest.router;export const RouterLink={props:['to'],setup(p,{attrs,slots}){return()=>h('a',{...attrs,href:p.to,'data-router-link':'true'},slots.default?.())}}`)
+  const i18n = dataModule(`import{ref}from'${vueURL}';export const usePublicI18n=()=>({locale:ref('zh'),t:key=>key,toggle(){}})`)
+  return { router, i18n }
+}
+const mountPublicComponent = async (component, props = {}) => {
+  const { createRenderer } = await import('@vue/runtime-core')
+  const renderer = createRenderer({
+    createElement: tag => document.createElement(tag),
+    createText: value => document.createTextNode(value),
+    createComment: value => document.createComment(value),
+    setText: (node, value) => { node.nodeValue = value },
+    setElementText: (node, value) => { node.textContent = value },
+    parentNode: node => node.parentNode,
+    nextSibling: node => node.nextSibling,
+    querySelector: selector => document.querySelector(selector),
+    setScopeId: (node, id) => node.setAttribute(id, ''),
+    cloneNode: node => node.cloneNode(true),
+    insert: (node, parent, anchor) => parent.insertBefore(node, anchor || null),
+    remove: node => node.parentNode?.removeChild(node),
+    patchProp(node, key, previous, next) {
+      if (/^on[A-Z]/.test(key)) {
+        const event = key.slice(2).toLowerCase()
+        if (previous) node.removeEventListener(event, previous)
+        if (next) node.addEventListener(event, next)
+      } else if (key === 'class') node.className = next || ''
+      else if (next == null || (next === false && !key.startsWith('aria-'))) node.removeAttribute(key)
+      else node.setAttribute(key, next === true ? '' : String(next))
+    },
+    insertStaticContent(content, parent, anchor) {
+      const template = document.createElement('template'); template.innerHTML = content
+      const first = template.content.firstChild; const last = template.content.lastChild
+      parent.insertBefore(template.content, anchor || null)
+      return [first, last]
+    },
+  })
+  const container = document.createElement('div'); document.body.append(container)
+  const app = renderer.createApp(component, props); app.mount(container)
+  return { container, unmount() { app.unmount(); container.remove() } }
+}
 const vueCompiler = (() => {
   const plugin = vuePlugin()
   plugin.buildStart()
@@ -2758,6 +2835,129 @@ const assertNoTailwindLoading = (cssSources, vueSources) => {
     if (url) assert.doesNotMatch(url, tailwindUrl, 'public template sources must not load Tailwind from a CDN')
   }
 }
+
+const withPublicDom = async run => {
+  const dom = new JSDOM('<!doctype html><html><body><button id="after-header">after</button></body></html>', { url: 'https://local.test/' })
+  let breakpointListener = null
+  const media = { matches: false, set onchange(listener) { breakpointListener = listener }, get onchange() { return breakpointListener } }
+  dom.window.matchMedia = () => media
+  installDomGlobals(dom)
+  try { return await run({ dom, media, breakpoint: value => breakpointListener?.({ matches: value }) }) }
+  finally { restoreDomGlobals(); dom.window.close(); delete globalThis.__publicTest }
+}
+
+const compiledHeader = async () => {
+  const { router, i18n } = publicComponentStubs()
+  return compilePublicComponent({
+    path: '../../components/public/PublicHeader.vue', filename: 'PublicHeader.vue', id: 'public-header-contract',
+    replacements: new Map([['vue-router', router], ['@/i18n/public-runtime.js', i18n]]),
+  })
+}
+
+const assertHeroPreviewStructure = async value => withPublicDom(async () => {
+  const { module } = await compilePublicComponent({ path: '../../components/public/HeroPreview.vue', filename: 'HeroPreview.vue', id: 'hero-preview-contract', sourceOverride: value })
+  const wrapper = await mountPublicComponent(module.default, { label: 'preview' })
+  try {
+    const visual = wrapper.container.querySelector('.hero-preview__visual')
+    const chrome = visual.querySelector('.hero-preview__chrome')
+    assert.equal(chrome.parentElement, visual, 'browser chrome stays directly inside the visual card')
+    assert.equal([...chrome.children].filter(node => node.tagName === 'I').length, 3, 'browser chrome renders exactly three traffic lights')
+    const providers = [...visual.querySelectorAll('.hero-preview__provider')]
+    assert.equal(providers.length, 4, 'preview renders exactly four provider labels')
+    assert.deepEqual(providers.map(node => node.textContent), ['OpenAI', 'Anthropic', 'Gemini', 'DeepSeek'])
+  } finally { wrapper.unmount() }
+})
+
+test('homepage full-bleed backgrounds avoid viewport-width overflow arithmetic', () => {
+  const shell = source('../../styles/public-shell.scss')
+  const content = source('../../styles/public-content.scss')
+  const section = source('../../components/public/PublicSection.vue')
+  assert.doesNotMatch(content, /(?:100|50)(?:d|s|l)?vw/, 'full-bleed decoration must not include scrollbar width')
+  assert.match(shell, /\.public-home\s*\{[^}]*width:\s*100%/s)
+  assert.match(section, /public-content-section__inner/)
+})
+
+test('public header traps mobile focus globally and removes its document listener', async () => withPublicDom(async ({ dom, breakpoint }) => {
+  const keydownListeners = new Set()
+  const add = dom.window.document.addEventListener.bind(dom.window.document)
+  const remove = dom.window.document.removeEventListener.bind(dom.window.document)
+  dom.window.document.addEventListener = (type, listener, options) => { if (type === 'keydown') keydownListeners.add(listener); add(type, listener, options) }
+  dom.window.document.removeEventListener = (type, listener, options) => { if (type === 'keydown') keydownListeners.delete(listener); remove(type, listener, options) }
+  const route = { hook: null }
+  globalThis.__publicTest = { router: { afterEach(fn) { route.hook = fn; return () => { route.hook = null } } } }
+  const [{ module }, { nextTick }] = await Promise.all([compiledHeader(), import('vue')])
+  const wrapper = await mountPublicComponent(module.default)
+  const toggle = wrapper.container.querySelector('.public-nav-toggle')
+  try {
+    assert.equal(keydownListeners.size, 1)
+    toggle.click(); await nextTick()
+    const links = [...wrapper.container.querySelectorAll('#public-mobile-nav a')]
+    assert.equal(dom.window.document.activeElement, links[0], 'opening moves focus into the menu')
+    links.at(-1).focus()
+    links.at(-1).dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })); await nextTick()
+    assert.equal(dom.window.document.activeElement, links[0], 'Tab wraps to first menu item')
+    links[0].dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })); await nextTick()
+    assert.equal(dom.window.document.activeElement, links.at(-1), 'Shift+Tab wraps to last menu item')
+    dom.window.document.querySelector('#after-header').focus()
+    dom.window.document.activeElement.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await nextTick()
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+    assert.equal(dom.window.document.activeElement, toggle, 'global Escape restores the toggle')
+    toggle.click(); await nextTick(); route.hook(); await nextTick(); assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+    toggle.click(); await nextTick(); breakpoint(true); await nextTick(); assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+  } finally {
+    wrapper.unmount()
+    assert.equal(keydownListeners.size, 0)
+    assert.equal(route.hook, null)
+  }
+}))
+
+test('published shell links classify internal external and dangerous destinations', async () => withPublicDom(async ({ dom }) => {
+  const route = { hook: null }
+  globalThis.__publicTest = { router: { afterEach(fn) { route.hook = fn; return () => { route.hook = null } } } }
+  const header = await compiledHeader()
+  const { router, i18n } = publicComponentStubs()
+  const footer = await compilePublicComponent({
+    path: '../../components/public/PublicFooter.vue', filename: 'PublicFooter.vue', id: 'public-footer-contract',
+    replacements: new Map([['vue-router', router], ['@/i18n/public-runtime.js', i18n], ['./PublicHeader.vue', header.url]]),
+  })
+  const links = [
+    { placement: 'header', label: 'Published internal', href: '/pricing' },
+    { placement: 'header', label: 'Published hash', href: '/#advantages' },
+    { placement: 'header', label: 'Published local hash', href: '#models' },
+    { placement: 'header', label: 'Published nested path', href: '/guides/start?tab=api#intro' },
+    { placement: 'header', label: 'Published external', href: 'https://docs.example.test/start' },
+    { placement: 'header', label: 'Blocked script', href: 'javascript:alert(1)' },
+    { placement: 'contact', label: 'Footer internal', href: '/pricing' },
+    { placement: 'contact', label: 'Footer external', href: 'https://contact.example.test/' },
+    { placement: 'contact', label: 'Blocked data', href: 'data:text/html,unsafe' },
+  ]
+  const headerWrapper = await mountPublicComponent(header.module.default, { links })
+  const footerWrapper = await mountPublicComponent(footer.module.default, { links })
+  try {
+    for (const label of ['pricing', 'advantages', 'Published internal', 'Published hash', 'Published local hash', 'Published nested path', 'Footer internal']) {
+      const node = [...dom.window.document.querySelectorAll('a')].find(anchor => anchor.textContent === label)
+      assert.equal(node?.dataset.routerLink, 'true', `${label} uses RouterLink`)
+    }
+    for (const label of ['Published external', 'Footer external']) {
+      const node = [...dom.window.document.querySelectorAll('a')].find(anchor => anchor.textContent === label)
+      assert.equal(node?.dataset.routerLink, undefined)
+      assert.equal(node?.target, '_blank')
+      assert.equal(node?.rel, 'noopener noreferrer')
+    }
+    for (const label of ['Blocked script', 'Blocked data']) {
+      const node = [...dom.window.document.querySelectorAll('span')].find(span => span.textContent === label)
+      assert.ok(node, `${label} stays visible but non-navigable`)
+      assert.equal([...dom.window.document.querySelectorAll('a')].some(anchor => anchor.textContent === label), false)
+    }
+  } finally { headerWrapper.unmount(); footerWrapper.unmount() }
+}))
+
+test('HeroPreview mutation guard rejects missing providers before checking the real component', async () => {
+  const hero = source('../../components/public/HeroPreview.vue')
+  const mutated = hero.replace(/\s*<span class="hero-preview__provider[^>]*>[^<]*<\/span>/g, '')
+  await assert.rejects(assertHeroPreviewStructure(mutated), /exactly four provider labels/)
+  await assertHeroPreviewStructure(hero)
+})
 
 test('public shell and homepage preserve the published-content contract', () => {
   const layout = source('../../layouts/PublicLayout.vue')

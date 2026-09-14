@@ -42,12 +42,14 @@ onMounted(() => restoreReadState())
     <template v-else>
       <section class="public-hero" data-section="hero" aria-labelledby="home-title">
         <div class="public-hero__decor" aria-hidden="true"><i class="public-hero__blob public-hero__blob--violet" /><i class="public-hero__blob public-hero__blob--green" /><i class="public-hero__blob public-hero__blob--blue" /></div>
-        <div class="public-hero__copy">
-          <h1 id="home-title">{{ home.title }}</h1>
-          <div class="public-lead public-richtext" v-html="home.introHTML" />
-          <div class="public-actions"><RouterLink class="public-button" to="/chat">{{ t('console') }}<span aria-hidden="true">→</span></RouterLink><RouterLink class="public-button public-button--secondary" to="/pricing">{{ t('pricing') }}</RouterLink></div>
+        <div class="public-hero__inner">
+          <div class="public-hero__copy">
+            <h1 id="home-title">{{ home.title }}</h1>
+            <div class="public-lead public-richtext" v-html="home.introHTML" />
+            <div class="public-actions"><RouterLink class="public-button" to="/chat">{{ t('console') }}<span aria-hidden="true">→</span></RouterLink><RouterLink class="public-button public-button--secondary" to="/pricing">{{ t('pricing') }}</RouterLink></div>
+          </div>
+          <HeroPreview :label="t('demo')" />
         </div>
-        <HeroPreview :label="t('demo')" />
       </section>
 
       <section class="public-proof" data-section="proof" aria-label="平台能力">

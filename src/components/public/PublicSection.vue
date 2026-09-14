@@ -4,7 +4,9 @@ defineProps({ id: { type: String, default: undefined }, title: { type: String, r
 
 <template>
   <section :id="id" class="public-content-section" :class="`public-content-section--${tone}`" :aria-labelledby="id ? `${id}-title` : undefined">
-    <header class="public-content-section__heading"><h2 :id="id ? `${id}-title` : undefined">{{ title }}</h2><slot name="heading" /></header>
-    <slot />
+    <div class="public-content-section__inner">
+      <header class="public-content-section__heading"><h2 :id="id ? `${id}-title` : undefined">{{ title }}</h2><slot name="heading" /></header>
+      <slot />
+    </div>
   </section>
 </template>
