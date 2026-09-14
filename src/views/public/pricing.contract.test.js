@@ -923,36 +923,50 @@ const staticBindingInitializers = (value, importer) => {
       }
       return 'unknown'
     }
-    const expressionMayThrow = (node, environment, resolving = new Set(), chain = false) => {
-      node = unwrapExpression(node)
-      if (!node || typeof node !== 'object') return false
-      if (node.type === 'ChainExpression') return expressionMayThrow(node.expression, environment, resolving, true)
-      if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return false
-      if (['CallExpression', 'OptionalCallExpression'].includes(node.type)) {
-        if (expressionMayThrow(node.callee, environment, resolving, chain || node.type === 'OptionalCallExpression')) return true
-        const calleeNullish = expressionNullish(node.callee, environment, resolving, chain || node.type === 'OptionalCallExpression')
-        if (((chain || node.type === 'OptionalCallExpression') && calleeNullish === 'short-circuit') || (node.optional && calleeNullish === 'nullish')) return false
-        return true
+    const sequenceEffect = effects => {
+      let uncertain = false
+      for (const effect of effects) {
+        if (effect === 'mustThrow') return uncertain ? 'mayThrow' : 'mustThrow'
+        if (effect === 'mayThrow') uncertain = true
       }
-      if (['NewExpression', 'AwaitExpression', 'TaggedTemplateExpression'].includes(node.type)) return true
+      return uncertain ? 'mayThrow' : 'cannotThrow'
+    }
+    const expressionEffect = (node, environment, resolving = new Set(), chain = false) => {
+      node = unwrapExpression(node)
+      if (!node || typeof node !== 'object') return 'cannotThrow'
+      if (node.type === 'ChainExpression') return expressionEffect(node.expression, environment, resolving, true)
+      if (['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return 'cannotThrow'
+      if (['CallExpression', 'OptionalCallExpression'].includes(node.type)) {
+        const calleeEffect = expressionEffect(node.callee, environment, resolving, chain || node.type === 'OptionalCallExpression')
+        if (calleeEffect === 'mustThrow') return 'mustThrow'
+        const calleeNullish = expressionNullish(node.callee, environment, resolving, chain || node.type === 'OptionalCallExpression')
+        if (((chain || node.type === 'OptionalCallExpression') && calleeNullish === 'short-circuit') || (node.optional && calleeNullish === 'nullish')) return calleeEffect
+        return 'mayThrow'
+      }
+      if (['NewExpression', 'AwaitExpression', 'TaggedTemplateExpression'].includes(node.type)) return 'mayThrow'
       if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
-        if (expressionMayThrow(node.object, environment, resolving, chain || node.type === 'OptionalMemberExpression') || node.computed && expressionMayThrow(node.property, environment, resolving)) return true
+        const receiverEffect = expressionEffect(node.object, environment, resolving, chain || node.type === 'OptionalMemberExpression')
+        const propertyEffect = node.computed ? expressionEffect(node.property, environment, resolving) : 'cannotThrow'
+        const prerequisite = sequenceEffect([receiverEffect, propertyEffect])
+        if (prerequisite === 'mustThrow') return 'mustThrow'
         const receiverNullish = expressionNullish(node.object, environment, resolving, chain || node.type === 'OptionalMemberExpression')
-        if (receiverNullish === 'short-circuit') return !(chain || node.type === 'OptionalMemberExpression')
-        if (receiverNullish === 'nullish') return !node.optional
-        if (receiverNullish === 'unknown') return true
+        if (receiverNullish === 'short-circuit') return chain || node.type === 'OptionalMemberExpression' ? prerequisite : 'mustThrow'
+        if (receiverNullish === 'nullish') return node.optional ? prerequisite : prerequisite === 'cannotThrow' ? 'mustThrow' : 'mayThrow'
+        if (receiverNullish === 'unknown') return 'mayThrow'
         const key = node.computed ? staticPropertyKey(node.property) : node.property?.name
         const selectedValue = key === undefined ? { unknown: true } : factorySelection(node.object, key, environment, resolving)
-        return Boolean(selectedValue.unknown)
+        return selectedValue.unknown ? 'mayThrow' : prerequisite
       }
       if (node.type === 'Identifier' && environment.has(node.name) && !resolving.has(node.name)) {
-        return environment.get(node.name).some(value => expressionMayThrow(value, environment, new Set(resolving).add(node.name)))
+        const effects = environment.get(node.name).map(value => expressionEffect(value, environment, new Set(resolving).add(node.name)))
+        return effects.length && effects.every(effect => effect === 'mustThrow') ? 'mustThrow' : effects.some(effect => effect !== 'cannotThrow') ? 'mayThrow' : 'cannotThrow'
       }
+      const effects = []
       for (const [name, child] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(name)) {
-        if (Array.isArray(child) && child.some(item => expressionMayThrow(item, environment, resolving))) return true
-        if (!Array.isArray(child) && expressionMayThrow(child, environment, resolving)) return true
+        if (Array.isArray(child)) effects.push(...child.map(item => expressionEffect(item, environment, resolving)))
+        else effects.push(expressionEffect(child, environment, resolving))
       }
-      return false
+      return sequenceEffect(effects)
     }
     const setupReturns = (body, baseLocal = new Map()) => {
       const unknownThrown = { type: 'Identifier', name: '__unknown_thrown_value__' }
@@ -960,22 +974,44 @@ const staticBindingInitializers = (value, importer) => {
         expression = unwrapExpression(expression)
         if (!['CallExpression', 'OptionalCallExpression'].includes(expression?.type)) return undefined
         const key = expression.callee?.type === 'Identifier' ? expression.callee.name : `iife:${expression.callee?.start ?? expression.start}`
-        if (resolving.has(key)) return [{ kind: 'throw', expression: unknownThrown, replacements, environment }]
+        if (resolving.has(key)) return [{ kind: 'normal', replacements, environment }, { kind: 'throw', expression: unknownThrown, replacements, environment }]
         const functions = factoryFunctions(expression.callee, environment, resolving)
         if (!functions.length) return undefined
         return functions.flatMap(fn => {
           const local = new Map(environment)
           const bound = new Map(replacements)
+          const localNames = new Set()
+          const collectVarDeclarations = node => {
+            if (!node || typeof node !== 'object') return
+            if (node !== fn && ['ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(node.type)) return
+            if (node.type === 'VariableDeclaration' && node.kind === 'var') for (const declaration of node.declarations) for (const name of factoryPatternNames(declaration.id)) localNames.add(name)
+            for (const [name, child] of Object.entries(node)) if (!['loc', 'start', 'end', 'extra'].includes(name)) {
+              if (Array.isArray(child)) for (const item of child) collectVarDeclarations(item)
+              else collectVarDeclarations(child)
+            }
+          }
           for (let index = 0; index < fn.params.length; index += 1) {
             const parameter = unwrapExpression(fn.params[index])
+            for (const name of factoryPatternNames(parameter)) localNames.add(name)
             const argument = parameter?.type === 'RestElement' ? { type: 'ArrayExpression', elements: expression.arguments.slice(index) } : expression.arguments[index]
             bindFactoryPattern(parameter, argument, local, bound)
             if (parameter?.type === 'RestElement') break
           }
+          for (const statement of fn.body?.body || []) {
+            if (statement.type === 'VariableDeclaration') for (const declaration of statement.declarations) for (const name of factoryPatternNames(declaration.id)) localNames.add(name)
+            if (['FunctionDeclaration', 'ClassDeclaration'].includes(statement.type) && statement.id) localNames.add(statement.id.name)
+          }
+          collectVarDeclarations(fn.body)
           for (const statement of fn.body?.body || []) if (statement.type === 'FunctionDeclaration' && statement.id) local.set(statement.id.name, [statement])
-          return flow(fn.body, bound, true, local, new Set(resolving).add(key)).map(path => path.kind === 'return'
-            ? { kind: 'normal', replacements, environment }
-            : { ...path, replacements, environment })
+          return flow(fn.body, bound, true, local, new Set(resolving).add(key), true).map(path => {
+            const completedEnvironment = new Map(environment)
+            const completedReplacements = new Map(replacements)
+            for (const name of environment.keys()) if (!localNames.has(name) && path.environment.has(name)) completedEnvironment.set(name, path.environment.get(name))
+            for (const name of replacements.keys()) if (!localNames.has(name) && path.replacements.has(name)) completedReplacements.set(name, path.replacements.get(name))
+            return path.kind === 'return'
+              ? { kind: 'normal', replacements: completedReplacements, environment: completedEnvironment }
+              : { ...path, replacements: completedReplacements, environment: completedEnvironment }
+          })
         })
       }
       const directCall = node => {
@@ -990,30 +1026,61 @@ const staticBindingInitializers = (value, importer) => {
         for (const statement of statements || []) paths = paths.flatMap(path => path.kind === 'normal' ? flow(statement, path.replacements, catchesUnknown, path.environment, resolving) : [path])
         return paths
       }
-      const flow = (node, replacements = new Map(), catchesUnknown = false, environment = baseLocal, resolving = new Set()) => {
+      const flow = (node, replacements = new Map(), catchesUnknown = false, environment = baseLocal, resolving = new Set(), root = false) => {
         if (!node) return [{ kind: 'normal', replacements, environment }]
-        if (node.type === 'BlockStatement') return flowStatements(node.body, replacements, catchesUnknown, environment, resolving)
+        if (node.type === 'BlockStatement') {
+          const scopedNames = new Set()
+          const blockEnvironment = new Map(environment)
+          const blockReplacements = new Map(replacements)
+          for (const statement of node.body) {
+            if (!root && statement.type === 'VariableDeclaration' && statement.kind !== 'var') for (const declaration of statement.declarations) for (const name of factoryPatternNames(declaration.id)) scopedNames.add(name)
+            if (statement.type === 'FunctionDeclaration' && statement.id) {
+              blockEnvironment.set(statement.id.name, [statement]); blockReplacements.set(statement.id.name, statement)
+              if (!root) scopedNames.add(statement.id.name)
+            }
+            if (!root && statement.type === 'ClassDeclaration' && statement.id) scopedNames.add(statement.id.name)
+          }
+          return flowStatements(node.body, blockReplacements, catchesUnknown, blockEnvironment, resolving).map(path => {
+            if (root) return path
+            const nextEnvironment = new Map(path.environment)
+            const nextReplacements = new Map(path.replacements)
+            for (const name of scopedNames) {
+              if (environment.has(name)) nextEnvironment.set(name, environment.get(name)); else nextEnvironment.delete(name)
+              if (replacements.has(name)) nextReplacements.set(name, replacements.get(name)); else nextReplacements.delete(name)
+            }
+            return { ...path, environment: nextEnvironment, replacements: nextReplacements }
+          })
+        }
         if (node.type === 'ReturnStatement') {
           const returned = { kind: 'return', expression: node.argument ? substituteFactoryBindings(node.argument, replacements) : undefined, replacements, environment }
           const callPaths = localCallPaths(directCall(node.argument), environment, replacements, resolving)
-          if (callPaths) return callPaths.map(path => path.kind === 'normal' ? returned : path)
-          return catchesUnknown && expressionMayThrow(node.argument, environment) ? [returned, { kind: 'throw', expression: unknownThrown, replacements, environment }] : [returned]
+          if (callPaths) return callPaths.map(path => path.kind === 'normal' ? { ...returned, replacements: path.replacements, environment: path.environment } : path)
+          const effect = expressionEffect(node.argument, environment)
+          return effect === 'mustThrow'
+            ? catchesUnknown ? [{ kind: 'throw', expression: unknownThrown, replacements, environment }] : []
+            : catchesUnknown && effect === 'mayThrow' ? [returned, { kind: 'throw', expression: unknownThrown, replacements, environment }] : [returned]
         }
         if (node.type === 'ThrowStatement') return [{ kind: 'throw', expression: substituteFactoryBindings(node.argument, replacements), replacements, environment }]
         if (node.type === 'VariableDeclaration') {
           let paths = [{ kind: 'normal', replacements, environment }]
           for (const declaration of node.declarations) paths = paths.flatMap(path => {
             const calls = localCallPaths(directCall(declaration.init), path.environment, path.replacements, resolving)
-            const completes = !calls || calls.some(candidate => candidate.kind === 'normal')
-            const throws = calls ? calls.some(candidate => candidate.kind === 'throw') : expressionMayThrow(declaration.init, path.environment)
+            if (calls) return calls.flatMap(candidate => {
+              if (candidate.kind !== 'normal') return catchesUnknown ? [candidate] : []
+              const nextEnvironment = new Map(candidate.environment)
+              const nextReplacements = new Map(candidate.replacements)
+              bindFactoryPattern(declaration.id, declaration.init, nextEnvironment, nextReplacements)
+              return [{ kind: 'normal', replacements: nextReplacements, environment: nextEnvironment }]
+            })
+            const effect = expressionEffect(declaration.init, path.environment)
             const next = []
-            if (completes) {
+            if (effect !== 'mustThrow') {
               const nextEnvironment = new Map(path.environment)
               const nextReplacements = new Map(path.replacements)
               bindFactoryPattern(declaration.id, declaration.init, nextEnvironment, nextReplacements)
               next.push({ kind: 'normal', replacements: nextReplacements, environment: nextEnvironment })
             }
-            if (catchesUnknown && throws) next.push({ kind: 'throw', expression: calls?.find(candidate => candidate.kind === 'throw')?.expression || unknownThrown, replacements: path.replacements, environment: path.environment })
+            if (catchesUnknown && effect !== 'cannotThrow') next.push({ kind: 'throw', expression: unknownThrown, replacements: path.replacements, environment: path.environment })
             return next
           })
           return paths
@@ -1025,13 +1092,23 @@ const staticBindingInitializers = (value, importer) => {
         }
         if (node.type === 'ExpressionStatement' && unwrapExpression(node.expression)?.type === 'AssignmentExpression') {
           const calls = localCallPaths(directCall(node.expression.right), environment, replacements, resolving)
-          const completes = !calls || calls.some(candidate => candidate.kind === 'normal')
-          const throws = calls ? calls.some(candidate => candidate.kind === 'throw') : expressionMayThrow(node.expression.right, environment)
-          const nextEnvironment = new Map(environment)
-          const nextReplacements = new Map(replacements)
-          bindFactoryPattern(node.expression.left, node.expression.right, nextEnvironment, nextReplacements)
-          const normal = { kind: 'normal', replacements: nextReplacements, environment: nextEnvironment }
-          return [...(completes ? [normal] : []), ...(catchesUnknown && throws ? [{ kind: 'throw', expression: calls?.find(candidate => candidate.kind === 'throw')?.expression || unknownThrown, replacements, environment }] : [])]
+          if (calls) return calls.flatMap(candidate => {
+            if (candidate.kind !== 'normal') return catchesUnknown ? [candidate] : []
+            const nextEnvironment = new Map(candidate.environment)
+            const nextReplacements = new Map(candidate.replacements)
+            bindFactoryPattern(node.expression.left, node.expression.right, nextEnvironment, nextReplacements)
+            return [{ kind: 'normal', replacements: nextReplacements, environment: nextEnvironment }]
+          })
+          const effect = expressionEffect(node.expression.right, environment)
+          const paths = []
+          if (effect !== 'mustThrow') {
+            const nextEnvironment = new Map(environment)
+            const nextReplacements = new Map(replacements)
+            bindFactoryPattern(node.expression.left, node.expression.right, nextEnvironment, nextReplacements)
+            paths.push({ kind: 'normal', replacements: nextReplacements, environment: nextEnvironment })
+          }
+          if (catchesUnknown && effect !== 'cannotThrow') paths.push({ kind: 'throw', expression: unknownThrown, replacements, environment })
+          return paths
         }
         if (node.type === 'IfStatement') {
           const condition = staticValue(substituteFactoryBindings(node.test, replacements))
@@ -1051,11 +1128,14 @@ const staticBindingInitializers = (value, importer) => {
           return paths
         }
         const callPaths = localCallPaths(directCall(node), environment, replacements, resolving)
-        if (callPaths) return callPaths.map(path => path.kind === 'return' ? { kind: 'normal', replacements, environment } : path)
+        if (callPaths) return callPaths.map(path => path.kind === 'return' ? { kind: 'normal', replacements: path.replacements, environment: path.environment } : path)
         const normal = { kind: 'normal', replacements, environment }
-        return catchesUnknown && expressionMayThrow(node, environment) ? [normal, { kind: 'throw', expression: unknownThrown, replacements, environment }] : [normal]
+        const effect = expressionEffect(node, environment)
+        return effect === 'mustThrow'
+          ? catchesUnknown ? [{ kind: 'throw', expression: unknownThrown, replacements, environment }] : []
+          : catchesUnknown && effect === 'mayThrow' ? [normal, { kind: 'throw', expression: unknownThrown, replacements, environment }] : [normal]
       }
-      return flow(body, new Map(), false, new Map(baseLocal)).filter(path => path.kind === 'return' && path.expression)
+      return flow(body, new Map(), false, new Map(baseLocal), new Set(), true).filter(path => path.kind === 'return' && path.expression)
     }
     const resolvedLocalValues = (expression, local, resolving = new Set()) => {
       expression = unwrapExpression(expression)
@@ -1398,7 +1478,19 @@ const staticBindingInitializers = (value, importer) => {
         for (const key of new Set(registries.flatMap(state => [...state.map.keys()]))) target.set(key, stateValues(registries, key).flatMap(value => resolvedLocalValues(value, target)))
       }
     }
-    const process = (statements, target) => {
+    const process = (statements, target, scoped = false) => {
+      const scopedNames = new Set()
+      const previous = new Map()
+      for (const raw of statements || []) {
+        const declaration = raw?.type === 'ExportNamedDeclaration' ? raw.declaration : raw
+        if (declaration?.type === 'FunctionDeclaration' && declaration.id) scopedNames.add(declaration.id.name)
+        if (scoped && declaration?.type === 'VariableDeclaration' && declaration.kind !== 'var') for (const item of declaration.declarations) for (const name of factoryPatternNames(item.id)) scopedNames.add(name)
+      }
+      for (const name of scopedNames) {
+        previous.set(name, target.has(name) ? target.get(name) : undefined)
+        const declaration = (statements || []).map(raw => raw?.type === 'ExportNamedDeclaration' ? raw.declaration : raw).find(statement => statement?.type === 'FunctionDeclaration' && statement.id?.name === name)
+        if (declaration) target.set(name, [declaration])
+      }
       for (const raw of statements || []) {
         const node = raw?.type === 'ExportNamedDeclaration' ? raw.declaration : raw
         if (!node) continue
@@ -1406,15 +1498,25 @@ const staticBindingInitializers = (value, importer) => {
         else if (node.type === 'VariableDeclaration') for (const declaration of node.declarations) bindPattern(declaration.id, declaration.init, target)
         else if (node.type === 'ExportDefaultDeclaration') exposeOptions(node.declaration, target)
         else if (node.type === 'ExpressionStatement') applyExpression(node.expression, target)
-        else if (node.type === 'BlockStatement') process(node.body, target)
+        else if (node.type === 'BlockStatement') process(node.body, target, true)
         else if (node.type === 'IfStatement') {
           const condition = staticValue(node.test)
-          if (condition !== unknownStaticValue) process((condition ? node.consequent : node.alternate)?.type === 'BlockStatement' ? (condition ? node.consequent : node.alternate).body : [condition ? node.consequent : node.alternate], target)
+          if (condition !== unknownStaticValue) {
+            const branch = condition ? node.consequent : node.alternate
+            process(branch?.type === 'BlockStatement' ? branch.body : [branch], target, branch?.type === 'BlockStatement')
+          }
           else {
             const left = new Map(target); const right = new Map(target)
-            process(node.consequent?.type === 'BlockStatement' ? node.consequent.body : [node.consequent], left)
-            process(node.alternate?.type === 'BlockStatement' ? node.alternate.body : [node.alternate], right)
+            process(node.consequent?.type === 'BlockStatement' ? node.consequent.body : [node.consequent], left, node.consequent?.type === 'BlockStatement')
+            process(node.alternate?.type === 'BlockStatement' ? node.alternate.body : [node.alternate], right, node.alternate?.type === 'BlockStatement')
             target.clear(); for (const [name, values] of merge(left, right)) target.set(name, values)
+          }
+        } else if (node.type === 'TryStatement') {
+          const sentinel = { type: 'Identifier', name: '__options_flow_complete__' }
+          const paths = setupReturns({ type: 'BlockStatement', body: [node, { type: 'ReturnStatement', argument: sentinel }] }, target)
+          if (paths.length) {
+            const merged = paths.map(path => path.environment).reduce((left, right) => merge(left, right))
+            target.clear(); for (const [name, values] of merged) target.set(name, values)
           }
         } else if (node.type === 'SwitchStatement') {
           const discriminant = staticValue(node.discriminant)
@@ -1441,6 +1543,10 @@ const staticBindingInitializers = (value, importer) => {
             target.clear(); for (const [name, values] of merged) target.set(name, values)
           }
         }
+      }
+      if (scoped) for (const name of scopedNames) {
+        if (previous.get(name) === undefined) target.delete(name)
+        else target.set(name, previous.get(name))
       }
     }
     process(ast.program.body, bindings)

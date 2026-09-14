@@ -342,7 +342,123 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
     return states
   }
   const exportedOptionStates = []
+  const optionNullish = (expression, local, resolving = new Set(), chain = false) => {
+    expression = unwrapScriptExpression(expression)
+    if (expression?.type === 'ChainExpression') return optionNullish(expression.expression, local, resolving, true)
+    if (!expression) return 'unknown'
+    if (expression.type === 'NullLiteral' || expression.type === 'Identifier' && expression.name === 'undefined' || expression.type === 'UnaryExpression' && expression.operator === 'void') return 'nullish'
+    if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'BigIntLiteral', 'ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(expression.type)) return 'nonnull'
+    if (expression.type === 'Identifier') {
+      if (!local.has(expression.name) || resolving.has(expression.name)) return 'unknown'
+      const candidates = optionCandidates(expression, local, resolving)
+      const values = candidates.map(value => optionNullish(value, local, new Set(resolving).add(expression.name), chain))
+      return values.length && values.every(value => value === values[0]) ? values[0] : 'unknown'
+    }
+    if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) {
+      const receiver = optionNullish(expression.object, local, resolving, chain || expression.type === 'OptionalMemberExpression')
+      if (receiver === 'short-circuit') return chain || expression.type === 'OptionalMemberExpression' ? 'short-circuit' : 'unknown'
+      if (receiver === 'nullish') return expression.optional ? 'short-circuit' : 'unknown'
+      if (receiver !== 'nonnull') return 'unknown'
+      const name = expression.computed ? unwrapScriptExpression(expression.property)?.value : expression.property?.name
+      const objects = effectiveOptionStates(expression.object, local, resolving)
+      const values = objects.flatMap(state => state.map.has(String(name)) ? [state.map.get(String(name))] : [])
+      return values.length ? optionNullish(values[0], local, resolving) : 'nullish'
+    }
+    if (expression.type === 'OptionalCallExpression') {
+      const callee = optionNullish(expression.callee, local, resolving, chain)
+      if (callee === 'short-circuit' || expression.optional && callee === 'nullish') return 'short-circuit'
+    }
+    return 'unknown'
+  }
+  const optionExpressionEffect = (expression, local, resolving = new Set(), chain = false) => {
+    expression = unwrapScriptExpression(expression)
+    if (!expression) return 'cannotThrow'
+    if (expression.type === 'ChainExpression') return optionExpressionEffect(expression.expression, local, resolving, true)
+    if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral', 'NullLiteral', 'BigIntLiteral', 'ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'FunctionDeclaration', 'ObjectMethod'].includes(expression.type)) return 'cannotThrow'
+    if (expression.type === 'Identifier') return 'cannotThrow'
+    if (['MemberExpression', 'OptionalMemberExpression'].includes(expression.type)) {
+      const receiverEffect = optionExpressionEffect(expression.object, local, resolving, chain || expression.type === 'OptionalMemberExpression')
+      if (receiverEffect === 'mustThrow') return 'mustThrow'
+      const receiver = optionNullish(expression.object, local, resolving, chain || expression.type === 'OptionalMemberExpression')
+      if (receiver === 'short-circuit') return chain || expression.type === 'OptionalMemberExpression' ? receiverEffect : 'mustThrow'
+      if (receiver === 'nullish') return expression.optional ? receiverEffect : receiverEffect === 'cannotThrow' ? 'mustThrow' : 'mayThrow'
+      if (receiver === 'unknown') return 'mayThrow'
+      return receiverEffect
+    }
+    if (['CallExpression', 'OptionalCallExpression'].includes(expression.type)) {
+      const calleeEffect = optionExpressionEffect(expression.callee, local, resolving, chain || expression.type === 'OptionalCallExpression')
+      if (calleeEffect === 'mustThrow') return 'mustThrow'
+      const calleeNullish = optionNullish(expression.callee, local, resolving, chain || expression.type === 'OptionalCallExpression')
+      if (((chain || expression.type === 'OptionalCallExpression') && calleeNullish === 'short-circuit') || (expression.optional && calleeNullish === 'nullish')) return calleeEffect
+      const functions = optionFunctions(expression.callee, local, resolving)
+      if (functions.length && functions.every(fn => factoryOptionReturns(fn, expression.arguments, local).length > 0)) return 'cannotThrow'
+      return 'mayThrow'
+    }
+    if (expression.type === 'SequenceExpression') {
+      for (const item of expression.expressions) {
+        const effect = optionExpressionEffect(item, local, resolving)
+        if (effect !== 'cannotThrow') return effect
+      }
+      return 'cannotThrow'
+    }
+    return 'cannotThrow'
+  }
+  const flowOptionStatements = (statements, initial, catches = false) => {
+    let paths = [{ kind: 'normal', bindings: new Map(initial) }]
+    const flowOne = (statement, bindings, catchesHere) => {
+      if (!statement) return [{ kind: 'normal', bindings }]
+      if (statement.type === 'BlockStatement') return flowOptionStatements(statement.body, bindings, catchesHere)
+      if (statement.type === 'ThrowStatement') return [{ kind: 'throw', bindings }]
+      if (statement.type === 'VariableDeclaration') {
+        const next = new Map(bindings)
+        let effect = 'cannotThrow'
+        for (const declaration of statement.declarations) {
+          const current = optionExpressionEffect(declaration.init, next)
+          if (current === 'mustThrow') effect = 'mustThrow'
+          else if (current === 'mayThrow' && effect === 'cannotThrow') effect = 'mayThrow'
+          if (current !== 'mustThrow') bindOptionPattern(declaration.id, declaration.init, next)
+        }
+        const result = effect === 'mustThrow' ? [] : [{ kind: 'normal', bindings: next }]
+        if (catchesHere && effect !== 'cannotThrow') result.push({ kind: 'throw', bindings })
+        return result
+      }
+      if (statement.type === 'ExpressionStatement' && statement.expression?.type === 'AssignmentExpression' && statement.expression.operator === '=') {
+        const effect = optionExpressionEffect(statement.expression.right, bindings)
+        const result = []
+        if (effect !== 'mustThrow') {
+          const next = new Map(bindings)
+          bindOptionPattern(statement.expression.left, statement.expression.right, next)
+          result.push({ kind: 'normal', bindings: next })
+        }
+        if (catchesHere && effect !== 'cannotThrow') result.push({ kind: 'throw', bindings })
+        return result
+      }
+      if (statement.type === 'IfStatement') {
+        const condition = optionStaticValue(statement.test)
+        return condition.known
+          ? flowOne(condition.value ? statement.consequent : statement.alternate, new Map(bindings), catchesHere)
+          : [...flowOne(statement.consequent, new Map(bindings), catchesHere), ...flowOne(statement.alternate, new Map(bindings), catchesHere)]
+      }
+      if (statement.type === 'TryStatement') {
+        let results = flowOne(statement.block, bindings, true).flatMap(path => path.kind === 'throw' && statement.handler
+          ? flowOne(statement.handler.body, new Map(path.bindings), false)
+          : [path])
+        if (statement.finalizer) results = results.flatMap(path => flowOne(statement.finalizer, new Map(path.bindings), true).map(finalPath => finalPath.kind === 'normal' ? { ...path, bindings: finalPath.bindings } : finalPath))
+        return results
+      }
+      const effect = optionExpressionEffect(statement.expression, bindings)
+      const result = effect === 'mustThrow' ? [] : [{ kind: 'normal', bindings }]
+      if (catchesHere && effect !== 'cannotThrow') result.push({ kind: 'throw', bindings })
+      return result
+    }
+    for (const statement of statements || []) paths = paths.flatMap(path => path.kind === 'normal' ? flowOne(statement, path.bindings, catches) : [path])
+    return paths
+  }
   const processOptionStatements = (statements, target) => {
+    for (const raw of statements || []) {
+      const statement = raw?.type === 'ExportNamedDeclaration' ? raw.declaration : raw
+      if (statement?.type === 'FunctionDeclaration' && statement.id) target.set(statement.id.name, [statement])
+    }
     for (const raw of statements || []) {
       const statement = raw?.type === 'ExportNamedDeclaration' ? raw.declaration : raw
       if (!statement) continue
@@ -351,6 +467,13 @@ const renderFunctionUsesComponent = (source, specifier) => componentScriptAsts(s
       else if (statement.type === 'ExpressionStatement' && statement.expression?.type === 'AssignmentExpression' && statement.expression.operator === '=') bindOptionPattern(statement.expression.left, statement.expression.right, target)
       else if (statement.type === 'ExportDefaultDeclaration') exportedOptionStates.push(...effectiveOptionStates(statement.declaration, target))
       else if (statement.type === 'BlockStatement') processOptionStatements(statement.body, target)
+      else if (statement.type === 'TryStatement') {
+        const paths = flowOptionStatements([statement], target).filter(path => path.kind === 'normal')
+        if (paths.length) {
+          const merged = paths.map(path => path.bindings).reduce((left, right) => mergeOptionBindings(left, right))
+          target.clear(); for (const [name, values] of merged) target.set(name, values)
+        }
+      }
       else if (statement.type === 'IfStatement') {
         const condition = optionStaticValue(statement.test)
         if (condition.known) {
