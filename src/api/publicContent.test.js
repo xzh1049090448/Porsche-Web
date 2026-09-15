@@ -388,4 +388,8 @@ test('home config exposes only allowlisted public failure metadata and preserves
   await assert.rejects(() => malformed.getHomeConfig(), error => error.code === 'unavailable' && error.requestId === null)
   const abort = new DOMException('stop', 'AbortError')
   await assert.rejects(() => createPublicContentClient({ fetchImpl: async () => { throw abort } }).getHomeConfig(), error => error === abort)
+  let nameReads = 0
+  const forged = {}; Object.defineProperty(forged, 'name', { enumerable: true, get: () => { nameReads++; return 'AbortError' } })
+  await assert.rejects(() => createPublicContentClient({ fetchImpl: async () => { throw forged } }).getHomeConfig(), error => error.code === 'network_error' && error !== forged)
+  assert.equal(nameReads, 0)
 })

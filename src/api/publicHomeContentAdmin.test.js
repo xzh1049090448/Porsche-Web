@@ -63,6 +63,47 @@ test('root errors are allowlisted and sanitized while AbortError identity is pre
   await assert.rejects(() => createPublicHomeContentAdminApi({ request: async () => { throw new Error('token=secret') } }).getHomeDraft(), e => e.code === 'network_error' && !e.message.includes('secret'))
 })
 
+test('root cancellation preserves only genuine DOMException identity without reading forged names', async () => {
+  let nameReads = 0
+  const accessorForgery = {}; Object.defineProperty(accessorForgery, 'name', { enumerable: true, get: () => { nameReads++; return 'AbortError' } })
+  const errorForgery = new Error('forged'); Object.defineProperty(errorForgery, 'name', { value: 'AbortError', enumerable: true })
+  for (const forged of [accessorForgery, errorForgery]) await assert.rejects(() => createPublicHomeContentAdminApi({ request: async () => { throw forged } }).getHomeDraft(), error => error instanceof PublicHomeContentAdminError && error.code === 'network_error' && error !== forged)
+  assert.equal(nameReads, 0)
+  let genuineNameReads = 0
+  const genuine = new DOMException('stop', 'AbortError')
+  Object.defineProperty(genuine, 'name', { configurable: true, get: () => { genuineNameReads++; throw new Error('overridden') } })
+  await assert.rejects(() => createPublicHomeContentAdminApi({ request: async () => { throw genuine } }).getHomeDraft(), error => error === genuine)
+  assert.equal(genuineNameReads, 0)
+
+  let transportNameReads = 0
+  const transportForgery = {}; Object.defineProperty(transportForgery, 'name', { enumerable: true, get: () => { transportNameReads++; return 'AbortError' } })
+  const adapter = createPublicHomeContentAdminProductionRequest({ fetchImpl: async () => { throw transportForgery } })
+  await assert.rejects(() => adapter({ method: 'GET', path: '/admin/v2/public-content/home-draft' }), error => error instanceof PublicHomeContentAdminError && error.code === 'network_error')
+  assert.equal(transportNameReads, 0)
+})
+
+test('root response headers use native intrinsic access and reject unsafe plain metadata', async () => {
+  const overridden = headers(); Object.defineProperty(overridden, 'get', { value: () => { throw new Error('overridden') } })
+  assert.equal((await createPublicHomeContentAdminApi({ request: async () => ({ data: home, status: 200, headers: overridden }) }).getHomeDraft()).revision, 4)
+
+  let cacheControlReads = 0
+  const accessorHeaders = { 'X-Request-ID': 'req-home' }
+  Object.defineProperty(accessorHeaders, 'Cache-Control', { enumerable: true, get: () => { cacheControlReads++; throw new Error('secret') } })
+  const duplicateHeaders = { 'Cache-Control': 'no-store', 'cache-control': 'no-store', 'X-Request-ID': 'req-home' }
+  const symbolHeaders = { 'Cache-Control': 'no-store', 'X-Request-ID': 'req-home', [Symbol('hidden')]: 'secret' }
+  for (const unsafe of [accessorHeaders, duplicateHeaders, symbolHeaders]) await assert.rejects(() => createPublicHomeContentAdminApi({ request: async () => ({ data: home, status: 200, headers: unsafe }) }).getHomeDraft(), error => /invalid_public_home_content_admin_response/.test(error.message) && error.code === undefined)
+  assert.equal(cacheControlReads, 0)
+  const plain = { 'cache-control': 'no-store', 'x-request-id': 'req-home' }
+  assert.equal((await createPublicHomeContentAdminApi({ request: async () => ({ data: home, status: 200, headers: plain }) }).getHomeDraft()).revision, 4)
+})
+
+test('malformed thrown response accessors are never invoked and remain sanitized', async () => {
+  let responseReads = 0
+  const thrown = {}; Object.defineProperty(thrown, 'response', { enumerable: true, get: () => { responseReads++; throw new Error('secret') } })
+  await assert.rejects(() => createPublicHomeContentAdminApi({ request: async () => { throw thrown } }).getHomeDraft(), error => error.code === 'network_error' && !error.message.includes('secret'))
+  assert.equal(responseReads, 0)
+})
+
 test('production adapter uses bearer direct fetch for mutations without replay', async () => {
   const calls=[]; const adapter=createPublicHomeContentAdminProductionRequest({fetchImpl:async(...args)=>{calls.push(args);return new Response(JSON.stringify(home),{status:201,headers:headers()})},baseURL:'/base',getAuthorization:()=> 'Bearer in-memory'})
   const result=await adapter({method:'POST',path:'/admin/v2/public-content/home-draft/announcements',body:{expected_revision:1},signal:undefined})

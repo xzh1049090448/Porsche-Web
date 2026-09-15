@@ -6,6 +6,12 @@ const MODEL_KEY = /^[a-z][a-z0-9-]{0,127}$/
 const RFC3339 = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)Z$/
 const UNSAFE = /[\p{Cc}\p{Cf}]/u
 const LONE_SURROGATE = /(?:[\uD800-\uDBFF](?![\uDC00-\uDFFF]))|(?:(?<![\uD800-\uDBFF])[\uDC00-\uDFFF])/
+const DOM_EXCEPTION_NAME = typeof globalThis.DOMException === 'function' ? Object.getOwnPropertyDescriptor(globalThis.DOMException.prototype, 'name')?.get : null
+const HEADERS_GET = typeof globalThis.Headers === 'function' ? globalThis.Headers.prototype.get : null
+const isGenuineAbortError = error => {
+  if (typeof DOM_EXCEPTION_NAME !== 'function') return false
+  try { return DOM_EXCEPTION_NAME.call(error) === 'AbortError' } catch { return false }
+}
 const snapshotObject = (value, allowed, required = allowed) => {
   try {
     if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return null
@@ -52,7 +58,31 @@ const validTime = value => {
   return date.getUTCFullYear() === values[0] && date.getUTCMonth() + 1 === values[1] && date.getUTCDate() === values[2] && date.getUTCHours() === values[3] && date.getUTCMinutes() === values[4] && date.getUTCSeconds() === values[5]
 }
 const validSort = value => Number.isSafeInteger(value) && value >= 0 && value <= 1000000
-const header = (headers, name) => { const value = typeof headers?.get === 'function' ? headers.get(name) : headers?.[name] ?? headers?.[name.toLowerCase()]; return typeof value === 'string' ? value : null }
+const snapshotHeaders = (headers, names) => {
+  if (typeof HEADERS_GET === 'function') {
+    try { return Object.fromEntries(names.map(name => [name.toLowerCase(), HEADERS_GET.call(headers, name)])) } catch {}
+  }
+  try {
+    if (!headers || typeof headers !== 'object' || Array.isArray(headers) || Object.getPrototypeOf(headers) !== Object.prototype) return null
+    const descriptors = Object.getOwnPropertyDescriptors(headers)
+    const own = Reflect.ownKeys(descriptors)
+    const values = {}; const seen = new Set()
+    for (const key of own) {
+      if (typeof key !== 'string' || !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(key)) return null
+      const descriptor = descriptors[key]; const normalized = key.toLowerCase()
+      if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'string' || seen.has(normalized)) return null
+      seen.add(normalized); values[normalized] = descriptor.value
+    }
+    return Object.fromEntries(names.map(name => [name.toLowerCase(), values[name.toLowerCase()] ?? null]))
+  } catch { return null }
+}
+const ownDataValue = (value, key) => {
+  try {
+    if (!value || (typeof value !== 'object' && typeof value !== 'function')) return null
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    return descriptor && Object.hasOwn(descriptor, 'value') ? { value: descriptor.value } : null
+  } catch { return null }
+}
 const freeze = value => Array.isArray(value) ? Object.freeze(value.map(freeze)) : value && typeof value === 'object' ? Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, freeze(item)]))) : value
 const compareGuid = (left, right) => left.length === right.length ? left < right ? -1 : left > right ? 1 : 0 : left.length - right.length
 const compareAnnouncement = (left, right) => left.sortOrder - right.sortOrder || (left.effectiveAt === right.effectiveAt ? 0 : left.effectiveAt === null ? -1 : right.effectiveAt === null ? 1 : left.effectiveAt < right.effectiveAt ? -1 : 1) || compareGuid(left.guid, right.guid)
@@ -89,10 +119,12 @@ function mapDocuments(raw) {
 }
 function metadata(result, status, { preview = false, deletion = false } = {}) {
   const value = snapshotObject(result, ['data', 'status', 'headers'])
-  if (!value || value.status !== status || header(value.headers, 'Cache-Control') !== 'no-store' || !safeRequestId(header(value.headers, 'X-Request-ID')) || (preview && header(value.headers, 'X-Robots-Tag') !== 'noindex,nofollow')) invalid()
+  const names = ['Cache-Control', 'X-Request-ID', ...(preview ? ['X-Robots-Tag'] : []), ...(deletion ? ['X-Content-Draft-Revision'] : [])]
+  const headers = value && snapshotHeaders(value.headers, names)
+  if (!value || !headers || value.status !== status || headers['cache-control'] !== 'no-store' || !safeRequestId(headers['x-request-id']) || (preview && headers['x-robots-tag'] !== 'noindex,nofollow')) invalid()
   if (deletion) {
     if (value.data !== null && value.data !== undefined && value.data !== '') invalid()
-    const rawRevision = header(value.headers, 'X-Content-Draft-Revision'); const revision = /^[1-9]\d*$/.test(rawRevision || '') ? Number(rawRevision) : NaN; if (!positive(revision)) invalid()
+    const rawRevision = headers['x-content-draft-revision']; const revision = /^[1-9]\d*$/.test(rawRevision || '') ? Number(rawRevision) : NaN; if (!positive(revision)) invalid()
     return revision
   }
   return value.data
@@ -100,14 +132,16 @@ function metadata(result, status, { preview = false, deletion = false } = {}) {
 const safeRequestId = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
 export class PublicHomeContentAdminError extends Error { constructor(code, status = null, requestId = null) { super(`public_home_content_admin_${code}`); this.name = 'PublicHomeContentAdminError'; Object.assign(this, { code, status, requestId }) } }
 function mapError(error) {
-  try { if (error?.name === 'AbortError') return error } catch { return new PublicHomeContentAdminError('network_error') }
-  let response
-  try { response = snapshotObject(error?.response, ['data', 'status', 'headers']) } catch { response = null }
-  const status = Number.isInteger(response?.status) ? response.status : null, raw = response?.data, requestId = header(response?.headers, 'X-Request-ID')
+  if (isGenuineAbortError(error)) return error
+  const responseProperty = ownDataValue(error, 'response')
+  const response = responseProperty && snapshotObject(responseProperty.value, ['data', 'status', 'headers'])
+  const status = Number.isInteger(response?.status) ? response.status : null, raw = response?.data
+  const headers = response && snapshotHeaders(response.headers, ['Cache-Control', 'X-Request-ID'])
+  const requestId = headers?.['x-request-id'] ?? null
   const expected = ({ 400: 'invalid_request', 401: 'authentication_required', 403: 'root_role_required', 404: 'not_found', 409: 'conflict', 410: 'gone', 422: 'validation_failed', 503: 'unavailable' })[status]
   const envelope = snapshotObject(raw, ['error'])
   const errorBody = envelope && snapshotObject(envelope.error, ['code', 'message', 'request_id'])
-  const valid = expected && header(response?.headers, 'Cache-Control') === 'no-store' && safeRequestId(requestId) && errorBody && errorBody.code === expected && errorBody.request_id === requestId && typeof errorBody.message === 'string'
+  const valid = expected && headers?.['cache-control'] === 'no-store' && safeRequestId(requestId) && errorBody && errorBody.code === expected && errorBody.request_id === requestId && typeof errorBody.message === 'string'
   if (!valid) return new PublicHomeContentAdminError(status ? 'request_failed' : 'network_error', status)
   return new PublicHomeContentAdminError(status === 403 ? 'root_required' : status === 409 ? 'revision_conflict' : expected, status, requestId)
 }
@@ -117,7 +151,7 @@ export function createPublicHomeContentAdminProductionRequest({ fetchImpl = glob
     const headers = {}; const authorization = getAuthorization?.(); if (authorization) headers.Authorization = authorization
     if (input.method !== 'GET' && input.method !== 'DELETE' || input.body !== undefined) headers['Content-Type'] = 'application/json'
     let response
-    try { response = await fetchImpl(`${baseURL}${input.path}`, { method: input.method, headers, credentials: 'include', signal: input.signal, ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }) }) } catch (error) { if (error?.name === 'AbortError') throw error; throw new PublicHomeContentAdminError('network_error') }
+    try { response = await fetchImpl(`${baseURL}${input.path}`, { method: input.method, headers, credentials: 'include', signal: input.signal, ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }) }) } catch (error) { if (isGenuineAbortError(error)) throw error; throw new PublicHomeContentAdminError('network_error') }
     let data = null
     if (response.status !== 204) { try { data = await response.json() } catch { data = null } }
     const result = { data, status: response.status, headers: response.headers }

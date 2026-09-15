@@ -13,6 +13,11 @@ const RFC3339 = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)Z$/
 const UNSAFE_TEXT = /[\p{Cc}\p{Cf}]/u
 const UNSAFE_HTML = /[\p{Cc}\p{Cf}]/u
 const LONE_SURROGATE = /(?:[\uD800-\uDBFF](?![\uDC00-\uDFFF]))|(?:(?<![\uD800-\uDBFF])[\uDC00-\uDFFF])/
+const DOM_EXCEPTION_NAME = typeof globalThis.DOMException === 'function' ? Object.getOwnPropertyDescriptor(globalThis.DOMException.prototype, 'name')?.get : null
+const isGenuineAbortError = error => {
+  if (typeof DOM_EXCEPTION_NAME !== 'function') return false
+  try { return DOM_EXCEPTION_NAME.call(error) === 'AbortError' } catch { return false }
+}
 const validScalars = value => !LONE_SURROGATE.test(value) && ![...value].some(character => { const code = character.codePointAt(0); return code === 0xfffd || code >= 0xfdd0 && code <= 0xfdef || (code & 0xffff) >= 0xfffe })
 const validGuid = value => typeof value === 'string' && GUID.test(value) && (value.length < MAX_INT64.length || value <= MAX_INT64)
 const validText = (value, max, { empty = false, bytes = false } = {}) => typeof value === 'string' && (empty || value.trim().length > 0) && !UNSAFE_TEXT.test(value) && validScalars(value) && (bytes ? new TextEncoder().encode(value).length : [...value].length) <= max
@@ -154,7 +159,7 @@ export function createPublicContentClient({ fetchImpl = globalThis.fetch, authen
       const transport = options.authenticated && !getAuthorization ? (authenticatedFetchImpl || productionAuthenticatedFetch) : fetchImpl
       response = await transport(`${baseURL}${path}`, { method: 'GET', headers, signal: options.signal })
     }
-    catch (error) { if (error?.name === 'AbortError') throw error; throw new PublicContentError('network_error') }
+    catch (error) { if (isGenuineAbortError(error)) throw error; throw new PublicContentError('network_error') }
     if (response.status === 304) {
       if (options.authenticated) throw new PublicContentError('invalid_304', 304)
       if (options.resourceKey) { try { return options.cacheMapper(options.cached, path, options.etag) } catch { throw new PublicContentError('invalid_304', 304) } }
