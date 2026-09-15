@@ -1,5 +1,13 @@
 # 当前验证进度
 
+## 2026-09-16：Fixed Home Structured Content Task13 跨仓库数据层验证（PASS_LIMITED_SCOPE）
+
+- 前端候选 `78006b360b1f005ded208b68aae6464c67891b52` 配对后端 `8303a28`（含 `f6ed4e1` exact action target locks）；合同为 `v1.0.0-p0` / `agreed_for_implementation` / SHA-256 `3bb7932bf8637b6fcbe3b26694b4e63aa0fb72a047fb127f817865d46e0c7058`。
+- 后端在 disposable、loopback-only MySQL 8.4.11（tmpfs）与 Redis 7-alpine（无持久化）下完成计划内真实数据层门禁：迁移前后均为 20 行 0001–0020；normal `-p 1` migration/service/handler 3.860s/3.178s/0.519s，race service/handler 7.051s/1.643s，全部 PASS、0 unexpected skip。root 静态全仓与真实 fixture service/handler 全包串行 171.312s/17.009s 也通过，vet/build/dockerfile/gofmt/diff 均 PASS。
+- structured artifact renderer 的 stale-overwrite 用例先 RED，`flock` 修复后 GREEN，race `-count=3` PASS，并覆盖安全 root、symlink、0700/0600、canonical SHA/manifest、generation/fence、原子 current 与 stale rollback。该产物服务于固定 Vue shell，不是服务端生成 HTML。计划外完整真实 migration package 因历史测试硬编码过时 terminal/dependency 假设为 `NON_BLOCKING_EXTRA_CHECK_FAIL`，计划内 scoped migration 已通过。
+- 两个测试容器已按完整 ID 精确删除，名称不存在，52179/54737 关闭，凭据文件不存在。Task12 浏览器证据仍是 synthetic `page.route` 12/12、234/234、32 条脱敏请求、0 unexpected console/page error；真实 Root 浏览器 CRUD/RBAC/事务仍 `NOT_RUN`。
+- `web-012` 继续 `in_progress / PASS_LIMITED_SCOPE`，P08 继续 `BLOCKED_PRODUCT`。有序 review snapshot、external scheduler/systemd、生产 volume mount、前端 artifact reader、production migration/deploy/publication/HTTPS 均未运行；本轮未 push、PR、merge 或 deploy。证据见 `docs/agents/validation/2026-09-16-fixed-home-structured-content-task13/`。
+
 ## 2026-09-14：Home/Pricing 原型复用与全站紧凑字级本地验收
 
 - 按 `landing-prototype.html` 与 `pricing.html` 的已确认方向重构 Home/Pricing 展示结构，同时保留真实发布读取、Root 管理权限、价格缺失/隐藏、稳定 `modelKey`、危险 URL/富文本净化和既有路由行为。合入当前 `origin/main` 后的被测代码 revision 为 `d93ae47aa1243b4e476dc33ccac2a9d2c20e5c4d`；一并纳入的认证不确定状态恢复链路已参加本轮完整回归。
