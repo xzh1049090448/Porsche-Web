@@ -8,11 +8,22 @@ const readyStructuredHome = homeContent => {
 export function createPublicHomePublication({ store, homeContent, loadSite } = {}) {
   const featuredModels = shallowRef(null)
   const activeModelLoads = new Map()
+  const modelOwners = new Map()
   let epoch = 0
 
+  const releaseModelLoads = (owner, cancel = false) => {
+    const keys = activeModelLoads.get(owner)
+    if (!keys) return
+    for (const key of keys) {
+      if (modelOwners.get(key) !== owner) continue
+      modelOwners.delete(key)
+      if (cancel) store.cancel(`detail:${key}`)
+    }
+    activeModelLoads.delete(owner)
+  }
+
   const cancelModels = () => {
-    for (const keys of activeModelLoads.values()) for (const key of keys) store.cancel(`detail:${key}`)
-    activeModelLoads.clear()
+    for (const owner of [...activeModelLoads.keys()]) releaseModelLoads(owner, true)
   }
 
   async function load() {
@@ -34,14 +45,33 @@ export function createPublicHomePublication({ store, homeContent, loadSite } = {
     if (state.site.status !== 'ready' || state.site.data?.priceReleaseVersion !== expectedPriceVersion || state.publicationVersions.price !== expectedPriceVersion) return null
 
     activeModelLoads.set(current, keys)
-    await Promise.allSettled(keys.map(key => store.loadModel(key)))
-    activeModelLoads.delete(current)
+    for (const key of keys) modelOwners.set(key, current)
+    let loadedModels
+    try {
+      loadedModels = await Promise.all(keys.map(async key => {
+        const detail = await store.loadModel(key)
+        if (current !== epoch || modelOwners.get(key) !== current) throw new Error('obsolete_featured_model_load')
+        const model = detail?.model
+        if (!model || model.modelKey !== key || model.releaseVersion !== expectedPriceVersion) throw new Error('invalid_featured_model_generation')
+        return model
+      }))
+    } catch {
+      if (current === epoch) releaseModelLoads(current, true)
+      return null
+    }
     if (current !== epoch) return null
     const currentState = store.value
-    if (currentState.site.status !== 'ready' || currentState.site.data?.priceReleaseVersion !== expectedPriceVersion || currentState.publicationVersions.price !== expectedPriceVersion) return null
+    if (currentState.site.status !== 'ready' || currentState.site.data?.priceReleaseVersion !== expectedPriceVersion || currentState.publicationVersions.price !== expectedPriceVersion) {
+      releaseModelLoads(current, true)
+      return null
+    }
     const models = keys.map(key => currentState.details[key])
-    if (models.some((slot, index) => slot?.status !== 'ready' || slot.data?.model?.modelKey !== keys[index] || slot.data.model.releaseVersion !== expectedPriceVersion)) return null
-    featuredModels.value = Object.freeze(models.map(slot => slot.data.model))
+    if (models.some((slot, index) => slot?.status !== 'ready' || slot.data?.model?.modelKey !== keys[index] || slot.data.model.releaseVersion !== expectedPriceVersion)) {
+      releaseModelLoads(current, true)
+      return null
+    }
+    releaseModelLoads(current)
+    featuredModels.value = Object.freeze(loadedModels)
     return featuredModels.value
   }
 

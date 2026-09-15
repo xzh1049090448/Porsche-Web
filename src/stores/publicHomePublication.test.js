@@ -43,6 +43,63 @@ test('featured models render only when every detail matches the home price gener
   assert.equal(publication.featuredModels.value, null)
 })
 
+test('one failed featured detail aborts a permanently hanging sibling and settles hydration', async () => {
+  let lateSignal; let lateAborted = false
+  const store = createPublicContentState({ api: {
+    getSite: async () => site(),
+    getModel: async (key, options) => {
+      if (key === 'bad') throw new Error('detail_failed')
+      lateSignal = options.signal
+      lateSignal.addEventListener('abort', () => { lateAborted = true }, { once: true })
+      return new Promise(() => {})
+    },
+  } })
+  const homeContent = createPublicHomeContentState({ api: { getHomeConfig: async () => ({ data: structuredHome(4, ['bad', 'late']) }) } })
+  const publication = createPublicHomePublication({ store, homeContent })
+  const outcome = await Promise.race([
+    publication.load().then(value => ({ settled: true, value })),
+    new Promise(resolve => setTimeout(() => resolve({ settled: false }), 30)),
+  ])
+  assert.equal(outcome.settled, true)
+  assert.equal(outcome.value, null)
+  assert.equal(lateSignal?.aborted, true)
+  assert.equal(lateAborted, true)
+  assert.notEqual(store.value.details.late.status, 'loading')
+  assert.equal(publication.featuredModels.value, null)
+})
+
+test('an obsolete round cannot cancel the same keys owned by a newer hydration', async () => {
+  let rejectOldBad
+  const oldBad = new Promise((_, reject) => { rejectOldBad = reject })
+  const calls = new Map(); const firstSignals = new Map(); const secondSignals = new Map()
+  const store = createPublicContentState({ api: {
+    getSite: async () => site(),
+    getModel: (key, options) => {
+      const call = (calls.get(key) || 0) + 1; calls.set(key, call)
+      if (call === 1) {
+        firstSignals.set(key, options.signal)
+        return key === 'bad' ? oldBad : new Promise(() => {})
+      }
+      secondSignals.set(key, options.signal)
+      return Promise.resolve(response({ model: { modelKey: key, displayName: key, provider: 'P', releaseVersion: 4 } }, { price: 4 }))
+    },
+  } })
+  const config = async () => ({ data: structuredHome(4, ['bad', 'late']) })
+  const homeContent = createPublicHomeContentState({ api: { getHomeConfig: config } })
+  const publication = createPublicHomePublication({ store, homeContent })
+  const first = publication.load()
+  for (let index = 0; index < 8 && firstSignals.size < 2; index++) await Promise.resolve()
+  homeContent.setApi({ getHomeConfig: config })
+  const second = publication.load()
+  for (let index = 0; index < 8 && secondSignals.size < 2; index++) await Promise.resolve()
+  rejectOldBad(new Error('old_failure'))
+  assert.equal(await first, null)
+  assert.deepEqual((await second).map(model => model.modelKey), ['bad', 'late'])
+  assert.equal(firstSignals.get('late').aborted, true)
+  assert.equal(secondSignals.get('bad').aborted, false)
+  assert.equal(secondSignals.get('late').aborted, false)
+})
+
 test('disposing structured home hydration aborts details and ignores every late result', async () => {
   const detail = deferred(); let detailSignal
   const store = createPublicContentState({ api: {
