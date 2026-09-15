@@ -252,3 +252,56 @@ test('a leading domain response refreshes site and refetches cleanly while a rea
   await assert.rejects(() => state.loadHome(), /mixed_publication_generation/)
   assert.deepEqual(state.value.publicationVersions, { content: 6, price: 7 })
 })
+
+const homeConfigBody = () => ({
+  announcements: [{ guid: '7', title: 'Notice', body_html: '<p>Ready</p>', effective_at: '2026-09-15T00:00:00Z', sort_order: 1 }],
+  faqs: [{ guid: '8', question: 'How?', answer_html: '<p>Safely.</p>', sort_order: 2 }],
+  featured_model_keys: ['deepseek-chat'], content_release_version: 2, price_release_version: 3,
+})
+
+test('public home config maps exact immutable DTO and binds header to content version', async () => {
+  const client = createPublicContentClient({ fetchImpl: async () => response(homeConfigBody(), { headers: { 'X-Public-Release-Version': '2' } }) })
+  const out = await client.getHomeConfig()
+  assert.deepEqual(out.data, { announcements: [{ guid: '7', title: 'Notice', bodyHtml: '<p>Ready</p>', effectiveAt: '2026-09-15T00:00:00Z', sortOrder: 1 }], faqs: [{ guid: '8', question: 'How?', answerHtml: '<p>Safely.</p>', sortOrder: 2 }], featuredModelKeys: ['deepseek-chat'], contentReleaseVersion: 2, priceReleaseVersion: 3 })
+  assert.deepEqual(out.publicationVersions, { content: 2, price: 3 })
+  assert.equal(out.resourceKey, '/api/v1/public/home-config')
+  assert.ok(Object.isFrozen(out.data) && Object.isFrozen(out.data.announcements) && Object.isFrozen(out.data.announcements[0]))
+})
+
+test('public home config rejects malformed, leaking, duplicate, invalid text and mixed headers', async () => {
+  const invalid = [
+    { ...homeConfigBody(), draft_markdown: 'secret' },
+    { ...homeConfigBody(), announcements: [{ ...homeConfigBody().announcements[0], is_visible: true }] },
+    { ...homeConfigBody(), announcements: [homeConfigBody().announcements[0], homeConfigBody().announcements[0]] },
+    { ...homeConfigBody(), faqs: [homeConfigBody().faqs[0], homeConfigBody().faqs[0]] },
+    { ...homeConfigBody(), featured_model_keys: ['deepseek-chat', 'deepseek-chat'] },
+    { ...homeConfigBody(), featured_model_keys: ['DeepSeek_chat'] },
+    { ...homeConfigBody(), announcements: [{ ...homeConfigBody().announcements[0], title: 'bad\u0000text' }] },
+    { ...homeConfigBody(), announcements: [{ ...homeConfigBody().announcements[0], title: '\ufffd' }] },
+    { ...homeConfigBody(), announcements: [{ ...homeConfigBody().announcements[0], effective_at: '2026-02-30T00:00:00Z' }] },
+    { ...homeConfigBody(), announcements: Array.from({ length: 21 }, (_, index) => ({ ...homeConfigBody().announcements[0], guid: String(index + 1) })) },
+    { ...homeConfigBody(), faqs: Array.from({ length: 51 }, (_, index) => ({ ...homeConfigBody().faqs[0], guid: String(index + 1) })) },
+    { ...homeConfigBody(), featured_model_keys: Array.from({ length: 13 }, (_, index) => `model-${index}`) },
+    { ...homeConfigBody(), content_release_version: 0 },
+  ]
+  for (const body of invalid) await assert.rejects(() => createPublicContentClient({ fetchImpl: async () => response(body, { headers: { 'X-Public-Release-Version': '2' } }) }).getHomeConfig(), e => e.code === 'invalid_response')
+  await assert.rejects(() => createPublicContentClient({ fetchImpl: async () => response(homeConfigBody()) }).getHomeConfig(), e => e.code === 'mixed_publication_generation')
+})
+
+test('home config 304 requires a validated same-resource cache', async () => {
+  const mapped = await createPublicContentClient({ fetchImpl: async () => response(homeConfigBody(), { headers: { 'X-Public-Release-Version': '2' } }) }).getHomeConfig()
+  const client = createPublicContentClient({ fetchImpl: async () => new Response(null, { status: 304 }) })
+  const cached = mapped
+  assert.equal((await client.getHomeConfig({ etag: cached.etag, cached })).notModified, true)
+  for (const bad of [undefined, { ...cached, resourceKey: '/api/v1/public/home' }, { ...cached, data: { leaked: true } }]) await assert.rejects(() => client.getHomeConfig({ etag: cached.etag, cached: bad }), e => e.code === 'invalid_304')
+  await assert.rejects(() => client.getHomeConfig({ cached }), e => e.code === 'invalid_304')
+})
+
+test('home config exposes only allowlisted public failure metadata and preserves abort identity', async () => {
+  const failed = createPublicContentClient({ fetchImpl: async () => response({ error: { code: 'unavailable', message: 'password=hidden markdown', request_id: 'req-public' } }, { status: 503, headers: { 'Cache-Control': 'no-store', 'X-Request-ID': 'req-public' } }) })
+  await assert.rejects(() => failed.getHomeConfig(), error => error.code === 'unavailable' && error.status === 503 && error.requestId === 'req-public' && !error.message.includes('hidden'))
+  const malformed = createPublicContentClient({ fetchImpl: async () => response({ error: { code: 'password_secret', message: 'hidden', request_id: 'bad id' } }, { status: 503, headers: { 'X-Request-ID': 'bad id' } }) })
+  await assert.rejects(() => malformed.getHomeConfig(), error => error.code === 'unavailable' && error.requestId === null)
+  const abort = new DOMException('stop', 'AbortError')
+  await assert.rejects(() => createPublicContentClient({ fetchImpl: async () => { throw abort } }).getHomeConfig(), error => error === abort)
+})
