@@ -107,7 +107,7 @@ const frozenNewSchemaNames = [
 
 function assertIndependentFreeze(contract) {
   assert.equal(contract.version, 'v2')
-  assert.equal(contract.status, 'approved_contract_pending_implementation')
+  assert.equal(contract.status, 'implemented_locally_pending_acceptance')
 
   const routeIdentities = contract.routes.map(route => `${route.method} ${route.path}`).sort()
   assert.equal(routeIdentities.length, 48)
@@ -115,7 +115,7 @@ function assertIndependentFreeze(contract) {
   assert.equal(stableHash(routeIdentities), 'e9f1951dedd3534722580cfa556edeaaac8f474e4efa5e9e5f9dac9fe589fc04')
   assert.equal(stableHash(contract.routes.slice(0, 35).map(routeTuple)), 'cb3b0bd4f327484fbba0a17297ac640f1120e7243b131705d0dea2515cdb2dcf')
   assert.deepEqual(contract.routes.slice(35).map(routeTuple), frozenNewRoutes)
-  assert.deepEqual(contract.pending_implementation_routes, frozenNewRoutes.map(route => `${route.method} ${route.path}`))
+  assert.deepEqual(contract.pending_implementation_routes, [])
 
   const legacySchemaNames = referencedSchemaNames(contract, contract.routes.slice(0, 35))
   assert.equal(legacySchemaNames.length, 42)

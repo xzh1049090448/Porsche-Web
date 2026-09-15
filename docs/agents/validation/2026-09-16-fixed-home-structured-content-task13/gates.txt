@@ -1,24 +1,28 @@
 Fixed Home Structured Content Task13 cross-repository record — 2026-09-16
-frontend code HEAD: 78006b360b1f005ded208b68aae6464c67891b52
-backend code HEAD: 8303a28 (includes f6ed4e1 target locks and 8303a28 artifact renderer)
-contract: v1.0.0-p0 / agreed_for_implementation / 3bb7932bf8637b6fcbe3b26694b4e63aa0fb72a047fb127f817865d46e0c7058
+frontend implementation HEAD: 78006b360b1f005ded208b68aae6464c67891b52
+backend implementation HEAD: 8303a28 (includes f6ed4e1 target locks and 8303a28 artifact renderer)
+cross-repo contract: interface-contract.json v1.0.0-p0 / agreed_for_implementation / 771f9efb7c9684cd25cf53dbad667badaca26d6289de8cf4e2bbefa50e0a6579
+backend subsystem contract: public-content-pricing-v1.json v2 / implemented_locally_pending_acceptance / 649f3b2f44e8676032097f57b00931647042e70d9d7283ca0fb29a0eaa798ce5
 overall: PASS_LIMITED_SCOPE
 
-PASS  backend disposable loopback-only MySQL 8.4.11 tmpfs and Redis 7-alpine without persistence
-PASS  migration up/status before and after: 20 lines, 0001-0020
-PASS  planned backend normal -p 1: migration 3.860s, service 3.178s, handler 0.519s, 0 unexpected skip
-PASS  planned backend race: service 7.051s, handler 1.643s, 0 unexpected skip
-PASS  root static go test ./... when loopback permitted
-PASS  full real service serial 171.312s and handler serial 17.009s
-PASS  go vet/build/deploy test/gofmt/diff checks
+PASS exit=0  backend planned normal scoped gate; migration/service/handler 3.860s/3.178s/0.519s; 0 unexpected skip
+PASS exit=0  backend planned race scoped gate; service/handler 7.051s/1.643s; 0 unexpected skip
+PASS exit=0  backend static full/vet/build/deploy test/gofmt/diff checks
+PASS  backend real service serial 171.312s and handler serial 17.009s
 PASS  artifact renderer stale-overwrite RED then flock GREEN; race count=3 and security/mode/manifest/fence/rollback coverage
-NON_BLOCKING_EXTRA_CHECK_FAIL  full real migration package: historical tests hard-code obsolete terminal/dependency assumptions
+NON_BLOCKING_EXTRA_CHECK_FAIL exit=1  backend full real migration package; four named historical terminal/dependency assertions
 PASS  exact fixture and credential cleanup; names absent and ports 52179/54737 closed
+
+PASS exit=0  post-remediation public/platform contract tests: 14/14, 0 skip
+PASS exit=0  post-remediation npm test with six explicit backend contracts: 1137/1137, 0 fail/skip/cancel/todo, 48.378s
+PASS exit=0  VITE_USE_MOCK=false npm run build
+PASS exit=0  public chunk checker: 9 chunks, 171480 JS bytes, 20362 CSS bytes
+PASS exit=0  git diff --check
 
 Task12 browser evidence remains synthetic page.route: 12/12 scenarios, 234/234 assertions, 32 sanitized requests, 0 unexpected console/page errors.
 NOT_RUN  authenticated Root real browser CRUD/RBAC/transaction flow
 NOT_RUN  external scheduler/systemd, production volume mount, frontend artifact reader
 NOT_RUN  production migration/deploy/content publication/public HTTPS acceptance
 BLOCKED_PRODUCT  P08 production content truth criteria
-PENDING  review baseline/final snapshot and ordered Spec -> Security -> Quality chain
+PENDING  ordered Spec -> Quality review chain; external receipt /private/tmp/porsche-fixed-home-structured-content-review/frontend/final-review-receipt.json
 NO_ACTION  push/PR/merge/deploy
