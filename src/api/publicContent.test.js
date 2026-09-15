@@ -450,3 +450,38 @@ test('home config exposes only allowlisted public failure metadata and preserves
   await assert.rejects(() => createPublicContentClient({ fetchImpl: async () => { throw forged } }).getHomeConfig(), error => error.code === 'network_error' && error !== forged)
   assert.equal(nameReads, 0)
 })
+
+test('public error envelopes snapshot exact data properties without invoking accessors', async () => {
+  const run = async body => {
+    const client = createPublicContentClient({ fetchImpl: async () => ({ status: 503, ok: false, headers: { 'Cache-Control': 'no-store', 'X-Request-ID': 'req-public' }, json: async () => body }) })
+    let failure
+    await assert.rejects(() => client.getHomeConfig(), error => { failure = error; return error.code === 'unavailable' && error.requestId === null && !error.message.includes('secret') })
+    return failure
+  }
+
+  let topReads = 0
+  const topAccessor = {}
+  Object.defineProperty(topAccessor, 'error', { enumerable: true, get: () => { topReads++; throw new Error('secret') } })
+  await run(topAccessor)
+  assert.equal(topReads, 0)
+
+  let nestedReads = 0
+  const nestedAccessor = {}
+  for (const key of ['code', 'message', 'request_id']) Object.defineProperty(nestedAccessor, key, { enumerable: true, get: () => { nestedReads++; return key === 'code' ? 'unavailable' : key === 'request_id' ? 'req-public' : 'secret' } })
+  await run({ error: nestedAccessor })
+  assert.equal(nestedReads, 0)
+
+  const validError = Object.freeze({ code: 'unavailable', message: 'safe', request_id: 'req-public' })
+  const validEnvelope = Object.freeze({ error: validError })
+  const validClient = createPublicContentClient({ fetchImpl: async () => response(validEnvelope, { status: 503, headers: { 'X-Request-ID': 'req-public' } }) })
+  await assert.rejects(() => validClient.getHomeConfig(), error => error.code === 'unavailable' && error.requestId === 'req-public')
+
+  const topSymbol = { error: { ...validError } }; topSymbol[Symbol('hidden')] = 'secret'
+  const topExtra = { error: { ...validError }, extra: 'secret' }
+  const nestedSymbol = { error: { ...validError } }; nestedSymbol.error[Symbol('hidden')] = 'secret'
+  const nestedExtra = { error: { ...validError, extra: 'secret' } }
+  const inherited = { error: Object.assign(Object.create({ inherited: 'secret' }), validError) }
+  const exotic = Object.assign(Object.create({ inherited: true }), { error: { ...validError } })
+  const mismatch = { error: { ...validError, request_id: 'req-other' } }
+  for (const malformed of [topSymbol, topExtra, nestedSymbol, nestedExtra, inherited, exotic, mismatch]) await run(malformed)
+})

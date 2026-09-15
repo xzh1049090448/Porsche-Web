@@ -208,7 +208,12 @@ export function createPublicContentClient({ fetchImpl = globalThis.fetch, authen
       const code = ({ 401: 'authentication_required', 404: 'not_found', 410: 'gone', 503: 'unavailable' })[responseView.status] || 'request_failed'
       const errorHeaders = snapshotHeaders(responseView.headers, ['X-Request-ID'])
       const requestIdHeader = errorHeaders?.['x-request-id']; let requestId = null
-      try { const raw = await responseView.json(); if (/^[A-Za-z0-9._:-]{1,128}$/.test(requestIdHeader || '') && exact(raw, ['error']) && exact(raw.error, ['code','message','request_id']) && raw.error.code === code && raw.error.request_id === requestIdHeader && typeof raw.error.message === 'string') requestId = requestIdHeader } catch {}
+      try {
+        const raw = await responseView.json()
+        const envelope = snapshotObject(raw, ['error'])
+        const errorBody = envelope && snapshotObject(envelope.error, ['code', 'message', 'request_id'])
+        if (/^[A-Za-z0-9._:-]{1,128}$/.test(requestIdHeader || '') && errorBody?.code === code && errorBody.request_id === requestIdHeader && typeof errorBody.message === 'string') requestId = requestIdHeader
+      } catch {}
       throw new PublicContentError(code, responseView.status, requestId)
     }
     const responseHeaders = snapshotHeaders(responseView.headers, ['ETag', 'X-Public-Release-Version', 'Cache-Control', 'Vary'])
