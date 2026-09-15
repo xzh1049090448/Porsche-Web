@@ -45,7 +45,7 @@ async function component() {
     ['@/components/public-admin/AnnouncementEditor.vue', editor('announcement')],
     ['@/components/public-admin/FaqEditor.vue', editor('faq')],
     ['@/components/public-admin/FeaturedModelSelector.vue', editor('featured-models')],
-    ['@/components/public-admin/ContentReleaseHistory.vue', data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({props:['items','total','busy','restoreDisabled'],emits:['restore','more'],setup(p,{emit}){return()=>h('section',{'data-history':''},p.items.map(item=>h('button',{onClick:event=>emit('restore',item,event)},item.guid)))}})`) ],
+    ['@/components/public-admin/ContentReleaseHistory.vue', data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({props:['items','total','busy','restoreDisabled'],emits:['restore','more'],setup(p,{emit}){return()=>h('section',{'data-history':''},p.items.map(item=>h('button',{'data-action':'restore',disabled:p.busy||p.restoreDisabled,onClick:event=>emit('restore',item,event)},item.guid)))}})`) ],
     ['@/components/public-admin/SafeMarkdownEditor.vue', data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({props:['modelValue','id'],emits:['update:modelValue'],setup(p,{emit}){return()=>h('textarea',{id:p.id,value:p.modelValue,onInput:e=>emit('update:modelValue',e.target.value)})}})`) ],
     ['@/components/shell/PageHeader.vue', shell], ['@/components/shell/SurfaceCard.vue', shell], ['@/components/shell/StatusBadge.vue', shell],
   ])
@@ -299,6 +299,64 @@ test('publish is single-flight, clears password, and reloads the complete genera
  assert.equal(issues,1); assert.equal(wrapper.vm.publishPassword,'')
  issued.resolve({ticket:'ticket'}); await Promise.all([first,second]); await flush()
  assert.equal(executes,1); assert.ok(reads>=2); assert.equal(wrapper.vm.validationProof,null)
+ wrapper.unmount()
+})
+
+test('publish validation failure clears proof until an explicit revalidation succeeds', async () => {
+ let publishes=0
+ const { wrapper } = await setup({ getDocumentsDraft: async () => ({ ...documents(4), terms:reviewedLegal, privacy:reviewedLegal }) }, {}, {
+  publish: async () => { publishes++; throw { code:'validation_failed',requestId:'req-422' } },
+ }, { getRelease: async guid => ({ release:{guid,version:3},items:[] }) })
+ await wrapper.get('#price-release-guid').setValue('7'); await flush()
+ wrapper.vm.validationProof=await contentApiProof(wrapper.vm,'7');wrapper.vm.validationResult={valid:true,issues:[]}
+ await wrapper.get('#publish-password').setValue('private-password');await wrapper.vm.publishContent();await flush()
+ assert.equal(publishes,1);assert.equal(wrapper.vm.validationProof,null);assert.equal(wrapper.vm.validationResult,null);assert.equal(wrapper.vm.publishEnabled,false)
+ await wrapper.vm.validateForPublication();await flush()
+ assert.equal(wrapper.vm.validationProof?.valid,true);assert.equal(wrapper.vm.publishEnabled,true)
+ wrapper.unmount()
+})
+
+test('publish execute network ambiguity preserves proof and reuses one idempotency key', async () => {
+ const keys=[]
+ const { wrapper }=await setup({}, {}, { publish:async(_revision,_guid,options)=>{keys.push(options.idempotencyKey);if(keys.length===1)throw{code:'network_error',requestId:null};return{guid:'9',version:1,reason:'root_publish',sourceRevision:4,createdAt:'2026-09-15T00:00:00Z'} } })
+ await wrapper.get('#price-release-guid').setValue('7');await flush();wrapper.vm.validationProof=await contentApiProof(wrapper.vm,'7')
+ await wrapper.get('#publish-password').setValue('first-password');await wrapper.vm.publishContent();await flush()
+ assert.equal(wrapper.vm.workflow.pendingRecovery,true);assert.equal(wrapper.vm.validationProof?.valid,true);assert.equal(wrapper.vm.publishEnabled,true)
+ await wrapper.get('#publish-password').setValue('second-password');await wrapper.vm.publishContent();await flush()
+ assert.equal(keys.length,2);assert.equal(keys[0],keys[1]);assert.equal(wrapper.vm.workflow.pendingRecovery,false)
+ wrapper.unmount()
+})
+
+test('restore dialog focuses safely and cancel or Escape restores the connected trigger', async () => {
+ const release={guid:'9',version:1,reason:'root_publish',sourceRevision:4,createdAt:'2026-09-15T00:00:00Z'}
+ const {wrapper}=await setup({}, {}, {listReleases:async()=>({items:[release],page:1,pageSize:20,total:1})})
+ const trigger=wrapper.get('[data-action="restore"]');await trigger.trigger('click');await flush()
+ assert.equal(wrapper.vm.restoreDialog.open,true);assert.equal(document.activeElement,wrapper.get('#restore-password').element)
+ wrapper.vm.restoreDialog.dispatchEvent(new Event('cancel',{cancelable:true}));await flush()
+ assert.equal(wrapper.vm.restoreDialog.open,false);assert.equal(document.activeElement,trigger.element)
+ await trigger.trigger('click');await flush();wrapper.vm.restoreDialog.dispatchEvent(new Event('cancel',{cancelable:true}));await flush()
+ assert.equal(document.activeElement,trigger.element)
+ wrapper.unmount()
+})
+
+test('restore confirm success 409 and 422 never leave focus in a closed dialog', async () => {
+ const release={guid:'9',version:1,reason:'root_publish',sourceRevision:4,createdAt:'2026-09-15T00:00:00Z'}
+ for(const outcome of ['success','revision_conflict','validation_failed']){
+  const execute=outcome==='success'?async()=>({guid:'10',version:2,reason:'restore',sourceRevision:4,createdAt:'2026-09-15T00:00:00Z'}):async()=>{throw{code:outcome,requestId:`req-${outcome}`}}
+  const {wrapper}=await setup({}, {}, {listReleases:async()=>({items:[release],page:1,pageSize:20,total:1}),restore:execute})
+  const trigger=wrapper.get('[data-action="restore"]');await trigger.trigger('click');await flush();await wrapper.get('#restore-password').setValue('private-password')
+  const pending=wrapper.vm.confirmRestore();await flush();await pending;await flush()
+  assert.equal(wrapper.vm.restoreDialog.open,false,outcome);assert.notEqual(document.activeElement,wrapper.get('#restore-password').element,outcome);assert.equal(document.activeElement,wrapper.vm.heading,outcome);assert.equal(wrapper.vm.restorePassword,'',outcome)
+  wrapper.unmount()
+ }
+})
+
+test('Root demotion closes restore, clears its secret and never leaves focus in the closed dialog', async () => {
+ const release={guid:'9',version:1,reason:'root_publish',sourceRevision:4,createdAt:'2026-09-15T00:00:00Z'}
+ const {wrapper}=await setup({}, {}, {listReleases:async()=>({items:[release],page:1,pageSize:20,total:1})})
+ await wrapper.get('[data-action="restore"]').trigger('click');await flush();await wrapper.get('#restore-password').setValue('private-password')
+ const secret=wrapper.get('#restore-password').element;globalThis.__pcUser.user.role='admin';await flush()
+ assert.equal(wrapper.vm.restoreDialog.open,false);assert.equal(wrapper.vm.restorePassword,'');assert.equal(wrapper.vm.restoreTarget,null);assert.notEqual(document.activeElement,secret);assert.equal(document.activeElement,wrapper.vm.heading)
  wrapper.unmount()
 })
 

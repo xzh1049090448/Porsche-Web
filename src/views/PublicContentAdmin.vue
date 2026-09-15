@@ -34,12 +34,12 @@
       <ContentReleaseHistory :items="historyItems" :total="historyTotal" :busy="workflow.busy || historyLoading" :restore-disabled="!ready" @restore="beginRestore" @more="loadMoreHistory" />
     </template>
     <SurfaceCard v-if="conflictBuffer" class="conflict" aria-labelledby="conflict-title"><h2 id="conflict-title">{{ t('publicContentStructuredAdmin.conflictTitle') }}</h2><p>{{ t('publicContentStructuredAdmin.conflictHelp') }}</p><div class="conflict-columns"><section><h3>{{ t('publicContentStructuredAdmin.localVersion') }}</h3><pre>{{ formatConflict(conflictBuffer.local) }}</pre></section><section><h3>{{ t('publicContentStructuredAdmin.serverVersion') }}</h3><pre>{{ formatConflict(conflictBuffer.server) }}</pre></section></div></SurfaceCard>
-    <dialog ref="restoreDialog" aria-labelledby="restore-title" @cancel.prevent="cancelRestore"><h2 id="restore-title">{{ t('publicContentAdmin.restore') }}</h2><label for="restore-password">{{ t('publicContentAdmin.password') }}</label><input id="restore-password" v-model="restorePassword" data-publication-secret type="password" autocomplete="current-password"><div class="actions"><button type="button" @click="cancelRestore">{{ t('common.cancel') }}</button><button type="button" :disabled="workflow.busy || !restorePassword" data-action="confirm-restore" @click="confirmRestore">{{ t('publicContentAdmin.restore') }}</button></div></dialog>
+    <dialog ref="restoreDialog" aria-labelledby="restore-title" @cancel.prevent="cancelRestore" @close="restoreFocus"><h2 id="restore-title">{{ t('publicContentAdmin.restore') }}</h2><label for="restore-password">{{ t('publicContentAdmin.password') }}</label><input id="restore-password" v-model="restorePassword" data-publication-secret type="password" autocomplete="current-password"><div class="actions"><button type="button" @click="cancelRestore">{{ t('common.cancel') }}</button><button type="button" :disabled="workflow.busy || !restorePassword" data-action="confirm-restore" @click="confirmRestore">{{ t('publicContentAdmin.restore') }}</button></div></dialog>
   </main>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, toRaw, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRaw, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { canonicalStructuredContent, createContentPublicationCoordinator, createStructuredContentValidationProof, publicContentAdminApi, structuredContentValidationProofMatches } from '@/api/publicContentAdmin.js'
 import { publicHomeContentAdminApi } from '@/api/publicHomeContentAdmin.js'
@@ -67,6 +67,7 @@ const priceReleaseGuid = ref(''), publishPassword = ref(''), restorePassword = r
 const workflow = reactive({ busy:false,error:null,conflict:false,pendingRecovery:false,attempt:null })
 const publicationCoordinator = createContentPublicationCoordinator({ api: publicContentAdminApi, state: workflow })
 let readController = new AbortController(), writeController = new AbortController(), searchController = new AbortController(), validationController = new AbortController(), historyController = new AbortController(), readGeneration = 0, writeGeneration = 0, searchGeneration = 0, validationGeneration = 0, historyGeneration = 0, privilegeGeneration = 0
+let restoreTrigger = null
 const clone = value => value == null ? value : structuredClone(toRaw(value))
 const ready = computed(() => homeDraft.value && documentsDraft.value && homeDraft.value.revision === documentsDraft.value.revision && revision.value === homeDraft.value.revision)
 const status = computed(() => busy.value ? t('publicContentAdmin.loading') : revision.value ? t('publicContentAdmin.revision', { revision: revision.value }) : '')
@@ -199,17 +200,20 @@ async function publishContent() {
   publishPassword.value = ''
   const output = await publicationCoordinator.publish(target, expectedRevision, password)
   if (!ownsPrivilege(privilegeGeneration)) return null
-  if (!output) { error.value = workflow.error ? safeError(workflow.error) : error.value; if (workflow.conflict) { clearValidationProof(); conflictBuffer.value = { kind:'publish', local:{ revision:expectedRevision, priceReleaseGuid:target }, server:null }; await load(); if (ready.value && conflictBuffer.value?.kind === 'publish') conflictBuffer.value = { ...conflictBuffer.value, server:{ home:clone(homeDraft.value), documents:clone(documentsDraft.value) } } } return null }
+  if (!output) { const normalized = workflow.error ? safeError(workflow.error) : null; error.value = normalized ?? error.value; if (normalized?.code === 'validation_failed') clearValidationProof(); if (workflow.conflict) { clearValidationProof(); conflictBuffer.value = { kind:'publish', local:{ revision:expectedRevision, priceReleaseGuid:target }, server:null }; await load(); if (ready.value && conflictBuffer.value?.kind === 'publish') conflictBuffer.value = { ...conflictBuffer.value, server:{ home:clone(homeDraft.value), documents:clone(documentsDraft.value) } } } return null }
   clearValidationProof(); await load(); await loadHistory(); return output
 }
 
-function beginRestore(release) { if (!ready.value || workflow.busy) return; restoreTarget.value = release; restorePassword.value = ''; restoreDialog.value?.showModal?.() }
-function cancelRestore() { restorePassword.value = ''; restoreTarget.value = null; restoreDialog.value?.close?.() }
+async function beginRestore(release, event) { if (!ready.value || workflow.busy) return; const candidate = event?.currentTarget; restoreTrigger = candidate instanceof HTMLElement ? candidate : null; restoreTarget.value = release; restorePassword.value = ''; restoreDialog.value?.showModal?.(); await nextTick(); if (restoreDialog.value?.open) restoreDialog.value.querySelector('#restore-password')?.focus() }
+function restoreFocus() { const trigger = restoreTrigger; restoreTrigger = null; void nextTick(() => { if (trigger?.isConnected && !trigger.disabled) trigger.focus(); else if (heading.value?.isConnected) heading.value.focus() }) }
+function cancelRestore() { restorePassword.value = ''; restoreTarget.value = null; if (restoreDialog.value?.open) restoreDialog.value.close(); else restoreFocus() }
 async function confirmRestore() {
   if (!restoreTarget.value || !restorePassword.value || workflow.busy || !ready.value) return null
   const target = restoreTarget.value.guid, expectedRevision = revision.value, password = restorePassword.value
-  restorePassword.value = ''; restoreDialog.value?.close?.()
-  const output = await publicationCoordinator.restore(target, expectedRevision, password)
+  restorePassword.value = ''
+  const pending = publicationCoordinator.restore(target, expectedRevision, password)
+  if (restoreDialog.value?.open) restoreDialog.value.close(); else restoreFocus()
+  const output = await pending
   restoreTarget.value = null
   if (!ownsPrivilege(privilegeGeneration)) return null
   if (!output) { error.value = workflow.error ? safeError(workflow.error) : error.value; if (workflow.conflict) { clearValidationProof(); conflictBuffer.value = { kind:'restore', local:{ releaseGuid:target, revision:expectedRevision }, server:null }; await load(); if (ready.value && conflictBuffer.value?.kind === 'restore') conflictBuffer.value = { ...conflictBuffer.value, server:{ home:clone(homeDraft.value), documents:clone(documentsDraft.value) } } } return null }
@@ -219,7 +223,7 @@ async function confirmRestore() {
 watch(priceReleaseGuid, () => { if (workflow.pendingRecovery) { publicationCoordinator.abandon(); error.value = { code:'attempt_binding_changed', requestId:null } } clearValidationProof() })
 watch(revision, () => { if (workflow.pendingRecovery) { publicationCoordinator.abandon(); error.value = { code:'attempt_binding_changed', requestId:null }; clearValidationProof() } })
 
-function clearPrivilegedState() { readGeneration++; writeGeneration++; searchGeneration++; validationGeneration++; historyGeneration++; privilegeGeneration++; readController.abort(); writeController.abort(); searchController.abort(); validationController.abort(); historyController.abort(); publicationCoordinator.cancel(); homeDraft.value = null; documentsDraft.value = null; revision.value = null; savedCanonical.value = null; validationProof.value = null; validationResult.value = null; conflictBuffer.value = null; modelSearch.value = ''; modelResults.value = []; searching.value = false; historyItems.value = []; historyTotal.value = 0; historyLoading.value = false; publishPassword.value = ''; restorePassword.value = ''; restoreTarget.value = null; restoreDialog.value?.close?.(); busy.value = false; error.value = null }
+function clearPrivilegedState() { readGeneration++; writeGeneration++; searchGeneration++; validationGeneration++; historyGeneration++; privilegeGeneration++; readController.abort(); writeController.abort(); searchController.abort(); validationController.abort(); historyController.abort(); publicationCoordinator.cancel(); homeDraft.value = null; documentsDraft.value = null; revision.value = null; savedCanonical.value = null; validationProof.value = null; validationResult.value = null; conflictBuffer.value = null; modelSearch.value = ''; modelResults.value = []; searching.value = false; historyItems.value = []; historyTotal.value = 0; historyLoading.value = false; publishPassword.value = ''; restorePassword.value = ''; restoreTarget.value = null; restoreTrigger = null; if (restoreDialog.value?.open) restoreDialog.value.close(); if (heading.value?.isConnected) heading.value.focus(); busy.value = false; error.value = null }
 watch(() => userStore.user?.role, role => { if (role !== 'root') { clearPrivilegedState(); void router.replace?.('/chat') } }, { flush: 'sync' })
 function formatConflict(value) { return value === null ? t('publicContentAdmin.loading') : JSON.stringify(value, null, 2) }
 onMounted(() => { heading.value?.focus(); void load(); void loadHistory() })
