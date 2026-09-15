@@ -110,6 +110,56 @@ test('production adapter uses bearer direct fetch for mutations without replay',
   assert.equal(result.status,201);assert.equal(calls.length,1);assert.equal(calls[0][1].headers.Authorization,'Bearer in-memory');assert.equal(calls[0][1].credentials,'include');assert.equal(calls[0][1].headers['Content-Type'],'application/json')
 })
 
+test('production adapter uses genuine Response intrinsics and rejects unsafe plain responses', async () => {
+  const nativeResponse = new Response(JSON.stringify(home), { status: 201, headers: headers() })
+  const reads = { status: 0, ok: 0, headers: 0, json: 0 }
+  Object.defineProperties(nativeResponse, {
+    status: { configurable: true, get: () => { reads.status++; throw new Error('secret status') } },
+    ok: { configurable: true, get: () => { reads.ok++; throw new Error('secret ok') } },
+    headers: { configurable: true, get: () => { reads.headers++; throw new Error('secret headers') } },
+    json: { configurable: true, get: () => { reads.json++; throw new Error('secret json') } },
+  })
+  const adapter = createPublicHomeContentAdminProductionRequest({ fetchImpl: async () => nativeResponse })
+  const result = await adapter({ method: 'POST', path: '/admin/v2/public-content/home-draft/announcements', body: {} })
+  assert.equal(result.status, 201)
+  assert.deepEqual(result.data, home)
+  assert.deepEqual(reads, { status: 0, ok: 0, headers: 0, json: 0 })
+
+  const failedResponse = new Response(JSON.stringify({ error: { code: 'unavailable', message: 'secret markdown password', request_id: 'req-home' } }), { status: 503, headers: headers() })
+  const failedReads = { status: 0, ok: 0, headers: 0, json: 0 }
+  Object.defineProperties(failedResponse, {
+    status: { configurable: true, get: () => { failedReads.status++; return 200 } },
+    ok: { configurable: true, get: () => { failedReads.ok++; return true } },
+    headers: { configurable: true, get: () => { failedReads.headers++; return new Headers() } },
+    json: { configurable: true, get: () => { failedReads.json++; return async () => home } },
+  })
+  const failedApi = createPublicHomeContentAdminApi({ request: createPublicHomeContentAdminProductionRequest({ fetchImpl: async () => failedResponse }) })
+  await assert.rejects(() => failedApi.getHomeDraft(), error => error.code === 'unavailable' && error.requestId === 'req-home' && !error.message.includes('secret'))
+  assert.deepEqual(failedReads, { status: 0, ok: 0, headers: 0, json: 0 })
+
+  const emptyResponse = new Response(null, { status: 204, headers: headers({ 'X-Content-Draft-Revision': '5' }) })
+  let emptyJSONReads = 0
+  Object.defineProperty(emptyResponse, 'json', { configurable: true, get: () => { emptyJSONReads++; throw new Error('secret json') } })
+  const empty = await createPublicHomeContentAdminProductionRequest({ fetchImpl: async () => emptyResponse })({ method: 'DELETE', path: '/admin/v2/public-content/home-draft/faqs/8', body: { expected_revision: 4 } })
+  assert.deepEqual({ data: empty.data, status: empty.status }, { data: null, status: 204 })
+  assert.equal(emptyJSONReads, 0)
+
+  const plain = { status: 201, ok: true, headers: { 'Cache-Control': 'no-store', 'X-Request-ID': 'req-home' }, json: async () => home }
+  assert.equal((await createPublicHomeContentAdminProductionRequest({ fetchImpl: async () => plain })({ method: 'POST', path: '/admin/v2/public-content/home-draft/announcements', body: {} })).status, 201)
+
+  let statusReads = 0
+  const accessor = { ...plain }
+  Object.defineProperty(accessor, 'status', { enumerable: true, get: () => { statusReads++; return 201 } })
+  const symbol = { ...plain, [Symbol('hidden')]: 'secret' }
+  const extra = { ...plain, extra: 'secret' }
+  const exotic = Object.assign(Object.create({ inherited: true }), plain)
+  for (const unsafe of [accessor, symbol, extra, exotic]) {
+    const unsafeAdapter = createPublicHomeContentAdminProductionRequest({ fetchImpl: async () => unsafe })
+    await assert.rejects(() => unsafeAdapter({ method: 'GET', path: '/admin/v2/public-content/home-draft' }), error => error instanceof PublicHomeContentAdminError && error.code === 'request_failed' && !error.message.includes('secret'))
+  }
+  assert.equal(statusReads, 0)
+})
+
 test('root input objects and options reject inherited or exotic properties before transport', () => {
   let calls = 0; const api = createPublicHomeContentAdminApi({ request: async () => { calls++; return ok(home) } })
   const inheritedRevision = Object.assign(Object.create({ expectedRevision: 4 }), { title: 'Changed' })

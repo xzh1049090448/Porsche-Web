@@ -8,6 +8,10 @@ const UNSAFE = /[\p{Cc}\p{Cf}]/u
 const LONE_SURROGATE = /(?:[\uD800-\uDBFF](?![\uDC00-\uDFFF]))|(?:(?<![\uD800-\uDBFF])[\uDC00-\uDFFF])/
 const DOM_EXCEPTION_NAME = typeof globalThis.DOMException === 'function' ? Object.getOwnPropertyDescriptor(globalThis.DOMException.prototype, 'name')?.get : null
 const HEADERS_GET = typeof globalThis.Headers === 'function' ? globalThis.Headers.prototype.get : null
+const RESPONSE_STATUS = typeof globalThis.Response === 'function' ? Object.getOwnPropertyDescriptor(globalThis.Response.prototype, 'status')?.get : null
+const RESPONSE_OK = typeof globalThis.Response === 'function' ? Object.getOwnPropertyDescriptor(globalThis.Response.prototype, 'ok')?.get : null
+const RESPONSE_HEADERS = typeof globalThis.Response === 'function' ? Object.getOwnPropertyDescriptor(globalThis.Response.prototype, 'headers')?.get : null
+const RESPONSE_JSON = typeof globalThis.Response === 'function' ? globalThis.Response.prototype.json : null
 const isGenuineAbortError = error => {
   if (typeof DOM_EXCEPTION_NAME !== 'function') return false
   try { return DOM_EXCEPTION_NAME.call(error) === 'AbortError' } catch { return false }
@@ -75,6 +79,19 @@ const snapshotHeaders = (headers, names) => {
     }
     return Object.fromEntries(names.map(name => [name.toLowerCase(), values[name.toLowerCase()] ?? null]))
   } catch { return null }
+}
+const snapshotFetchResponse = response => {
+  if ([RESPONSE_STATUS, RESPONSE_OK, RESPONSE_HEADERS, RESPONSE_JSON].every(item => typeof item === 'function')) {
+    try {
+      const status = RESPONSE_STATUS.call(response)
+      const ok = RESPONSE_OK.call(response)
+      const headers = RESPONSE_HEADERS.call(response)
+      return { status, ok, headers, json: () => RESPONSE_JSON.call(response) }
+    } catch {}
+  }
+  const value = snapshotObject(response, ['status', 'ok', 'headers', 'json'])
+  if (!value || !Number.isInteger(value.status) || value.status < 100 || value.status > 599 || typeof value.ok !== 'boolean' || value.ok !== (value.status >= 200 && value.status <= 299) || typeof value.json !== 'function') return null
+  return { status: value.status, ok: value.ok, headers: value.headers, json: () => value.json.call(response) }
 }
 const ownDataValue = (value, key) => {
   try {
@@ -152,10 +169,12 @@ export function createPublicHomeContentAdminProductionRequest({ fetchImpl = glob
     if (input.method !== 'GET' && input.method !== 'DELETE' || input.body !== undefined) headers['Content-Type'] = 'application/json'
     let response
     try { response = await fetchImpl(`${baseURL}${input.path}`, { method: input.method, headers, credentials: 'include', signal: input.signal, ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }) }) } catch (error) { if (isGenuineAbortError(error)) throw error; throw new PublicHomeContentAdminError('network_error') }
+    const responseView = snapshotFetchResponse(response)
+    if (!responseView) throw new PublicHomeContentAdminError('request_failed')
     let data = null
-    if (response.status !== 204) { try { data = await response.json() } catch { data = null } }
-    const result = { data, status: response.status, headers: response.headers }
-    if (!response.ok) throw { response: result }
+    if (responseView.status !== 204) { try { data = await responseView.json() } catch { data = null } }
+    const result = { data, status: responseView.status, headers: responseView.headers }
+    if (!responseView.ok) throw { response: result }
     return result
   }
 }
