@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canonicalContentDraft, contentValidationProofMatches, createContentPublicationCoordinator, createContentValidationProof, createPublicContentAdminApi, hashCanonicalContent } from './publicContentAdmin.js'
+import * as contentAdmin from './publicContentAdmin.js'
+
+const { canonicalContentDraft, contentValidationProofMatches, createContentPublicationCoordinator, createContentValidationProof, createPublicContentAdminApi, hashCanonicalContent } = contentAdmin
 
 const headers = new Headers({'Cache-Control':'no-store','X-Request-ID':'req-1'})
 const ok = (data,status=200,extra={})=>({data,status,headers:new Headers({...Object.fromEntries(headers),...extra})})
@@ -66,4 +68,76 @@ test('verification network and known execute failures clear attempt while late t
  const c=createContentPublicationCoordinator({api,state,generateKey:()=> 'key'})
  await c.publish('7',2,'secret');assert.equal(execute,0);assert.equal(state.pendingRecovery,false);assert.equal(state.attempt,null);assert.equal(state.error.code,'action_dependency_unavailable')
  let resolve;api.issuePublishVerification=()=>new Promise(r=>resolve=r);const pending=c.publish('7',2,'secret');c.cancel();resolve({ticket:'late'});await pending;assert.equal(execute,0);assert.equal(state.attempt,null)
+})
+
+const structured = () => ({
+ revision: 5,
+ documents: { revision: 5, about: '# About', terms: '# Terms', privacy: '# Privacy', legalReviewed: true },
+ home: {
+  revision: 5,
+  announcements: [
+   { guid: '9223372036854775807', title: 'Later', bodyMarkdown: 'Body', effectiveAt: '2026-09-15T10:00:00Z', isVisible: false, sortOrder: 2 },
+   { guid: '2', title: 'First', bodyMarkdown: 'Body', effectiveAt: null, isVisible: true, sortOrder: 1 },
+  ],
+  faqs: [{ guid: '3', question: 'Question', answerMarkdown: 'Answer', isVisible: true, sortOrder: 1 }],
+  featuredModelKeys: ['model-b', 'model-a'],
+ },
+})
+
+test('structured canonical rebuilds an exact sorted whitelist without mutating input', async () => {
+ assert.equal(typeof contentAdmin.canonicalStructuredContent, 'function')
+ const value = structured(), before = structuredClone(value)
+ const canonical = contentAdmin.canonicalStructuredContent(value)
+ assert.deepEqual(value, before)
+ assert.deepEqual(JSON.parse(canonical), {
+  revision: 5,
+  documents: { about: '# About', terms: '# Terms', privacy: '# Privacy', legal_reviewed: true },
+  home: {
+   announcements: [
+    { guid: '2', title: 'First', body_markdown: 'Body', effective_at: null, is_visible: true, sort_order: 1 },
+    { guid: '9223372036854775807', title: 'Later', body_markdown: 'Body', effective_at: '2026-09-15T10:00:00Z', is_visible: false, sort_order: 2 },
+   ],
+   faqs: [{ guid: '3', question: 'Question', answer_markdown: 'Answer', is_visible: true, sort_order: 1 }],
+   featured_model_keys: ['model-b', 'model-a'],
+  },
+ })
+ const proof = await contentAdmin.createStructuredContentValidationProof(value, '7', { valid: true })
+ assert.equal(contentAdmin.structuredContentValidationProofMatches(proof, value, canonical, '7'), true)
+ assert.equal(contentAdmin.structuredContentValidationProofMatches(proof, value, canonical, '8'), false)
+})
+
+test('structured canonical rejects accessors sparse arrays duplicates and invalid nested revisions without reading getters', () => {
+ assert.equal(typeof contentAdmin.canonicalStructuredContent, 'function')
+ for (const mutate of [
+  value => { delete value.home.announcements[0] },
+  value => { value.home.featuredModelKeys.push('model-a') },
+  value => { value.home.revision = 6 },
+  value => Object.defineProperty(value.documents, 'about', { enumerable: true, get() { throw new Error('secret getter') } }),
+  value => { value.home.announcements[0].unknown = true },
+ ]) {
+  const value = structured(); mutate(value)
+  assert.throws(() => contentAdmin.canonicalStructuredContent(value), /invalid_public_content_admin_request/)
+ }
+})
+
+test('structured preview loader is fail-fast and validates all three generations and price members', async () => {
+ assert.equal(typeof contentAdmin.loadStructuredContentPreview, 'function')
+ let lateSignal, aborted = false
+ const late = new Promise((_resolve, reject) => { lateSignal = reject })
+ const homeApi = {
+  getDocumentsDraft: async () => structured().documents,
+  previewHome: async (_revision, { signal }) => { signal.addEventListener('abort', () => { aborted = true; lateSignal(new DOMException('stop', 'AbortError')) }, { once: true }); return late },
+ }
+ const pricingApi = { getRelease: async () => { throw Object.assign(new Error('bad'), { code: 'not_found' }) } }
+ await assert.rejects(() => contentAdmin.loadStructuredContentPreview({ revision: 5, priceReleaseGuid: '7', homeApi, pricingApi, renderMarkdown: value => `<p>${value}</p>` }), /bad/)
+ assert.equal(aborted, true)
+
+ const value = structured()
+ const release = { release: { guid: '7', version: 9 }, items: [
+  { modelKey: 'model-a', releaseVersion: 9 }, { modelKey: 'model-b', releaseVersion: 9 },
+ ] }
+ const output = await contentAdmin.loadStructuredContentPreview({ revision: 5, priceReleaseGuid: '7', homeApi: { getDocumentsDraft: async () => value.documents, previewHome: async () => value.home }, pricingApi: { getRelease: async () => release }, renderMarkdown: value => `<p>${value}</p>` })
+ assert.deepEqual(output.featuredModels.map(item => item.modelKey), ['model-b', 'model-a'])
+ assert.equal(output.home.announcements[0].bodyHtml, '<p>Body</p>')
+ await assert.rejects(() => contentAdmin.loadStructuredContentPreview({ revision: 5, priceReleaseGuid: '7', homeApi: { getDocumentsDraft: async () => ({ ...value.documents, revision: 6 }), previewHome: async () => value.home }, pricingApi: { getRelease: async () => release }, renderMarkdown: String }), /preview_generation_mismatch/)
 })

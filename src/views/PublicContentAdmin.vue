@@ -1,5 +1,5 @@
 <template>
-  <main ref="heading" class="page console-page public-content-admin" tabindex="-1">
+  <main ref="heading" class="page console-page public-content-admin" tabindex="-1" @input.capture="onDraftInteraction" @change.capture="onDraftInteraction">
     <PageHeader eyebrow="ROOT" :title="t('publicContentAdmin.title')" :description="t('publicContentAdmin.description')">
       <template #actions><StatusBadge v-if="busy || revision" :status="busy ? 'pending' : 'active'" :label="status" /><button type="button" :disabled="busy" @click="load">{{ t('publicContentAdmin.refresh') }}</button></template>
     </PageHeader>
@@ -17,17 +17,35 @@
         <label class="review"><input v-model="documentsDraft.legalReviewed" type="checkbox">{{ t('publicContentAdmin.legalReviewed') }}</label>
         <button type="button" :disabled="busy" @click="saveDocuments">{{ t('publicContentStructuredAdmin.saveDocuments') }}</button>
       </SurfaceCard>
-      <SurfaceCard class="task11-disabled" data-task11-disabled aria-labelledby="task11-disabled-title"><h2 id="task11-disabled-title">{{ t('publicContentStructuredAdmin.releaseTools') }}</h2><p>{{ t('publicContentStructuredAdmin.releaseToolsDisabled') }}</p><div class="actions"><button type="button" disabled>{{ t('publicContentAdmin.preview') }}</button><button type="button" disabled>{{ t('publicContentAdmin.validate') }}</button><button type="button" disabled>{{ t('publicContentAdmin.publish') }}</button></div></SurfaceCard>
+      <SurfaceCard class="release-tools" data-task11-release-tools aria-labelledby="release-tools-title">
+        <h2 id="release-tools-title">{{ t('publicContentStructuredAdmin.releaseTools') }}</h2>
+        <label for="price-release-guid">{{ t('publicPricingAdmin.release') }}</label>
+        <input id="price-release-guid" v-model.trim="priceReleaseGuid" inputmode="numeric" autocomplete="off">
+        <div class="actions">
+          <button type="button" :disabled="busy || !previewEnabled" data-action="preview" @click="openPreview">{{ t('publicContentAdmin.preview') }}</button>
+          <button type="button" :disabled="busy || !ready" data-action="validate" @click="validateForPublication">{{ t('publicContentAdmin.validate') }}</button>
+        </div>
+        <ol v-if="validationResult?.issues?.length" class="validation-issues"><li v-for="issue in validationResult.issues" :key="`${issue.field}:${issue.code}`">{{ issue.field }} · {{ issue.code }}</li></ol>
+        <label for="publish-password">{{ t('publicContentAdmin.password') }}</label>
+        <input id="publish-password" v-model="publishPassword" data-publication-secret type="password" autocomplete="current-password">
+        <button type="button" :disabled="busy || workflow.busy || !publishEnabled || !publishPassword" data-action="publish" @click="publishContent">{{ t('publicContentAdmin.publish') }}</button>
+        <p v-if="workflow.pendingRecovery" role="status">{{ t('publicContentAdmin.pendingRecovery') }}</p>
+      </SurfaceCard>
+      <ContentReleaseHistory :items="historyItems" :total="historyTotal" :busy="workflow.busy || historyLoading" :restore-disabled="!ready" @restore="beginRestore" @more="loadMoreHistory" />
     </template>
     <SurfaceCard v-if="conflictBuffer" class="conflict" aria-labelledby="conflict-title"><h2 id="conflict-title">{{ t('publicContentStructuredAdmin.conflictTitle') }}</h2><p>{{ t('publicContentStructuredAdmin.conflictHelp') }}</p><div class="conflict-columns"><section><h3>{{ t('publicContentStructuredAdmin.localVersion') }}</h3><pre>{{ formatConflict(conflictBuffer.local) }}</pre></section><section><h3>{{ t('publicContentStructuredAdmin.serverVersion') }}</h3><pre>{{ formatConflict(conflictBuffer.server) }}</pre></section></div></SurfaceCard>
+    <dialog ref="restoreDialog" aria-labelledby="restore-title" @cancel.prevent="cancelRestore"><h2 id="restore-title">{{ t('publicContentAdmin.restore') }}</h2><label for="restore-password">{{ t('publicContentAdmin.password') }}</label><input id="restore-password" v-model="restorePassword" data-publication-secret type="password" autocomplete="current-password"><div class="actions"><button type="button" @click="cancelRestore">{{ t('common.cancel') }}</button><button type="button" :disabled="workflow.busy || !restorePassword" data-action="confirm-restore" @click="confirmRestore">{{ t('publicContentAdmin.restore') }}</button></div></dialog>
   </main>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, toRaw, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { canonicalStructuredContent, createContentPublicationCoordinator, createStructuredContentValidationProof, publicContentAdminApi, structuredContentValidationProofMatches } from '@/api/publicContentAdmin.js'
 import { publicHomeContentAdminApi } from '@/api/publicHomeContentAdmin.js'
 import { publicModelAdminApi } from '@/api/publicModelAdmin.js'
+import { publicPricingAdminApi } from '@/api/publicPricingAdmin.js'
+import { validateStructuredPublicContent } from '@/utils/public-content-validation.js'
 import { useI18n } from '@/composables/useI18n'
 import { useUserStore } from '@/stores/user'
 import AnnouncementEditor from '@/components/public-admin/AnnouncementEditor.vue'
@@ -37,27 +55,37 @@ import SafeMarkdownEditor from '@/components/public-admin/SafeMarkdownEditor.vue
 import PageHeader from '@/components/shell/PageHeader.vue'
 import SurfaceCard from '@/components/shell/SurfaceCard.vue'
 import StatusBadge from '@/components/shell/StatusBadge.vue'
+import ContentReleaseHistory from '@/components/public-admin/ContentReleaseHistory.vue'
 
 const documentNames=['about','terms','privacy']
 const homeSections=['announcements','faqs','featuredModels']
 const { t } = useI18n(), router = useRouter(), userStore = useUserStore()
-const heading = ref(null), homeDraft = ref(null), documentsDraft = ref(null), revision = ref(null), busy = ref(false), error = ref(null), validationProof = ref(null), conflictBuffer = ref(null)
+const heading = ref(null), homeDraft = ref(null), documentsDraft = ref(null), revision = ref(null), busy = ref(false), error = ref(null), validationProof = ref(null), validationResult = ref(null), conflictBuffer = ref(null), savedCanonical = ref(null)
 const activeHomeSection = ref('announcements'), activeDocument = ref('about'), modelSearch = ref(''), modelResults = ref([]), searching = ref(false)
 const announcementCreateAck = ref(0), faqCreateAck = ref(0)
-let readController = new AbortController(), writeController = new AbortController(), searchController = new AbortController(), readGeneration = 0, writeGeneration = 0, searchGeneration = 0, privilegeGeneration = 0
+const priceReleaseGuid = ref(''), publishPassword = ref(''), restorePassword = ref(''), restoreTarget = ref(null), restoreDialog = ref(null), historyItems = ref([]), historyTotal = ref(0), historyLoading = ref(false)
+const workflow = reactive({ busy:false,error:null,conflict:false,pendingRecovery:false,attempt:null })
+const publicationCoordinator = createContentPublicationCoordinator({ api: publicContentAdminApi, state: workflow })
+let readController = new AbortController(), writeController = new AbortController(), searchController = new AbortController(), validationController = new AbortController(), historyController = new AbortController(), readGeneration = 0, writeGeneration = 0, searchGeneration = 0, validationGeneration = 0, historyGeneration = 0, privilegeGeneration = 0
 const clone = value => value == null ? value : structuredClone(toRaw(value))
 const ready = computed(() => homeDraft.value && documentsDraft.value && homeDraft.value.revision === documentsDraft.value.revision && revision.value === homeDraft.value.revision)
 const status = computed(() => busy.value ? t('publicContentAdmin.loading') : revision.value ? t('publicContentAdmin.revision', { revision: revision.value }) : '')
 const errorText = computed(() => t(`publicContentStructuredAdmin.errors.${error.value?.code || 'request_failed'}`))
 const announcementLabels = computed(() => labels('announcements')), faqLabels = computed(() => labels('faqs')), featuredLabels = computed(() => labels('featuredModels'))
 const ownsPrivilege = generation => generation === privilegeGeneration && userStore.user?.role === 'root'
+const currentStructured = () => ({ revision: revision.value, documents: clone(documentsDraft.value), home: clone(homeDraft.value) })
+const currentCanonical = () => canonicalStructuredContent(currentStructured())
+const validPriceGuid = value => /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n
+const previewEnabled = computed(() => { try { return ready.value && currentCanonical() === savedCanonical.value && validPriceGuid(priceReleaseGuid.value) } catch { return false } })
+const publishEnabled = computed(() => { try { return previewEnabled.value && structuredContentValidationProofMatches(validationProof.value,currentStructured(),savedCanonical.value,priceReleaseGuid.value) } catch { return false } })
 
 function labels(section) {
   const keys = section === 'announcements' ? ['title','itemTitle','body','effectiveAt','timePlaceholder','sortOrder','visible','hidden','hide','show','add','limit','moveUp','moveDown','edit','editItem','saveEdit','cancelEdit','remove','confirmTitle','confirm','cancel'] : section === 'faqs' ? ['title','question','answer','sortOrder','visible','hidden','hide','show','add','limit','moveUp','moveDown','edit','editItem','saveEdit','cancelEdit','remove','confirmTitle','confirm','cancel'] : ['title','search','searching','add','remove','moveUp','moveDown']
   return Object.fromEntries(keys.map(key => [key, t(`publicContentStructuredAdmin.${section}.${key}`)]))
 }
 function safeError(value) { try { const code = Object.getOwnPropertyDescriptor(value, 'code')?.value, requestId = Object.getOwnPropertyDescriptor(value, 'requestId')?.value; return { code: typeof code === 'string' && /^[a-z_]{1,64}$/.test(code) ? code : 'request_failed', requestId: typeof requestId === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(requestId) ? requestId : null } } catch { return { code: 'request_failed', requestId: null } } }
-function clearValidationProof() { validationProof.value = null }
+function clearValidationProof() { validationGeneration++; validationController.abort(); validationProof.value = null; validationResult.value = null }
+function onDraftInteraction(event) { if (event?.target?.closest?.('[data-publication-secret]')) return; clearValidationProof() }
 watch(documentsDraft, clearValidationProof, { deep: true })
 
 async function load() {
@@ -70,7 +98,7 @@ async function load() {
       const [home, documents] = await Promise.all([publicHomeContentAdminApi.getHomeDraft({ signal: controller.signal }), publicHomeContentAdminApi.getDocumentsDraft({ signal: controller.signal })])
       if (own !== readGeneration || controller.signal.aborted || !ownsPrivilege(privilege)) return null
       if (home.revision !== documents.revision) continue
-      homeDraft.value = clone(home); documentsDraft.value = clone(documents); revision.value = home.revision; clearValidationProof()
+      homeDraft.value = clone(home); documentsDraft.value = clone(documents); revision.value = home.revision; clearValidationProof(); savedCanonical.value = currentCanonical()
       return { home: homeDraft.value, documents: documentsDraft.value }
     }
     error.value = { code: 'revision_conflict', requestId: null }; return null
@@ -79,7 +107,7 @@ async function load() {
 }
 
 async function mutate(kind, local, operation, { deletes = false } = {}) {
-  if (busy.value || !ready.value || userStore.user?.role !== 'root') return null
+  if (busy.value || workflow.busy || !ready.value || userStore.user?.role !== 'root') return null
   clearValidationProof(); writeController.abort(); writeController = new AbortController()
   const controller = writeController, own = ++writeGeneration, privilege = privilegeGeneration, localCopy = clone(local)
   busy.value = true; error.value = null
@@ -89,7 +117,7 @@ async function mutate(kind, local, operation, { deletes = false } = {}) {
     if (deletes) { revision.value = output; busy.value = false; await load() }
     else if (kind === 'documents') { documentsDraft.value = clone(output); revision.value = output.revision; homeDraft.value = { ...clone(homeDraft.value), revision: output.revision } }
     else { homeDraft.value = clone(output); revision.value = output.revision; documentsDraft.value = { ...clone(documentsDraft.value), revision: output.revision } }
-    conflictBuffer.value = null; clearValidationProof(); return output
+    conflictBuffer.value = null; clearValidationProof(); savedCanonical.value = currentCanonical(); return output
   } catch (caught) {
     if (own !== writeGeneration || controller.signal.aborted || !ownsPrivilege(privilege)) return null
     const normalized = safeError(caught); error.value = normalized
@@ -124,9 +152,76 @@ async function searchModels(value) {
   finally { if (own === searchGeneration && ownsPrivilege(privilege)) searching.value = false }
 }
 
-function clearPrivilegedState() { readGeneration++; writeGeneration++; searchGeneration++; privilegeGeneration++; readController.abort(); writeController.abort(); searchController.abort(); homeDraft.value = null; documentsDraft.value = null; revision.value = null; validationProof.value = null; conflictBuffer.value = null; modelSearch.value = ''; modelResults.value = []; searching.value = false; busy.value = false; error.value = null }
+async function validateForPublication() {
+  if (!previewEnabled.value || userStore.user?.role !== 'root') return null
+  clearValidationProof(); validationController = new AbortController()
+  const controller = validationController, own = ++validationGeneration, privilege = privilegeGeneration
+  let snapshot, canonical, target
+  try { snapshot = currentStructured(); canonical = canonicalStructuredContent(snapshot); target = priceReleaseGuid.value }
+  catch { error.value = { code: 'validation_failed', requestId: null }; return null }
+  busy.value = true; error.value = null
+  try {
+    const pricing = await publicPricingAdminApi.getRelease(target, { signal: controller.signal })
+    if (own !== validationGeneration || controller.signal.aborted || !ownsPrivilege(privilege) || target !== priceReleaseGuid.value || canonical !== currentCanonical()) return null
+    const local = validateStructuredPublicContent(snapshot, { priceRelease: pricing, priceReleaseGuid: target })
+    if (!local.valid) { validationResult.value = local; return null }
+    const server = await publicContentAdminApi.validate(snapshot.revision, { signal: controller.signal })
+    if (own !== validationGeneration || controller.signal.aborted || !ownsPrivilege(privilege) || target !== priceReleaseGuid.value || canonical !== currentCanonical() || canonical !== savedCanonical.value) return null
+    validationResult.value = server
+    if (!server.valid) return null
+    validationProof.value = await createStructuredContentValidationProof(snapshot, target, { valid: true })
+    if (own !== validationGeneration || controller.signal.aborted || !ownsPrivilege(privilege) || canonical !== currentCanonical() || target !== priceReleaseGuid.value) validationProof.value = null
+    return validationProof.value
+  } catch (caught) { if (own === validationGeneration && !controller.signal.aborted && ownsPrivilege(privilege)) error.value = safeError(caught); return null }
+  finally { if (own === validationGeneration && ownsPrivilege(privilege)) busy.value = false }
+}
+
+function openPreview() {
+  if (!previewEnabled.value) return
+  const location = router.resolve?.({ path: '/admin/public-content/preview', query: { revision: String(revision.value), priceReleaseGuid: priceReleaseGuid.value } })?.href
+  if (location) window.open(location, '_blank', 'noopener,noreferrer')
+}
+
+async function loadHistory({ append = false } = {}) {
+  if (userStore.user?.role !== 'root') return null
+  historyController.abort(); historyController = new AbortController()
+  const controller = historyController, own = ++historyGeneration, privilege = privilegeGeneration
+  historyLoading.value = true
+  try { const page = append ? Math.floor(historyItems.value.length / 20) + 1 : 1, output = await publicContentAdminApi.listReleases({ page, pageSize:20, signal:controller.signal }); if (own !== historyGeneration || controller.signal.aborted || !ownsPrivilege(privilege)) return null; historyItems.value = append ? [...historyItems.value,...output.items] : [...output.items]; historyTotal.value = output.total; return output }
+  catch (caught) { if (own === historyGeneration && !controller.signal.aborted && ownsPrivilege(privilege)) error.value = safeError(caught); return null }
+  finally { if (own === historyGeneration && ownsPrivilege(privilege)) historyLoading.value = false }
+}
+const loadMoreHistory = () => loadHistory({ append:true })
+
+async function publishContent() {
+  if (!publishEnabled.value || workflow.busy || !publishPassword.value) return null
+  const target = priceReleaseGuid.value, expectedRevision = revision.value, password = publishPassword.value
+  publishPassword.value = ''
+  const output = await publicationCoordinator.publish(target, expectedRevision, password)
+  if (!ownsPrivilege(privilegeGeneration)) return null
+  if (!output) { error.value = workflow.error ? safeError(workflow.error) : error.value; if (workflow.conflict) { clearValidationProof(); conflictBuffer.value = { kind:'publish', local:{ revision:expectedRevision, priceReleaseGuid:target }, server:null }; await load(); if (ready.value && conflictBuffer.value?.kind === 'publish') conflictBuffer.value = { ...conflictBuffer.value, server:{ home:clone(homeDraft.value), documents:clone(documentsDraft.value) } } } return null }
+  clearValidationProof(); await load(); await loadHistory(); return output
+}
+
+function beginRestore(release) { if (!ready.value || workflow.busy) return; restoreTarget.value = release; restorePassword.value = ''; restoreDialog.value?.showModal?.() }
+function cancelRestore() { restorePassword.value = ''; restoreTarget.value = null; restoreDialog.value?.close?.() }
+async function confirmRestore() {
+  if (!restoreTarget.value || !restorePassword.value || workflow.busy || !ready.value) return null
+  const target = restoreTarget.value.guid, expectedRevision = revision.value, password = restorePassword.value
+  restorePassword.value = ''; restoreDialog.value?.close?.()
+  const output = await publicationCoordinator.restore(target, expectedRevision, password)
+  restoreTarget.value = null
+  if (!ownsPrivilege(privilegeGeneration)) return null
+  if (!output) { error.value = workflow.error ? safeError(workflow.error) : error.value; if (workflow.conflict) { clearValidationProof(); conflictBuffer.value = { kind:'restore', local:{ releaseGuid:target, revision:expectedRevision }, server:null }; await load(); if (ready.value && conflictBuffer.value?.kind === 'restore') conflictBuffer.value = { ...conflictBuffer.value, server:{ home:clone(homeDraft.value), documents:clone(documentsDraft.value) } } } return null }
+  clearValidationProof(); await load(); await loadHistory(); return output
+}
+
+watch(priceReleaseGuid, () => { if (workflow.pendingRecovery) { publicationCoordinator.abandon(); error.value = { code:'attempt_binding_changed', requestId:null } } clearValidationProof() })
+watch(revision, () => { if (workflow.pendingRecovery) { publicationCoordinator.abandon(); error.value = { code:'attempt_binding_changed', requestId:null }; clearValidationProof() } })
+
+function clearPrivilegedState() { readGeneration++; writeGeneration++; searchGeneration++; validationGeneration++; historyGeneration++; privilegeGeneration++; readController.abort(); writeController.abort(); searchController.abort(); validationController.abort(); historyController.abort(); publicationCoordinator.cancel(); homeDraft.value = null; documentsDraft.value = null; revision.value = null; savedCanonical.value = null; validationProof.value = null; validationResult.value = null; conflictBuffer.value = null; modelSearch.value = ''; modelResults.value = []; searching.value = false; historyItems.value = []; historyTotal.value = 0; historyLoading.value = false; publishPassword.value = ''; restorePassword.value = ''; restoreTarget.value = null; restoreDialog.value?.close?.(); busy.value = false; error.value = null }
 watch(() => userStore.user?.role, role => { if (role !== 'root') { clearPrivilegedState(); void router.replace?.('/chat') } }, { flush: 'sync' })
 function formatConflict(value) { return value === null ? t('publicContentAdmin.loading') : JSON.stringify(value, null, 2) }
-onMounted(() => { heading.value?.focus(); void load() })
+onMounted(() => { heading.value?.focus(); void load(); void loadHistory() })
 onBeforeUnmount(clearPrivilegedState)
 </script>

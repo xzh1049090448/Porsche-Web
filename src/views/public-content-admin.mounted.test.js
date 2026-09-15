@@ -18,7 +18,7 @@ const responseHome = (revision, patch = {}) => ({ ...home(revision), ...patch })
 
 afterEach(() => {
   document.body.replaceChildren(); window.localStorage.clear(); window.sessionStorage.clear()
-  delete globalThis.__homeApi; delete globalThis.__modelApi; delete globalThis.__pcRouter; delete globalThis.__pcUser
+  delete globalThis.__homeApi; delete globalThis.__modelApi; delete globalThis.__contentApi; delete globalThis.__pricingApi; delete globalThis.__pcRouter; delete globalThis.__pcUser
 })
 
 async function component() {
@@ -28,18 +28,24 @@ async function component() {
   const template = compileTemplate({ id: 'task10-admin', filename: 'PublicContentAdmin.vue', source: descriptor.template.content, compilerOptions: { bindingMetadata: script.bindings } })
   assert.deepEqual(template.errors, [])
   const vueURL = new URL('../../node_modules/vue/index.mjs', import.meta.url).href
+  const contentApiURL = new URL('../api/publicContentAdmin.js', import.meta.url).href
+  const validationURL = new URL('../utils/public-content-validation.js', import.meta.url).href
   const shell = data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({inheritAttrs:false,setup(_,{attrs,slots}){return()=>h('section',attrs,[slots.default?.(),slots.actions?.()])}})`)
   const editor = marker => data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({inheritAttrs:false,props:['items','selected','results','search','searching','busy','labels'],emits:['create','update','remove','move','save','search'],setup(p,{attrs,emit}){return()=>h('section',{...attrs,'data-editor':'${marker}'},[h('button',{'data-action':'create',onClick:()=>emit('create',{title:'本地公告',bodyMarkdown:'正文',effectiveAt:null,isVisible:true,sortOrder:10})},'create'),h('button',{'data-action':'save-featured',onClick:()=>emit('save',['model-a'])},'featured'),h('input',{'data-action':'search',value:p.search,onInput:e=>emit('search',e.target.value)})])}})`)
   const modules = new Map([
     ['vue', vueURL],
     ['vue-router', data('export const useRouter=()=>globalThis.__pcRouter')],
+    ['@/api/publicContentAdmin.js', data(`export{canonicalStructuredContent,createContentPublicationCoordinator,createStructuredContentValidationProof,structuredContentValidationProofMatches}from'${contentApiURL}';export const publicContentAdminApi=new Proxy({},{get:(_,key)=>(...args)=>globalThis.__contentApi[key](...args)})`)],
     ['@/api/publicHomeContentAdmin.js', data('export const publicHomeContentAdminApi=new Proxy({}, {get:(_,key)=>(...args)=>globalThis.__homeApi[key](...args)})')],
     ['@/api/publicModelAdmin.js', data('export const publicModelAdminApi=new Proxy({}, {get:(_,key)=>(...args)=>globalThis.__modelApi[key](...args)})')],
+    ['@/api/publicPricingAdmin.js', data('export const publicPricingAdminApi=new Proxy({}, {get:(_,key)=>(...args)=>globalThis.__pricingApi[key](...args)})')],
+    ['@/utils/public-content-validation.js', validationURL],
     ['@/composables/useI18n', data("export const useI18n=()=>({t:(key,p)=>key+(p?.revision?':'+p.revision:'')})")],
     ['@/stores/user', data('export const useUserStore=()=>globalThis.__pcUser')],
     ['@/components/public-admin/AnnouncementEditor.vue', editor('announcement')],
     ['@/components/public-admin/FaqEditor.vue', editor('faq')],
     ['@/components/public-admin/FeaturedModelSelector.vue', editor('featured-models')],
+    ['@/components/public-admin/ContentReleaseHistory.vue', data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({props:['items','total','busy','restoreDisabled'],emits:['restore','more'],setup(p,{emit}){return()=>h('section',{'data-history':''},p.items.map(item=>h('button',{onClick:event=>emit('restore',item,event)},item.guid)))}})`) ],
     ['@/components/public-admin/SafeMarkdownEditor.vue', data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({props:['modelValue','id'],emits:['update:modelValue'],setup(p,{emit}){return()=>h('textarea',{id:p.id,value:p.modelValue,onInput:e=>emit('update:modelValue',e.target.value)})}})`) ],
     ['@/components/shell/PageHeader.vue', shell], ['@/components/shell/SurfaceCard.vue', shell], ['@/components/shell/StatusBadge.vue', shell],
   ])
@@ -49,10 +55,10 @@ async function component() {
 }
 
 async function flush() { for (let index = 0; index < 8; index++) await nextTick(); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick() }
-async function setup(overrides = {}, modelOverrides = {}) {
+async function setup(overrides = {}, modelOverrides = {}, contentOverrides = {}, pricingOverrides = {}) {
   const calls = []
   globalThis.__pcUser = reactive({ user: { role: 'root' } })
-  globalThis.__pcRouter = { replace: async value => { globalThis.__pcRouter.replaced = value } }
+  globalThis.__pcRouter = { replace: async value => { globalThis.__pcRouter.replaced = value }, resolve: value => ({ href: `/admin/public-content/preview?revision=${value.query.revision}&priceReleaseGuid=${value.query.priceReleaseGuid}` }) }
   globalThis.__homeApi = {
     getHomeDraft: async () => home(4), getDocumentsDraft: async () => documents(4),
     createAnnouncement: async value => (calls.push(['createAnnouncement', value]), responseHome(value.expectedRevision + 1, { announcements: [{ guid: '1', title: value.title, bodyMarkdown: value.bodyMarkdown, effectiveAt: value.effectiveAt, isVisible: value.isVisible, sortOrder: value.sortOrder }] })),
@@ -66,6 +72,8 @@ async function setup(overrides = {}, modelOverrides = {}) {
     ...overrides,
   }
   globalThis.__modelApi = { list: async (filters, options) => (calls.push(['search', filters, options]), { items: [] }), ...modelOverrides }
+  globalThis.__contentApi = { listReleases: async () => ({ items: [], page: 1, pageSize: 20, total: 0 }), validate: async revision => ({ valid: true, issues: [], revision }), issuePublishVerification: async () => ({ ticket: 'av_'+('A'.repeat(42))+'Q' }), publish: async () => ({ guid:'9',version:1,reason:'root_publish',sourceRevision:4,createdAt:'2026-09-15T00:00:00Z' }), issueRestoreVerification: async () => ({ ticket: 'av_'+('A'.repeat(42))+'Q' }), restore: async () => ({ guid:'10',version:2,reason:'restore',sourceRevision:4,createdAt:'2026-09-15T00:00:00Z' }), ...contentOverrides }
+  globalThis.__pricingApi = { getRelease: async guid => ({ release: { guid, version: 1 }, items: [] }), ...pricingOverrides }
   const wrapper = mount(await component(), { attachTo: document.body }); await flush()
   return { wrapper, calls }
 }
@@ -77,7 +85,8 @@ test('structured admin loads only a matching home and document generation and ha
   assert.equal(wrapper.vm.revision, 4)
   assert.deepEqual(wrapper.vm.documentNames, ['about','terms','privacy'])
   assert.deepEqual(wrapper.vm.homeSections, ['announcements','faqs','featuredModels'])
-  assert.equal(wrapper.find('[data-task11-disabled]').exists(), true)
+  assert.equal(wrapper.find('[data-task11-disabled]').exists(), false)
+  assert.equal(wrapper.find('[data-task11-release-tools]').exists(), true)
   wrapper.unmount()
 })
 
@@ -232,3 +241,70 @@ test('Task10 source keeps fixed documents, single-item sort patches, and no draf
   assert.doesNotMatch(source, /content-home|localStorage|sessionStorage|dragstart|draggable/)
   assert.match(source, /sort_gap_required/)
 })
+
+test('Task11 source invalidates proof on any captured unsaved input and binds preview to both versions', async () => {
+ const source = await readFile(new URL('./PublicContentAdmin.vue', import.meta.url), 'utf8')
+ assert.match(source, /@input\.capture="onDraftInteraction"/)
+ assert.match(source, /@change\.capture="onDraftInteraction"/)
+ assert.match(source, /priceReleaseGuid/)
+ assert.match(source, /createContentPublicationCoordinator/)
+ assert.match(source, /validateStructuredPublicContent/)
+ assert.match(source, /priceReleaseGuid:/)
+ assert.match(source, /revision:/)
+ assert.doesNotMatch(source, /data-task11-disabled/)
+})
+
+const reviewedLegal = '# Legal\n\nVersion: 2026-09\n\nEffective Date: 2026-09-15\n\n## Scope\nText\n\n## Contact\n\nsupport@example.com'
+
+test('structured validation binds saved aggregate and price release, while password input keeps the proof', async () => {
+ const calls = []
+ const { wrapper } = await setup({
+  getHomeDraft: async () => responseHome(4, { featuredModelKeys:['model-a'] }),
+  getDocumentsDraft: async () => ({ ...documents(4), terms:reviewedLegal, privacy:reviewedLegal }),
+ }, {}, { validate: async revision => (calls.push(['validate',revision]), { valid:true,issues:[] }) }, { getRelease: async guid => (calls.push(['price',guid]), { release:{guid,version:3},items:[{modelKey:'model-a',releaseVersion:3}] }) })
+ await wrapper.get('#price-release-guid').setValue('7'); await flush()
+ await wrapper.vm.validateForPublication(); await flush()
+ assert.equal(wrapper.vm.validationProof?.valid,true)
+ assert.equal(wrapper.vm.publishEnabled,true)
+ await wrapper.get('#publish-password').setValue('private-password'); await flush()
+ assert.equal(wrapper.vm.validationProof?.valid,true)
+ assert.deepEqual(calls,[['price','7'],['validate',4]])
+ assert.equal(window.localStorage.length,0); assert.equal(window.sessionStorage.length,0)
+ wrapper.unmount()
+})
+
+test('dirty input and a late validation response cannot restore a stale proof', async () => {
+ const late = deferred()
+ const { wrapper } = await setup({ getDocumentsDraft: async () => ({ ...documents(4), terms:reviewedLegal, privacy:reviewedLegal }) }, {}, {}, { getRelease: () => late.promise })
+ await wrapper.get('#price-release-guid').setValue('7'); await flush()
+ const pending = wrapper.vm.validateForPublication(); await Promise.resolve()
+ await wrapper.get('#content-about').setValue('# unsaved change'); await flush()
+ late.resolve({ release:{guid:'7',version:3},items:[] }); await pending; await flush()
+ assert.equal(wrapper.vm.validationProof,null)
+ assert.equal(wrapper.vm.publishEnabled,false)
+ wrapper.unmount()
+})
+
+test('publish is single-flight, clears password, and reloads the complete generation and history', async () => {
+ let issues=0,executes=0,reads=0
+ const issued=deferred()
+ const { wrapper } = await setup({ getHomeDraft: async () => (reads++,home(4)), getDocumentsDraft: async () => documents(4) }, {}, {
+  issuePublishVerification: (_revision,_password,_guid,{signal}) => (issues++, signal.addEventListener('abort',()=>{}, {once:true}), issued.promise),
+  publish: async () => (executes++, {guid:'9',version:1,reason:'root_publish',sourceRevision:4,createdAt:'2026-09-15T00:00:00Z'}),
+ })
+ await wrapper.get('#price-release-guid').setValue('7'); await flush()
+ wrapper.vm.validationProof = await contentApiProof(wrapper.vm, '7')
+ await wrapper.get('#publish-password').setValue('private-password')
+ const first=wrapper.vm.publishContent(),second=wrapper.vm.publishContent(); await Promise.resolve()
+ assert.equal(issues,1); assert.equal(wrapper.vm.publishPassword,'')
+ issued.resolve({ticket:'ticket'}); await Promise.all([first,second]); await flush()
+ assert.equal(executes,1); assert.ok(reads>=2); assert.equal(wrapper.vm.validationProof,null)
+ wrapper.unmount()
+})
+
+async function contentApiProof(vm,guid){
+ const api=await import(new URL('../api/publicContentAdmin.js',import.meta.url))
+ const value={revision:vm.revision,documents:JSON.parse(JSON.stringify(vm.documentsDraft)),home:JSON.parse(JSON.stringify(vm.homeDraft))}
+ const canonical=api.canonicalStructuredContent(value); vm.savedCanonical=canonical
+ return api.createStructuredContentValidationProof(value,guid,{valid:true})
+}

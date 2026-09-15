@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
-import { validatePublicContentDraft, renderSafePublicMarkdown } from './public-content-validation.js'
+import * as validation from './public-content-validation.js'
+
+const { validatePublicContentDraft, renderSafePublicMarkdown } = validation
 
 const window=new JSDOM('<!doctype html><html><body></body></html>').window
 const options={window}
@@ -36,3 +38,29 @@ test('backend sanitizer parity corpus preserves exact safe and unsafe cases',()=
  for(const home of ['The javascript: URL scheme is not permitted in links.','`![x](https://169.254.169.254/latest/meta-data)`','\\![x](https://169.254.169.254/latest/meta-data)','```markdown\n![x](https://169.254.169.254/latest/meta-data)\n```','<https://example.test/docs>','![logo](</assets/logo.svg>)','![encoded](/assets/%61.png)','![dot](/assets/a%2epng)']){const result=validatePublicContentDraft({home,about:'Safe',terms:legal,privacy:legal,legalReviewed:true},{modelKeys:[],...options});assert.equal(result.issues.filter(x=>x.field==='documents.home.body').length,0,home)}
 })
 test('canonical URL decoding reaches stability or fails closed without accepting a partial decode',()=>{const nest=(value,count)=>{for(let i=0;i<count;i++)value=encodeURIComponent(value);return value};for(const depth of [9,10,12,63,65,512]){const out=validatePublicContentDraft({home:`[x](${nest('javascript:alert(1)',depth)})`,about:'Safe',terms:legal,privacy:legal,legalReviewed:true},{modelKeys:[],...options});assert.deepEqual(out.issues.filter(x=>x.code==='unsafe_url').map(x=>x.field),['documents.home.body'],`depth ${depth}`)}const malformed=validatePublicContentDraft({home:'[x](%zz)',about:'Safe',terms:legal,privacy:legal,legalReviewed:true},{modelKeys:[],...options});assert.deepEqual(malformed.issues.filter(x=>x.code==='unsafe_url').map(x=>x.field),['documents.home.body'])})
+
+const structured = () => ({ revision: 5, documents: { revision: 5, about: '# About', terms: legal, privacy: legal, legalReviewed: true }, home: { revision: 5, announcements: [{ guid: '1', title: 'News', bodyMarkdown: 'Safe', effectiveAt: null, isVisible: true, sortOrder: 1 }], faqs: [{ guid: '2', question: 'Q?', answerMarkdown: 'Safe', isVisible: false, sortOrder: 1 }], featuredModelKeys: ['model-a'] } })
+const priceRelease = () => ({ release: { guid: '7', version: 3 }, items: [{ modelKey: 'model-a', releaseVersion: 3 }] })
+
+test('structured validation covers documents home markdown and bound price release', () => {
+ assert.equal(typeof validation.validateStructuredPublicContent, 'function')
+ const result = validation.validateStructuredPublicContent(structured(), { priceRelease: priceRelease(), ...options })
+ assert.deepEqual(result.issues, [])
+ for (const mutate of [
+  value => { value.home.announcements[0].bodyMarkdown = '[x](javascript:alert(1))' },
+  value => { value.home.faqs[0].answerMarkdown = '![x](https://evil.test/x.png)' },
+  value => { value.documents.about = '<iframe src="/x"></iframe>' },
+ ]) {
+  const value = structured(); mutate(value)
+  assert.equal(validation.validateStructuredPublicContent(value, { priceRelease: priceRelease(), ...options }).valid, false)
+ }
+})
+
+test('structured validation rejects count limits and incomplete mixed-version featured releases', () => {
+ const tooMany = structured(); tooMany.home.announcements = Array.from({ length: 21 }, (_, index) => ({ guid: String(index + 1), title: 'N', bodyMarkdown: 'B', effectiveAt: null, isVisible: true, sortOrder: index }))
+ assert.ok(validation.validateStructuredPublicContent(tooMany, { priceRelease: { release: { guid: '7', version: 3 }, items: [] }, ...options }).issues.some(issue => issue.code === 'announcement_limit_exceeded'))
+ const duplicate = priceRelease(); duplicate.items.push({ modelKey: 'model-a', releaseVersion: 3 })
+ assert.ok(validation.validateStructuredPublicContent(structured(), { priceRelease: duplicate, ...options }).issues.some(issue => issue.code === 'featured_model_invalid'))
+ const mixed = priceRelease(); mixed.items[0].releaseVersion = 2
+ assert.ok(validation.validateStructuredPublicContent(structured(), { priceRelease: mixed, ...options }).issues.some(issue => issue.code === 'price_release_mismatch'))
+})
