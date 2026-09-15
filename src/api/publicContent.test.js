@@ -298,7 +298,9 @@ test('home config 304 requires a validated same-resource cache', async () => {
   const client = createPublicContentClient({ fetchImpl: async () => new Response(null, { status: 304 }) })
   const cached = JSON.parse(JSON.stringify(mapped))
   const reused = await client.getHomeConfig({ etag: cached.etag, cached })
+  const reusedFrozen = await client.getHomeConfig({ etag: mapped.etag, cached: mapped })
   assert.equal(reused.notModified, true)
+  assert.equal(reusedFrozen.notModified, true)
   assert.notEqual(reused, cached); assert.notEqual(reused.data, cached.data); assert.notEqual(reused.data.announcements, cached.data.announcements)
   assert.ok(Object.isFrozen(reused) && Object.isFrozen(reused.publicationVersions) && Object.isFrozen(reused.data.announcements[0]))
   cached.data.announcements[0].bodyHtml = '<script>changed</script>'; cached.data.featuredModelKeys[0] = 'changed'
@@ -333,6 +335,35 @@ test('home config 200 rejects sparse or adorned structured arrays', async () => 
     { ...homeConfigBody(), featured_model_keys: sparseFeatured },
   ]) await assert.rejects(() => createPublicContentClient({ fetchImpl: async () => response(body, { headers: { 'X-Public-Release-Version': '2' } }) }).getHomeConfig(), error => error.code === 'invalid_response')
   assert.throws(() => mapPublicHomeConfig({ ...homeConfigBody(), announcements: adornedAnnouncements }), /invalid_public_home_config/)
+})
+
+test('home config snapshots data properties and rejects accessor or symbol tricks', async () => {
+  const mapped = await createPublicContentClient({ fetchImpl: async () => response(homeConfigBody(), { headers: { 'X-Public-Release-Version': '2' } }) }).getHomeConfig()
+  const changingCache = JSON.parse(JSON.stringify(mapped)); let etagReads = 0
+  Object.defineProperty(changingCache, 'etag', { enumerable: true, configurable: true, get: () => ++etagReads === 1 ? mapped.etag : '"changed"' })
+  const cachedClient = createPublicContentClient({ fetchImpl: async () => new Response(null, { status: 304 }) })
+  await assert.rejects(() => cachedClient.getHomeConfig({ etag: mapped.etag, cached: changingCache }), error => error.code === 'invalid_304')
+  const throwingCache = JSON.parse(JSON.stringify(mapped)); Object.defineProperty(throwingCache, 'data', { enumerable: true, configurable: true, get: () => { throw new Error('secret') } })
+  await assert.rejects(() => cachedClient.getHomeConfig({ etag: mapped.etag, cached: throwingCache }), error => error.code === 'invalid_304' && !error.message.includes('secret'))
+  const symbolCache = JSON.parse(JSON.stringify(mapped)); symbolCache[Symbol('hidden')] = true
+  await assert.rejects(() => cachedClient.getHomeConfig({ etag: mapped.etag, cached: symbolCache }), error => error.code === 'invalid_304')
+
+  const changingItem = { ...homeConfigBody().announcements[0] }; let bodyReads = 0
+  Object.defineProperty(changingItem, 'body_html', { enumerable: true, configurable: true, get: () => ++bodyReads === 1 ? '<p>safe</p>\n' : '\u0000' })
+  const throwingItem = { ...homeConfigBody().announcements[0] }
+  Object.defineProperty(throwingItem, 'title', { enumerable: true, configurable: true, get: () => { throw new Error('secret') } })
+  const accessorArray = [...homeConfigBody().announcements]
+  Object.defineProperty(accessorArray, '0', { enumerable: true, configurable: true, get: () => homeConfigBody().announcements[0] })
+  const symbolBody = homeConfigBody(); symbolBody[Symbol('hidden')] = true
+  for (const body of [
+    { ...homeConfigBody(), announcements: [changingItem] },
+    { ...homeConfigBody(), announcements: [throwingItem] },
+    { ...homeConfigBody(), announcements: accessorArray },
+    symbolBody,
+  ]) assert.throws(() => mapPublicHomeConfig(body), /invalid_public_home_config/)
+
+  const frozen = Object.freeze({ ...homeConfigBody(), announcements: Object.freeze(homeConfigBody().announcements.map(Object.freeze)), faqs: Object.freeze(homeConfigBody().faqs.map(Object.freeze)), featured_model_keys: Object.freeze(['deepseek-chat']) })
+  assert.equal(mapPublicHomeConfig(frozen).contentReleaseVersion, 2)
 })
 
 test('home config rejects noncanonical server ordering with int64-safe GUID comparison', async () => {

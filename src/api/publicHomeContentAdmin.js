@@ -6,13 +6,37 @@ const MODEL_KEY = /^[a-z][a-z0-9-]{0,127}$/
 const RFC3339 = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)Z$/
 const UNSAFE = /[\p{Cc}\p{Cf}]/u
 const LONE_SURROGATE = /(?:[\uD800-\uDBFF](?![\uDC00-\uDFFF]))|(?:(?<![\uD800-\uDBFF])[\uDC00-\uDFFF])/
-const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key))
-const denseArray = value => {
-  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return false
-  const enumerable = Object.keys(value)
-  if (enumerable.length !== value.length || !enumerable.every((key, index) => key === String(index))) return false
-  const own = Reflect.ownKeys(value)
-  return own.length === value.length + 1 && own.includes('length')
+const snapshotObject = (value, allowed, required = allowed) => {
+  try {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return null
+    const descriptors = Object.getOwnPropertyDescriptors(value)
+    const own = Reflect.ownKeys(descriptors)
+    if (own.some(key => typeof key !== 'string' || !allowed.includes(key)) || required.some(key => !Object.hasOwn(descriptors, key))) return null
+    const snapshot = {}
+    for (const key of own) {
+      const descriptor = descriptors[key]
+      if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null
+      snapshot[key] = descriptor.value
+    }
+    return snapshot
+  } catch { return null }
+}
+const snapshotArray = (value, maxLength) => {
+  try {
+    if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return null
+    const descriptors = Object.getOwnPropertyDescriptors(value)
+    const own = Reflect.ownKeys(descriptors)
+    const lengthDescriptor = descriptors.length
+    const length = lengthDescriptor?.value
+    if (!Object.hasOwn(lengthDescriptor || {}, 'value') || lengthDescriptor.enumerable || !Number.isSafeInteger(length) || length < 0 || length > maxLength || own.length !== length + 1) return null
+    const snapshot = []
+    for (let index = 0; index < length; index++) {
+      const descriptor = descriptors[String(index)]
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null
+      snapshot.push(descriptor.value)
+    }
+    return snapshot
+  } catch { return null }
 }
 const positive = value => Number.isSafeInteger(value) && value >= 1
 const validGuid = value => typeof value === 'string' && GUID.test(value) && (value.length < MAX_INT64.length || value <= MAX_INT64)
@@ -39,39 +63,51 @@ class InvalidResponse extends Error { constructor() { super('invalid_public_home
 const invalid = () => { throw new InvalidResponse() }
 
 function mapAnnouncement(raw) {
-  if (!exact(raw, ['guid', 'title', 'body_markdown', 'effective_at', 'is_visible', 'sort_order']) || !validGuid(raw.guid) || !validText(raw.title, 120) || !validText(raw.body_markdown, 16384, { empty: true, multiline: true, bytes: true }) || !validTime(raw.effective_at) || typeof raw.is_visible !== 'boolean' || !validSort(raw.sort_order)) invalid()
-  return freeze({ guid: raw.guid, title: raw.title, bodyMarkdown: raw.body_markdown, effectiveAt: raw.effective_at, isVisible: raw.is_visible, sortOrder: raw.sort_order })
+  const value = snapshotObject(raw, ['guid', 'title', 'body_markdown', 'effective_at', 'is_visible', 'sort_order'])
+  if (!value || !validGuid(value.guid) || !validText(value.title, 120) || !validText(value.body_markdown, 16384, { empty: true, multiline: true, bytes: true }) || !validTime(value.effective_at) || typeof value.is_visible !== 'boolean' || !validSort(value.sort_order)) invalid()
+  return freeze({ guid: value.guid, title: value.title, bodyMarkdown: value.body_markdown, effectiveAt: value.effective_at, isVisible: value.is_visible, sortOrder: value.sort_order })
 }
 function mapFAQ(raw) {
-  if (!exact(raw, ['guid', 'question', 'answer_markdown', 'is_visible', 'sort_order']) || !validGuid(raw.guid) || !validText(raw.question, 200) || !validText(raw.answer_markdown, 16384, { empty: true, multiline: true, bytes: true }) || typeof raw.is_visible !== 'boolean' || !validSort(raw.sort_order)) invalid()
-  return freeze({ guid: raw.guid, question: raw.question, answerMarkdown: raw.answer_markdown, isVisible: raw.is_visible, sortOrder: raw.sort_order })
+  const value = snapshotObject(raw, ['guid', 'question', 'answer_markdown', 'is_visible', 'sort_order'])
+  if (!value || !validGuid(value.guid) || !validText(value.question, 200) || !validText(value.answer_markdown, 16384, { empty: true, multiline: true, bytes: true }) || typeof value.is_visible !== 'boolean' || !validSort(value.sort_order)) invalid()
+  return freeze({ guid: value.guid, question: value.question, answerMarkdown: value.answer_markdown, isVisible: value.is_visible, sortOrder: value.sort_order })
 }
 function mapHomeDraft(raw) {
-  if (!exact(raw, ['revision', 'announcements', 'faqs', 'featured_model_keys']) || !positive(raw.revision) || !denseArray(raw.announcements) || raw.announcements.length > 20 || !denseArray(raw.faqs) || raw.faqs.length > 50 || !denseArray(raw.featured_model_keys) || raw.featured_model_keys.length > 12) invalid()
-  const announcements = raw.announcements.map(mapAnnouncement), faqs = raw.faqs.map(mapFAQ), keys = raw.featured_model_keys
+  const value = snapshotObject(raw, ['revision', 'announcements', 'faqs', 'featured_model_keys'])
+  const sourceAnnouncements = value && snapshotArray(value.announcements, 20)
+  const sourceFAQs = value && snapshotArray(value.faqs, 50)
+  const keys = value && snapshotArray(value.featured_model_keys, 12)
+  if (!value || !positive(value.revision) || !sourceAnnouncements || !sourceFAQs || !keys) invalid()
+  const announcements = sourceAnnouncements.map(mapAnnouncement), faqs = sourceFAQs.map(mapFAQ)
   if (new Set(announcements.map(item => item.guid)).size !== announcements.length || new Set(faqs.map(item => item.guid)).size !== faqs.length || new Set(keys).size !== keys.length || !keys.every(validModelKey) || !canonicalOrder(announcements, compareAnnouncement) || !canonicalOrder(faqs, compareFAQ)) invalid()
-  return freeze({ revision: raw.revision, announcements, faqs, featuredModelKeys: keys })
+  return freeze({ revision: value.revision, announcements, faqs, featuredModelKeys: keys })
 }
 function mapDocuments(raw) {
-  if (!exact(raw, ['revision', 'about', 'terms', 'privacy', 'legal_reviewed']) || !positive(raw.revision) || ![raw.about, raw.terms, raw.privacy].every(value => validText(value, 262144, { empty: true, multiline: true, bytes: true })) || typeof raw.legal_reviewed !== 'boolean') invalid()
-  return freeze({ revision: raw.revision, about: raw.about, terms: raw.terms, privacy: raw.privacy, legalReviewed: raw.legal_reviewed })
+  const value = snapshotObject(raw, ['revision', 'about', 'terms', 'privacy', 'legal_reviewed'])
+  if (!value || !positive(value.revision) || ![value.about, value.terms, value.privacy].every(item => validText(item, 262144, { empty: true, multiline: true, bytes: true })) || typeof value.legal_reviewed !== 'boolean') invalid()
+  return freeze({ revision: value.revision, about: value.about, terms: value.terms, privacy: value.privacy, legalReviewed: value.legal_reviewed })
 }
 function metadata(result, status, { preview = false, deletion = false } = {}) {
-  if (!exact(result, ['data', 'status', 'headers']) || result.status !== status || header(result.headers, 'Cache-Control') !== 'no-store' || !safeRequestId(header(result.headers, 'X-Request-ID')) || (preview && header(result.headers, 'X-Robots-Tag') !== 'noindex,nofollow')) invalid()
+  const value = snapshotObject(result, ['data', 'status', 'headers'])
+  if (!value || value.status !== status || header(value.headers, 'Cache-Control') !== 'no-store' || !safeRequestId(header(value.headers, 'X-Request-ID')) || (preview && header(value.headers, 'X-Robots-Tag') !== 'noindex,nofollow')) invalid()
   if (deletion) {
-    if (result.data !== null && result.data !== undefined && result.data !== '') invalid()
-    const rawRevision = header(result.headers, 'X-Content-Draft-Revision'); const revision = /^[1-9]\d*$/.test(rawRevision || '') ? Number(rawRevision) : NaN; if (!positive(revision)) invalid()
+    if (value.data !== null && value.data !== undefined && value.data !== '') invalid()
+    const rawRevision = header(value.headers, 'X-Content-Draft-Revision'); const revision = /^[1-9]\d*$/.test(rawRevision || '') ? Number(rawRevision) : NaN; if (!positive(revision)) invalid()
     return revision
   }
-  return result.data
+  return value.data
 }
 const safeRequestId = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
 export class PublicHomeContentAdminError extends Error { constructor(code, status = null, requestId = null) { super(`public_home_content_admin_${code}`); this.name = 'PublicHomeContentAdminError'; Object.assign(this, { code, status, requestId }) } }
 function mapError(error) {
-  if (error?.name === 'AbortError') return error
-  const status = Number.isInteger(error?.response?.status) ? error.response.status : null, raw = error?.response?.data, requestId = header(error?.response?.headers, 'X-Request-ID')
+  try { if (error?.name === 'AbortError') return error } catch { return new PublicHomeContentAdminError('network_error') }
+  let response
+  try { response = snapshotObject(error?.response, ['data', 'status', 'headers']) } catch { response = null }
+  const status = Number.isInteger(response?.status) ? response.status : null, raw = response?.data, requestId = header(response?.headers, 'X-Request-ID')
   const expected = ({ 400: 'invalid_request', 401: 'authentication_required', 403: 'root_role_required', 404: 'not_found', 409: 'conflict', 410: 'gone', 422: 'validation_failed', 503: 'unavailable' })[status]
-  const valid = expected && header(error?.response?.headers, 'Cache-Control') === 'no-store' && safeRequestId(requestId) && exact(raw, ['error']) && exact(raw.error, ['code', 'message', 'request_id']) && raw.error.code === expected && raw.error.request_id === requestId && typeof raw.error.message === 'string'
+  const envelope = snapshotObject(raw, ['error'])
+  const errorBody = envelope && snapshotObject(envelope.error, ['code', 'message', 'request_id'])
+  const valid = expected && header(response?.headers, 'Cache-Control') === 'no-store' && safeRequestId(requestId) && errorBody && errorBody.code === expected && errorBody.request_id === requestId && typeof errorBody.message === 'string'
   if (!valid) return new PublicHomeContentAdminError(status ? 'request_failed' : 'network_error', status)
   return new PublicHomeContentAdminError(status === 403 ? 'root_required' : status === 409 ? 'revision_conflict' : expected, status, requestId)
 }
@@ -93,20 +129,22 @@ async function productionRequest(input) { const { getAuthToken } = await import(
 
 function revision(value) { if (!positive(value)) invalidRequest(); return value }
 function guid(value) { if (!validGuid(value)) invalidRequest(); return encodeURIComponent(value) }
-function exactInput(value, keys) { if (!exact(value, keys)) invalidRequest() }
-function requestOptions(value, allowed = ['signal']) { if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype || Object.keys(value).some(key => !allowed.includes(key))) invalidRequest(); return value }
+function exactInput(value, keys) { const snapshot = snapshotObject(value, keys); if (!snapshot) invalidRequest(); return snapshot }
+function requestOptions(value, allowed = ['signal']) { const snapshot = snapshotObject(value, allowed, []); if (!snapshot) invalidRequest(); return snapshot }
 function announcementBody(value, update = false) {
-  const allowed = ['expectedRevision', 'title', 'bodyMarkdown', 'effectiveAt', 'isVisible', 'sortOrder']; if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype || Object.keys(value).some(key => !allowed.includes(key)) || !Object.hasOwn(value, 'expectedRevision') || !positive(value.expectedRevision)) invalidRequest()
-  if (!update && allowed.some(key => !Object.hasOwn(value, key))) invalidRequest()
-  const body = { expected_revision: value.expectedRevision }
-  for (const [source, target, validate] of [['title','title',v=>validText(v,120)],['bodyMarkdown','body_markdown',v=>validText(v,16384,{empty:true,multiline:true,bytes:true})],['effectiveAt','effective_at',validTime],['isVisible','is_visible',v=>typeof v==='boolean'],['sortOrder','sort_order',validSort]]) if (Object.hasOwn(value, source)) { if (!validate(value[source])) invalidRequest(); body[target] = value[source] }
+  const allowed = ['expectedRevision', 'title', 'bodyMarkdown', 'effectiveAt', 'isVisible', 'sortOrder']
+  const snapshot = snapshotObject(value, allowed, update ? ['expectedRevision'] : allowed)
+  if (!snapshot || !positive(snapshot.expectedRevision)) invalidRequest()
+  const body = { expected_revision: snapshot.expectedRevision }
+  for (const [source, target, validate] of [['title','title',v=>validText(v,120)],['bodyMarkdown','body_markdown',v=>validText(v,16384,{empty:true,multiline:true,bytes:true})],['effectiveAt','effective_at',validTime],['isVisible','is_visible',v=>typeof v==='boolean'],['sortOrder','sort_order',validSort]]) if (Object.hasOwn(snapshot, source)) { if (!validate(snapshot[source])) invalidRequest(); body[target] = snapshot[source] }
   return body
 }
 function faqBody(value, update = false) {
-  const allowed = ['expectedRevision', 'question', 'answerMarkdown', 'isVisible', 'sortOrder']; if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype || Object.keys(value).some(key => !allowed.includes(key)) || !Object.hasOwn(value, 'expectedRevision') || !positive(value.expectedRevision)) invalidRequest()
-  if (!update && allowed.some(key => !Object.hasOwn(value, key))) invalidRequest()
-  const body = { expected_revision: value.expectedRevision }
-  for (const [source, target, validate] of [['question','question',v=>validText(v,200)],['answerMarkdown','answer_markdown',v=>validText(v,16384,{empty:true,multiline:true,bytes:true})],['isVisible','is_visible',v=>typeof v==='boolean'],['sortOrder','sort_order',validSort]]) if (Object.hasOwn(value, source)) { if (!validate(value[source])) invalidRequest(); body[target] = value[source] }
+  const allowed = ['expectedRevision', 'question', 'answerMarkdown', 'isVisible', 'sortOrder']
+  const snapshot = snapshotObject(value, allowed, update ? ['expectedRevision'] : allowed)
+  if (!snapshot || !positive(snapshot.expectedRevision)) invalidRequest()
+  const body = { expected_revision: snapshot.expectedRevision }
+  for (const [source, target, validate] of [['question','question',v=>validText(v,200)],['answerMarkdown','answer_markdown',v=>validText(v,16384,{empty:true,multiline:true,bytes:true})],['isVisible','is_visible',v=>typeof v==='boolean'],['sortOrder','sort_order',validSort]]) if (Object.hasOwn(snapshot, source)) { if (!validate(snapshot[source])) invalidRequest(); body[target] = snapshot[source] }
   return body
 }
 
@@ -121,11 +159,11 @@ export function createPublicHomeContentAdminApi({ request = productionRequest } 
     createFAQ: (value, options = {}) => { const body=faqBody(value);options=requestOptions(options);return home({ method: 'POST', path: '/admin/v2/public-content/home-draft/faqs', body, signal: options.signal }, 201) },
     updateFAQ: (id, value, options = {}) => { const pathGuid=guid(id),body=faqBody(value,true);options=requestOptions(options);return home({ method: 'PATCH', path: `/admin/v2/public-content/home-draft/faqs/${pathGuid}`, body, signal: options.signal }, 200) },
     deleteFAQ: (id, expectedRevision, options = {}) => { const pathGuid=guid(id),rev=revision(expectedRevision);options=requestOptions(options);return run({ method: 'DELETE', path: `/admin/v2/public-content/home-draft/faqs/${pathGuid}`, body: { expected_revision: rev }, signal: options.signal }, 204, value => value, { deletion: true }) },
-    saveFeaturedModels: (expectedRevision, featuredModelKeys, options = {}) => { if (!denseArray(featuredModelKeys) || featuredModelKeys.length > 12 || new Set(featuredModelKeys).size !== featuredModelKeys.length || !featuredModelKeys.every(validModelKey)) invalidRequest(); const rev=revision(expectedRevision);options=requestOptions(options);return home({ method: 'PUT', path: '/admin/v2/public-content/home-draft/featured-models', body: { expected_revision: rev, featured_model_keys: [...featuredModelKeys] }, signal: options.signal }, 200) },
+    saveFeaturedModels: (expectedRevision, featuredModelKeys, options = {}) => { const keys=snapshotArray(featuredModelKeys,12);if (!keys || new Set(keys).size !== keys.length || !keys.every(validModelKey)) invalidRequest(); const rev=revision(expectedRevision);options=requestOptions(options);return home({ method: 'PUT', path: '/admin/v2/public-content/home-draft/featured-models', body: { expected_revision: rev, featured_model_keys: keys }, signal: options.signal }, 200) },
     previewHome: (draftRevision, options = {}) => { if (draftRevision !== undefined && !positive(draftRevision)) invalidRequest();options=requestOptions(options);return run({ method: 'GET', path: `/admin/v2/public-content/home-preview${draftRevision === undefined ? '' : `?revision=${draftRevision}`}`, signal: options.signal }, 200, mapHomeDraft, { preview: true }) },
     getReleaseHomeConfig: (id, options = {}) => { const pathGuid=guid(id);options=requestOptions(options);return run({ method: 'GET', path: `/admin/v2/public-content/releases/${pathGuid}/home-config`, signal: options.signal }, 200, raw => { try { return mapPublicHomeConfig(raw) } catch { invalid() } }) },
     getDocumentsDraft: (options = {}) => { options=requestOptions(options);return run({ method: 'GET', path: '/admin/v2/public-content/documents-draft', signal: options.signal }, 200, mapDocuments) },
-    saveDocumentsDraft: (value, options = {}) => { exactInput(value, ['expectedRevision','about','terms','privacy','legalReviewed']); if (![value.about,value.terms,value.privacy].every(item=>validText(item,262144,{empty:true,multiline:true,bytes:true})) || typeof value.legalReviewed !== 'boolean') invalidRequest(); const rev=revision(value.expectedRevision);options=requestOptions(options);return run({ method: 'PUT', path: '/admin/v2/public-content/documents-draft', body: { expected_revision: rev, about:value.about, terms:value.terms, privacy:value.privacy, legal_reviewed:value.legalReviewed }, signal: options.signal }, 200, mapDocuments) },
+    saveDocumentsDraft: (value, options = {}) => { const snapshot=exactInput(value, ['expectedRevision','about','terms','privacy','legalReviewed']); if (![snapshot.about,snapshot.terms,snapshot.privacy].every(item=>validText(item,262144,{empty:true,multiline:true,bytes:true})) || typeof snapshot.legalReviewed !== 'boolean') invalidRequest(); const rev=revision(snapshot.expectedRevision);options=requestOptions(options);return run({ method: 'PUT', path: '/admin/v2/public-content/documents-draft', body: { expected_revision: rev, about:snapshot.about, terms:snapshot.terms, privacy:snapshot.privacy, legal_reviewed:snapshot.legalReviewed }, signal: options.signal }, 200, mapDocuments) },
   })
 }
 export const publicHomeContentAdminApi = createPublicHomeContentAdminApi()

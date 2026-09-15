@@ -28,13 +28,37 @@ const validUTC = value => {
   return date.getUTCFullYear() === parts[0] && date.getUTCMonth() + 1 === parts[1] && date.getUTCDate() === parts[2] && date.getUTCHours() === parts[3] && date.getUTCMinutes() === parts[4] && date.getUTCSeconds() === parts[5]
 }
 const freeze = value => Array.isArray(value) ? Object.freeze(value.map(freeze)) : value && typeof value === 'object' ? Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, freeze(item)]))) : value
-const plainExact = (value, keys) => exact(value, keys) && Object.getPrototypeOf(value) === Object.prototype
-const denseArray = value => {
-  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return false
-  const enumerable = Object.keys(value)
-  if (enumerable.length !== value.length || !enumerable.every((key, index) => key === String(index))) return false
-  const own = Reflect.ownKeys(value)
-  return own.length === value.length + 1 && own.includes('length')
+const snapshotObject = (value, allowed, required = allowed) => {
+  try {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return null
+    const descriptors = Object.getOwnPropertyDescriptors(value)
+    const own = Reflect.ownKeys(descriptors)
+    if (own.some(key => typeof key !== 'string' || !allowed.includes(key)) || required.some(key => !Object.hasOwn(descriptors, key))) return null
+    const snapshot = {}
+    for (const key of own) {
+      const descriptor = descriptors[key]
+      if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null
+      snapshot[key] = descriptor.value
+    }
+    return snapshot
+  } catch { return null }
+}
+const snapshotArray = (value, maxLength) => {
+  try {
+    if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return null
+    const descriptors = Object.getOwnPropertyDescriptors(value)
+    const own = Reflect.ownKeys(descriptors)
+    const lengthDescriptor = descriptors.length
+    const length = lengthDescriptor?.value
+    if (!Object.hasOwn(lengthDescriptor || {}, 'value') || lengthDescriptor.enumerable || !Number.isSafeInteger(length) || length < 0 || length > maxLength || own.length !== length + 1) return null
+    const snapshot = []
+    for (let index = 0; index < length; index++) {
+      const descriptor = descriptors[String(index)]
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null
+      snapshot.push(descriptor.value)
+    }
+    return snapshot
+  } catch { return null }
 }
 const compareGuid = (left, right) => left.length === right.length ? left < right ? -1 : left > right ? 1 : 0 : left.length - right.length
 const compareAnnouncement = (left, right) => left.sortOrder - right.sortOrder || (left.effectiveAt === right.effectiveAt ? 0 : left.effectiveAt === null ? -1 : right.effectiveAt === null ? 1 : left.effectiveAt < right.effectiveAt ? -1 : 1) || compareGuid(left.guid, right.guid)
@@ -55,34 +79,48 @@ function mapDetail(raw) {
 }
 export function mapPublicHomeConfig(raw) {
   const keys = ['announcements', 'faqs', 'featured_model_keys', 'content_release_version', 'price_release_version']
-  if (!exact(raw, keys) || !denseArray(raw.announcements) || raw.announcements.length > 20 || !denseArray(raw.faqs) || raw.faqs.length > 50 || !denseArray(raw.featured_model_keys) || raw.featured_model_keys.length > 12 || !positiveInteger(raw.content_release_version) || !positiveInteger(raw.price_release_version)) throw new Error('invalid_public_home_config')
+  const value = snapshotObject(raw, keys)
+  const sourceAnnouncements = value && snapshotArray(value.announcements, 20)
+  const sourceFAQs = value && snapshotArray(value.faqs, 50)
+  const featuredModelKeys = value && snapshotArray(value.featured_model_keys, 12)
+  if (!value || !sourceAnnouncements || !sourceFAQs || !featuredModelKeys || !positiveInteger(value.content_release_version) || !positiveInteger(value.price_release_version)) throw new Error('invalid_public_home_config')
   const announcementGuids = new Set(); const faqGuids = new Set(); const modelKeys = new Set()
-  const announcements = raw.announcements.map(item => {
-    if (!exact(item, ['guid', 'title', 'body_html', 'effective_at', 'sort_order']) || !validGuid(item.guid) || announcementGuids.has(item.guid) || !validText(item.title, 120) || !validHTML(item.body_html) || !validUTC(item.effective_at) || !Number.isSafeInteger(item.sort_order) || item.sort_order < 0 || item.sort_order > 1000000) throw new Error('invalid_public_home_config')
-    announcementGuids.add(item.guid)
-    return { guid: item.guid, title: item.title, bodyHtml: item.body_html, effectiveAt: item.effective_at, sortOrder: item.sort_order }
+  const announcements = sourceAnnouncements.map(item => {
+    const entry = snapshotObject(item, ['guid', 'title', 'body_html', 'effective_at', 'sort_order'])
+    if (!entry || !validGuid(entry.guid) || announcementGuids.has(entry.guid) || !validText(entry.title, 120) || !validHTML(entry.body_html) || !validUTC(entry.effective_at) || !Number.isSafeInteger(entry.sort_order) || entry.sort_order < 0 || entry.sort_order > 1000000) throw new Error('invalid_public_home_config')
+    announcementGuids.add(entry.guid)
+    return { guid: entry.guid, title: entry.title, bodyHtml: entry.body_html, effectiveAt: entry.effective_at, sortOrder: entry.sort_order }
   })
-  const faqs = raw.faqs.map(item => {
-    if (!exact(item, ['guid', 'question', 'answer_html', 'sort_order']) || !validGuid(item.guid) || faqGuids.has(item.guid) || !validText(item.question, 200) || !validHTML(item.answer_html) || !Number.isSafeInteger(item.sort_order) || item.sort_order < 0 || item.sort_order > 1000000) throw new Error('invalid_public_home_config')
-    faqGuids.add(item.guid)
-    return { guid: item.guid, question: item.question, answerHtml: item.answer_html, sortOrder: item.sort_order }
+  const faqs = sourceFAQs.map(item => {
+    const entry = snapshotObject(item, ['guid', 'question', 'answer_html', 'sort_order'])
+    if (!entry || !validGuid(entry.guid) || faqGuids.has(entry.guid) || !validText(entry.question, 200) || !validHTML(entry.answer_html) || !Number.isSafeInteger(entry.sort_order) || entry.sort_order < 0 || entry.sort_order > 1000000) throw new Error('invalid_public_home_config')
+    faqGuids.add(entry.guid)
+    return { guid: entry.guid, question: entry.question, answerHtml: entry.answer_html, sortOrder: entry.sort_order }
   })
   if (!canonicalOrder(announcements, compareAnnouncement) || !canonicalOrder(faqs, compareFAQ)) throw new Error('invalid_public_home_config')
-  for (const key of raw.featured_model_keys) { if (!validModelKey(key) || modelKeys.has(key)) throw new Error('invalid_public_home_config'); modelKeys.add(key) }
-  return freeze({ announcements, faqs, featuredModelKeys: raw.featured_model_keys, contentReleaseVersion: raw.content_release_version, priceReleaseVersion: raw.price_release_version })
+  for (const key of featuredModelKeys) { if (!validModelKey(key) || modelKeys.has(key)) throw new Error('invalid_public_home_config'); modelKeys.add(key) }
+  return freeze({ announcements, faqs, featuredModelKeys, contentReleaseVersion: value.content_release_version, priceReleaseVersion: value.price_release_version })
 }
 
 function canonicalCachedHomeConfig(cached, path, requestETag) {
   const resultKeys = ['data', 'etag', 'releaseVersion', 'publicationVersions', 'resourceKey', 'notModified']
   const dataKeys = ['announcements', 'faqs', 'featuredModelKeys', 'contentReleaseVersion', 'priceReleaseVersion']
-  if (!plainExact(cached, resultKeys) || !plainExact(cached.data, dataKeys) || !plainExact(cached.publicationVersions, ['content','price']) || !denseArray(cached.data.announcements) || !denseArray(cached.data.faqs) || !denseArray(cached.data.featuredModelKeys) || !cached.data.announcements.every(item => plainExact(item, ['guid','title','bodyHtml','effectiveAt','sortOrder'])) || !cached.data.faqs.every(item => plainExact(item, ['guid','question','answerHtml','sortOrder'])) || cached.resourceKey !== path || typeof cached.notModified !== 'boolean' || typeof requestETag !== 'string' || !requestETag.trim() || cached.etag !== requestETag || !positiveInteger(cached.releaseVersion) || !positiveInteger(cached.publicationVersions.content) || !positiveInteger(cached.publicationVersions.price)) throw new Error('invalid_cache')
+  const cache = snapshotObject(cached, resultKeys)
+  const cacheData = cache && snapshotObject(cache.data, dataKeys)
+  const publicationVersions = cache && snapshotObject(cache.publicationVersions, ['content','price'])
+  const cachedAnnouncements = cacheData && snapshotArray(cacheData.announcements, 20)
+  const cachedFAQs = cacheData && snapshotArray(cacheData.faqs, 50)
+  const cachedFeatured = cacheData && snapshotArray(cacheData.featuredModelKeys, 12)
+  const announcements = cachedAnnouncements?.map(item => snapshotObject(item, ['guid','title','bodyHtml','effectiveAt','sortOrder']))
+  const faqs = cachedFAQs?.map(item => snapshotObject(item, ['guid','question','answerHtml','sortOrder']))
+  if (!cache || !cacheData || !publicationVersions || !cachedAnnouncements || !cachedFAQs || !cachedFeatured || announcements.some(item => !item) || faqs.some(item => !item) || cache.resourceKey !== path || typeof cache.notModified !== 'boolean' || typeof requestETag !== 'string' || !requestETag.trim() || cache.etag !== requestETag || !positiveInteger(cache.releaseVersion) || !positiveInteger(publicationVersions.content) || !positiveInteger(publicationVersions.price)) throw new Error('invalid_cache')
   const data = mapPublicHomeConfig({
-    announcements: cached.data.announcements.map(item => ({ guid:item.guid, title:item.title, body_html:item.bodyHtml, effective_at:item.effectiveAt, sort_order:item.sortOrder })),
-    faqs: cached.data.faqs.map(item => ({ guid:item.guid, question:item.question, answer_html:item.answerHtml, sort_order:item.sortOrder })),
-    featured_model_keys: [...cached.data.featuredModelKeys], content_release_version:cached.data.contentReleaseVersion, price_release_version:cached.data.priceReleaseVersion,
+    announcements: announcements.map(item => ({ guid:item.guid, title:item.title, body_html:item.bodyHtml, effective_at:item.effectiveAt, sort_order:item.sortOrder })),
+    faqs: faqs.map(item => ({ guid:item.guid, question:item.question, answer_html:item.answerHtml, sort_order:item.sortOrder })),
+    featured_model_keys: cachedFeatured, content_release_version:cacheData.contentReleaseVersion, price_release_version:cacheData.priceReleaseVersion,
   })
-  if (cached.releaseVersion !== data.contentReleaseVersion || cached.publicationVersions.content !== data.contentReleaseVersion || cached.publicationVersions.price !== data.priceReleaseVersion) throw new Error('invalid_cache')
-  return Object.freeze({ data, etag: cached.etag, releaseVersion: data.contentReleaseVersion, publicationVersions: Object.freeze({ content:data.contentReleaseVersion, price:data.priceReleaseVersion }), resourceKey:path, notModified:true })
+  if (cache.releaseVersion !== data.contentReleaseVersion || publicationVersions.content !== data.contentReleaseVersion || publicationVersions.price !== data.priceReleaseVersion) throw new Error('invalid_cache')
+  return Object.freeze({ data, etag: cache.etag, releaseVersion: data.contentReleaseVersion, publicationVersions: Object.freeze({ content:data.contentReleaseVersion, price:data.priceReleaseVersion }), resourceKey:path, notModified:true })
 }
 
 function queryString(filters = {}) {
@@ -151,7 +189,7 @@ export function createPublicContentClient({ fetchImpl = globalThis.fetch, authen
   const document = path => options => request(path, mapDocument, options)
   return {
     getSite: options => request('/api/v1/public/site', mapSite, options), getHome: document('/api/v1/public/home'),
-    getHomeConfig: (options = {}) => { if (!plainExact(options, Object.keys(options)) || Object.keys(options).some(key => !['etag','cached','signal'].includes(key))) throw new Error('invalid_public_home_config_options'); return request('/api/v1/public/home-config', mapPublicHomeConfig, { ...options, authenticated: false, resourceKey: true, cacheMapper: canonicalCachedHomeConfig }) },
+    getHomeConfig: (options = {}) => { const safeOptions = snapshotObject(options, ['etag','cached','signal'], []); if (!safeOptions) throw new Error('invalid_public_home_config_options'); return request('/api/v1/public/home-config', mapPublicHomeConfig, { ...safeOptions, authenticated: false, resourceKey: true, cacheMapper: canonicalCachedHomeConfig }) },
     getModels: (filters = {}, options = {}) => request(publicModelsResourceKey(filters), mapPublicModelList, options),
     getModel: (modelKey, options = {}) => { if (typeof modelKey !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(modelKey)) throw new Error('invalid_model_key'); return request(`/api/v1/public/models/${encodeURIComponent(modelKey)}`, mapDetail, options) },
     getAbout: document('/api/v1/public/pages/about'), getTerms: document('/api/v1/public/pages/terms'), getPrivacy: document('/api/v1/public/pages/privacy'),

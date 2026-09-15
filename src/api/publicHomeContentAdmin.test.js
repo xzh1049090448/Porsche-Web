@@ -130,3 +130,51 @@ test('root structured arrays reject holes and extra properties before mapping or
   assert.throws(() => api.saveFeaturedModels(4, adornedFeaturedInput), /invalid_public_home_content_admin_request/)
   assert.equal(calls, 0)
 })
+
+test('root inputs reject accessors and symbols before every shared transport path', async () => {
+  let calls = 0
+  const api = createPublicHomeContentAdminApi({ request: async input => { calls++; return ok(home, input.method === 'POST' ? 201 : 200) } })
+  const announcementInput = { expectedRevision: 1, title: 'N', bodyMarkdown: '', effectiveAt: null, isVisible: true, sortOrder: 0 }; let announcementRevisionReads = 0
+  Object.defineProperty(announcementInput, 'expectedRevision', { enumerable: true, configurable: true, get: () => ++announcementRevisionReads === 1 ? 1 : 0 })
+  const faqInput = { expectedRevision: 1, question: 'Q', answerMarkdown: '', isVisible: true, sortOrder: 0 }; let faqRevisionReads = 0
+  Object.defineProperty(faqInput, 'expectedRevision', { enumerable: true, configurable: true, get: () => ++faqRevisionReads === 1 ? 1 : 0 })
+  const documentsInput = { expectedRevision: 1, about: '# A', terms: '# T', privacy: '# P', legalReviewed: true }; let aboutReads = 0
+  Object.defineProperty(documentsInput, 'about', { enumerable: true, configurable: true, get: () => ++aboutReads === 1 ? '# A' : 0 })
+  const throwingInput = { expectedRevision: 1, title: 'N', bodyMarkdown: '', effectiveAt: null, isVisible: true, sortOrder: 0 }
+  Object.defineProperty(throwingInput, 'expectedRevision', { enumerable: true, configurable: true, get: () => { throw new Error('secret') } })
+  const symbolInput = { expectedRevision: 1, title: 'N', bodyMarkdown: '', effectiveAt: null, isVisible: true, sortOrder: 0, [Symbol('hidden')]: true }
+  const throwingOptions = {}; Object.defineProperty(throwingOptions, 'signal', { enumerable: true, configurable: true, get: () => { throw new Error('secret') } })
+  const symbolOptions = { [Symbol('hidden')]: true }
+  const accessorFeatured = ['deepseek-chat']; Object.defineProperty(accessorFeatured, '0', { enumerable: true, configurable: true, get: () => 'deepseek-chat' })
+  for (const run of [
+    () => api.createAnnouncement(announcementInput),
+    () => api.createFAQ(faqInput),
+    () => api.saveDocumentsDraft(documentsInput),
+    () => api.createAnnouncement(throwingInput),
+    () => api.createAnnouncement(symbolInput),
+    () => api.getHomeDraft(throwingOptions),
+    () => api.previewHome(undefined, symbolOptions),
+    () => api.saveFeaturedModels(1, accessorFeatured),
+  ]) assert.throws(run, /invalid_public_home_content_admin_request/)
+  assert.equal(calls, 0)
+
+  const frozen = Object.freeze({ expectedRevision: 1, title: 'N', bodyMarkdown: '', effectiveAt: null, isVisible: true, sortOrder: 0 })
+  await api.createAnnouncement(frozen)
+  assert.equal(calls, 1)
+})
+
+test('root response mapping rejects accessor DTOs before values can change', async () => {
+  const changingHome = { ...home }; let revisionReads = 0
+  Object.defineProperty(changingHome, 'revision', { enumerable: true, configurable: true, get: () => ++revisionReads === 1 ? 4 : 0 })
+  await assert.rejects(() => createPublicHomeContentAdminApi({ request: async () => ok(changingHome) }).getHomeDraft(), /invalid_public_home_content_admin_response/)
+
+  const changingAnnouncement = { ...announcement }; let bodyReads = 0
+  Object.defineProperty(changingAnnouncement, 'body_markdown', { enumerable: true, configurable: true, get: () => ++bodyReads === 1 ? 'safe' : '\u0000' })
+  await assert.rejects(() => createPublicHomeContentAdminApi({ request: async () => ok({ ...home, announcements: [changingAnnouncement] }) }).getHomeDraft(), /invalid_public_home_content_admin_response/)
+  const accessorAnnouncements = [...home.announcements]
+  Object.defineProperty(accessorAnnouncements, '0', { enumerable: true, configurable: true, get: () => announcement })
+  await assert.rejects(() => createPublicHomeContentAdminApi({ request: async () => ok({ ...home, announcements: accessorAnnouncements }) }).getHomeDraft(), /invalid_public_home_content_admin_response/)
+  const throwingDocuments = { ...documents }
+  Object.defineProperty(throwingDocuments, 'about', { enumerable: true, configurable: true, get: () => { throw new Error('secret') } })
+  await assert.rejects(() => createPublicHomeContentAdminApi({ request: async () => ok(throwingDocuments) }).getDocumentsDraft(), error => /invalid_public_home_content_admin_response/.test(error.message) && !error.message.includes('secret'))
+})
