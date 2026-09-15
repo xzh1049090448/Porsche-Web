@@ -4,7 +4,7 @@
       <div><h2 id="announcement-editor-title">{{ labels.title }}</h2><p>{{ items.length }} / {{ MAX_ANNOUNCEMENTS }}</p></div>
     </header>
     <form class="editor-form" @submit.prevent="submitCreate">
-      <label>{{ labels.itemTitle }}<input v-model="createForm.title" maxlength="120" :disabled="busy || atLimit"></label>
+      <label>{{ labels.itemTitle }}<input v-model="createForm.title" :disabled="busy || atLimit"></label>
       <label>{{ labels.body }}<textarea v-model="createForm.bodyMarkdown" :disabled="busy || atLimit"></textarea></label>
       <label>{{ labels.effectiveAt }}<input v-model="createForm.effectiveAt" :placeholder="labels.timePlaceholder" :disabled="busy || atLimit"></label>
       <label>{{ labels.sortOrder }}<input v-model.number="createForm.sortOrder" type="number" min="0" max="1000000" :disabled="busy || atLimit"></label>
@@ -19,8 +19,17 @@
           <button type="button" :aria-label="labels.moveDown" :disabled="busy || index === items.length - 1" @click="$emit('move', { guid: item.guid, direction: 1 })">↓</button>
         </div>
         <strong>{{ item.title }}</strong><span>{{ item.isVisible ? labels.visible : labels.hidden }}</span>
+        <button type="button" data-action="edit" :disabled="busy" @click="beginEdit(item)">{{ labels.edit }}</button>
         <button type="button" :disabled="busy" @click="$emit('update', { ...item, isVisible: !item.isVisible })">{{ item.isVisible ? labels.hide : labels.show }}</button>
         <button type="button" :disabled="busy" @click="openDelete(item, $event)">{{ labels.remove }}</button>
+        <form v-if="editingGuid === item.guid && editForm" class="editor-item-form" data-edit-form="announcement" :aria-label="labels.editItem" @submit.prevent="submitEdit">
+          <label>{{ labels.itemTitle }}<input v-model="editForm.title" :disabled="busy"></label>
+          <label>{{ labels.body }}<textarea v-model="editForm.bodyMarkdown" :disabled="busy"></textarea></label>
+          <label>{{ labels.effectiveAt }}<input v-model="editForm.effectiveAt" :placeholder="labels.timePlaceholder" :disabled="busy"></label>
+          <label>{{ labels.sortOrder }}<input v-model.number="editForm.sortOrder" type="number" min="0" max="1000000" :disabled="busy"></label>
+          <label class="inline-check"><input v-model="editForm.isVisible" type="checkbox" :disabled="busy">{{ labels.visible }}</label>
+          <div class="editor-item-form__actions"><button type="submit" data-action="save-edit" :disabled="busy || !validAnnouncement(editForm)">{{ labels.saveEdit }}</button><button type="button" data-action="cancel-edit" :disabled="busy" @click="cancelEdit">{{ labels.cancelEdit }}</button></div>
+        </form>
       </li>
     </ol>
     <dialog ref="deleteDialog" class="responsive-dialog" aria-labelledby="announcement-delete-title" @cancel.prevent="closeDelete" @close="restoreDeleteFocus" @keydown="trapDeleteFocus">
@@ -33,7 +42,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 
 const MAX_ANNOUNCEMENTS = 20
 const MAX_BODY_BYTES = 16384
@@ -49,6 +58,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['create', 'update', 'remove', 'move'])
 const createForm = reactive({ title: '', bodyMarkdown: '', effectiveAt: null, isVisible: true, sortOrder: 0 })
+const editingGuid = ref(null), editForm = ref(null)
 const deleteDialog = ref(null), confirmButton = ref(null), cancelButton = ref(null), pendingDelete = ref(null), deleteTrigger = ref(null)
 const atLimit = computed(() => props.items.length >= MAX_ANNOUNCEMENTS)
 
@@ -68,6 +78,16 @@ function submitCreate() {
   if (props.busy || atLimit.value || !validAnnouncement(createForm)) return
   emit('create', { ...createForm, effectiveAt: createForm.effectiveAt || null })
 }
+function beginEdit(item) {
+  editingGuid.value = item.guid
+  editForm.value = { title: item.title, bodyMarkdown: item.bodyMarkdown, effectiveAt: item.effectiveAt, isVisible: item.isVisible, sortOrder: item.sortOrder }
+}
+function cancelEdit() { editingGuid.value = null; editForm.value = null }
+function submitEdit() {
+  if (props.busy || !editingGuid.value || !editForm.value || !validAnnouncement(editForm.value)) return
+  emit('update', { guid: editingGuid.value, ...editForm.value, effectiveAt: editForm.value.effectiveAt || null })
+}
+watch(() => props.items, cancelEdit)
 function openDelete(item, event) {
   pendingDelete.value = item; deleteTrigger.value = event.currentTarget
   deleteDialog.value?.showModal(); nextTick(() => confirmButton.value?.focus())

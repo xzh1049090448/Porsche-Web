@@ -5,7 +5,7 @@ import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import { JSDOM } from 'jsdom'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://local.test/admin/public-content' })
-for (const key of ['window','document','navigator','Node','Element','HTMLElement','HTMLDialogElement','HTMLInputElement','SVGElement','Event','MouseEvent','KeyboardEvent','MutationObserver']) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: dom.window[key] })
+for (const key of ['window','document','Document','navigator','Node','Element','HTMLElement','HTMLDialogElement','HTMLInputElement','SVGElement','Event','MouseEvent','KeyboardEvent','MutationObserver']) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: dom.window[key] })
 HTMLDialogElement.prototype.showModal = function () { this.open = true }
 HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new Event('close')) }
 const [{ mount }, { nextTick }] = await Promise.all([import('@vue/test-utils'), import('vue')])
@@ -32,6 +32,7 @@ const labels = {
   sortOrder: 'Sort order', visible: 'Visible', hidden: 'Hidden', add: 'Add', limit: 'Limit', moveUp: 'Move up',
   moveDown: 'Move down', hide: 'Hide', show: 'Show', remove: 'Remove', confirmTitle: 'Confirm deletion',
   confirm: 'Confirm', cancel: 'Cancel', question: 'Question', answer: 'Answer', search: 'Search', searching: 'Searching',
+  edit: 'Edit', editItem: 'Edit item', saveEdit: 'Save changes', cancelEdit: 'Cancel editing',
 }
 
 const announcement = (guid, sortOrder = Number(guid)) => ({ guid, title: `Announcement ${guid}`, bodyMarkdown: 'Body', effectiveAt: null, isVisible: true, sortOrder })
@@ -63,10 +64,12 @@ test('editor contracts enforce limits validation ordering and explicit deletion'
   assert.match(announcements, /MAX_ANNOUNCEMENTS\s*=\s*20/)
   assert.match(announcements, /16384/)
   assert.match(announcements, /1000000/)
+  assert.doesNotMatch(announcements, /maxlength=["']120["']/)
   assert.match(announcements, /showModal/)
   assert.match(announcements, /aria-label=.*moveUp/)
   assert.match(faqs, /MAX_FAQS\s*=\s*50/)
   assert.match(faqs, /16384/)
+  assert.doesNotMatch(faqs, /maxlength=["']200["']/)
   assert.match(faqs, /showModal/)
   assert.match(featured, /MAX_FEATURED\s*=\s*12/)
   assert.match(featured, /new Set/)
@@ -85,7 +88,7 @@ test('announcement editor enforces limits, Unicode byte/time validation and acce
 
   const wrapper = mount(AnnouncementEditor, { props: { items: [announcement('1'), announcement('2')], labels }, attachTo: document.body })
   const inputs = wrapper.findAll('.editor-form input')
-  await inputs[0].setValue('公告🙂')
+  await inputs[0].setValue('🙂'.repeat(120))
   await wrapper.get('.editor-form textarea').setValue('正文\n')
   await inputs[1].setValue('2026-09-15T10:00:00.123Z')
   assert.equal(wrapper.get('button[type="submit"]').attributes('disabled'), '')
@@ -94,6 +97,8 @@ test('announcement editor enforces limits, Unicode byte/time validation and acce
   await wrapper.get('.editor-form').trigger('submit')
   assert.equal(wrapper.emitted('create').length, 1)
   assert.equal(wrapper.emitted('create')[0][0].effectiveAt, '2026-09-15T10:00:00Z')
+  await inputs[0].setValue('🙂'.repeat(121))
+  assert.equal(wrapper.get('button[type="submit"]').attributes('disabled'), '')
   await wrapper.get('.editor-form textarea').setValue('🙂'.repeat(4097))
   assert.equal(wrapper.get('button[type="submit"]').attributes('disabled'), '')
   const orderButtons = wrapper.findAll('.editor-order-actions button')
@@ -102,6 +107,37 @@ test('announcement editor enforces limits, Unicode byte/time validation and acce
   assert.equal(orderButtons[1].attributes('disabled'), undefined)
   await orderButtons[1].trigger('click')
   assert.deepEqual(wrapper.emitted('move')[0][0], { guid: '1', direction: 1 })
+  wrapper.unmount()
+})
+
+test('announcement editor updates every field, while cancel and list replacement clear local edits', async () => {
+  const AnnouncementEditor = await component('AnnouncementEditor')
+  const original = announcement('1', 10)
+  const wrapper = mount(AnnouncementEditor, { props: { items: [original, announcement('2', 20)], labels }, attachTo: document.body })
+  await wrapper.get('[data-action="edit"]').trigger('click')
+  let form = wrapper.get('[data-edit-form="announcement"]')
+  let inputs = form.findAll('input')
+  await inputs[0].setValue('🙂'.repeat(121))
+  assert.equal(form.get('[data-action="save-edit"]').attributes('disabled'), '')
+  await inputs[0].setValue('🙂'.repeat(120))
+  await form.get('textarea').setValue('Updated body\n')
+  await inputs[1].setValue('2026-09-15T11:00:00Z')
+  await inputs[2].setValue('15')
+  await inputs[3].setValue(false)
+  await form.get('[data-action="save-edit"]').trigger('click')
+  assert.deepEqual(wrapper.emitted('update')[0][0], { guid: '1', title: '🙂'.repeat(120), bodyMarkdown: 'Updated body\n', effectiveAt: '2026-09-15T11:00:00Z', isVisible: false, sortOrder: 15 })
+
+  await wrapper.findAll('[data-action="edit"]')[1].trigger('click')
+  form = wrapper.get('[data-edit-form="announcement"]')
+  await form.findAll('input')[0].setValue('Unsaved sensitive draft')
+  await form.get('[data-action="cancel-edit"]').trigger('click')
+  assert.equal(wrapper.find('[data-edit-form="announcement"]').exists(), false)
+  assert.equal(wrapper.emitted('update').length, 1)
+
+  await wrapper.findAll('[data-action="edit"]')[0].trigger('click')
+  await wrapper.setProps({ items: [{ ...original, title: 'Server replacement' }, announcement('2', 20)] })
+  await nextTick()
+  assert.equal(wrapper.find('[data-edit-form="announcement"]').exists(), false)
   wrapper.unmount()
 })
 
@@ -132,11 +168,35 @@ test('FAQ editor enforces the 50 item and UTF-8 body limits', async () => {
   limited.unmount()
   const wrapper = mount(FaqEditor, { props: { items: [], labels }, attachTo: document.body })
   const inputs = wrapper.findAll('.editor-form input')
-  await inputs[0].setValue('问题🙂')
+  await inputs[0].setValue('🙂'.repeat(200))
   await wrapper.get('.editor-form textarea').setValue('答案')
   assert.equal(wrapper.get('button[type="submit"]').attributes('disabled'), undefined)
+  await inputs[0].setValue('🙂'.repeat(201))
+  assert.equal(wrapper.get('button[type="submit"]').attributes('disabled'), '')
+  await inputs[0].setValue('🙂'.repeat(200))
   await wrapper.get('.editor-form textarea').setValue('🙂'.repeat(4097))
   assert.equal(wrapper.get('button[type="submit"]').attributes('disabled'), '')
+  wrapper.unmount()
+})
+
+test('FAQ editor updates every field and cancel emits no update', async () => {
+  const FaqEditor = await component('FaqEditor')
+  const wrapper = mount(FaqEditor, { props: { items: [faq('1', 10)], labels }, attachTo: document.body })
+  await wrapper.get('[data-action="edit"]').trigger('click')
+  const form = wrapper.get('[data-edit-form="faq"]')
+  const inputs = form.findAll('input')
+  await inputs[0].setValue('Updated question')
+  await form.get('textarea').setValue('Updated answer')
+  await inputs[1].setValue('18')
+  await inputs[2].setValue(false)
+  await inputs[0].setValue('🙂'.repeat(201))
+  assert.equal(form.get('[data-action="save-edit"]').attributes('disabled'), '')
+  await inputs[0].setValue('Updated question')
+  await form.get('[data-action="save-edit"]').trigger('click')
+  assert.deepEqual(wrapper.emitted('update')[0][0], { guid: '1', question: 'Updated question', answerMarkdown: 'Updated answer', isVisible: false, sortOrder: 18 })
+  await wrapper.get('[data-action="edit"]').trigger('click')
+  await wrapper.get('[data-action="cancel-edit"]').trigger('click')
+  assert.equal(wrapper.emitted('update').length, 1)
   wrapper.unmount()
 })
 
