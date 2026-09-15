@@ -1,8 +1,8 @@
 # Fixed Home Structured Content — Task12 前端本地验收报告
 
-日期：2026-09-16  
-被测基线：`71d66d7f3916870c35defa84e30f0c38e0e826f9`  
-总体结论：`FAIL_LOCAL_GATE`  
+日期：2026-09-16
+被测基线：`71d66d7f3916870c35defa84e30f0c38e0e826f9`
+总体结论：`FAIL_LOCAL_GATE`
 已通过的限定范围：`PASS_LIMITED_SCOPE`
 
 ## 结论
