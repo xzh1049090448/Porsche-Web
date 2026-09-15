@@ -4,7 +4,7 @@
   "overall_status": "PASS_LIMITED_SCOPE",
   "review_status": "PENDING_ORDERED_REVIEW_CHAIN_EXTERNAL_RECEIPT",
   "code_under_test": {
-    "frontend": "61c1ccb6512198539ae13b3d98e4043ef77a1dca",
+    "frontend": "ab18718f89b55ea7106d0ac52ff9972576e4e9e4",
     "backend": "77c4e003310f3194f3e7a90cdadb7d650cbd3ba1",
     "backend_included_commits": [
       "f6ed4e1",
@@ -146,13 +146,13 @@
       "exit": 0
     },
     "full_npm_test": {
-      "tests": 1138,
-      "pass": 1138,
+      "tests": 1140,
+      "pass": 1140,
       "fail": 0,
       "skip": 0,
       "cancelled": 0,
       "todo": 0,
-      "seconds": 48.734,
+      "seconds": 47.689,
       "exit": 0
     },
     "production_build": "PASS",
@@ -163,7 +163,21 @@
       "exit": 0
     },
     "git_diff_check": "PASS",
-    "sandbox_only_deviation": "two loopback tests returned listen EPERM before permitted rerun"
+    "sandbox_only_deviation": "two loopback tests returned listen EPERM before permitted rerun",
+    "focused_security_remediation": {
+      "tests": 22,
+      "pass": 22,
+      "fail": 0,
+      "skip": 0,
+      "exit": 0
+    },
+    "related_auth_public_focused": {
+      "tests": 99,
+      "pass": 99,
+      "fail": 0,
+      "skip": 0,
+      "exit": 0
+    }
   },
   "spec_remediation": {
     "invalidated_snapshot": "6cdec47f13716e4f546b19d69c56050f5bde5f159416d91c708f3b7ce2727d92",
@@ -178,5 +192,16 @@
       "frontend": "61c1ccb6512198539ae13b3d98e4043ef77a1dca"
     },
     "green": "backend focused/full and frontend 61/61 plus 1138/1138"
+  },
+  "quality_remediation": {
+    "invalidated_snapshot": "ec31d2ef3279bee6d08a902fe264fc6289be7cd80cab1076b92ab3669a29daf4",
+    "verdict": "QUALITY_FAIL",
+    "findings": [
+      "preview retained unpublished content across logout, demotion, or account switch",
+      "home draft GET bypassed authenticated read refresh and identity fencing"
+    ],
+    "red": "authenticated GET and mounted preview identity tests failed",
+    "fix_commit": "ab18718f89b55ea7106d0ac52ff9972576e4e9e4",
+    "green": "API/preview 22/22, related 99/99, full 1140/1140, production build and chunks PASS"
   }
 }

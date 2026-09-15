@@ -1,7 +1,7 @@
 # Fixed Home Structured Content — Task 13 跨仓库验证记录
 
 日期：2026-09-16
-前端实现候选：`61c1ccb6512198539ae13b3d98e4043ef77a1dca`
+前端实现候选：`ab18718f89b55ea7106d0ac52ff9972576e4e9e4`
 配对后端实现候选：`77c4e003310f3194f3e7a90cdadb7d650cbd3ba1`（包含 `f6ed4e1` exact action target locks 与 `8303a28` atomic structured artifact renderer）
 跨仓库总合同：`interface-contract.json`，`v1.0.0-p0 / agreed_for_implementation`，SHA-256 `9bc9c70e70bb45b63185b3b619ae49e5e6a251ba3c4a30f64539774cb272a3ce`
 后端公共内容子合同：`docs/agents/contracts/public-content-pricing-v1.json`，`v2 / implemented_locally_pending_acceptance`，SHA-256 `4db4380dcef26f0098443f591d9fe098f9faefd32a367f02ce2a14ba62d8309d`
@@ -32,6 +32,13 @@
 - RED：后端合同测试因缺少稳定键字段失败；前端定向 55 项中合同、公开详情键、真实预览头三项失败。
 - 修复：后端 `77c4e00`、前端 `61c1ccb` 将键规则统一为 `^[a-z](?:[a-z0-9]|-[a-z0-9])*$`、长度 1–128，并严格接受字面预览头 `noindex, nofollow`。
 - GREEN：后端定向与全仓通过；前端定向 61/61、全量 1138/1138，跨仓库公共内容合同字节一致，production build 与 9 chunks / 171428 JS bytes / 20362 CSS bytes 通过。
+
+## 质量复审缺陷与修复
+
+- 第二个前端快照 `ec31d2ef…` 在 `SPEC_PASS` 后被独立质量审查判定为 `QUALITY_FAIL`：Root 预览在退出、降权或切换账号后会保留已加载的未发布内容；首页草稿 GET 未接入统一认证读取、刷新与身份 fence。该快照及配对后端快照均失效；后端测试审查在开始后立即中止，未形成 verdict。
+- RED：新增 API 用例证明 GET 使用直接 transport、不会安全刷新；新增挂载用例证明身份 epoch 改变后预览未跳转或清空。
+- 前端 `ab18718` 将四类首页管理 GET 接入 `authenticatedFetch` 安全读取白名单，在响应体消费后再次核对身份；所有写请求仍使用只发送一次的直接 transport。预览页同步监听身份 epoch 与 Root 角色，清空已加载数据、abort 在途读取并跳转，异步结果同时绑定加载时身份。
+- GREEN：API/预览定向 22/22，相关认证与公共内容定向 99/99，完整 `npm test` 1140/1140、0 fail/skip/cancel/todo、47.689s；production build 与公共 chunk 9/9、171428 JS bytes/20362 CSS bytes 通过。
 
 ## 浏览器证据边界
 

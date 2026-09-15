@@ -56,4 +56,3 @@ Expected: PASS。
 git add src/components/shell/AppBrand.vue src/components/shell/AppBrand.contract.test.js
 git commit -m "fix: link console brand to public home"
 ```
-

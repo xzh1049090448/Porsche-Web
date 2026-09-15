@@ -2,11 +2,12 @@
 
 ## 2026-09-16：Fixed Home Structured Content Task13 跨仓库数据层验证（PASS_LIMITED_SCOPE）
 
-- 前端候选 `61c1ccb6512198539ae13b3d98e4043ef77a1dca` 配对后端 `77c4e003310f3194f3e7a90cdadb7d650cbd3ba1`（含 `f6ed4e1` target locks、`8303a28` renderer 与稳定 modelKey 合同）；跨仓库总合同 `interface-contract.json` 为 `v1.0.0-p0 / agreed_for_implementation`、SHA-256 `9bc9c70e70bb45b63185b3b619ae49e5e6a251ba3c4a30f64539774cb272a3ce`，后端公共内容子合同为 `v2 / implemented_locally_pending_acceptance`、SHA-256 `4db4380dcef26f0098443f591d9fe098f9faefd32a367f02ce2a14ba62d8309d`。
+- 前端候选 `ab18718f89b55ea7106d0ac52ff9972576e4e9e4` 配对后端 `77c4e003310f3194f3e7a90cdadb7d650cbd3ba1`（含 `f6ed4e1` target locks、`8303a28` renderer 与稳定 modelKey 合同）；跨仓库总合同 `interface-contract.json` 为 `v1.0.0-p0 / agreed_for_implementation`、SHA-256 `9bc9c70e70bb45b63185b3b619ae49e5e6a251ba3c4a30f64539774cb272a3ce`，后端公共内容子合同为 `v2 / implemented_locally_pending_acceptance`、SHA-256 `4db4380dcef26f0098443f591d9fe098f9faefd32a367f02ce2a14ba62d8309d`。
 - 后端在 disposable、loopback-only MySQL 8.4.11（tmpfs）与 Redis 7-alpine（无持久化）下完成计划内真实数据层门禁：迁移前后均为 20 行 0001–0020；normal `-p 1` migration/service/handler 3.860s/3.178s/0.519s，race service/handler 7.051s/1.643s，全部 PASS、0 unexpected skip。root 静态全仓与真实 fixture service/handler 全包串行 171.312s/17.009s 也通过，vet/build/dockerfile/gofmt/diff 均 PASS。
 - structured artifact renderer 的 stale-overwrite 用例先 RED，`flock` 修复后 GREEN，race `-count=3` PASS，并覆盖安全 root、symlink、0700/0600、canonical SHA/manifest、generation/fence、原子 current 与 stale rollback。该产物服务于固定 Vue shell，不是服务端生成 HTML。计划外完整真实 migration package 因历史测试硬编码过时 terminal/dependency 假设为 `NON_BLOCKING_EXTRA_CHECK_FAIL`，计划内 scoped migration 已通过。
 - 两个测试容器已按完整 ID 精确删除，名称不存在，52179/54737 关闭，凭据文件不存在。Task12 浏览器证据仍是 synthetic `page.route` 12/12、234/234、32 条脱敏请求、0 unexpected console/page error；真实 Root 浏览器 CRUD/RBAC/事务仍 `NOT_RUN`。
 - 首轮前端规格复审发现真实预览头空格和稳定 `modelKey` 合同缺口，旧快照失效；后端 `77c4e00` / 前端 `61c1ccb` 完成 RED→GREEN，前端定向 61/61、全量 1138/1138，后端全仓、跨仓库合同字节一致、production build 与 9-chunk 预算均通过。
+- 第二轮前端快照规格通过后，质量复审发现预览身份失效和首页 GET 身份 fence 两项阻塞；前端 `ab18718` 完成 RED→GREEN，预览会在退出、降权或账号切换时同步清空并拒绝在途旧响应，GET 支持安全刷新且写请求不重放。定向 22/22、相关 99/99、全量 1140/1140 与 production build/chunk 通过；旧快照及配对后端快照失效，等待新快照重审。
 - `web-012` 继续 `in_progress / PASS_LIMITED_SCOPE`，P08 继续 `BLOCKED_PRODUCT`。有序 review snapshot、external scheduler/systemd、生产 volume mount、前端 artifact reader、production migration/deploy/publication/HTTPS 均未运行；本轮未 push、PR、merge 或 deploy。证据见 `docs/agents/validation/2026-09-16-fixed-home-structured-content-task13/`。
 
 ## 2026-09-14：Home/Pricing 原型复用与全站紧凑字级本地验收
