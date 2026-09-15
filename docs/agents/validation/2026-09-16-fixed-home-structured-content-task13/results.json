@@ -4,11 +4,13 @@
   "overall_status": "PASS_LIMITED_SCOPE",
   "review_status": "PENDING_ORDERED_REVIEW_CHAIN_EXTERNAL_RECEIPT",
   "code_under_test": {
-    "frontend": "78006b360b1f005ded208b68aae6464c67891b52",
-    "backend": "8303a28",
+    "frontend": "61c1ccb6512198539ae13b3d98e4043ef77a1dca",
+    "backend": "77c4e003310f3194f3e7a90cdadb7d650cbd3ba1",
     "backend_included_commits": [
       "f6ed4e1",
-      "8303a28"
+      "8303a28",
+      "cf9243b",
+      "77c4e00"
     ]
   },
   "backend_real_fixture": {
@@ -98,13 +100,13 @@
       "path": "interface-contract.json",
       "version": "v1.0.0-p0",
       "status": "agreed_for_implementation",
-      "sha256": "771f9efb7c9684cd25cf53dbad667badaca26d6289de8cf4e2bbefa50e0a6579"
+      "sha256": "9bc9c70e70bb45b63185b3b619ae49e5e6a251ba3c4a30f64539774cb272a3ce"
     },
     "backend_public_content": {
       "path": "Porsche/docs/agents/contracts/public-content-pricing-v1.json",
       "version": "v2",
       "status": "implemented_locally_pending_acceptance",
-      "sha256": "649f3b2f44e8676032097f57b00931647042e70d9d7283ca0fb29a0eaa798ce5"
+      "sha256": "4db4380dcef26f0098443f591d9fe098f9faefd32a367f02ce2a14ba62d8309d"
     }
   },
   "backend_commands": [
@@ -137,30 +139,44 @@
   },
   "post_contract_status_revalidation": {
     "focused_public_platform_contracts": {
-      "tests": 14,
-      "pass": 14,
+      "tests": 61,
+      "pass": 61,
       "fail": 0,
       "skip": 0,
       "exit": 0
     },
     "full_npm_test": {
-      "tests": 1137,
-      "pass": 1137,
+      "tests": 1138,
+      "pass": 1138,
       "fail": 0,
       "skip": 0,
       "cancelled": 0,
       "todo": 0,
-      "seconds": 48.378,
+      "seconds": 48.734,
       "exit": 0
     },
     "production_build": "PASS",
     "public_route_chunks": {
       "chunks": 9,
-      "javascript_bytes": 171480,
+      "javascript_bytes": 171428,
       "css_bytes": 20362,
       "exit": 0
     },
     "git_diff_check": "PASS",
     "sandbox_only_deviation": "two loopback tests returned listen EPERM before permitted rerun"
+  },
+  "spec_remediation": {
+    "invalidated_snapshot": "6cdec47f13716e4f546b19d69c56050f5bde5f159416d91c708f3b7ce2727d92",
+    "verdict": "SPEC_FAIL",
+    "findings": [
+      "preview X-Robots-Tag spacing rejected backend literal",
+      "stable modelKey backend rule absent from contracts and public detail client too broad"
+    ],
+    "red": "backend contract failed; frontend focused 3 failures",
+    "fix_commits": {
+      "backend": "77c4e003310f3194f3e7a90cdadb7d650cbd3ba1",
+      "frontend": "61c1ccb6512198539ae13b3d98e4043ef77a1dca"
+    },
+    "green": "backend focused/full and frontend 61/61 plus 1138/1138"
   }
 }

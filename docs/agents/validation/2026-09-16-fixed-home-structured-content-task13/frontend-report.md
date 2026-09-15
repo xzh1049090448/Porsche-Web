@@ -1,10 +1,10 @@
 # Fixed Home Structured Content — Task 13 跨仓库验证记录
 
 日期：2026-09-16
-前端实现候选：`78006b360b1f005ded208b68aae6464c67891b52`
-配对后端实现候选：`8303a28`（包含 `f6ed4e1` exact action target locks 与 `8303a28` atomic structured artifact renderer）
-跨仓库总合同：`interface-contract.json`，`v1.0.0-p0 / agreed_for_implementation`，SHA-256 `771f9efb7c9684cd25cf53dbad667badaca26d6289de8cf4e2bbefa50e0a6579`
-后端公共内容子合同：`docs/agents/contracts/public-content-pricing-v1.json`，`v2 / implemented_locally_pending_acceptance`，SHA-256 `649f3b2f44e8676032097f57b00931647042e70d9d7283ca0fb29a0eaa798ce5`
+前端实现候选：`61c1ccb6512198539ae13b3d98e4043ef77a1dca`
+配对后端实现候选：`77c4e003310f3194f3e7a90cdadb7d650cbd3ba1`（包含 `f6ed4e1` exact action target locks 与 `8303a28` atomic structured artifact renderer）
+跨仓库总合同：`interface-contract.json`，`v1.0.0-p0 / agreed_for_implementation`，SHA-256 `9bc9c70e70bb45b63185b3b619ae49e5e6a251ba3c4a30f64539774cb272a3ce`
+后端公共内容子合同：`docs/agents/contracts/public-content-pricing-v1.json`，`v2 / implemented_locally_pending_acceptance`，SHA-256 `4db4380dcef26f0098443f591d9fe098f9faefd32a367f02ce2a14ba62d8309d`
 当前结论：`PASS_LIMITED_SCOPE`
 
 ## Task 13 后端真实数据层证据
@@ -23,8 +23,15 @@
 ## 契约状态纠偏后的重验证
 
 - 公共内容与平台冻结契约定向测试 14/14，0 fail/skip，exit 0。
-- 显式绑定 A03/A05/A06/A08/A14/PublicPricing 六份后端合同的 `npm test` 为 1137/1137，0 fail/skip/cancel/todo，48.378s，exit 0。沙箱内首次运行的两个 `listen EPERM` 在获准 loopback 后均通过。
-- `VITE_USE_MOCK=false npm run build` exit 0；`node scripts/check-public-route-chunks.mjs` 验证 9 chunks、171480 JS bytes、20362 CSS bytes；`git diff --check` exit 0。
+- 显式绑定 A03/A05/A06/A08/A14/PublicPricing 六份后端合同的 `npm test` 为 1138/1138，0 fail/skip/cancel/todo，48.734s，exit 0。沙箱内首次运行的两个 `listen EPERM` 在获准 loopback 后均通过。
+- `VITE_USE_MOCK=false npm run build` exit 0；`node scripts/check-public-route-chunks.mjs` 验证 9 chunks、171428 JS bytes、20362 CSS bytes；`git diff --check` exit 0。
+
+## 规格复审缺陷与修复
+
+- 首个最终快照 `6cdec47f…` 的独立规格审查返回 `SPEC_FAIL`：真实后端预览头 `noindex, nofollow` 被客户端错误拒绝；合同缺少后端既有稳定 `modelKey` 形状，公开详情客户端又允许后端会拒绝的大小写、点和下划线。该快照及配对后端快照均失效。
+- RED：后端合同测试因缺少稳定键字段失败；前端定向 55 项中合同、公开详情键、真实预览头三项失败。
+- 修复：后端 `77c4e00`、前端 `61c1ccb` 将键规则统一为 `^[a-z](?:[a-z0-9]|-[a-z0-9])*$`、长度 1–128，并严格接受字面预览头 `noindex, nofollow`。
+- GREEN：后端定向与全仓通过；前端定向 61/61、全量 1138/1138，跨仓库公共内容合同字节一致，production build 与 9 chunks / 171428 JS bytes / 20362 CSS bytes 通过。
 
 ## 浏览器证据边界
 

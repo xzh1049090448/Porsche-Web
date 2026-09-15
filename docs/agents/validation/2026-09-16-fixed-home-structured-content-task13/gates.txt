@@ -1,8 +1,8 @@
 Fixed Home Structured Content Task13 cross-repository record — 2026-09-16
-frontend implementation HEAD: 78006b360b1f005ded208b68aae6464c67891b52
-backend implementation HEAD: 8303a28 (includes f6ed4e1 target locks and 8303a28 artifact renderer)
-cross-repo contract: interface-contract.json v1.0.0-p0 / agreed_for_implementation / 771f9efb7c9684cd25cf53dbad667badaca26d6289de8cf4e2bbefa50e0a6579
-backend subsystem contract: public-content-pricing-v1.json v2 / implemented_locally_pending_acceptance / 649f3b2f44e8676032097f57b00931647042e70d9d7283ca0fb29a0eaa798ce5
+frontend implementation HEAD: 61c1ccb6512198539ae13b3d98e4043ef77a1dca
+backend implementation HEAD: 77c4e003310f3194f3e7a90cdadb7d650cbd3ba1 (includes f6ed4e1 target locks and 8303a28 artifact renderer)
+cross-repo contract: interface-contract.json v1.0.0-p0 / agreed_for_implementation / 9bc9c70e70bb45b63185b3b619ae49e5e6a251ba3c4a30f64539774cb272a3ce
+backend subsystem contract: public-content-pricing-v1.json v2 / implemented_locally_pending_acceptance / 4db4380dcef26f0098443f591d9fe098f9faefd32a367f02ce2a14ba62d8309d
 overall: PASS_LIMITED_SCOPE
 
 PASS exit=0  backend planned normal scoped gate; migration/service/handler 3.860s/3.178s/0.519s; 0 unexpected skip
@@ -14,10 +14,17 @@ NON_BLOCKING_EXTRA_CHECK_FAIL exit=1  backend full real migration package; four 
 PASS  exact fixture and credential cleanup; names absent and ports 52179/54737 closed
 
 PASS exit=0  post-remediation public/platform contract tests: 14/14, 0 skip
-PASS exit=0  post-remediation npm test with six explicit backend contracts: 1137/1137, 0 fail/skip/cancel/todo, 48.378s
+PASS exit=0  post-remediation npm test with six explicit backend contracts: 1138/1138, 0 fail/skip/cancel/todo, 48.734s
 PASS exit=0  VITE_USE_MOCK=false npm run build
-PASS exit=0  public chunk checker: 9 chunks, 171480 JS bytes, 20362 CSS bytes
+PASS exit=0  public chunk checker: 9 chunks, 171428 JS bytes, 20362 CSS bytes
 PASS exit=0  git diff --check
+
+SPEC_FAIL_INVALIDATED  snapshot 6cdec47f13716e4f546b19d69c56050f5bde5f159416d91c708f3b7ce2727d92: preview header and stable modelKey contract drift
+RED  backend contract missing stable modelKey shape; frontend focused 3 failures
+PASS  fixes backend=77c4e003310f3194f3e7a90cdadb7d650cbd3ba1 frontend=61c1ccb6512198539ae13b3d98e4043ef77a1dca
+PASS exit=0  frontend focused 61/61 and full 1138/1138, 0 fail/skip/cancel/todo, 48.734s
+PASS exit=0  backend focused/full and cross-repo public content contracts byte-equal
+PASS exit=0  production build and public chunk checker: 9 chunks, 171428 JS bytes, 20362 CSS bytes
 
 Task12 browser evidence remains synthetic page.route: 12/12 scenarios, 234/234 assertions, 32 sanitized requests, 0 unexpected console/page errors.
 NOT_RUN  authenticated Root real browser CRUD/RBAC/transaction flow
