@@ -14,6 +14,11 @@ const UNSAFE_TEXT = /[\p{Cc}\p{Cf}]/u
 const UNSAFE_HTML = /[\p{Cc}\p{Cf}]/u
 const LONE_SURROGATE = /(?:[\uD800-\uDBFF](?![\uDC00-\uDFFF]))|(?:(?<![\uD800-\uDBFF])[\uDC00-\uDFFF])/
 const DOM_EXCEPTION_NAME = typeof globalThis.DOMException === 'function' ? Object.getOwnPropertyDescriptor(globalThis.DOMException.prototype, 'name')?.get : null
+const HEADERS_GET = typeof globalThis.Headers === 'function' ? globalThis.Headers.prototype.get : null
+const RESPONSE_STATUS = typeof globalThis.Response === 'function' ? Object.getOwnPropertyDescriptor(globalThis.Response.prototype, 'status')?.get : null
+const RESPONSE_OK = typeof globalThis.Response === 'function' ? Object.getOwnPropertyDescriptor(globalThis.Response.prototype, 'ok')?.get : null
+const RESPONSE_HEADERS = typeof globalThis.Response === 'function' ? Object.getOwnPropertyDescriptor(globalThis.Response.prototype, 'headers')?.get : null
+const RESPONSE_JSON = typeof globalThis.Response === 'function' ? globalThis.Response.prototype.json : null
 const isGenuineAbortError = error => {
   if (typeof DOM_EXCEPTION_NAME !== 'function') return false
   try { return DOM_EXCEPTION_NAME.call(error) === 'AbortError' } catch { return false }
@@ -64,6 +69,37 @@ const snapshotArray = (value, maxLength) => {
     }
     return snapshot
   } catch { return null }
+}
+const snapshotHeaders = (headers, names) => {
+  if (typeof HEADERS_GET === 'function') {
+    try { return Object.fromEntries(names.map(name => [name.toLowerCase(), HEADERS_GET.call(headers, name)])) } catch {}
+  }
+  try {
+    if (!headers || typeof headers !== 'object' || Array.isArray(headers) || Object.getPrototypeOf(headers) !== Object.prototype) return null
+    const descriptors = Object.getOwnPropertyDescriptors(headers)
+    const own = Reflect.ownKeys(descriptors)
+    const values = {}; const seen = new Set()
+    for (const key of own) {
+      if (typeof key !== 'string' || !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(key)) return null
+      const descriptor = descriptors[key]; const normalized = key.toLowerCase()
+      if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'string' || seen.has(normalized)) return null
+      seen.add(normalized); values[normalized] = descriptor.value
+    }
+    return Object.fromEntries(names.map(name => [name.toLowerCase(), values[name.toLowerCase()] ?? null]))
+  } catch { return null }
+}
+const snapshotResponse = response => {
+  if ([RESPONSE_STATUS, RESPONSE_OK, RESPONSE_HEADERS, RESPONSE_JSON].every(item => typeof item === 'function')) {
+    try {
+      const status = RESPONSE_STATUS.call(response)
+      const ok = RESPONSE_OK.call(response)
+      const headers = RESPONSE_HEADERS.call(response)
+      return { status, ok, headers, json: () => RESPONSE_JSON.call(response) }
+    } catch {}
+  }
+  const value = snapshotObject(response, ['status', 'ok', 'headers', 'json'])
+  if (!value || !Number.isInteger(value.status) || value.status < 100 || value.status > 599 || typeof value.ok !== 'boolean' || value.ok !== (value.status >= 200 && value.status <= 299) || typeof value.json !== 'function') return null
+  return { status: value.status, ok: value.ok, headers: value.headers, json: () => value.json.call(response) }
 }
 const compareGuid = (left, right) => left.length === right.length ? left < right ? -1 : left > right ? 1 : 0 : left.length - right.length
 const compareAnnouncement = (left, right) => left.sortOrder - right.sortOrder || (left.effectiveAt === right.effectiveAt ? 0 : left.effectiveAt === null ? -1 : right.effectiveAt === null ? 1 : left.effectiveAt < right.effectiveAt ? -1 : 1) || compareGuid(left.guid, right.guid)
@@ -160,29 +196,34 @@ export function createPublicContentClient({ fetchImpl = globalThis.fetch, authen
       response = await transport(`${baseURL}${path}`, { method: 'GET', headers, signal: options.signal })
     }
     catch (error) { if (isGenuineAbortError(error)) throw error; throw new PublicContentError('network_error') }
-    if (response.status === 304) {
+    const responseView = snapshotResponse(response)
+    if (!responseView) throw new PublicContentError('invalid_response_headers')
+    if (responseView.status === 304) {
       if (options.authenticated) throw new PublicContentError('invalid_304', 304)
       if (options.resourceKey) { try { return options.cacheMapper(options.cached, path, options.etag) } catch { throw new PublicContentError('invalid_304', 304) } }
       if (!options.cached) throw new PublicContentError('invalid_304', 304)
       return { ...options.cached, notModified: true }
     }
-    if (!response.ok) {
-      const code = ({ 401: 'authentication_required', 404: 'not_found', 410: 'gone', 503: 'unavailable' })[response.status] || 'request_failed'
-      const requestIdHeader = response.headers.get('X-Request-ID'); let requestId = null
-      try { const raw = await response.json(); if (/^[A-Za-z0-9._:-]{1,128}$/.test(requestIdHeader || '') && exact(raw, ['error']) && exact(raw.error, ['code','message','request_id']) && raw.error.code === code && raw.error.request_id === requestIdHeader && typeof raw.error.message === 'string') requestId = requestIdHeader } catch {}
-      throw new PublicContentError(code, response.status, requestId)
+    if (!responseView.ok) {
+      const code = ({ 401: 'authentication_required', 404: 'not_found', 410: 'gone', 503: 'unavailable' })[responseView.status] || 'request_failed'
+      const errorHeaders = snapshotHeaders(responseView.headers, ['X-Request-ID'])
+      const requestIdHeader = errorHeaders?.['x-request-id']; let requestId = null
+      try { const raw = await responseView.json(); if (/^[A-Za-z0-9._:-]{1,128}$/.test(requestIdHeader || '') && exact(raw, ['error']) && exact(raw.error, ['code','message','request_id']) && raw.error.code === code && raw.error.request_id === requestIdHeader && typeof raw.error.message === 'string') requestId = requestIdHeader } catch {}
+      throw new PublicContentError(code, responseView.status, requestId)
     }
-    const etag = response.headers.get('ETag'); const rawHeaderVersion = response.headers.get('X-Public-Release-Version'); const headerVersion = /^[1-9]\d*$/.test(rawHeaderVersion || '') ? Number(rawHeaderVersion) : NaN
-    const cacheControl = response.headers.get('Cache-Control')
+    const responseHeaders = snapshotHeaders(responseView.headers, ['ETag', 'X-Public-Release-Version', 'Cache-Control', 'Vary'])
+    if (!responseHeaders) throw new PublicContentError('invalid_response_headers')
+    const etag = responseHeaders.etag; const rawHeaderVersion = responseHeaders['x-public-release-version']; const headerVersion = /^[1-9]\d*$/.test(rawHeaderVersion || '') ? Number(rawHeaderVersion) : NaN
+    const cacheControl = responseHeaders['cache-control']
     const expectedCacheControl = options.authenticated ? 'private, no-store' : 'public, max-age=60, stale-while-revalidate=300'
     if (!etag?.trim() || !positiveInteger(headerVersion) || cacheControl !== expectedCacheControl) throw new PublicContentError('invalid_response_headers')
     let raw
-    try { raw = await response.json() } catch { throw new PublicContentError('invalid_response') }
+    try { raw = await responseView.json() } catch { throw new PublicContentError('invalid_response') }
     let data
     try { data = mapper(raw) } catch (error) { throw Object.assign(new PublicContentError(error.message === 'mixed_publication_generation' ? error.message : 'invalid_response'), { cause: error }) }
     const inferredProtected = data.priceVisibility === 'authenticated_only' || data.model?.priceVisibility === 'authenticated_only' || data.items?.some(item => item.priceVisibility === 'authenticated_only')
     const expectedVary = options.varyAuthorization ?? inferredProtected
-    if ((response.headers.get('Vary') === 'Authorization') !== !!expectedVary) throw new PublicContentError('invalid_response_headers')
+    if ((responseHeaders.vary === 'Authorization') !== !!expectedVary) throw new PublicContentError('invalid_response_headers')
     const bodyVersions = path === '/api/v1/public/home-config' ? [data.contentReleaseVersion] : data.releaseVersion === undefined ? [data.contentReleaseVersion, data.priceReleaseVersion] : [data.releaseVersion]
     if (!bodyVersions.includes(headerVersion)) throw new PublicContentError('mixed_publication_generation')
     const publicationVersions = data.contentReleaseVersion === undefined

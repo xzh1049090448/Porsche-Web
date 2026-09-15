@@ -268,6 +268,63 @@ test('public home config maps exact immutable DTO and binds header to content ve
   assert.ok(Object.isFrozen(out.data) && Object.isFrozen(out.data.announcements) && Object.isFrozen(out.data.announcements[0]))
 })
 
+test('public home config ignores an overridden get on genuine Headers', async () => {
+  const forgedResponse = response(homeConfigBody(), { headers: { 'X-Public-Release-Version': '2' } })
+  const nativeHeaders = forgedResponse.headers
+  let ownGetCalls = 0
+  Object.defineProperty(nativeHeaders, 'get', {
+    configurable: true,
+    value(name) {
+      ownGetCalls++
+      return ({
+        etag: '"forged"',
+        'x-public-release-version': '2',
+        'cache-control': 'public, max-age=60, stale-while-revalidate=300',
+        vary: null,
+      })[String(name).toLowerCase()] ?? null
+    },
+  })
+  nativeHeaders.delete('ETag')
+  nativeHeaders.delete('X-Public-Release-Version')
+  nativeHeaders.delete('Cache-Control')
+
+  const client = createPublicContentClient({ fetchImpl: async () => forgedResponse })
+  await assert.rejects(() => client.getHomeConfig(), error => error.code === 'invalid_response_headers')
+  assert.equal(ownGetCalls, 0)
+})
+
+test('public response metadata and JSON use native intrinsics instead of own overrides', async () => {
+  const nativeResponse = response(homeConfigBody(), { headers: { 'X-Public-Release-Version': '2' } })
+  const reads = { status: 0, ok: 0, headers: 0, json: 0 }
+  Object.defineProperties(nativeResponse, {
+    status: { configurable: true, get: () => { reads.status++; return 503 } },
+    ok: { configurable: true, get: () => { reads.ok++; return false } },
+    headers: { configurable: true, get: () => { reads.headers++; return new Headers() } },
+    json: { configurable: true, get: () => { reads.json++; return async () => ({ leaked: true }) } },
+  })
+  const mapped = await createPublicContentClient({ fetchImpl: async () => nativeResponse }).getHomeConfig()
+  assert.equal(mapped.data.contentReleaseVersion, 2)
+  assert.deepEqual(reads, { status: 0, ok: 0, headers: 0, json: 0 })
+})
+
+test('plain public response headers require exact descriptor-safe metadata', async () => {
+  const plainResponse = headers => ({ status: 200, ok: true, headers, json: async () => homeConfigBody() })
+  const validHeaders = { ETag: '"plain"', 'X-Public-Release-Version': '2', 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' }
+  const mapped = await createPublicContentClient({ fetchImpl: async () => plainResponse(validHeaders) }).getHomeConfig()
+  assert.equal(mapped.etag, '"plain"')
+
+  let accessorReads = 0
+  const accessorHeaders = { ...validHeaders }
+  Object.defineProperty(accessorHeaders, 'ETag', { enumerable: true, get: () => { accessorReads++; return '"forged"' } })
+  const symbolHeaders = { ...validHeaders }; symbolHeaders[Symbol('hidden')] = 'secret'
+  const duplicateHeaders = { ...validHeaders, etag: '"duplicate"' }
+  const exoticHeaders = Object.assign(Object.create({ inherited: true }), validHeaders)
+  for (const unsafeHeaders of [accessorHeaders, symbolHeaders, duplicateHeaders, exoticHeaders]) {
+    await assert.rejects(() => createPublicContentClient({ fetchImpl: async () => plainResponse(unsafeHeaders) }).getHomeConfig(), error => error.code === 'invalid_response_headers')
+  }
+  assert.equal(accessorReads, 0)
+})
+
 test('public home config rejects malformed, leaking, duplicate, invalid text and mixed headers', async () => {
   const invalid = [
     { ...homeConfigBody(), draft_markdown: 'secret' },
