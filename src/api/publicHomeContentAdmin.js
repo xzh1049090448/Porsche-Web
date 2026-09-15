@@ -138,7 +138,7 @@ function metadata(result, status, { preview = false, deletion = false } = {}) {
   const value = snapshotObject(result, ['data', 'status', 'headers'])
   const names = ['Cache-Control', 'X-Request-ID', ...(preview ? ['X-Robots-Tag'] : []), ...(deletion ? ['X-Content-Draft-Revision'] : [])]
   const headers = value && snapshotHeaders(value.headers, names)
-  if (!value || !headers || value.status !== status || headers['cache-control'] !== 'no-store' || !safeRequestId(headers['x-request-id']) || (preview && headers['x-robots-tag'] !== 'noindex,nofollow')) invalid()
+  if (!value || !headers || value.status !== status || headers['cache-control'] !== 'no-store' || !safeRequestId(headers['x-request-id']) || (preview && headers['x-robots-tag'] !== 'noindex, nofollow')) invalid()
   if (deletion) {
     if (value.data !== null && value.data !== undefined && value.data !== '') invalid()
     const rawRevision = headers['x-content-draft-revision']; const revision = /^[1-9]\d*$/.test(rawRevision || '') ? Number(rawRevision) : NaN; if (!positive(revision)) invalid()

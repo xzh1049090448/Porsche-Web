@@ -381,7 +381,7 @@ test('BE06 contract additions do not weaken unrelated frozen contracts or legacy
   ])
   assert.equal(publicContent.schemas.AnnouncementDraft.properties.body_markdown.maxBytes, 16384)
   assert.equal(publicContent.schemas.HomeConfigPublicAnnouncement.properties.body_html.type, 'string')
-  assert.equal(hash(publicContent), 'fa66eb9cdca17a0f875f306ff42378a0467fceb2b754a64a13adf7fb246d2fc6')
+  assert.equal(hash(publicContent), '882be2ea0cacc721970924f57b2cb06e2adc9131ea56cc80c30a51f703edfebc')
   assert.equal(hash(contract.sse_events), '915154b364c1dcfdb9ede6ce0d5bba2f24a3a6648440f64cfb2ffe2e0db55fd3')
   assert.equal(hash(contract.sse_rules), '948ce9031eb7e08afb7a653a24048c7137845f970d31c8fa95db21ced9bb9427')
   assert.equal(hash(contract.definitions), '663e189f8156571d23bd0b82e074b281c6084c4522026de8e38ff9b0ea7041b8')

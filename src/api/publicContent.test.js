@@ -22,6 +22,15 @@ test('304 reuses cached value and retains ETag and release version', async () =>
   assert.deepEqual(await client.getHome({ cached }), { ...cached, notModified: true })
 })
 
+test('public model detail rejects keys outside the stable backend shape before transport', async () => {
+  let calls = 0
+  const client = createPublicContentClient({ fetchImpl: async () => { calls++; return response({}) } })
+  for (const key of ['model.v2', 'Model_2', 'model_2', 'model--2', 'model-', '-model']) {
+    await assert.rejects(async () => client.getModel(key), /invalid_model_key/)
+  }
+  assert.equal(calls, 0)
+})
+
 test('authenticated responses require private no-store and never use ETag revalidation or 304', async () => {
   const calls = []
   const client = createPublicContentClient({ authenticatedFetch: async (_url, init) => { calls.push(init); return response(documentBody, { headers: { 'Cache-Control': 'private, no-store' } }) } })

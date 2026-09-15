@@ -12,7 +12,7 @@ const publicHome = { announcements: [{ guid: '7', title: 'Notice', body_html: '<
 
 test('root home client maps all routes and exact snake case request bodies', async () => {
   const calls = []
-  const api = createPublicHomeContentAdminApi({ request: async input => { calls.push(input); if (input.method === 'DELETE') return ok(null, 204, { 'X-Content-Draft-Revision': '5' }); if (input.path.includes('documents-draft')) return ok(documents); if (input.path.includes('home-preview')) return ok(home, 200, { 'X-Robots-Tag': 'noindex,nofollow' }); if (input.path.includes('/releases/')) return ok(publicHome); return ok(home, input.method === 'POST' ? 201 : 200) } })
+  const api = createPublicHomeContentAdminApi({ request: async input => { calls.push(input); if (input.method === 'DELETE') return ok(null, 204, { 'X-Content-Draft-Revision': '5' }); if (input.path.includes('documents-draft')) return ok(documents); if (input.path.includes('home-preview')) return ok(home, 200, { 'X-Robots-Tag': 'noindex, nofollow' }); if (input.path.includes('/releases/')) return ok(publicHome); return ok(home, input.method === 'POST' ? 201 : 200) } })
   assert.equal((await api.getHomeDraft()).announcements[0].bodyMarkdown, '**text**')
   await api.createAnnouncement({ expectedRevision: 4, title: 'Next', bodyMarkdown: 'Body', effectiveAt: null, isVisible: true, sortOrder: 3 })
   await api.updateAnnouncement('7', { expectedRevision: 4, title: 'Changed' })
@@ -50,6 +50,10 @@ test('root client validates inputs before transport and requires strict success 
   ]) assert.throws(run, /invalid_public_home_content_admin_request/)
   assert.equal(calls, 0)
   for (const bad of [ok({ ...home, unknown: true }), { data: home, status: 200, headers: headers({ 'Cache-Control': 'private' }) }, { data: home, status: 200, headers: headers({ 'X-Request-ID': ' ' }) }]) await assert.rejects(() => createPublicHomeContentAdminApi({ request: async () => bad }).getHomeDraft(), /invalid_public_home_content_admin_response/)
+  await assert.rejects(
+    () => createPublicHomeContentAdminApi({ request: async () => ok(home, 200, { 'X-Robots-Tag': 'noindex,nofollow' }) }).previewHome(),
+    /invalid_public_home_content_admin_response/,
+  )
 })
 
 test('root errors are allowlisted and sanitized while AbortError identity is preserved', async () => {

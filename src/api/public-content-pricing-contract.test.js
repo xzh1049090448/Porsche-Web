@@ -117,15 +117,24 @@ function assertIndependentFreeze(contract) {
   assert.deepEqual(contract.routes.slice(35).map(routeTuple), frozenNewRoutes)
   assert.deepEqual(contract.pending_implementation_routes, [])
 
+  const stableModelKey = { type: 'string', minLength: 1, maxLength: 128, pattern: '^[a-z](?:[a-z0-9]|-[a-z0-9])*$' }
+  for (const schemaName of ['PublicModelVisible', 'PublicModelRedacted', 'PublicModelAdmin', 'CreatePublicModelRequest']) {
+    assert.deepEqual(contract.schemas[schemaName].properties.model_key, stableModelKey)
+  }
+  assert.deepEqual(contract.schemas.PublicModelDetailRequest.properties.modelKey, stableModelKey)
+  for (const schemaName of ['HomeDraftResponse', 'FeaturedModelsSaveRequest', 'HomeConfigPublicResponse']) {
+    assert.deepEqual(contract.schemas[schemaName].properties.featured_model_keys.items, stableModelKey)
+  }
+
   const legacySchemaNames = referencedSchemaNames(contract, contract.routes.slice(0, 35))
   assert.equal(legacySchemaNames.length, 42)
   assert.equal(
     stableHash(selectedProperties(contract.schemas, legacySchemaNames)),
-    '48fa23acac3bcb558380b4f414ce4f188bac7c05c6a1097ecadc05d1c82bbb3d',
+    '092f07c941c681ffcd7c1307c3c227d91904b4dcc7fb0000900ab99434f4535e',
   )
   assert.equal(
     stableHash(selectedProperties(contract.schemas, frozenNewSchemaNames)),
-    'b8e3f961edb057276ba3060a6c5ed22554fd537b292b39173d51a717269dcd4c',
+    'e455130e9f979a193e134ca8851418f90ee4d96a6d522aab3f53095dce031e87',
   )
 
   const positiveRevision = { type: 'integer', minimum: 1 }

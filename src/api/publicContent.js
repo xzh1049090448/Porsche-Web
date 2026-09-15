@@ -242,7 +242,7 @@ export function createPublicContentClient({ fetchImpl = globalThis.fetch, authen
     getSite: options => request('/api/v1/public/site', mapSite, options), getHome: document('/api/v1/public/home'),
     getHomeConfig: (options = {}) => { const safeOptions = snapshotObject(options, ['etag','cached','signal'], []); if (!safeOptions) throw new Error('invalid_public_home_config_options'); return request('/api/v1/public/home-config', mapPublicHomeConfig, { ...safeOptions, authenticated: false, resourceKey: true, cacheMapper: canonicalCachedHomeConfig }) },
     getModels: (filters = {}, options = {}) => request(publicModelsResourceKey(filters), mapPublicModelList, options),
-    getModel: (modelKey, options = {}) => { if (typeof modelKey !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(modelKey)) throw new Error('invalid_model_key'); return request(`/api/v1/public/models/${encodeURIComponent(modelKey)}`, mapDetail, options) },
+    getModel: (modelKey, options = {}) => { if (!validModelKey(modelKey)) throw new Error('invalid_model_key'); return request(`/api/v1/public/models/${encodeURIComponent(modelKey)}`, mapDetail, options) },
     getAbout: document('/api/v1/public/pages/about'), getTerms: document('/api/v1/public/pages/terms'), getPrivacy: document('/api/v1/public/pages/privacy'),
   }
 }
