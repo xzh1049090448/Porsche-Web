@@ -183,3 +183,40 @@ export const publicMessages = {
     }
   }
 }
+
+export const publicHomeMessages = {
+  zh: {
+    eyebrow: '模型能力聚合平台',
+    title: '一个入口，连接已验证的模型能力',
+    intro: '通过统一入口查看模型、参考报价并进入控制台使用已开放的能力。',
+    pricingAction: '查看模型价格',
+    proofLabel: '平台能力',
+    proofOneTitle: '统一接入', proofOneBody: '通过一个入口访问目录中已验证的模型。',
+    proofTwoTitle: 'OpenAI 兼容', proofTwoBody: '使用熟悉的 OpenAI 兼容 API 规范。',
+    proofThreeTitle: '按 Token 计价', proofThreeBody: '查看已发布的输入与输出 Token 参考价。',
+    advantagesIntro: '从公开目录到控制台，使用一致的路径了解并接入模型能力。',
+    advantageOneTitle: '统一的接口入口', advantageOneBody: '通过一致的调用方式访问目录中已验证的模型。',
+    advantageTwoTitle: '清晰的模型目录', advantageTwoBody: '按提供商、能力与端点查看当前公开模型。',
+    advantageThreeTitle: '透明的参考报价', advantageThreeBody: '按输入和输出 Token 查看已发布的参考价格。',
+    advantageFourTitle: '可控的访问管理', advantageFourBody: '在控制台管理账号、密钥及可用功能。',
+    ctaTitle: '准备好开始了吗？', ctaBody: '进入控制台，查看当前账号可用的模型与功能。',
+    dynamicUnavailable: '附加公共内容当前不可用。',
+  },
+  en: {
+    eyebrow: 'MODEL CAPABILITY HUB',
+    title: 'One entry point for verified model capabilities',
+    intro: 'Explore models and reference prices, then open the console to use capabilities available to your account.',
+    pricingAction: 'View model pricing',
+    proofLabel: 'Platform capabilities',
+    proofOneTitle: 'Unified access', proofOneBody: 'Reach verified models in the catalog through one entry point.',
+    proofTwoTitle: 'OpenAI compatible', proofTwoBody: 'Use familiar OpenAI-compatible API conventions.',
+    proofThreeTitle: 'Token pricing', proofThreeBody: 'View published reference prices for input and output tokens.',
+    advantagesIntro: 'Use a consistent path from the public catalog to the console to evaluate and access model capabilities.',
+    advantageOneTitle: 'Unified API entry', advantageOneBody: 'Access verified models through a consistent request format.',
+    advantageTwoTitle: 'Clear model catalog', advantageTwoBody: 'Browse current public models by provider, capability, and endpoint.',
+    advantageThreeTitle: 'Transparent references', advantageThreeBody: 'View published input and output token reference prices.',
+    advantageFourTitle: 'Managed access', advantageFourBody: 'Manage accounts, API keys, and available features in the console.',
+    ctaTitle: 'Ready to get started?', ctaBody: 'Open the console to see the models and features available to your account.',
+    dynamicUnavailable: 'Additional public content is currently unavailable.',
+  },
+}

@@ -3,26 +3,9 @@ import { h, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { usePublicI18n } from '@/i18n/public-runtime.js'
 
-const PUBLIC_LINK_BASE = 'https://public.invalid'
-const SAFE_HASH_LINK = /^#[A-Za-z][A-Za-z0-9._:-]*$/
-export function classifyPublicLink(value) {
-  if (typeof value !== 'string' || value !== value.trim() || !value || /[\s\u0000-\u001f\u007f\\]/.test(value)) return { kind: 'blocked' }
-  if (SAFE_HASH_LINK.test(value)) return { kind: 'internal', href: value }
-  if (value.startsWith('/') && !value.startsWith('//')) {
-    const url = new URL(value, PUBLIC_LINK_BASE)
-    if (url.origin === PUBLIC_LINK_BASE) return { kind: 'internal', href: value }
-  }
-  try {
-    const url = new URL(value)
-    if (['http:', 'https:'].includes(url.protocol) && url.host) return { kind: 'external', href: value }
-  } catch {}
-  return { kind: 'blocked' }
-}
-
 export default {
   name: 'PublicHeader',
-  props: { links: { type: Array, default: () => [] } },
-  setup(props) {
+  setup() {
     const menuOpen = ref(false)
     const scrolled = ref(false)
     const toggleButton = ref()
@@ -56,18 +39,11 @@ export default {
     onUnmounted(() => { removeRouteHook(); if (desktop) desktop.onchange = null; window.removeEventListener('scroll', handleScroll); document.removeEventListener('keydown', handleDocumentKey) })
 
     const link = (to, label, attrs = {}) => h(RouterLink, { to, onClick: closeMenu, ...attrs }, () => label)
-    const publishedLink = item => {
-      const target = classifyPublicLink(item.href)
-      if (target.kind === 'internal') return link(target.href, item.label)
-      if (target.kind === 'external') return h('a', { href: target.href, target: '_blank', rel: 'noopener noreferrer', onClick: closeMenu }, item.label)
-      return h('span', { class: 'public-nav__blocked' }, item.label)
-    }
     return () => {
       const navLinks = [
         link('/#advantages', t('advantages')),
         link('/#models', t('models')),
         link('/pricing', t('pricing')),
-        ...props.links.filter(item => item.placement === 'header').map(publishedLink),
         link('/about', t('about')),
         link('/chat', t('console'), { class: 'public-button public-button--small public-console-cta' }),
       ]

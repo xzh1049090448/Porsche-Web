@@ -1,73 +1,130 @@
 import { shallowRef, watch } from 'vue'
 
-export function createPublicHomePublication({ store, decode }) {
-  const home = shallowRef(null); const activeModelLoads = new Map(); let epoch = 0
-  function verifiedHome() {
-    const state = store.value; const version = state.publicationVersions.content
-    if (state.site.status !== 'ready' || state.home.status !== 'ready' || !state.home.data || state.site.data?.contentReleaseVersion !== version || state.home.data.releaseVersion !== version) return null
-    try { return decode(state.home.data.document) } catch { return null }
-  }
-  async function load() {
-    const current = ++epoch
-    home.value = null
-    const loads = [store.loadHome()]; if (store.value.site.status !== 'ready') loads.unshift(store.loadSite())
-    await Promise.allSettled(loads)
-    if (current !== epoch) return null
-    const decoded = verifiedHome()
-    if (!decoded) return null
-    const contentVersion = store.value.publicationVersions.content; const priceVersion = store.value.publicationVersions.price
-    activeModelLoads.set(current, decoded.modelKeys)
-    await Promise.allSettled(decoded.modelKeys.map(key => store.loadModel(key)))
-    activeModelLoads.delete(current)
-    if (current !== epoch) return null
-    if (store.value.publicationVersions.content === contentVersion && store.value.publicationVersions.price === priceVersion && store.value.home.data?.releaseVersion === contentVersion && current === epoch) home.value = decoded
-    return home.value
-  }
-  function cancel() { epoch++; store.cancel('site'); store.cancel('home'); for (const keys of activeModelLoads.values()) for (const key of keys) store.cancel(`detail:${key}`); activeModelLoads.clear(); home.value = null }
-  return { home, load, cancel }
+const readyStructuredHome = homeContent => {
+  const state = homeContent?.value?.value
+  return state?.status === 'ready' && state.data ? state.data : null
 }
 
-export function createPublicLayoutPublication({ store, loadCodec }) {
-  const publication = shallowRef(null); const homeHydration = shallowRef(Promise.resolve(null)); const activePages = new Set(); let disposed = false; let settled = false; let resolveReady; let codecPromise = null; let retryPromise = null
+export function createPublicHomePublication({ store, homeContent, loadSite } = {}) {
+  const featuredModels = shallowRef(null)
+  const activeModelLoads = new Map()
+  let epoch = 0
+
+  const cancelModels = () => {
+    for (const keys of activeModelLoads.values()) for (const key of keys) store.cancel(`detail:${key}`)
+    activeModelLoads.clear()
+  }
+
+  async function load() {
+    const current = ++epoch
+    cancelModels()
+    featuredModels.value = null
+    const siteLoad = Promise.resolve(loadSite ? loadSite() : store.value.site.status === 'ready' ? null : store.loadSite())
+    await homeContent.load()
+    if (current !== epoch) return null
+    const home = readyStructuredHome(homeContent)
+    if (!home) return null
+    const keys = home.featuredModelKeys
+    if (!keys.length) { featuredModels.value = Object.freeze([]); return featuredModels.value }
+
+    await siteLoad
+    if (current !== epoch) return null
+    const expectedPriceVersion = home.priceReleaseVersion
+    const state = store.value
+    if (state.site.status !== 'ready' || state.site.data?.priceReleaseVersion !== expectedPriceVersion || state.publicationVersions.price !== expectedPriceVersion) return null
+
+    activeModelLoads.set(current, keys)
+    await Promise.allSettled(keys.map(key => store.loadModel(key)))
+    activeModelLoads.delete(current)
+    if (current !== epoch) return null
+    const currentState = store.value
+    if (currentState.site.status !== 'ready' || currentState.site.data?.priceReleaseVersion !== expectedPriceVersion || currentState.publicationVersions.price !== expectedPriceVersion) return null
+    const models = keys.map(key => currentState.details[key])
+    if (models.some((slot, index) => slot?.status !== 'ready' || slot.data?.model?.modelKey !== keys[index] || slot.data.model.releaseVersion !== expectedPriceVersion)) return null
+    featuredModels.value = Object.freeze(models.map(slot => slot.data.model))
+    return featuredModels.value
+  }
+
+  function cancel() {
+    epoch++
+    cancelModels()
+    homeContent.dispose()
+    featuredModels.value = null
+  }
+
+  return Object.freeze({ homeContent, featuredModels, load, cancel })
+}
+
+export function createPublicLayoutPublication({ store, homeContent } = {}) {
+  const publication = shallowRef(null)
+  const homeHydration = shallowRef(Promise.resolve(null))
+  const activePages = new Set()
+  let disposed = false
+  let settled = false
+  let resolveReady
+  let siteLoad = null
+  let retryPromise = null
   const siteReady = new Promise(resolve => { resolveReady = resolve })
   const settle = () => { if (!settled) { settled = true; resolveReady() } }
-  async function codec() {
-    if (!codecPromise) codecPromise = Promise.resolve().then(loadCodec).catch(error => { codecPromise = null; throw error })
-    return codecPromise
+
+  function ensureSite() {
+    if (disposed) { settle(); return Promise.resolve(null) }
+    if (store.value.site.status === 'ready') { settle(); return Promise.resolve(store.value.site.data) }
+    if (siteLoad) return siteLoad
+    const running = Promise.resolve(store.loadSite()).catch(() => null).finally(() => {
+      if (siteLoad === running) siteLoad = null
+      settle()
+    })
+    siteLoad = running
+    return running
   }
-  async function hydrate() {
-    const decoder = await codec()
-    if (disposed) return null
-    if (store.value.site.status !== 'ready') await store.loadSite()
-    if (disposed) return null
-    settle()
-    if (store.value.site.status !== 'ready') return null
-    if (!publication.value) publication.value = createPublicHomePublication({ store, decode: document => decoder.decode(document) })
-    homeHydration.value = publication.value.load(); return homeHydration.value
-  }
+
+  publication.value = createPublicHomePublication({ store, homeContent, loadSite: ensureSite })
+
   function loadHome() {
     if (disposed) return Promise.resolve(null)
     if (retryPromise) return retryPromise
-    const running = hydrate().catch(() => null).finally(() => { if (retryPromise === running) retryPromise = null; settle() })
+    const running = publication.value.load().catch(() => null).finally(() => { if (retryPromise === running) retryPromise = null })
     retryPromise = running
+    homeHydration.value = running
     return running
   }
-  const init = () => loadHome()
+
+  function init() {
+    void ensureSite()
+    return loadHome()
+  }
+
   async function loadPage(name) {
     if (disposed) return null
-    const generation = store.value.publicationVersions.content; let advanced = false
-    const stop = watch(() => store.value.publicationVersions.content, next => { if (Number.isSafeInteger(generation) && Number.isSafeInteger(next) && next > generation) { advanced = true; if (publication.value) publication.value.home.value = null } }, { flush: 'sync' })
+    const generation = store.value.publicationVersions.content
+    let advanced = false
+    const stop = watch(() => store.value.publicationVersions.content, next => {
+      if (Number.isSafeInteger(generation) && Number.isSafeInteger(next) && next > generation) advanced = true
+    }, { flush: 'sync' })
     activePages.add(name)
-    const page = await loadVerifiedPublicPage(store, name)
-    stop()
-    activePages.delete(name)
-    if (disposed) return null
-    if (page && advanced && publication.value) homeHydration.value = publication.value.load()
-    else if (page && !publication.value) void loadHome()
-    return page
+    try {
+      const page = await loadVerifiedPublicPage(store, name)
+      if (disposed) return null
+      if (page && advanced) void loadHome()
+      return page
+    } finally {
+      stop()
+      activePages.delete(name)
+    }
   }
-  function dispose() { disposed = true; for (const name of activePages) store.invalidatePage(name); activePages.clear(); publication.value?.cancel(); publication.value = null; store.cancel('site'); settle() }
-  return { publication, homeHydration, siteReady, init, loadHome, loadPage, dispose }
+
+  function dispose() {
+    disposed = true
+    for (const name of activePages) store.invalidatePage(name)
+    activePages.clear()
+    publication.value?.cancel()
+    publication.value = null
+    store.cancel('site')
+    settle()
+  }
+
+  return Object.freeze({ publication, homeHydration, siteReady, init, loadHome, loadPage, dispose })
 }
 
 export function verifiedPublicPageData(store, name) {

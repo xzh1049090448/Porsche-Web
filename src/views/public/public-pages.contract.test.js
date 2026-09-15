@@ -5,7 +5,7 @@ import vuePlugin from '@vitejs/plugin-vue'
 import { compileScript, compileTemplate, parse as parseSfc } from '@vue/compiler-sfc'
 import { JSDOM } from 'jsdom'
 import { messages } from '../../i18n/messages.js'
-import { publicMessages } from '../../i18n/public-messages.js'
+import { publicHomeMessages, publicMessages } from '../../i18n/public-messages.js'
 import { routes } from '../../router/index.js'
 
 const callableBodyEffect = (body, expressionEffect, staticCondition) => {
@@ -2955,7 +2955,7 @@ test('public header traps mobile focus globally and removes its document listene
   }
 }))
 
-test('published shell links classify internal external and dangerous destinations', async () => withPublicDom(async ({ dom }) => {
+test('fixed shell navigation ignores every published link including dangerous destinations', async () => withPublicDom(async ({ dom }) => {
   const route = { hook: null }
   globalThis.__publicTest = { router: { afterEach(fn) { route.hook = fn; return () => { route.hook = null } } } }
   const header = await compiledHeader()
@@ -2978,21 +2978,12 @@ test('published shell links classify internal external and dangerous destination
   const headerWrapper = await mountPublicComponent(header.module.default, { links })
   const footerWrapper = await mountPublicComponent(footer.module.default, { links })
   try {
-    for (const label of ['pricing', 'advantages', 'Published internal', 'Published hash', 'Published local hash', 'Published nested path', 'Footer internal']) {
+    for (const label of ['pricing', 'advantages', 'models', 'about', 'console', 'terms', 'privacy']) {
       const node = [...dom.window.document.querySelectorAll('a')].find(anchor => anchor.textContent === label)
       assert.equal(node?.dataset.routerLink, 'true', `${label} uses RouterLink`)
     }
-    for (const label of ['Published external', 'Footer external']) {
-      const node = [...dom.window.document.querySelectorAll('a')].find(anchor => anchor.textContent === label)
-      assert.equal(node?.dataset.routerLink, undefined)
-      assert.equal(node?.target, '_blank')
-      assert.equal(node?.rel, 'noopener noreferrer')
-    }
-    for (const label of ['Blocked script', 'Blocked data']) {
-      const node = [...dom.window.document.querySelectorAll('span')].find(span => span.textContent === label)
-      assert.ok(node, `${label} stays visible but non-navigable`)
-      assert.equal([...dom.window.document.querySelectorAll('a')].some(anchor => anchor.textContent === label), false)
-    }
+    for (const item of links) assert.equal(dom.window.document.body.textContent.includes(item.label), false, `${item.label} is ignored`)
+    assert.equal([...dom.window.document.querySelectorAll('a')].some(anchor => /^(?:javascript|data):/i.test(anchor.getAttribute('href') || '')), false)
   } finally { headerWrapper.unmount(); footerWrapper.unmount() }
 }))
 
@@ -3003,39 +2994,69 @@ test('HeroPreview mutation guard rejects missing providers before checking the r
   await assertHeroPreviewStructure(hero)
 })
 
-test('public shell and homepage preserve the published-content contract', () => {
+test('public shell and homepage preserve the fixed-content contract', () => {
   const layout = source('../../layouts/PublicLayout.vue')
   const home = source('./Home.vue')
   const header = source('../../components/public/PublicHeader.vue')
   const footer = source('../../components/public/PublicFooter.vue')
   assert.equal(renderFunctionUsesImportedComponent(layout, 'PublicHeader.vue'), true, 'public layout renders its imported header from a reachable render root')
   assert.equal(renderFunctionUsesImportedComponent(layout, 'PublicFooter.vue'), true, 'public layout renders its imported footer from a reachable render root')
-  assert.deepEqual(dataSectionOrder(home), ['hero', 'proof', 'advantages', 'models', 'announcements-faq', 'cta'])
+  assert.deepEqual(dataSectionOrder(home), ['hero', 'proof', 'advantages', 'cta'])
   const proof = elements(home, 'section').find(node => staticAttribute(node, 'data-section') === 'proof')
   assert.ok(proof, 'homepage renders the platform proof band')
-  assert.equal(staticAttribute(proof, 'aria-label'), '平台能力')
+  assert.equal(boundAttribute(proof, 'aria-label'), 'fixed.proofLabel')
   assert.equal((proof.children || []).filter(node => node.type === 1 && node.tag === 'article').length, 3, 'platform proof contains exactly three verified capability statements')
-  const homeCopy = visibleStrings(home).join('\n')
+  const homeCopy = `${visibleStrings(home).join('\n')}\n${stringValues(publicHomeMessages.zh).join('\n')}`
   for (const claim of ['统一接入', 'OpenAI 兼容', '按 Token 计价']) assert.match(homeCopy, new RegExp(claim))
   assert.match(home, /演示|demo/i)
-  assert.match(home, /releaseVersion/)
-  assert.match(home, /localStorage/)
   assert.match(layout, /usePublicContentStore/)
   assert.match(layout, /provide\(['"]public-home-publication['"]/)
   assert.match(layout, /createPublicLayoutPublication/)
   assert.match(layout, /onUnmounted\(lifecycle\.dispose\)/)
-  assert.doesNotMatch(layout, /publicContentApi|getHome\(/)
+  assert.match(layout, /publicContentApi/)
+  assert.doesNotMatch(layout, /getHome\(/)
   assert.match(home, /inject\(['"]public-home-publication['"]\)/)
-  assert.doesNotMatch(home, /createPublicContentState|createPublishedDocumentCodec/)
+  assert.doesNotMatch(home, /createPublicContentState|createPublishedDocumentCodec|localStorage|releaseVersion/)
   assert.doesNotMatch(home, /loadModels|pageSize/)
-  assert.match(home, /state\.value\.site\.status === ['"]error['"] \? ['"]error['"]/)
-  assert.match(home, /const load = \(\) => loadHome\(\)/)
-  assert.match(home, /@retry\s*=\s*(["'])load\1/)
+  assert.match(home, /dynamicState\.value\.status === ['"]ready['"]/)
+  assert.doesNotMatch(home, /@retry|PublicContentState|暂时无法显示内容/)
   const linkTargets = routerLinkTargets(home)
   assert.ok(linkTargets.includes('/chat'), 'homepage uses a RouterLink resolving to /chat')
   assert.ok(linkTargets.includes('/pricing'), 'homepage uses a RouterLink resolving to /pricing')
   assert.doesNotMatch(`${layout}${home}${header}${footer}`, /href=["']#["']/)
 })
+
+test('fixed homepage and shell never depend on published document navigation or failure cards', () => {
+  const layout = source('../../layouts/PublicLayout.vue')
+  const home = source('./Home.vue')
+  const header = source('../../components/public/PublicHeader.vue')
+  const footer = source('../../components/public/PublicFooter.vue')
+  const copy = source('../../i18n/public-messages.js')
+  assert.match(copy, /一个入口，连接已验证的模型能力/)
+  assert.match(layout, /createPublicHomeContentState/)
+  assert.match(layout, /publicContentApi/)
+  assert.doesNotMatch(layout, /loadCodec|public-document|getHome\s*\(/)
+  assert.doesNotMatch(home, /PublicContentState|public-document|loadHome|暂时无法显示内容/)
+  assert.match(home, /data-section=["']hero["']/)
+  assert.match(home, /data-section=["']advantages["']/)
+  assert.match(home, /data-section=["']cta["']/)
+  assert.match(home, /HomeDynamicContent/)
+  assert.doesNotMatch(`${header}${footer}`, /props:\s*\{\s*links|props\.links|publishedLink|classifyPublicLink/)
+})
+
+test('structured home rich text removes scripts event handlers and dangerous URLs', async () => withPublicDom(async () => {
+  const { router, i18n } = publicComponentStubs()
+  const vueURL = new URL('../../../node_modules/vue/index.mjs', import.meta.url).href
+  const publicSection = dataModule(`import{h}from'${vueURL}';export default{setup(_,{slots}){return()=>h('section',slots.default?.())}}`)
+  const purify = new URL('../../../node_modules/dompurify/dist/purify.es.mjs', import.meta.url).href
+  const dynamic = await compilePublicComponent({
+    path: '../../components/public/HomeDynamicContent.vue', filename: 'HomeDynamicContent.vue', id: 'home-dynamic-contract',
+    replacements: new Map([['vue-router', router], ['@/i18n/public-runtime.js', i18n], ['@/components/public/PublicSection.vue', publicSection], ['dompurify', purify]]),
+  })
+  const clean = dynamic.module.sanitizeHomeHTML('<p onclick="steal()">Ready<script>steal()</script><a href="javascript:steal()">open</a></p>')
+  assert.match(clean, /<p>Ready<a>open<\/a><\/p>/)
+  assert.doesNotMatch(clean, /script|onclick|javascript/i)
+}))
 
 test('about and legal pages expose safe published states and metadata', () => {
   const about = source('./About.vue')
@@ -3077,8 +3098,9 @@ test('public and administrative surfaces retain distinct state identifiers', () 
   for (const status of ['loading', 'preparing', 'idle', 'empty', 'ready-empty', 'error', 'not_found', 'gone']) {
     assert.match(state, new RegExp(`['"]${status}['"]`), status)
   }
-  assert.match(home, /homeStatus !== ['"]ready['"]/)
-  assert.match(home, /status=["']preparing["']/)
+  assert.match(home, /dynamicState\.status === ['"]hidden['"]/)
+  assert.match(home, /aria-live=["']polite["']/)
+  assert.doesNotMatch(home, /PublicContentState|status=["']preparing["']/)
   assert.match(notFound, /(?:>|aria-label=["'][^"']*)404(?:<|["'])/)
   assert.match(publicApi, /401:\s*['"]authentication_required['"]/)
   assert.match(publicApi, /404:\s*['"]not_found['"]/)
@@ -3100,7 +3122,7 @@ test('public publication ownership remains in the layout and every consumer canc
   const pricing = source('./Pricing.vue')
   const detail = source('./ModelPricingDetail.vue')
 
-  assert.match(layout, /provide\('public-home-publication', \{ store, publication, ready, loadHome: lifecycle\.loadHome, loadPage: lifecycle\.loadPage \}\)/)
+  assert.match(layout, /provide\('public-home-publication', \{ store, homeContent, publication, ready, loadHome: lifecycle\.loadHome, loadPage: lifecycle\.loadPage \}\)/)
   assert.match(layout, /onUnmounted\(lifecycle\.dispose\)/)
   for (const consumer of [home, about, legal, pricing, detail]) assert.match(consumer, /inject\(['"]public-home-publication['"]\)/)
   assert.match(pricing, /onBeforeUnmount\([\s\S]*store\.cancel\(['"]models['"]\)/)
@@ -3125,6 +3147,7 @@ test('public pages are lazy routes and styles cover themes, breakpoints and redu
 
 test('public content pages compose the approved safe landing system', () => {
   const home = source('./Home.vue')
+  const dynamicHome = source('../../components/public/HomeDynamicContent.vue')
   const hero = source('../../components/public/HeroPreview.vue')
   const section = source('../../components/public/PublicSection.vue')
   const styles = source('../../styles/public-content.scss')
@@ -3152,10 +3175,11 @@ test('public content pages compose the approved safe landing system', () => {
   assertNoTailwindLoading(publicStyleSources, vueSources)
 
   assert.equal(renderedComponentIsWired(home, 'HeroPreview', 'HeroPreview.vue'), 1, 'the rendered home tree contains one reachable hero imported from HeroPreview.vue')
-  assert.ok(renderedComponentIsWired(home, 'PublicSection', 'PublicSection.vue') >= 3, 'the rendered home tree contains at least three reachable sections imported from PublicSection.vue')
+  assert.ok(renderedComponentIsWired(home, 'PublicSection', 'PublicSection.vue') >= 1, 'the fixed home tree contains its advantages section')
+  assert.equal(renderedComponentIsWired(home, 'HomeDynamicContent', 'HomeDynamicContent.vue'), 1, 'the rendered home tree contains the optional structured-content component')
   const composedSections = elements(home, 'PublicSection')
   assert.ok(composedSections.some(node => staticAttribute(node, 'id') === 'advantages'), 'advantages keeps the real fragment target')
-  assert.ok(composedSections.some(node => staticAttribute(node, 'id') === 'models'), 'models keeps the real fragment target')
+  assert.ok(elements(dynamicHome, 'PublicSection').some(node => staticAttribute(node, 'id') === 'models'), 'optional model wall keeps the real fragment target')
   assert.match(header, /public-brand__mark/)
   assert.match(header, /['"]AI['"]/)
   assert.match(header, /scrolled/)
@@ -3163,7 +3187,7 @@ test('public content pages compose the approved safe landing system', () => {
   assert.match(header, /removeEventListener\(['"]scroll['"]/)
   assert.match(header, /afterEach\(closeMenu\)/)
   assert.match(header, /event\.key === ['"]Escape['"]/)
-  assert.match(`${header}${footer}`, /noopener noreferrer/)
+  assert.doesNotMatch(`${header}${footer}`, /classifyPublicLink|publishedLink|props\.links/)
   assert.match(styles, /hero-preview__provider/)
   assert.match(styles, /hero-preview__chrome i:nth-child\(1\)/)
   assert.match(styles, /public-hero__blob/)
