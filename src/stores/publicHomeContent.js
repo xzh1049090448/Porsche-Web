@@ -4,7 +4,18 @@ const SAFE_CODES = new Set(['authentication_required', 'not_found', 'gone', 'una
 const safeRequestId = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : null
 const freezeCopy = value => Array.isArray(value) ? Object.freeze(value.map(freezeCopy)) : value && typeof value === 'object' ? Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, freezeCopy(item)]))) : value
 const snapshot = (status, data = null, error = null) => Object.freeze({ status, data, error })
-const safeError = error => Object.freeze({ code: SAFE_CODES.has(error?.code) ? error.code : 'request_failed', requestId: safeRequestId(error?.requestId) })
+const ownDataValue = (value, key) => {
+  try {
+    if (!value || (typeof value !== 'object' && typeof value !== 'function')) return undefined
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    return descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : undefined
+  } catch { return undefined }
+}
+const safeError = error => {
+  const code = ownDataValue(error, 'code')
+  const requestId = ownDataValue(error, 'requestId')
+  return Object.freeze({ code: SAFE_CODES.has(code) ? code : 'request_failed', requestId: safeRequestId(requestId) })
+}
 
 export function createPublicHomeContentState({ api } = {}) {
   let currentApi = api
@@ -24,7 +35,7 @@ export function createPublicHomeContentState({ api } = {}) {
       value.value = snapshot('ready', data)
       return data
     } catch (error) {
-      if (own !== generation || error?.name === 'AbortError') return null
+      if (own !== generation || ownController.signal.aborted) return null
       value.value = snapshot('hidden', null, safeError(error))
       return null
     } finally {
