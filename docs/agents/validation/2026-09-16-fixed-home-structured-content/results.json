@@ -124,6 +124,7 @@
     "status": "PASS_LIMITED_SCOPE",
     "runner": "visible Chromium via playwright-skill",
     "fixture": "Playwright page.route synthetic API responses; no real 127.0.0.1:8000 backend fixture",
+    "rerun_generated_at": "2026-09-15T17:38:35.356Z",
     "public_scenarios": {
       "total": 11,
       "pass": 11,
@@ -133,6 +134,15 @@
       "total": 1,
       "pass": 1,
       "fail": 0
+    },
+    "persisted_evidence": {
+      "assertions": 234,
+      "requests": 32,
+      "expected_console_errors": 3,
+      "unexpected_console_errors": 0,
+      "page_errors": 0,
+      "stable_route_transitions": "12/12",
+      "representative_pixel_checks": "3/3"
     },
     "covered": [
       "ready and 503 fixed homepage behavior",
@@ -144,7 +154,9 @@
       "mobile menu focus and Escape",
       "horizontal overflow",
       "featured model version/request count",
-      "anonymous Root route rejection"
+      "anonymous Root route rejection",
+      "computed opacity and visibility after two stable animation frames",
+      "dark screenshot light-title pixel evidence"
     ],
     "not_run": [
       "authenticated Root CRUD",
@@ -156,12 +168,13 @@
       "real MySQL/RBAC/transaction backend",
       "production deployment"
     ],
-    "evidence": "browser-results.json"
+    "evidence": "browser-results.json schemaVersion 2 with per-scenario assertions, request metadata, console/page errors, geometry, transition and screenshot evidence"
   },
   "cleanup": {
     "vite_preview_127_0_0_1_4173": "STOPPED",
     "visible_chromium": "CLOSED",
-    "temporary_synthetic_fixture": "NO_SERVER_STARTED"
+    "temporary_synthetic_fixture": "NO_SERVER_STARTED",
+    "post_run_server_detection": []
   },
   "product_blockers": [
     "P08 production content truth criteria remains BLOCKED_PRODUCT"

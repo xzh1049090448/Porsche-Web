@@ -38,14 +38,17 @@
 
 ## 可见浏览器验收
 
-使用 playwright-skill 的可见 Chromium，production preview 位于 `127.0.0.1:4173`。API 通过 `page.route` 提供确定性合成响应，未启动真实 `127.0.0.1:8000` 后端 fixture；这是相对原计划的明确偏差。
+使用 playwright-skill 的可见 Chromium 重新执行完整矩阵，production preview 临时位于 `127.0.0.1:4173`。API 通过 `page.route` 提供确定性合成响应，未启动真实 `127.0.0.1:8000` 后端 fixture；这是相对原计划的明确偏差。重跑结束后 Chromium 和 preview 均已关闭，server detection 返回空列表。
 
-- 公共 ready/503：11/11 PASS。
+- 公共 ready/503：11/11 PASS；匿名 Root 路由拒绝：1/1 PASS。
 - 视口：375、390、768、1280、1600；light/dark 代表场景；390/1280 中英文。
 - 验证固定 Hero/proof/advantages/CTA、结构化公告/FAQ/精选模型、同代价格版本与单次详情请求。
 - 503 只隐藏动态区块，固定主体立即存在，不显示“暂时无法显示内容”。
 - 无水平溢出；390px 可见控件达到 44px；移动菜单首项聚焦、Escape 关闭并恢复触发器；reduced-motion 生效。
-- 匿名访问 `/admin/public-content`：1/1 PASS，跳转 `/login?redirect=/admin/public-content`，编辑器不可见。
+- 每个场景均持久化 URL、角色、viewport、主题、语言、模式、reduced-motion、内容/价格版本、逐条 assertion、请求 method/path/count/status/release metadata、console/page errors、geometry 和最终状态；共 234 项断言、32 条脱敏请求记录、0 项意外 console error、0 page error。
+- `.public-home` 与 `.auth-page` 均在无 enter/leave class、computed opacity `1`、visibility `visible` 后连续两个 RAF 稳定，12/12 PASS。首轮截图捕获到过渡时序竞态后未采信；加入 420ms 非 reduced-motion/40ms reduced-motion 的稳定窗口并完整重跑。
+- 三张代表截图均在最终稳定状态重拍并通过 PNG 像素检查。`ready-1280-dark.png` 的标题 computed color 为 `rgb(248, 250, 252)`，标题框中匹配浅色文字像素 7623 个，route opacity 为 `1`。
+- 匿名访问 `/admin/public-content` 跳转 `/login?redirect=/admin/public-content`，编辑器不可见。
 
 已认证 Root CRUD、预览、校验、发布、历史和恢复没有在本轮浏览器中执行，状态为 `NOT_RUN`。截图只包含公开合成文案，不含凭据、token、ticket、密码或业务数据。
 

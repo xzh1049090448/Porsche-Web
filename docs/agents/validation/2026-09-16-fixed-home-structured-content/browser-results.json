@@ -1,381 +1,3066 @@
 {
+  "schemaVersion": 2,
   "target": "http://127.0.0.1:4173",
+  "role": "anonymous",
   "fixture": "playwright-page-route-fulfill",
-  "generatedAt": "2026-09-15T16:56:57.533Z",
+  "fixtureDeviation": "Synthetic Playwright page.route responses against a production Vite preview; no real backend server.",
+  "generatedAt": "2026-09-15T17:38:35.356Z",
   "publicScenarios": [
     {
       "name": "ready-375-light-zh",
+      "url": "http://127.0.0.1:4173/",
+      "role": "anonymous",
+      "viewport": {
+        "width": 375,
+        "height": 900
+      },
       "width": 375,
+      "height": 900,
       "theme": "light",
       "locale": "zh",
       "mode": "ready",
-      "reduced": false,
+      "reducedMotion": false,
+      "contentReleaseVersion": 2,
+      "priceReleaseVersion": 3,
+      "assertions": [
+        {
+          "name": "route-transition-stable",
+          "pass": true,
+          "actual": {
+            "selector": ".public-home",
+            "opacity": "1",
+            "visibility": "visible",
+            "transitionClasses": [],
+            "className": "public-home",
+            "stableFrames": 2
+          }
+        },
+        {
+          "name": "fixed-hero-title",
+          "pass": true,
+          "actual": "一个入口，连接已验证的模型能力"
+        },
+        {
+          "name": "fixed-section-hero",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-proof",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-advantages",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-cta",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "no-full-page-unavailable-copy",
+          "pass": true,
+          "actual": "forbidden copy absent"
+        },
+        {
+          "name": "published-announcement-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "published-faq-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-request-exactly-once",
+          "pass": true,
+          "actual": [
+            {
+              "method": "GET",
+              "path": "/api/v1/public/models/model-a",
+              "query": "",
+              "count": 1,
+              "status": 200,
+              "releaseMetadata": {
+                "headerReleaseVersion": "3",
+                "contentReleaseVersion": null,
+                "priceReleaseVersion": 3
+              }
+            }
+          ]
+        },
+        {
+          "name": "no-horizontal-overflow",
+          "pass": true,
+          "actual": {
+            "documentScrollWidth": 360,
+            "documentClientWidth": 360,
+            "bodyScrollWidth": 360,
+            "bodyClientWidth": 360,
+            "rootWidth": 360,
+            "lang": "zh-CN",
+            "theme": "light",
+            "titleColor": "rgb(17, 24, 39)",
+            "titleVisibility": "visible",
+            "titleOpacity": "1",
+            "titleBox": {
+              "x": 16,
+              "y": 170,
+              "width": 328,
+              "height": 73.4375
+            }
+          }
+        },
+        {
+          "name": "document-locale",
+          "pass": true,
+          "actual": "zh-CN"
+        },
+        {
+          "name": "document-theme",
+          "pass": true,
+          "actual": "light"
+        },
+        {
+          "name": "title-visible",
+          "pass": true,
+          "actual": {
+            "visibility": "visible",
+            "opacity": "1",
+            "box": {
+              "x": 16,
+              "y": 170,
+              "width": 328,
+              "height": 73.4375
+            }
+          }
+        },
+        {
+          "name": "mobile-touch-targets-at-least-44px",
+          "pass": true,
+          "actual": [
+            {
+              "className": "public-nav-toggle",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-locale",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-theme",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-button",
+              "width": 123.0625,
+              "height": 44
+            },
+            {
+              "className": "public-button public-button--secondary",
+              "width": 126,
+              "height": 44
+            },
+            {
+              "className": "public-button public-button--light",
+              "width": 123.0625,
+              "height": 44
+            }
+          ]
+        },
+        {
+          "name": "mobile-menu-opens",
+          "pass": true,
+          "actual": "true"
+        },
+        {
+          "name": "mobile-menu-first-link-focused",
+          "pass": true,
+          "actual": "A"
+        },
+        {
+          "name": "mobile-menu-closes-on-escape",
+          "pass": true,
+          "actual": "false"
+        },
+        {
+          "name": "mobile-menu-restores-trigger-focus",
+          "pass": true,
+          "actual": "public-nav-toggle"
+        },
+        {
+          "name": "console-errors-match-expectation",
+          "pass": true,
+          "actual": {
+            "actual": [],
+            "unexpected": []
+          }
+        },
+        {
+          "name": "page-errors-empty",
+          "pass": true,
+          "actual": []
+        }
+      ],
       "requests": [
         {
           "method": "GET",
           "path": "/api/v1/public/site",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/home-config",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "2",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/models/model-a",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": null,
+            "priceReleaseVersion": 3
+          }
         }
       ],
+      "consoleErrors": [],
+      "pageErrors": [],
       "expectedErrors": [],
       "geometry": {
-        "scrollWidth": 360,
-        "clientWidth": 360,
+        "documentScrollWidth": 360,
+        "documentClientWidth": 360,
+        "bodyScrollWidth": 360,
+        "bodyClientWidth": 360,
+        "rootWidth": 360,
         "lang": "zh-CN",
-        "theme": "light"
+        "theme": "light",
+        "titleColor": "rgb(17, 24, 39)",
+        "titleVisibility": "visible",
+        "titleOpacity": "1",
+        "titleBox": {
+          "x": 16,
+          "y": 170,
+          "width": 328,
+          "height": 73.4375
+        }
       },
+      "transition": {
+        "selector": ".public-home",
+        "opacity": "1",
+        "visibility": "visible",
+        "transitionClasses": [],
+        "className": "public-home",
+        "stableFrames": 2
+      },
+      "screenshotEvidence": null,
       "status": "PASS"
     },
     {
       "name": "ready-390-light-zh",
+      "url": "http://127.0.0.1:4173/",
+      "role": "anonymous",
+      "viewport": {
+        "width": 390,
+        "height": 900
+      },
       "width": 390,
+      "height": 900,
       "theme": "light",
       "locale": "zh",
       "mode": "ready",
-      "reduced": true,
-      "screenshot": "ready-390-light.png",
+      "reducedMotion": true,
+      "contentReleaseVersion": 2,
+      "priceReleaseVersion": 3,
+      "assertions": [
+        {
+          "name": "route-transition-stable",
+          "pass": true,
+          "actual": {
+            "selector": ".public-home",
+            "opacity": "1",
+            "visibility": "visible",
+            "transitionClasses": [],
+            "className": "public-home",
+            "stableFrames": 2
+          }
+        },
+        {
+          "name": "fixed-hero-title",
+          "pass": true,
+          "actual": "一个入口，连接已验证的模型能力"
+        },
+        {
+          "name": "fixed-section-hero",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-proof",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-advantages",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-cta",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "no-full-page-unavailable-copy",
+          "pass": true,
+          "actual": "forbidden copy absent"
+        },
+        {
+          "name": "published-announcement-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "published-faq-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-request-exactly-once",
+          "pass": true,
+          "actual": [
+            {
+              "method": "GET",
+              "path": "/api/v1/public/models/model-a",
+              "query": "",
+              "count": 1,
+              "status": 200,
+              "releaseMetadata": {
+                "headerReleaseVersion": "3",
+                "contentReleaseVersion": null,
+                "priceReleaseVersion": 3
+              }
+            }
+          ]
+        },
+        {
+          "name": "no-horizontal-overflow",
+          "pass": true,
+          "actual": {
+            "documentScrollWidth": 375,
+            "documentClientWidth": 375,
+            "bodyScrollWidth": 375,
+            "bodyClientWidth": 375,
+            "rootWidth": 375,
+            "lang": "zh-CN",
+            "theme": "light",
+            "titleColor": "rgb(17, 24, 39)",
+            "titleVisibility": "visible",
+            "titleOpacity": "1",
+            "titleBox": {
+              "x": 16,
+              "y": 170,
+              "width": 343,
+              "height": 73.4375
+            }
+          }
+        },
+        {
+          "name": "document-locale",
+          "pass": true,
+          "actual": "zh-CN"
+        },
+        {
+          "name": "document-theme",
+          "pass": true,
+          "actual": "light"
+        },
+        {
+          "name": "title-visible",
+          "pass": true,
+          "actual": {
+            "visibility": "visible",
+            "opacity": "1",
+            "box": {
+              "x": 16,
+              "y": 170,
+              "width": 343,
+              "height": 73.4375
+            }
+          }
+        },
+        {
+          "name": "reduced-motion-animation-disabled",
+          "pass": true,
+          "actual": {
+            "animationName": "none",
+            "transitionDuration": "1e-05s"
+          }
+        },
+        {
+          "name": "reduced-motion-transition-immediate",
+          "pass": true,
+          "actual": {
+            "animationName": "none",
+            "transitionDuration": "1e-05s"
+          }
+        },
+        {
+          "name": "mobile-touch-targets-at-least-44px",
+          "pass": true,
+          "actual": [
+            {
+              "className": "public-nav-toggle",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-locale",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-theme",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-button",
+              "width": 123.0625,
+              "height": 44
+            },
+            {
+              "className": "public-button public-button--secondary",
+              "width": 126,
+              "height": 44
+            },
+            {
+              "className": "public-button public-button--light",
+              "width": 123.0625,
+              "height": 44
+            }
+          ]
+        },
+        {
+          "name": "mobile-menu-opens",
+          "pass": true,
+          "actual": "true"
+        },
+        {
+          "name": "mobile-menu-first-link-focused",
+          "pass": true,
+          "actual": "A"
+        },
+        {
+          "name": "mobile-menu-closes-on-escape",
+          "pass": true,
+          "actual": "false"
+        },
+        {
+          "name": "mobile-menu-restores-trigger-focus",
+          "pass": true,
+          "actual": "public-nav-toggle"
+        },
+        {
+          "name": "screenshot-captured-after-stable-route",
+          "pass": true,
+          "actual": {
+            "file": "ready-390-light.png",
+            "titleBox": {
+              "x": 16,
+              "y": 170,
+              "width": 343,
+              "height": 73.4375
+            },
+            "titleColor": "rgb(17, 24, 39)",
+            "routeOpacity": "1"
+          }
+        },
+        {
+          "name": "console-errors-match-expectation",
+          "pass": true,
+          "actual": {
+            "actual": [],
+            "unexpected": []
+          }
+        },
+        {
+          "name": "page-errors-empty",
+          "pass": true,
+          "actual": []
+        },
+        {
+          "name": "screenshot-pixels-readable-and-nonblank",
+          "pass": true,
+          "actual": {
+            "imageWidth": 375,
+            "imageHeight": 3932,
+            "crop": {
+              "left": 16,
+              "top": 170,
+              "right": 359,
+              "bottom": 244
+            },
+            "sampledPixels": 25382,
+            "luminanceMean": 197.802,
+            "luminanceStdDev": 83.421,
+            "nearComputedTitleColorPixels": 3857
+          }
+        }
+      ],
       "requests": [
         {
           "method": "GET",
           "path": "/api/v1/public/site",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/home-config",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "2",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/models/model-a",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": null,
+            "priceReleaseVersion": 3
+          }
         }
       ],
+      "consoleErrors": [],
+      "pageErrors": [],
       "expectedErrors": [],
       "geometry": {
-        "scrollWidth": 375,
-        "clientWidth": 375,
+        "documentScrollWidth": 375,
+        "documentClientWidth": 375,
+        "bodyScrollWidth": 375,
+        "bodyClientWidth": 375,
+        "rootWidth": 375,
         "lang": "zh-CN",
-        "theme": "light"
+        "theme": "light",
+        "titleColor": "rgb(17, 24, 39)",
+        "titleVisibility": "visible",
+        "titleOpacity": "1",
+        "titleBox": {
+          "x": 16,
+          "y": 170,
+          "width": 343,
+          "height": 73.4375
+        }
+      },
+      "transition": {
+        "selector": ".public-home",
+        "opacity": "1",
+        "visibility": "visible",
+        "transitionClasses": [],
+        "className": "public-home",
+        "stableFrames": 2
+      },
+      "screenshotEvidence": {
+        "file": "ready-390-light.png",
+        "titleBox": {
+          "x": 16,
+          "y": 170,
+          "width": 343,
+          "height": 73.4375
+        },
+        "titleColor": "rgb(17, 24, 39)",
+        "routeOpacity": "1",
+        "pixelEvidence": {
+          "imageWidth": 375,
+          "imageHeight": 3932,
+          "crop": {
+            "left": 16,
+            "top": 170,
+            "right": 359,
+            "bottom": 244
+          },
+          "sampledPixels": 25382,
+          "luminanceMean": 197.802,
+          "luminanceStdDev": 83.421,
+          "nearComputedTitleColorPixels": 3857
+        }
       },
       "status": "PASS"
     },
     {
       "name": "ready-768-light-zh",
+      "url": "http://127.0.0.1:4173/",
+      "role": "anonymous",
+      "viewport": {
+        "width": 768,
+        "height": 900
+      },
       "width": 768,
+      "height": 900,
       "theme": "light",
       "locale": "zh",
       "mode": "ready",
-      "reduced": false,
+      "reducedMotion": false,
+      "contentReleaseVersion": 2,
+      "priceReleaseVersion": 3,
+      "assertions": [
+        {
+          "name": "route-transition-stable",
+          "pass": true,
+          "actual": {
+            "selector": ".public-home",
+            "opacity": "1",
+            "visibility": "visible",
+            "transitionClasses": [],
+            "className": "public-home",
+            "stableFrames": 2
+          }
+        },
+        {
+          "name": "fixed-hero-title",
+          "pass": true,
+          "actual": "一个入口，连接已验证的模型能力"
+        },
+        {
+          "name": "fixed-section-hero",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-proof",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-advantages",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-cta",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "no-full-page-unavailable-copy",
+          "pass": true,
+          "actual": "forbidden copy absent"
+        },
+        {
+          "name": "published-announcement-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "published-faq-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-request-exactly-once",
+          "pass": true,
+          "actual": [
+            {
+              "method": "GET",
+              "path": "/api/v1/public/models/model-a",
+              "query": "",
+              "count": 1,
+              "status": 200,
+              "releaseMetadata": {
+                "headerReleaseVersion": "3",
+                "contentReleaseVersion": null,
+                "priceReleaseVersion": 3
+              }
+            }
+          ]
+        },
+        {
+          "name": "no-horizontal-overflow",
+          "pass": true,
+          "actual": {
+            "documentScrollWidth": 753,
+            "documentClientWidth": 753,
+            "bodyScrollWidth": 753,
+            "bodyClientWidth": 753,
+            "rootWidth": 753,
+            "lang": "zh-CN",
+            "theme": "light",
+            "titleColor": "rgb(17, 24, 39)",
+            "titleVisibility": "visible",
+            "titleOpacity": "1",
+            "titleBox": {
+              "x": 24,
+              "y": 276.6875,
+              "width": 341,
+              "height": 95.03125
+            }
+          }
+        },
+        {
+          "name": "document-locale",
+          "pass": true,
+          "actual": "zh-CN"
+        },
+        {
+          "name": "document-theme",
+          "pass": true,
+          "actual": "light"
+        },
+        {
+          "name": "title-visible",
+          "pass": true,
+          "actual": {
+            "visibility": "visible",
+            "opacity": "1",
+            "box": {
+              "x": 24,
+              "y": 276.6875,
+              "width": 341,
+              "height": 95.03125
+            }
+          }
+        },
+        {
+          "name": "console-errors-match-expectation",
+          "pass": true,
+          "actual": {
+            "actual": [],
+            "unexpected": []
+          }
+        },
+        {
+          "name": "page-errors-empty",
+          "pass": true,
+          "actual": []
+        }
+      ],
       "requests": [
         {
           "method": "GET",
           "path": "/api/v1/public/site",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/home-config",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "2",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/models/model-a",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": null,
+            "priceReleaseVersion": 3
+          }
         }
       ],
+      "consoleErrors": [],
+      "pageErrors": [],
       "expectedErrors": [],
       "geometry": {
-        "scrollWidth": 753,
-        "clientWidth": 753,
+        "documentScrollWidth": 753,
+        "documentClientWidth": 753,
+        "bodyScrollWidth": 753,
+        "bodyClientWidth": 753,
+        "rootWidth": 753,
         "lang": "zh-CN",
-        "theme": "light"
+        "theme": "light",
+        "titleColor": "rgb(17, 24, 39)",
+        "titleVisibility": "visible",
+        "titleOpacity": "1",
+        "titleBox": {
+          "x": 24,
+          "y": 276.6875,
+          "width": 341,
+          "height": 95.03125
+        }
       },
+      "transition": {
+        "selector": ".public-home",
+        "opacity": "1",
+        "visibility": "visible",
+        "transitionClasses": [],
+        "className": "public-home",
+        "stableFrames": 2
+      },
+      "screenshotEvidence": null,
       "status": "PASS"
     },
     {
       "name": "ready-1280-light-zh",
+      "url": "http://127.0.0.1:4173/",
+      "role": "anonymous",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
       "width": 1280,
+      "height": 900,
       "theme": "light",
       "locale": "zh",
       "mode": "ready",
-      "reduced": false,
+      "reducedMotion": false,
+      "contentReleaseVersion": 2,
+      "priceReleaseVersion": 3,
+      "assertions": [
+        {
+          "name": "route-transition-stable",
+          "pass": true,
+          "actual": {
+            "selector": ".public-home",
+            "opacity": "1",
+            "visibility": "visible",
+            "transitionClasses": [],
+            "className": "public-home",
+            "stableFrames": 2
+          }
+        },
+        {
+          "name": "fixed-hero-title",
+          "pass": true,
+          "actual": "一个入口，连接已验证的模型能力"
+        },
+        {
+          "name": "fixed-section-hero",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-proof",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-advantages",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-cta",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "no-full-page-unavailable-copy",
+          "pass": true,
+          "actual": "forbidden copy absent"
+        },
+        {
+          "name": "published-announcement-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "published-faq-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-request-exactly-once",
+          "pass": true,
+          "actual": [
+            {
+              "method": "GET",
+              "path": "/api/v1/public/models/model-a",
+              "query": "",
+              "count": 1,
+              "status": 200,
+              "releaseMetadata": {
+                "headerReleaseVersion": "3",
+                "contentReleaseVersion": null,
+                "priceReleaseVersion": 3
+              }
+            }
+          ]
+        },
+        {
+          "name": "no-horizontal-overflow",
+          "pass": true,
+          "actual": {
+            "documentScrollWidth": 1265,
+            "documentClientWidth": 1265,
+            "bodyScrollWidth": 1265,
+            "bodyClientWidth": 1265,
+            "rootWidth": 1265,
+            "lang": "zh-CN",
+            "theme": "light",
+            "titleColor": "rgb(17, 24, 39)",
+            "titleVisibility": "visible",
+            "titleOpacity": "1",
+            "titleBox": {
+              "x": 32.5,
+              "y": 314.84375,
+              "width": 650,
+              "height": 47.515625
+            }
+          }
+        },
+        {
+          "name": "document-locale",
+          "pass": true,
+          "actual": "zh-CN"
+        },
+        {
+          "name": "document-theme",
+          "pass": true,
+          "actual": "light"
+        },
+        {
+          "name": "title-visible",
+          "pass": true,
+          "actual": {
+            "visibility": "visible",
+            "opacity": "1",
+            "box": {
+              "x": 32.5,
+              "y": 314.84375,
+              "width": 650,
+              "height": 47.515625
+            }
+          }
+        },
+        {
+          "name": "console-errors-match-expectation",
+          "pass": true,
+          "actual": {
+            "actual": [],
+            "unexpected": []
+          }
+        },
+        {
+          "name": "page-errors-empty",
+          "pass": true,
+          "actual": []
+        }
+      ],
       "requests": [
         {
           "method": "GET",
           "path": "/api/v1/public/site",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/home-config",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "2",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/models/model-a",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": null,
+            "priceReleaseVersion": 3
+          }
         }
       ],
+      "consoleErrors": [],
+      "pageErrors": [],
       "expectedErrors": [],
       "geometry": {
-        "scrollWidth": 1265,
-        "clientWidth": 1265,
+        "documentScrollWidth": 1265,
+        "documentClientWidth": 1265,
+        "bodyScrollWidth": 1265,
+        "bodyClientWidth": 1265,
+        "rootWidth": 1265,
         "lang": "zh-CN",
-        "theme": "light"
+        "theme": "light",
+        "titleColor": "rgb(17, 24, 39)",
+        "titleVisibility": "visible",
+        "titleOpacity": "1",
+        "titleBox": {
+          "x": 32.5,
+          "y": 314.84375,
+          "width": 650,
+          "height": 47.515625
+        }
       },
+      "transition": {
+        "selector": ".public-home",
+        "opacity": "1",
+        "visibility": "visible",
+        "transitionClasses": [],
+        "className": "public-home",
+        "stableFrames": 2
+      },
+      "screenshotEvidence": null,
       "status": "PASS"
     },
     {
       "name": "ready-1600-light-zh",
+      "url": "http://127.0.0.1:4173/",
+      "role": "anonymous",
+      "viewport": {
+        "width": 1600,
+        "height": 900
+      },
       "width": 1600,
+      "height": 900,
       "theme": "light",
       "locale": "zh",
       "mode": "ready",
-      "reduced": false,
+      "reducedMotion": false,
+      "contentReleaseVersion": 2,
+      "priceReleaseVersion": 3,
+      "assertions": [
+        {
+          "name": "route-transition-stable",
+          "pass": true,
+          "actual": {
+            "selector": ".public-home",
+            "opacity": "1",
+            "visibility": "visible",
+            "transitionClasses": [],
+            "className": "public-home",
+            "stableFrames": 2
+          }
+        },
+        {
+          "name": "fixed-hero-title",
+          "pass": true,
+          "actual": "一个入口，连接已验证的模型能力"
+        },
+        {
+          "name": "fixed-section-hero",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-proof",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-advantages",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-cta",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "no-full-page-unavailable-copy",
+          "pass": true,
+          "actual": "forbidden copy absent"
+        },
+        {
+          "name": "published-announcement-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "published-faq-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-request-exactly-once",
+          "pass": true,
+          "actual": [
+            {
+              "method": "GET",
+              "path": "/api/v1/public/models/model-a",
+              "query": "",
+              "count": 1,
+              "status": 200,
+              "releaseMetadata": {
+                "headerReleaseVersion": "3",
+                "contentReleaseVersion": null,
+                "priceReleaseVersion": 3
+              }
+            }
+          ]
+        },
+        {
+          "name": "no-horizontal-overflow",
+          "pass": true,
+          "actual": {
+            "documentScrollWidth": 1585,
+            "documentClientWidth": 1585,
+            "bodyScrollWidth": 1585,
+            "bodyClientWidth": 1585,
+            "rootWidth": 1585,
+            "lang": "zh-CN",
+            "theme": "light",
+            "titleColor": "rgb(17, 24, 39)",
+            "titleVisibility": "visible",
+            "titleOpacity": "1",
+            "titleBox": {
+              "x": 192.5,
+              "y": 314.84375,
+              "width": 650,
+              "height": 47.515625
+            }
+          }
+        },
+        {
+          "name": "document-locale",
+          "pass": true,
+          "actual": "zh-CN"
+        },
+        {
+          "name": "document-theme",
+          "pass": true,
+          "actual": "light"
+        },
+        {
+          "name": "title-visible",
+          "pass": true,
+          "actual": {
+            "visibility": "visible",
+            "opacity": "1",
+            "box": {
+              "x": 192.5,
+              "y": 314.84375,
+              "width": 650,
+              "height": 47.515625
+            }
+          }
+        },
+        {
+          "name": "console-errors-match-expectation",
+          "pass": true,
+          "actual": {
+            "actual": [],
+            "unexpected": []
+          }
+        },
+        {
+          "name": "page-errors-empty",
+          "pass": true,
+          "actual": []
+        }
+      ],
       "requests": [
         {
           "method": "GET",
           "path": "/api/v1/public/site",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/home-config",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "2",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/models/model-a",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": null,
+            "priceReleaseVersion": 3
+          }
         }
       ],
+      "consoleErrors": [],
+      "pageErrors": [],
       "expectedErrors": [],
       "geometry": {
-        "scrollWidth": 1585,
-        "clientWidth": 1585,
+        "documentScrollWidth": 1585,
+        "documentClientWidth": 1585,
+        "bodyScrollWidth": 1585,
+        "bodyClientWidth": 1585,
+        "rootWidth": 1585,
         "lang": "zh-CN",
-        "theme": "light"
+        "theme": "light",
+        "titleColor": "rgb(17, 24, 39)",
+        "titleVisibility": "visible",
+        "titleOpacity": "1",
+        "titleBox": {
+          "x": 192.5,
+          "y": 314.84375,
+          "width": 650,
+          "height": 47.515625
+        }
       },
+      "transition": {
+        "selector": ".public-home",
+        "opacity": "1",
+        "visibility": "visible",
+        "transitionClasses": [],
+        "className": "public-home",
+        "stableFrames": 2
+      },
+      "screenshotEvidence": null,
       "status": "PASS"
     },
     {
       "name": "ready-390-dark-zh",
+      "url": "http://127.0.0.1:4173/",
+      "role": "anonymous",
+      "viewport": {
+        "width": 390,
+        "height": 900
+      },
       "width": 390,
+      "height": 900,
       "theme": "dark",
       "locale": "zh",
       "mode": "ready",
-      "reduced": true,
+      "reducedMotion": true,
+      "contentReleaseVersion": 2,
+      "priceReleaseVersion": 3,
+      "assertions": [
+        {
+          "name": "route-transition-stable",
+          "pass": true,
+          "actual": {
+            "selector": ".public-home",
+            "opacity": "1",
+            "visibility": "visible",
+            "transitionClasses": [],
+            "className": "public-home",
+            "stableFrames": 2
+          }
+        },
+        {
+          "name": "fixed-hero-title",
+          "pass": true,
+          "actual": "一个入口，连接已验证的模型能力"
+        },
+        {
+          "name": "fixed-section-hero",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-proof",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-advantages",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-cta",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "no-full-page-unavailable-copy",
+          "pass": true,
+          "actual": "forbidden copy absent"
+        },
+        {
+          "name": "published-announcement-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "published-faq-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-request-exactly-once",
+          "pass": true,
+          "actual": [
+            {
+              "method": "GET",
+              "path": "/api/v1/public/models/model-a",
+              "query": "",
+              "count": 1,
+              "status": 200,
+              "releaseMetadata": {
+                "headerReleaseVersion": "3",
+                "contentReleaseVersion": null,
+                "priceReleaseVersion": 3
+              }
+            }
+          ]
+        },
+        {
+          "name": "no-horizontal-overflow",
+          "pass": true,
+          "actual": {
+            "documentScrollWidth": 375,
+            "documentClientWidth": 375,
+            "bodyScrollWidth": 375,
+            "bodyClientWidth": 375,
+            "rootWidth": 375,
+            "lang": "zh-CN",
+            "theme": "dark",
+            "titleColor": "rgb(248, 250, 252)",
+            "titleVisibility": "visible",
+            "titleOpacity": "1",
+            "titleBox": {
+              "x": 16,
+              "y": 170,
+              "width": 343,
+              "height": 73.4375
+            }
+          }
+        },
+        {
+          "name": "document-locale",
+          "pass": true,
+          "actual": "zh-CN"
+        },
+        {
+          "name": "document-theme",
+          "pass": true,
+          "actual": "dark"
+        },
+        {
+          "name": "title-visible",
+          "pass": true,
+          "actual": {
+            "visibility": "visible",
+            "opacity": "1",
+            "box": {
+              "x": 16,
+              "y": 170,
+              "width": 343,
+              "height": 73.4375
+            }
+          }
+        },
+        {
+          "name": "dark-theme-title-uses-light-text",
+          "pass": true,
+          "actual": {
+            "color": "rgb(248, 250, 252)",
+            "luminance": 249.71919999999997
+          }
+        },
+        {
+          "name": "reduced-motion-animation-disabled",
+          "pass": true,
+          "actual": {
+            "animationName": "none",
+            "transitionDuration": "1e-05s"
+          }
+        },
+        {
+          "name": "reduced-motion-transition-immediate",
+          "pass": true,
+          "actual": {
+            "animationName": "none",
+            "transitionDuration": "1e-05s"
+          }
+        },
+        {
+          "name": "mobile-touch-targets-at-least-44px",
+          "pass": true,
+          "actual": [
+            {
+              "className": "public-nav-toggle",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-locale",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-theme",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-button",
+              "width": 123.0625,
+              "height": 44
+            },
+            {
+              "className": "public-button public-button--secondary",
+              "width": 126,
+              "height": 44
+            },
+            {
+              "className": "public-button public-button--light",
+              "width": 123.0625,
+              "height": 44
+            }
+          ]
+        },
+        {
+          "name": "mobile-menu-opens",
+          "pass": true,
+          "actual": "true"
+        },
+        {
+          "name": "mobile-menu-first-link-focused",
+          "pass": true,
+          "actual": "A"
+        },
+        {
+          "name": "mobile-menu-closes-on-escape",
+          "pass": true,
+          "actual": "false"
+        },
+        {
+          "name": "mobile-menu-restores-trigger-focus",
+          "pass": true,
+          "actual": "public-nav-toggle"
+        },
+        {
+          "name": "console-errors-match-expectation",
+          "pass": true,
+          "actual": {
+            "actual": [],
+            "unexpected": []
+          }
+        },
+        {
+          "name": "page-errors-empty",
+          "pass": true,
+          "actual": []
+        }
+      ],
       "requests": [
         {
           "method": "GET",
           "path": "/api/v1/public/site",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/home-config",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "2",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/models/model-a",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": null,
+            "priceReleaseVersion": 3
+          }
         }
       ],
+      "consoleErrors": [],
+      "pageErrors": [],
       "expectedErrors": [],
       "geometry": {
-        "scrollWidth": 375,
-        "clientWidth": 375,
+        "documentScrollWidth": 375,
+        "documentClientWidth": 375,
+        "bodyScrollWidth": 375,
+        "bodyClientWidth": 375,
+        "rootWidth": 375,
         "lang": "zh-CN",
-        "theme": "dark"
+        "theme": "dark",
+        "titleColor": "rgb(248, 250, 252)",
+        "titleVisibility": "visible",
+        "titleOpacity": "1",
+        "titleBox": {
+          "x": 16,
+          "y": 170,
+          "width": 343,
+          "height": 73.4375
+        }
       },
+      "transition": {
+        "selector": ".public-home",
+        "opacity": "1",
+        "visibility": "visible",
+        "transitionClasses": [],
+        "className": "public-home",
+        "stableFrames": 2
+      },
+      "screenshotEvidence": null,
       "status": "PASS"
     },
     {
       "name": "ready-1280-dark-zh",
+      "url": "http://127.0.0.1:4173/",
+      "role": "anonymous",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
       "width": 1280,
+      "height": 900,
       "theme": "dark",
       "locale": "zh",
       "mode": "ready",
-      "reduced": false,
-      "screenshot": "ready-1280-dark.png",
+      "reducedMotion": false,
+      "contentReleaseVersion": 2,
+      "priceReleaseVersion": 3,
+      "assertions": [
+        {
+          "name": "route-transition-stable",
+          "pass": true,
+          "actual": {
+            "selector": ".public-home",
+            "opacity": "1",
+            "visibility": "visible",
+            "transitionClasses": [],
+            "className": "public-home",
+            "stableFrames": 2
+          }
+        },
+        {
+          "name": "fixed-hero-title",
+          "pass": true,
+          "actual": "一个入口，连接已验证的模型能力"
+        },
+        {
+          "name": "fixed-section-hero",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-proof",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-advantages",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-cta",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "no-full-page-unavailable-copy",
+          "pass": true,
+          "actual": "forbidden copy absent"
+        },
+        {
+          "name": "published-announcement-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "published-faq-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-request-exactly-once",
+          "pass": true,
+          "actual": [
+            {
+              "method": "GET",
+              "path": "/api/v1/public/models/model-a",
+              "query": "",
+              "count": 1,
+              "status": 200,
+              "releaseMetadata": {
+                "headerReleaseVersion": "3",
+                "contentReleaseVersion": null,
+                "priceReleaseVersion": 3
+              }
+            }
+          ]
+        },
+        {
+          "name": "no-horizontal-overflow",
+          "pass": true,
+          "actual": {
+            "documentScrollWidth": 1265,
+            "documentClientWidth": 1265,
+            "bodyScrollWidth": 1265,
+            "bodyClientWidth": 1265,
+            "rootWidth": 1265,
+            "lang": "zh-CN",
+            "theme": "dark",
+            "titleColor": "rgb(248, 250, 252)",
+            "titleVisibility": "visible",
+            "titleOpacity": "1",
+            "titleBox": {
+              "x": 32.5,
+              "y": 314.84375,
+              "width": 650,
+              "height": 47.515625
+            }
+          }
+        },
+        {
+          "name": "document-locale",
+          "pass": true,
+          "actual": "zh-CN"
+        },
+        {
+          "name": "document-theme",
+          "pass": true,
+          "actual": "dark"
+        },
+        {
+          "name": "title-visible",
+          "pass": true,
+          "actual": {
+            "visibility": "visible",
+            "opacity": "1",
+            "box": {
+              "x": 32.5,
+              "y": 314.84375,
+              "width": 650,
+              "height": 47.515625
+            }
+          }
+        },
+        {
+          "name": "dark-theme-title-uses-light-text",
+          "pass": true,
+          "actual": {
+            "color": "rgb(248, 250, 252)",
+            "luminance": 249.71919999999997
+          }
+        },
+        {
+          "name": "screenshot-captured-after-stable-route",
+          "pass": true,
+          "actual": {
+            "file": "ready-1280-dark.png",
+            "titleBox": {
+              "x": 32.5,
+              "y": 314.84375,
+              "width": 650,
+              "height": 47.515625
+            },
+            "titleColor": "rgb(248, 250, 252)",
+            "routeOpacity": "1"
+          }
+        },
+        {
+          "name": "console-errors-match-expectation",
+          "pass": true,
+          "actual": {
+            "actual": [],
+            "unexpected": []
+          }
+        },
+        {
+          "name": "page-errors-empty",
+          "pass": true,
+          "actual": []
+        },
+        {
+          "name": "screenshot-pixels-readable-and-nonblank",
+          "pass": true,
+          "actual": {
+            "imageWidth": 1265,
+            "imageHeight": 2792,
+            "crop": {
+              "left": 32,
+              "top": 314,
+              "right": 683,
+              "bottom": 363
+            },
+            "sampledPixels": 31899,
+            "luminanceMean": 161.076,
+            "luminanceStdDev": 76.697,
+            "nearComputedTitleColorPixels": 7623
+          }
+        },
+        {
+          "name": "dark-title-light-pixels-visible-after-transition",
+          "pass": true,
+          "actual": {
+            "computedColor": "rgb(248, 250, 252)",
+            "routeOpacity": "1",
+            "titleVisibility": "visible",
+            "matchingPixels": 7623
+          }
+        }
+      ],
       "requests": [
         {
           "method": "GET",
           "path": "/api/v1/public/site",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/home-config",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "2",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/models/model-a",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": null,
+            "priceReleaseVersion": 3
+          }
         }
       ],
+      "consoleErrors": [],
+      "pageErrors": [],
       "expectedErrors": [],
       "geometry": {
-        "scrollWidth": 1265,
-        "clientWidth": 1265,
+        "documentScrollWidth": 1265,
+        "documentClientWidth": 1265,
+        "bodyScrollWidth": 1265,
+        "bodyClientWidth": 1265,
+        "rootWidth": 1265,
         "lang": "zh-CN",
-        "theme": "dark"
+        "theme": "dark",
+        "titleColor": "rgb(248, 250, 252)",
+        "titleVisibility": "visible",
+        "titleOpacity": "1",
+        "titleBox": {
+          "x": 32.5,
+          "y": 314.84375,
+          "width": 650,
+          "height": 47.515625
+        }
+      },
+      "transition": {
+        "selector": ".public-home",
+        "opacity": "1",
+        "visibility": "visible",
+        "transitionClasses": [],
+        "className": "public-home",
+        "stableFrames": 2
+      },
+      "screenshotEvidence": {
+        "file": "ready-1280-dark.png",
+        "titleBox": {
+          "x": 32.5,
+          "y": 314.84375,
+          "width": 650,
+          "height": 47.515625
+        },
+        "titleColor": "rgb(248, 250, 252)",
+        "routeOpacity": "1",
+        "pixelEvidence": {
+          "imageWidth": 1265,
+          "imageHeight": 2792,
+          "crop": {
+            "left": 32,
+            "top": 314,
+            "right": 683,
+            "bottom": 363
+          },
+          "sampledPixels": 31899,
+          "luminanceMean": 161.076,
+          "luminanceStdDev": 76.697,
+          "nearComputedTitleColorPixels": 7623
+        }
       },
       "status": "PASS"
     },
     {
       "name": "ready-390-light-en",
+      "url": "http://127.0.0.1:4173/",
+      "role": "anonymous",
+      "viewport": {
+        "width": 390,
+        "height": 900
+      },
       "width": 390,
+      "height": 900,
       "theme": "light",
       "locale": "en",
       "mode": "ready",
-      "reduced": false,
+      "reducedMotion": false,
+      "contentReleaseVersion": 2,
+      "priceReleaseVersion": 3,
+      "assertions": [
+        {
+          "name": "route-transition-stable",
+          "pass": true,
+          "actual": {
+            "selector": ".public-home",
+            "opacity": "1",
+            "visibility": "visible",
+            "transitionClasses": [],
+            "className": "public-home",
+            "stableFrames": 2
+          }
+        },
+        {
+          "name": "fixed-hero-title",
+          "pass": true,
+          "actual": "One entry point for verified model capabilities"
+        },
+        {
+          "name": "fixed-section-hero",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-proof",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-advantages",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-cta",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "no-full-page-unavailable-copy",
+          "pass": true,
+          "actual": "forbidden copy absent"
+        },
+        {
+          "name": "published-announcement-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "published-faq-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-request-exactly-once",
+          "pass": true,
+          "actual": [
+            {
+              "method": "GET",
+              "path": "/api/v1/public/models/model-a",
+              "query": "",
+              "count": 1,
+              "status": 200,
+              "releaseMetadata": {
+                "headerReleaseVersion": "3",
+                "contentReleaseVersion": null,
+                "priceReleaseVersion": 3
+              }
+            }
+          ]
+        },
+        {
+          "name": "no-horizontal-overflow",
+          "pass": true,
+          "actual": {
+            "documentScrollWidth": 375,
+            "documentClientWidth": 375,
+            "bodyScrollWidth": 375,
+            "bodyClientWidth": 375,
+            "rootWidth": 375,
+            "lang": "en",
+            "theme": "light",
+            "titleColor": "rgb(17, 24, 39)",
+            "titleVisibility": "visible",
+            "titleOpacity": "1",
+            "titleBox": {
+              "x": 16,
+              "y": 170,
+              "width": 343,
+              "height": 110.15625
+            }
+          }
+        },
+        {
+          "name": "document-locale",
+          "pass": true,
+          "actual": "en"
+        },
+        {
+          "name": "document-theme",
+          "pass": true,
+          "actual": "light"
+        },
+        {
+          "name": "title-visible",
+          "pass": true,
+          "actual": {
+            "visibility": "visible",
+            "opacity": "1",
+            "box": {
+              "x": 16,
+              "y": 170,
+              "width": 343,
+              "height": 110.15625
+            }
+          }
+        },
+        {
+          "name": "mobile-touch-targets-at-least-44px",
+          "pass": true,
+          "actual": [
+            {
+              "className": "public-nav-toggle",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-locale",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-theme",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-button",
+              "width": 146.96875,
+              "height": 44
+            },
+            {
+              "className": "public-button public-button--secondary",
+              "width": 173.390625,
+              "height": 44
+            },
+            {
+              "className": "public-button public-button--light",
+              "width": 146.96875,
+              "height": 44
+            }
+          ]
+        },
+        {
+          "name": "mobile-menu-opens",
+          "pass": true,
+          "actual": "true"
+        },
+        {
+          "name": "mobile-menu-first-link-focused",
+          "pass": true,
+          "actual": "A"
+        },
+        {
+          "name": "mobile-menu-closes-on-escape",
+          "pass": true,
+          "actual": "false"
+        },
+        {
+          "name": "mobile-menu-restores-trigger-focus",
+          "pass": true,
+          "actual": "public-nav-toggle"
+        },
+        {
+          "name": "console-errors-match-expectation",
+          "pass": true,
+          "actual": {
+            "actual": [],
+            "unexpected": []
+          }
+        },
+        {
+          "name": "page-errors-empty",
+          "pass": true,
+          "actual": []
+        }
+      ],
       "requests": [
         {
           "method": "GET",
           "path": "/api/v1/public/site",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/home-config",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "2",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/models/model-a",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": null,
+            "priceReleaseVersion": 3
+          }
         }
       ],
+      "consoleErrors": [],
+      "pageErrors": [],
       "expectedErrors": [],
       "geometry": {
-        "scrollWidth": 375,
-        "clientWidth": 375,
+        "documentScrollWidth": 375,
+        "documentClientWidth": 375,
+        "bodyScrollWidth": 375,
+        "bodyClientWidth": 375,
+        "rootWidth": 375,
         "lang": "en",
-        "theme": "light"
+        "theme": "light",
+        "titleColor": "rgb(17, 24, 39)",
+        "titleVisibility": "visible",
+        "titleOpacity": "1",
+        "titleBox": {
+          "x": 16,
+          "y": 170,
+          "width": 343,
+          "height": 110.15625
+        }
       },
+      "transition": {
+        "selector": ".public-home",
+        "opacity": "1",
+        "visibility": "visible",
+        "transitionClasses": [],
+        "className": "public-home",
+        "stableFrames": 2
+      },
+      "screenshotEvidence": null,
       "status": "PASS"
     },
     {
       "name": "ready-1280-light-en",
+      "url": "http://127.0.0.1:4173/",
+      "role": "anonymous",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
       "width": 1280,
+      "height": 900,
       "theme": "light",
       "locale": "en",
       "mode": "ready",
-      "reduced": false,
+      "reducedMotion": false,
+      "contentReleaseVersion": 2,
+      "priceReleaseVersion": 3,
+      "assertions": [
+        {
+          "name": "route-transition-stable",
+          "pass": true,
+          "actual": {
+            "selector": ".public-home",
+            "opacity": "1",
+            "visibility": "visible",
+            "transitionClasses": [],
+            "className": "public-home",
+            "stableFrames": 2
+          }
+        },
+        {
+          "name": "fixed-hero-title",
+          "pass": true,
+          "actual": "One entry point for verified model capabilities"
+        },
+        {
+          "name": "fixed-section-hero",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-proof",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-advantages",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-cta",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "no-full-page-unavailable-copy",
+          "pass": true,
+          "actual": "forbidden copy absent"
+        },
+        {
+          "name": "published-announcement-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "published-faq-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-visible",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "featured-model-request-exactly-once",
+          "pass": true,
+          "actual": [
+            {
+              "method": "GET",
+              "path": "/api/v1/public/models/model-a",
+              "query": "",
+              "count": 1,
+              "status": 200,
+              "releaseMetadata": {
+                "headerReleaseVersion": "3",
+                "contentReleaseVersion": null,
+                "priceReleaseVersion": 3
+              }
+            }
+          ]
+        },
+        {
+          "name": "no-horizontal-overflow",
+          "pass": true,
+          "actual": {
+            "documentScrollWidth": 1265,
+            "documentClientWidth": 1265,
+            "bodyScrollWidth": 1265,
+            "bodyClientWidth": 1265,
+            "rootWidth": 1265,
+            "lang": "en",
+            "theme": "light",
+            "titleColor": "rgb(17, 24, 39)",
+            "titleVisibility": "visible",
+            "titleOpacity": "1",
+            "titleBox": {
+              "x": 32.5,
+              "y": 276.6875,
+              "width": 650,
+              "height": 95.03125
+            }
+          }
+        },
+        {
+          "name": "document-locale",
+          "pass": true,
+          "actual": "en"
+        },
+        {
+          "name": "document-theme",
+          "pass": true,
+          "actual": "light"
+        },
+        {
+          "name": "title-visible",
+          "pass": true,
+          "actual": {
+            "visibility": "visible",
+            "opacity": "1",
+            "box": {
+              "x": 32.5,
+              "y": 276.6875,
+              "width": 650,
+              "height": 95.03125
+            }
+          }
+        },
+        {
+          "name": "console-errors-match-expectation",
+          "pass": true,
+          "actual": {
+            "actual": [],
+            "unexpected": []
+          }
+        },
+        {
+          "name": "page-errors-empty",
+          "pass": true,
+          "actual": []
+        }
+      ],
       "requests": [
         {
           "method": "GET",
           "path": "/api/v1/public/site",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/home-config",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "2",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/models/model-a",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": null,
+            "priceReleaseVersion": 3
+          }
         }
       ],
+      "consoleErrors": [],
+      "pageErrors": [],
       "expectedErrors": [],
       "geometry": {
-        "scrollWidth": 1265,
-        "clientWidth": 1265,
+        "documentScrollWidth": 1265,
+        "documentClientWidth": 1265,
+        "bodyScrollWidth": 1265,
+        "bodyClientWidth": 1265,
+        "rootWidth": 1265,
         "lang": "en",
-        "theme": "light"
+        "theme": "light",
+        "titleColor": "rgb(17, 24, 39)",
+        "titleVisibility": "visible",
+        "titleOpacity": "1",
+        "titleBox": {
+          "x": 32.5,
+          "y": 276.6875,
+          "width": 650,
+          "height": 95.03125
+        }
       },
+      "transition": {
+        "selector": ".public-home",
+        "opacity": "1",
+        "visibility": "visible",
+        "transitionClasses": [],
+        "className": "public-home",
+        "stableFrames": 2
+      },
+      "screenshotEvidence": null,
       "status": "PASS"
     },
     {
       "name": "unavailable-390-light-zh",
+      "url": "http://127.0.0.1:4173/",
+      "role": "anonymous",
+      "viewport": {
+        "width": 390,
+        "height": 900
+      },
       "width": 390,
+      "height": 900,
       "theme": "light",
       "locale": "zh",
       "mode": "unavailable",
-      "reduced": true,
-      "screenshot": "unavailable-390-light.png",
+      "reducedMotion": true,
+      "contentReleaseVersion": 2,
+      "priceReleaseVersion": 3,
+      "assertions": [
+        {
+          "name": "route-transition-stable",
+          "pass": true,
+          "actual": {
+            "selector": ".public-home",
+            "opacity": "1",
+            "visibility": "visible",
+            "transitionClasses": [],
+            "className": "public-home",
+            "stableFrames": 2
+          }
+        },
+        {
+          "name": "fixed-hero-title",
+          "pass": true,
+          "actual": "一个入口，连接已验证的模型能力"
+        },
+        {
+          "name": "fixed-section-hero",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-proof",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-advantages",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-cta",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "no-full-page-unavailable-copy",
+          "pass": true,
+          "actual": "forbidden copy absent"
+        },
+        {
+          "name": "announcement-hidden-on-503",
+          "pass": true,
+          "actual": 0
+        },
+        {
+          "name": "featured-model-hidden-on-503",
+          "pass": true,
+          "actual": 0
+        },
+        {
+          "name": "no-model-hydration-on-503",
+          "pass": true,
+          "actual": []
+        },
+        {
+          "name": "no-horizontal-overflow",
+          "pass": true,
+          "actual": {
+            "documentScrollWidth": 375,
+            "documentClientWidth": 375,
+            "bodyScrollWidth": 375,
+            "bodyClientWidth": 375,
+            "rootWidth": 375,
+            "lang": "zh-CN",
+            "theme": "light",
+            "titleColor": "rgb(17, 24, 39)",
+            "titleVisibility": "visible",
+            "titleOpacity": "1",
+            "titleBox": {
+              "x": 16,
+              "y": 170,
+              "width": 343,
+              "height": 73.4375
+            }
+          }
+        },
+        {
+          "name": "document-locale",
+          "pass": true,
+          "actual": "zh-CN"
+        },
+        {
+          "name": "document-theme",
+          "pass": true,
+          "actual": "light"
+        },
+        {
+          "name": "title-visible",
+          "pass": true,
+          "actual": {
+            "visibility": "visible",
+            "opacity": "1",
+            "box": {
+              "x": 16,
+              "y": 170,
+              "width": 343,
+              "height": 73.4375
+            }
+          }
+        },
+        {
+          "name": "reduced-motion-animation-disabled",
+          "pass": true,
+          "actual": {
+            "animationName": "none",
+            "transitionDuration": "1e-05s"
+          }
+        },
+        {
+          "name": "reduced-motion-transition-immediate",
+          "pass": true,
+          "actual": {
+            "animationName": "none",
+            "transitionDuration": "1e-05s"
+          }
+        },
+        {
+          "name": "mobile-touch-targets-at-least-44px",
+          "pass": true,
+          "actual": [
+            {
+              "className": "public-nav-toggle",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-locale",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-theme",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "className": "public-button",
+              "width": 123.0625,
+              "height": 44
+            },
+            {
+              "className": "public-button public-button--secondary",
+              "width": 126,
+              "height": 44
+            },
+            {
+              "className": "public-button public-button--light",
+              "width": 123.0625,
+              "height": 44
+            }
+          ]
+        },
+        {
+          "name": "mobile-menu-opens",
+          "pass": true,
+          "actual": "true"
+        },
+        {
+          "name": "mobile-menu-first-link-focused",
+          "pass": true,
+          "actual": "A"
+        },
+        {
+          "name": "mobile-menu-closes-on-escape",
+          "pass": true,
+          "actual": "false"
+        },
+        {
+          "name": "mobile-menu-restores-trigger-focus",
+          "pass": true,
+          "actual": "public-nav-toggle"
+        },
+        {
+          "name": "screenshot-captured-after-stable-route",
+          "pass": true,
+          "actual": {
+            "file": "unavailable-390-light.png",
+            "titleBox": {
+              "x": 16,
+              "y": 170,
+              "width": 343,
+              "height": 73.4375
+            },
+            "titleColor": "rgb(17, 24, 39)",
+            "routeOpacity": "1"
+          }
+        },
+        {
+          "name": "console-errors-match-expectation",
+          "pass": true,
+          "actual": {
+            "actual": [
+              "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+            ],
+            "unexpected": []
+          }
+        },
+        {
+          "name": "page-errors-empty",
+          "pass": true,
+          "actual": []
+        },
+        {
+          "name": "screenshot-pixels-readable-and-nonblank",
+          "pass": true,
+          "actual": {
+            "imageWidth": 375,
+            "imageHeight": 2993,
+            "crop": {
+              "left": 16,
+              "top": 170,
+              "right": 359,
+              "bottom": 244
+            },
+            "sampledPixels": 25382,
+            "luminanceMean": 197.802,
+            "luminanceStdDev": 83.421,
+            "nearComputedTitleColorPixels": 3857
+          }
+        }
+      ],
       "requests": [
         {
           "method": "GET",
           "path": "/api/v1/public/site",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/home-config",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 503,
+          "releaseMetadata": {
+            "headerReleaseVersion": null,
+            "contentReleaseVersion": null,
+            "priceReleaseVersion": null
+          }
         }
       ],
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "pageErrors": [],
       "expectedErrors": [
-        "console:Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+        "Synthetic GET /api/v1/public/home-config intentionally returns HTTP 503; Chromium may report that expected resource error."
       ],
       "geometry": {
-        "scrollWidth": 375,
-        "clientWidth": 375,
+        "documentScrollWidth": 375,
+        "documentClientWidth": 375,
+        "bodyScrollWidth": 375,
+        "bodyClientWidth": 375,
+        "rootWidth": 375,
         "lang": "zh-CN",
-        "theme": "light"
+        "theme": "light",
+        "titleColor": "rgb(17, 24, 39)",
+        "titleVisibility": "visible",
+        "titleOpacity": "1",
+        "titleBox": {
+          "x": 16,
+          "y": 170,
+          "width": 343,
+          "height": 73.4375
+        }
+      },
+      "transition": {
+        "selector": ".public-home",
+        "opacity": "1",
+        "visibility": "visible",
+        "transitionClasses": [],
+        "className": "public-home",
+        "stableFrames": 2
+      },
+      "screenshotEvidence": {
+        "file": "unavailable-390-light.png",
+        "titleBox": {
+          "x": 16,
+          "y": 170,
+          "width": 343,
+          "height": 73.4375
+        },
+        "titleColor": "rgb(17, 24, 39)",
+        "routeOpacity": "1",
+        "pixelEvidence": {
+          "imageWidth": 375,
+          "imageHeight": 2993,
+          "crop": {
+            "left": 16,
+            "top": 170,
+            "right": 359,
+            "bottom": 244
+          },
+          "sampledPixels": 25382,
+          "luminanceMean": 197.802,
+          "luminanceStdDev": 83.421,
+          "nearComputedTitleColorPixels": 3857
+        }
       },
       "status": "PASS"
     },
     {
       "name": "unavailable-1280-dark-zh",
+      "url": "http://127.0.0.1:4173/",
+      "role": "anonymous",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
       "width": 1280,
+      "height": 900,
       "theme": "dark",
       "locale": "zh",
       "mode": "unavailable",
-      "reduced": false,
+      "reducedMotion": false,
+      "contentReleaseVersion": 2,
+      "priceReleaseVersion": 3,
+      "assertions": [
+        {
+          "name": "route-transition-stable",
+          "pass": true,
+          "actual": {
+            "selector": ".public-home",
+            "opacity": "1",
+            "visibility": "visible",
+            "transitionClasses": [],
+            "className": "public-home",
+            "stableFrames": 2
+          }
+        },
+        {
+          "name": "fixed-hero-title",
+          "pass": true,
+          "actual": "一个入口，连接已验证的模型能力"
+        },
+        {
+          "name": "fixed-section-hero",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-proof",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-advantages",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "fixed-section-cta",
+          "pass": true,
+          "actual": 1
+        },
+        {
+          "name": "no-full-page-unavailable-copy",
+          "pass": true,
+          "actual": "forbidden copy absent"
+        },
+        {
+          "name": "announcement-hidden-on-503",
+          "pass": true,
+          "actual": 0
+        },
+        {
+          "name": "featured-model-hidden-on-503",
+          "pass": true,
+          "actual": 0
+        },
+        {
+          "name": "no-model-hydration-on-503",
+          "pass": true,
+          "actual": []
+        },
+        {
+          "name": "no-horizontal-overflow",
+          "pass": true,
+          "actual": {
+            "documentScrollWidth": 1265,
+            "documentClientWidth": 1265,
+            "bodyScrollWidth": 1265,
+            "bodyClientWidth": 1265,
+            "rootWidth": 1265,
+            "lang": "zh-CN",
+            "theme": "dark",
+            "titleColor": "rgb(248, 250, 252)",
+            "titleVisibility": "visible",
+            "titleOpacity": "1",
+            "titleBox": {
+              "x": 32.5,
+              "y": 314.84375,
+              "width": 650,
+              "height": 47.515625
+            }
+          }
+        },
+        {
+          "name": "document-locale",
+          "pass": true,
+          "actual": "zh-CN"
+        },
+        {
+          "name": "document-theme",
+          "pass": true,
+          "actual": "dark"
+        },
+        {
+          "name": "title-visible",
+          "pass": true,
+          "actual": {
+            "visibility": "visible",
+            "opacity": "1",
+            "box": {
+              "x": 32.5,
+              "y": 314.84375,
+              "width": 650,
+              "height": 47.515625
+            }
+          }
+        },
+        {
+          "name": "dark-theme-title-uses-light-text",
+          "pass": true,
+          "actual": {
+            "color": "rgb(248, 250, 252)",
+            "luminance": 249.71919999999997
+          }
+        },
+        {
+          "name": "console-errors-match-expectation",
+          "pass": true,
+          "actual": {
+            "actual": [
+              "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+            ],
+            "unexpected": []
+          }
+        },
+        {
+          "name": "page-errors-empty",
+          "pass": true,
+          "actual": []
+        }
+      ],
       "requests": [
         {
           "method": "GET",
           "path": "/api/v1/public/site",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 200,
+          "releaseMetadata": {
+            "headerReleaseVersion": "3",
+            "contentReleaseVersion": 2,
+            "priceReleaseVersion": 3
+          }
         },
         {
           "method": "GET",
           "path": "/api/v1/public/home-config",
-          "query": ""
+          "query": "",
+          "count": 1,
+          "status": 503,
+          "releaseMetadata": {
+            "headerReleaseVersion": null,
+            "contentReleaseVersion": null,
+            "priceReleaseVersion": null
+          }
         }
       ],
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "pageErrors": [],
       "expectedErrors": [
-        "console:Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+        "Synthetic GET /api/v1/public/home-config intentionally returns HTTP 503; Chromium may report that expected resource error."
       ],
       "geometry": {
-        "scrollWidth": 1265,
-        "clientWidth": 1265,
+        "documentScrollWidth": 1265,
+        "documentClientWidth": 1265,
+        "bodyScrollWidth": 1265,
+        "bodyClientWidth": 1265,
+        "rootWidth": 1265,
         "lang": "zh-CN",
-        "theme": "dark"
+        "theme": "dark",
+        "titleColor": "rgb(248, 250, 252)",
+        "titleVisibility": "visible",
+        "titleOpacity": "1",
+        "titleBox": {
+          "x": 32.5,
+          "y": 314.84375,
+          "width": 650,
+          "height": 47.515625
+        }
       },
+      "transition": {
+        "selector": ".public-home",
+        "opacity": "1",
+        "visibility": "visible",
+        "transitionClasses": [],
+        "className": "public-home",
+        "stableFrames": 2
+      },
+      "screenshotEvidence": null,
       "status": "PASS"
     }
   ],
   "anonymousAdmin": {
-    "status": "PASS",
+    "name": "anonymous-admin-route",
     "url": "http://127.0.0.1:4173/login?redirect=/admin/public-content",
+    "role": "anonymous",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "width": 1280,
+    "height": 900,
+    "theme": "light",
+    "locale": "zh",
+    "mode": "route-guard",
+    "reducedMotion": false,
+    "contentReleaseVersion": null,
+    "priceReleaseVersion": null,
+    "assertions": [
+      {
+        "name": "route-transition-stable",
+        "pass": true,
+        "actual": {
+          "selector": ".auth-page",
+          "opacity": "1",
+          "visibility": "visible",
+          "transitionClasses": [],
+          "className": "auth-page login-page",
+          "stableFrames": 2
+        }
+      },
+      {
+        "name": "anonymous-redirects-to-login",
+        "pass": true,
+        "actual": "/login"
+      },
+      {
+        "name": "redirect-target-is-safe-internal-path",
+        "pass": true,
+        "actual": "/admin/public-content"
+      },
+      {
+        "name": "root-editors-absent",
+        "pass": true,
+        "actual": 0
+      },
+      {
+        "name": "session-refresh-checked-once",
+        "pass": true,
+        "actual": [
+          {
+            "method": "POST",
+            "path": "/api/v1/auth/refresh",
+            "query": "",
+            "count": 1,
+            "status": 401,
+            "releaseMetadata": {
+              "headerReleaseVersion": null,
+              "contentReleaseVersion": null,
+              "priceReleaseVersion": null
+            }
+          }
+        ]
+      },
+      {
+        "name": "console-errors-match-expectation",
+        "pass": true,
+        "actual": {
+          "actual": [
+            "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+          ],
+          "unexpected": []
+        }
+      },
+      {
+        "name": "page-errors-empty",
+        "pass": true,
+        "actual": []
+      },
+      {
+        "name": "no-horizontal-overflow",
+        "pass": true,
+        "actual": {
+          "documentScrollWidth": 1280,
+          "documentClientWidth": 1280,
+          "bodyScrollWidth": 1280,
+          "bodyClientWidth": 1280,
+          "lang": "zh-CN",
+          "theme": "light"
+        }
+      }
+    ],
     "requests": [
       {
         "method": "POST",
         "path": "/api/v1/auth/refresh",
-        "query": ""
+        "query": "",
+        "count": 1,
+        "status": 401,
+        "releaseMetadata": {
+          "headerReleaseVersion": null,
+          "contentReleaseVersion": null,
+          "priceReleaseVersion": null
+        }
       }
     ],
+    "consoleErrors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ],
+    "pageErrors": [],
     "expectedErrors": [
-      "console:Failed to load resource: the server responded with a status of 401 (Unauthorized)"
-    ]
+      "Synthetic POST /api/v1/auth/refresh intentionally returns HTTP 401 to prove anonymous Root rejection."
+    ],
+    "geometry": {
+      "documentScrollWidth": 1280,
+      "documentClientWidth": 1280,
+      "bodyScrollWidth": 1280,
+      "bodyClientWidth": 1280,
+      "lang": "zh-CN",
+      "theme": "light"
+    },
+    "transition": {
+      "selector": ".auth-page",
+      "opacity": "1",
+      "visibility": "visible",
+      "transitionClasses": [],
+      "className": "auth-page login-page",
+      "stableFrames": 2
+    },
+    "status": "PASS"
   }
 }

@@ -11,10 +11,12 @@ PASS  full typography contract: 8/8 in 48.754s; all seven widths, zoom/scale, re
 PASS  npm test with six explicit backend contracts: 1137/1137, 0 fail, 0 cancelled, 0 skip, 0 todo, 56.368s, exit 0
 PASS  VITE_USE_MOCK=false npm run build (existing non-blocking Vite/Rollup warnings only)
 PASS  node scripts/check-public-route-chunks.mjs: 9 chunks, 171480 JS bytes, 20362 CSS bytes
-PASS  visible Chromium synthetic public matrix: 11/11
-PASS  anonymous /admin/public-content route rejection: 1/1
+PASS  visible Chromium synthetic public matrix rerun: 11/11; 234 assertions, 32 sanitized requests, 0 unexpected console errors, 0 page errors
+PASS  anonymous /admin/public-content route rejection rerun: 1/1
+PASS  route stability: 12/12 roots at opacity 1, visible, no enter/leave class, stable for two RAF frames
+PASS  representative PNG/DOM checks: 3/3; ready-1280-dark title rgb(248,250,252), 7623 matching pixels, route opacity 1
 NOT_RUN authenticated Root CRUD/preview/validate/publish/history/restore browser flow
 NOT_RUN real backend fixture, MySQL, RBAC, transaction, production deployment/acceptance
 BLOCKED_PRODUCT P08 production content truth criteria
 
-Browser fixture deviation: requests were fulfilled with Playwright page.route against the production Vite preview. No real API server was started. Preview and Chromium were stopped after the run.
+Browser fixture deviation: requests were fulfilled with Playwright page.route against the production Vite preview. No real API server was started. Preview and Chromium were stopped after the rerun; server detection returned [].
