@@ -7,8 +7,8 @@
     <section v-if="error" class="error" role="alert">{{ errorText }}<span v-if="error.requestId"> · {{ error.requestId }}</span></section>
     <template v-if="ready">
       <nav class="tabs" :aria-label="t('publicContentStructuredAdmin.homeNavigation')"><button v-for="section in homeSections" :key="section" type="button" :aria-current="activeHomeSection === section ? 'page' : undefined" @click="activeHomeSection = section">{{ t(`publicContentStructuredAdmin.homeSections.${section}`) }}</button></nav>
-      <AnnouncementEditor v-show="activeHomeSection === 'announcements'" data-editor="announcement" :items="homeDraft.announcements" :busy="busy" :labels="announcementLabels" @create="createAnnouncement" @update="updateAnnouncement" @remove="deleteAnnouncement" @move="moveAnnouncement" />
-      <FaqEditor v-show="activeHomeSection === 'faqs'" data-editor="faq" :items="homeDraft.faqs" :busy="busy" :labels="faqLabels" @create="createFAQ" @update="updateFAQ" @remove="deleteFAQ" @move="moveFAQ" />
+      <AnnouncementEditor v-show="activeHomeSection === 'announcements'" data-editor="announcement" :items="homeDraft.announcements" :busy="busy" :create-ack="announcementCreateAck" :labels="announcementLabels" @create="createAnnouncement" @update="updateAnnouncement" @remove="deleteAnnouncement" @move="moveAnnouncement" />
+      <FaqEditor v-show="activeHomeSection === 'faqs'" data-editor="faq" :items="homeDraft.faqs" :busy="busy" :create-ack="faqCreateAck" :labels="faqLabels" @create="createFAQ" @update="updateFAQ" @remove="deleteFAQ" @move="moveFAQ" />
       <FeaturedModelSelector v-show="activeHomeSection === 'featuredModels'" data-editor="featured-models" :selected="homeDraft.featuredModelKeys" :results="modelResults" :search="modelSearch" :searching="searching" :busy="busy" :labels="featuredLabels" @search="searchModels" @save="saveFeaturedModels" @move="moveFeaturedModel" />
       <SurfaceCard class="document-editor" aria-labelledby="document-editor-title">
         <h2 id="document-editor-title">{{ t('publicContentStructuredAdmin.documentEditor') }}</h2>
@@ -43,6 +43,7 @@ const homeSections=['announcements','faqs','featuredModels']
 const { t } = useI18n(), router = useRouter(), userStore = useUserStore()
 const heading = ref(null), homeDraft = ref(null), documentsDraft = ref(null), revision = ref(null), busy = ref(false), error = ref(null), validationProof = ref(null), conflictBuffer = ref(null)
 const activeHomeSection = ref('announcements'), activeDocument = ref('about'), modelSearch = ref(''), modelResults = ref([]), searching = ref(false)
+const announcementCreateAck = ref(0), faqCreateAck = ref(0)
 let readController = new AbortController(), writeController = new AbortController(), searchController = new AbortController(), readGeneration = 0, writeGeneration = 0, searchGeneration = 0, privilegeGeneration = 0
 const clone = value => value == null ? value : structuredClone(toRaw(value))
 const ready = computed(() => homeDraft.value && documentsDraft.value && homeDraft.value.revision === documentsDraft.value.revision && revision.value === homeDraft.value.revision)
@@ -98,10 +99,10 @@ async function mutate(kind, local, operation, { deletes = false } = {}) {
 }
 
 const withoutGuid = value => { const { guid: _guid, ...rest } = value; return rest }
-const createAnnouncement = value => mutate('announcement', value, (expectedRevision, signal) => publicHomeContentAdminApi.createAnnouncement({ expectedRevision, ...value }, { signal }))
+async function createAnnouncement(value) { const output = await mutate('announcement', value, (expectedRevision, signal) => publicHomeContentAdminApi.createAnnouncement({ expectedRevision, ...value }, { signal })); if (output) announcementCreateAck.value++; return output }
 const updateAnnouncement = value => mutate('announcement', value, (expectedRevision, signal) => publicHomeContentAdminApi.updateAnnouncement(value.guid, { expectedRevision, ...withoutGuid(value) }, { signal }))
 const deleteAnnouncement = guid => mutate('announcement', { guid }, (expectedRevision, signal) => publicHomeContentAdminApi.deleteAnnouncement(guid, expectedRevision, { signal }), { deletes: true })
-const createFAQ = value => mutate('faq', value, (expectedRevision, signal) => publicHomeContentAdminApi.createFAQ({ expectedRevision, ...value }, { signal }))
+async function createFAQ(value) { const output = await mutate('faq', value, (expectedRevision, signal) => publicHomeContentAdminApi.createFAQ({ expectedRevision, ...value }, { signal })); if (output) faqCreateAck.value++; return output }
 const updateFAQ = value => mutate('faq', value, (expectedRevision, signal) => publicHomeContentAdminApi.updateFAQ(value.guid, { expectedRevision, ...withoutGuid(value) }, { signal }))
 const deleteFAQ = guid => mutate('faq', { guid }, (expectedRevision, signal) => publicHomeContentAdminApi.deleteFAQ(guid, expectedRevision, { signal }), { deletes: true })
 const saveFeaturedModels = keys => mutate('featuredModels', keys, (expectedRevision, signal) => publicHomeContentAdminApi.saveFeaturedModels(expectedRevision, keys, { signal }))

@@ -1,5 +1,5 @@
 <template>
-  <section class="structured-editor" data-editor="announcement" aria-labelledby="announcement-editor-title">
+  <section ref="editorRoot" class="structured-editor" data-editor="announcement" aria-labelledby="announcement-editor-title" tabindex="-1">
     <header>
       <div><h2 id="announcement-editor-title">{{ labels.title }}</h2><p>{{ items.length }} / {{ MAX_ANNOUNCEMENTS }}</p></div>
     </header>
@@ -54,12 +54,13 @@ const CONTROL = /[\p{Cc}\p{Cf}]/u
 const props = defineProps({
   items: { type: Array, default: () => [] },
   busy: Boolean,
+  createAck: { type: Number, default: 0 },
   labels: { type: Object, required: true },
 })
 const emit = defineEmits(['create', 'update', 'remove', 'move'])
 const createForm = reactive({ title: '', bodyMarkdown: '', effectiveAt: null, isVisible: true, sortOrder: 0 })
 const editingGuid = ref(null), editForm = ref(null)
-const deleteDialog = ref(null), confirmButton = ref(null), cancelButton = ref(null), pendingDelete = ref(null), deleteTrigger = ref(null)
+const editorRoot = ref(null), deleteDialog = ref(null), confirmButton = ref(null), cancelButton = ref(null), pendingDelete = ref(null), deleteTrigger = ref(null)
 const atLimit = computed(() => props.items.length >= MAX_ANNOUNCEMENTS)
 
 const scalarSafe = value => typeof value === 'string' && !INVALID_SCALAR.test(value) && ![...value].some(character => { const code = character.codePointAt(0); return code >= 0xfdd0 && code <= 0xfdef || (code & 0xffff) >= 0xfffe })
@@ -78,6 +79,7 @@ function submitCreate() {
   if (props.busy || atLimit.value || !validAnnouncement(createForm)) return
   emit('create', { ...createForm, effectiveAt: createForm.effectiveAt || null })
 }
+function resetCreateForm() { Object.assign(createForm, { title: '', bodyMarkdown: '', effectiveAt: null, isVisible: true, sortOrder: 0 }) }
 function beginEdit(item) {
   editingGuid.value = item.guid
   editForm.value = { title: item.title, bodyMarkdown: item.bodyMarkdown, effectiveAt: item.effectiveAt, isVisible: item.isVisible, sortOrder: item.sortOrder }
@@ -88,13 +90,14 @@ function submitEdit() {
   emit('update', { guid: editingGuid.value, ...editForm.value, effectiveAt: editForm.value.effectiveAt || null })
 }
 watch(() => props.items, cancelEdit)
+watch(() => props.createAck, (value, previous) => { if (value !== previous) resetCreateForm() })
 function openDelete(item, event) {
   pendingDelete.value = item; deleteTrigger.value = event.currentTarget
   deleteDialog.value?.showModal(); nextTick(() => confirmButton.value?.focus())
 }
 function closeDelete() { deleteDialog.value?.close() }
 function confirmDelete() { if (pendingDelete.value) emit('remove', pendingDelete.value.guid); closeDelete() }
-function restoreDeleteFocus() { const trigger = deleteTrigger.value; pendingDelete.value = null; deleteTrigger.value = null; nextTick(() => trigger?.isConnected && trigger.focus()) }
+function restoreDeleteFocus() { const trigger = deleteTrigger.value; pendingDelete.value = null; deleteTrigger.value = null; nextTick(() => { const target = trigger?.isConnected && !trigger.disabled ? trigger : editorRoot.value; target?.focus() }) }
 function trapDeleteFocus(event) {
   if (event.key !== 'Tab') return
   const first = confirmButton.value, last = cancelButton.value

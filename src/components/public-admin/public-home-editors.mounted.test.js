@@ -8,7 +8,7 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https
 for (const key of ['window','document','Document','navigator','Node','Element','HTMLElement','HTMLDialogElement','HTMLInputElement','SVGElement','Event','MouseEvent','KeyboardEvent','MutationObserver']) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: dom.window[key] })
 HTMLDialogElement.prototype.showModal = function () { this.open = true }
 HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new Event('close')) }
-const [{ mount }, { nextTick }] = await Promise.all([import('@vue/test-utils'), import('vue')])
+const [{ mount }, { nextTick, defineComponent, h, ref }] = await Promise.all([import('@vue/test-utils'), import('vue')])
 const data = code => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
 
 afterEach(() => document.body.replaceChildren())
@@ -161,6 +161,44 @@ test('announcement delete is explicit, traps focus, and restores its trigger', a
   wrapper.unmount()
 })
 
+test('confirmed deletion falls back outside the closed dialog when the real parent disables its trigger', async () => {
+  const AnnouncementEditor = await component('AnnouncementEditor')
+  const Host = defineComponent({
+    setup() {
+      const busy = ref(false)
+      return () => h(AnnouncementEditor, { items: [announcement('1')], labels, busy: busy.value, onRemove: () => { busy.value = true } })
+    },
+  })
+  const wrapper = mount(Host, { attachTo: document.body })
+  await wrapper.get('.editor-item > button:last-child').trigger('click'); await nextTick()
+  const dialog = wrapper.get('dialog')
+  await dialog.findAll('button')[0].trigger('click'); await nextTick(); await nextTick()
+  assert.equal(dialog.element.open, false)
+  assert.equal(dialog.element.contains(document.activeElement), false)
+  assert.equal(document.activeElement, wrapper.get('[data-editor="announcement"]').element)
+  wrapper.unmount()
+})
+
+test('create form clears only after explicit successful parent acknowledgement', async () => {
+  const AnnouncementEditor = await component('AnnouncementEditor')
+  const wrapper = mount(AnnouncementEditor, { props: { items: [], labels, createAck: 0 }, attachTo: document.body })
+  const inputs = wrapper.findAll('.editor-form input')
+  await inputs[0].setValue('Local announcement')
+  await wrapper.get('.editor-form textarea').setValue('Local body')
+  await wrapper.get('.editor-form').trigger('submit')
+  assert.equal(wrapper.emitted('create').length, 1)
+  await wrapper.setProps({ items: [announcement('9')], createAck: 1 }); await nextTick()
+  assert.equal(wrapper.findAll('.editor-form input')[0].element.value, '')
+  assert.equal(wrapper.get('.editor-form textarea').element.value, '')
+
+  await wrapper.findAll('.editor-form input')[0].setValue('Conflict input')
+  await wrapper.get('.editor-form textarea').setValue('Conflict body')
+  await wrapper.setProps({ items: [announcement('10')], createAck: 1 }); await nextTick()
+  assert.equal(wrapper.findAll('.editor-form input')[0].element.value, 'Conflict input')
+  assert.equal(wrapper.get('.editor-form textarea').element.value, 'Conflict body')
+  wrapper.unmount()
+})
+
 test('FAQ editor enforces the 50 item and UTF-8 body limits', async () => {
   const FaqEditor = await component('FaqEditor')
   const limited = mount(FaqEditor, { props: { items: Array.from({ length: 50 }, (_, index) => faq(String(index + 1))), labels }, attachTo: document.body })
@@ -197,6 +235,42 @@ test('FAQ editor updates every field and cancel emits no update', async () => {
   await wrapper.get('[data-action="edit"]').trigger('click')
   await wrapper.get('[data-action="cancel-edit"]').trigger('click')
   assert.equal(wrapper.emitted('update').length, 1)
+  wrapper.unmount()
+})
+
+test('FAQ create acknowledgement clears submitted data while errors preserve it', async () => {
+  const FaqEditor = await component('FaqEditor')
+  const wrapper = mount(FaqEditor, { props: { items: [], labels, createAck: 0 }, attachTo: document.body })
+  const inputs = wrapper.findAll('.editor-form input')
+  await inputs[0].setValue('Local FAQ')
+  await wrapper.get('.editor-form textarea').setValue('Local answer')
+  await wrapper.get('.editor-form').trigger('submit')
+  await wrapper.setProps({ items: [faq('9')], createAck: 1 }); await nextTick()
+  assert.equal(wrapper.findAll('.editor-form input')[0].element.value, '')
+  assert.equal(wrapper.get('.editor-form textarea').element.value, '')
+  await wrapper.findAll('.editor-form input')[0].setValue('Retry question')
+  await wrapper.get('.editor-form textarea').setValue('Retry answer')
+  await wrapper.setProps({ items: [faq('10')], createAck: 1 }); await nextTick()
+  assert.equal(wrapper.findAll('.editor-form input')[0].element.value, 'Retry question')
+  assert.equal(wrapper.get('.editor-form textarea').element.value, 'Retry answer')
+  wrapper.unmount()
+})
+
+test('FAQ confirmed deletion also falls back when its parent disables the trigger', async () => {
+  const FaqEditor = await component('FaqEditor')
+  const Host = defineComponent({
+    setup() {
+      const busy = ref(false)
+      return () => h(FaqEditor, { items: [faq('1')], labels, busy: busy.value, onRemove: () => { busy.value = true } })
+    },
+  })
+  const wrapper = mount(Host, { attachTo: document.body })
+  await wrapper.get('.editor-item > button:last-child').trigger('click'); await nextTick()
+  const dialog = wrapper.get('dialog')
+  await dialog.findAll('button')[0].trigger('click'); await nextTick(); await nextTick()
+  assert.equal(dialog.element.open, false)
+  assert.equal(dialog.element.contains(document.activeElement), false)
+  assert.equal(document.activeElement, wrapper.get('[data-editor="faq"]').element)
   wrapper.unmount()
 })
 
