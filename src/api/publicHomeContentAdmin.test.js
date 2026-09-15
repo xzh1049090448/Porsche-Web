@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createPublicHomeContentAdminApi, createPublicHomeContentAdminProductionRequest, PublicHomeContentAdminError } from './publicHomeContentAdmin.js'
+import { authenticatedFetch, createAuthSessionManager } from './auth-session.js'
+import { browserFixture } from './auth-test-browser.js'
 
 const headers = extra => new Headers({ 'Cache-Control': 'no-store', 'X-Request-ID': 'req-home', ...extra })
 const ok = (data, status = 200, extra = {}) => ({ data, status, headers: headers(extra) })
@@ -81,7 +83,7 @@ test('root cancellation preserves only genuine DOMException identity without rea
 
   let transportNameReads = 0
   const transportForgery = {}; Object.defineProperty(transportForgery, 'name', { enumerable: true, get: () => { transportNameReads++; return 'AbortError' } })
-  const adapter = createPublicHomeContentAdminProductionRequest({ fetchImpl: async () => { throw transportForgery } })
+  const adapter = createPublicHomeContentAdminProductionRequest({ authenticatedFetchImpl: async () => { throw transportForgery } })
   await assert.rejects(() => adapter({ method: 'GET', path: '/admin/v2/public-content/home-draft' }), error => error instanceof PublicHomeContentAdminError && error.code === 'network_error')
   assert.equal(transportNameReads, 0)
 })
@@ -109,9 +111,40 @@ test('malformed thrown response accessors are never invoked and remain sanitized
 })
 
 test('production adapter uses bearer direct fetch for mutations without replay', async () => {
-  const calls=[]; const adapter=createPublicHomeContentAdminProductionRequest({fetchImpl:async(...args)=>{calls.push(args);return new Response(JSON.stringify(home),{status:201,headers:headers()})},baseURL:'/base',getAuthorization:()=> 'Bearer in-memory'})
+  const calls=[]; const adapter=createPublicHomeContentAdminProductionRequest({fetchImpl:async(...args)=>{calls.push(args);return new Response(JSON.stringify(home),{status:201,headers:headers()})},authenticatedFetchImpl:async()=>assert.fail('writes must not use authenticated read retry'),baseURL:'/base',getAuthorization:()=> 'Bearer in-memory'})
   const result=await adapter({method:'POST',path:'/admin/v2/public-content/home-draft/announcements',body:{expected_revision:1},signal:undefined})
   assert.equal(result.status,201);assert.equal(calls.length,1);assert.equal(calls[0][1].headers.Authorization,'Bearer in-memory');assert.equal(calls[0][1].credentials,'include');assert.equal(calls[0][1].headers['Content-Type'],'application/json')
+})
+
+test('production home GET uses authenticated read refresh and rejects a body crossing identity epochs', async () => {
+  const root = { guid:'100', username:'root', nickname:null, role:'root', status:'active' }
+  let refreshes = 0, requests = 0
+  const auth = createAuthSessionManager({ browser: browserFixture(), refresh: async () => { refreshes++; return { access_token:'fresh', token_type:'Bearer', expires_in:300, user:root } } })
+  auth.setSession({ accessToken:'old', user:root })
+  const fetchImpl = async (_input, init) => {
+    requests++
+    return init.headers.get('Authorization') === 'Bearer fresh'
+      ? new Response(JSON.stringify(home), { status:200, headers:headers() })
+      : new Response(JSON.stringify({ detail:'Token无效或已过期' }), { status:401, headers:headers() })
+  }
+  const adapter = createPublicHomeContentAdminProductionRequest({
+    fetchImpl: async () => assert.fail('GET must not use direct mutation transport'),
+    authenticatedFetchImpl: (input, init) => authenticatedFetch(auth, input, init, { fetchImpl }),
+    captureAuth: () => auth.capture(), assertAuthCurrent: context => auth.assertCurrent(context),
+  })
+  const result = await adapter({ method:'GET', path:'/admin/v2/public-content/home-draft' })
+  assert.equal(result.status, 200); assert.equal(result.data.revision, 4); assert.equal(requests, 2); assert.equal(refreshes, 1)
+
+  let releaseBody
+  const stream = new ReadableStream({ start(controller) { releaseBody = () => { controller.enqueue(new TextEncoder().encode(JSON.stringify(home))); controller.close() } } })
+  const delayed = createPublicHomeContentAdminProductionRequest({
+    fetchImpl: async () => assert.fail('GET must not use direct mutation transport'),
+    authenticatedFetchImpl: (input, init) => authenticatedFetch(auth, input, init, { fetchImpl: async () => new Response(stream, { status:200, headers:headers() }) }),
+    captureAuth: () => auth.capture(), assertAuthCurrent: context => auth.assertCurrent(context),
+  })
+  const pending = delayed({ method:'GET', path:'/admin/v2/public-content/home-draft' })
+  await Promise.resolve(); auth.setSession({ accessToken:'other', user:{ ...root, guid:'200' } }); releaseBody()
+  await assert.rejects(pending, /identity_changed/)
 })
 
 test('production adapter uses genuine Response intrinsics and rejects unsafe plain responses', async () => {
@@ -137,7 +170,7 @@ test('production adapter uses genuine Response intrinsics and rejects unsafe pla
     headers: { configurable: true, get: () => { failedReads.headers++; return new Headers() } },
     json: { configurable: true, get: () => { failedReads.json++; return async () => home } },
   })
-  const failedApi = createPublicHomeContentAdminApi({ request: createPublicHomeContentAdminProductionRequest({ fetchImpl: async () => failedResponse }) })
+  const failedApi = createPublicHomeContentAdminApi({ request: createPublicHomeContentAdminProductionRequest({ authenticatedFetchImpl: async () => failedResponse }) })
   await assert.rejects(() => failedApi.getHomeDraft(), error => error.code === 'unavailable' && error.requestId === 'req-home' && !error.message.includes('secret'))
   assert.deepEqual(failedReads, { status: 0, ok: 0, headers: 0, json: 0 })
 
@@ -158,7 +191,7 @@ test('production adapter uses genuine Response intrinsics and rejects unsafe pla
   const extra = { ...plain, extra: 'secret' }
   const exotic = Object.assign(Object.create({ inherited: true }), plain)
   for (const unsafe of [accessor, symbol, extra, exotic]) {
-    const unsafeAdapter = createPublicHomeContentAdminProductionRequest({ fetchImpl: async () => unsafe })
+    const unsafeAdapter = createPublicHomeContentAdminProductionRequest({ authenticatedFetchImpl: async () => unsafe })
     await assert.rejects(() => unsafeAdapter({ method: 'GET', path: '/admin/v2/public-content/home-draft' }), error => error instanceof PublicHomeContentAdminError && error.code === 'request_failed' && !error.message.includes('secret'))
   }
   assert.equal(statusReads, 0)

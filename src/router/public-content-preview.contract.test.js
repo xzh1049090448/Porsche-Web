@@ -62,6 +62,49 @@ test('preview restores an existing robots directive rather than deleting page po
  assert.match(source,/robots\.content\s*=\s*previousRobotsContent/)
 })
 
+test('preview synchronously clears unpublished content when identity changes', async () => {
+ document.head.innerHTML='<meta name="robots" content="index, follow">';document.body.replaceChildren()
+ const [{mount},{nextTick,reactive}]=await Promise.all([import('@vue/test-utils'),import('vue')])
+ const source=await readFile(new URL('../views/PublicContentPreview.vue',import.meta.url),'utf8'),descriptor=parse(source,{filename:'PublicContentPreview.vue'}).descriptor
+ const script=compileScript(descriptor,{id:'task13-preview-identity',genDefaultAs:'__sfc__'}),template=compileTemplate({id:'task13-preview-identity',filename:'PublicContentPreview.vue',source:descriptor.template.content,compilerOptions:{bindingMetadata:script.bindings}})
+ assert.deepEqual(template.errors,[])
+ const vueURL=new URL('../../node_modules/vue/index.mjs',import.meta.url).href,data=code=>`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
+ const modules=new Map([
+  ['vue',vueURL],['vue-router',data("export const useRoute=()=>({query:{revision:'5',priceReleaseGuid:'7'}});export const useRouter=()=>globalThis.__previewRouter")],
+  ['@/stores/user',data('export const useUserStore=()=>globalThis.__previewUser')],
+  ['@/api/publicContentAdmin.js',data('export const loadStructuredContentPreview=args=>globalThis.__previewLoad(args)')],
+  ['@/api/publicHomeContentAdmin.js',data('export const publicHomeContentAdminApi={name:"home"}')],
+  ['@/api/publicPricingAdmin.js',data('export const publicPricingAdminApi={name:"pricing"}')],
+  ['@/utils/public-content-validation.js',data('export const renderSafePublicMarkdown=value=>`<p>${value}</p>`')],
+  ['@/composables/useI18n',data('export const useI18n=()=>({t:key=>key})')],
+  ['@/views/public/Home.vue',data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({setup:()=>()=>h('section',{id:'home-title'},'fixed home')})`) ],
+  ['@/components/public/PublicHeader.vue',data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({setup:()=>()=>h('header')})`)],
+  ['@/components/public/PublicFooter.vue',data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({setup:()=>()=>h('footer')})`)],
+ ])
+ let code=`${script.content}\n${template.code}\n__sfc__.render=render\nexport default __sfc__`
+ for(const[from,to]of modules)code=code.replaceAll(`from '${from}'`,`from '${to}'`).replaceAll(`from'${from}'`,`from'${to}'`).replaceAll(`from "${from}"`,`from "${to}"`)
+ code=code.replace("import '@/styles/public-content.scss'",'')
+ const output={revision:5,documents:{about:'A',terms:'T',privacy:'P'},home:{announcements:[],faqs:[],featuredModelKeys:[]},featuredModels:[]}
+ globalThis.__previewLoad=async()=>output
+  globalThis.__previewRouter={replaced:null,replace:async value=>{globalThis.__previewRouter.replaced=value}}
+  globalThis.__previewUser=reactive({identityEpoch:'epoch-a',user:{role:'root'},isLoggedIn:true})
+  const component=(await import(data(code))).default,wrapper=mount(component,{attachTo:document.body})
+ for(let index=0;index<3;index++)await nextTick();await Promise.resolve();await nextTick()
+ assert.equal(wrapper.find('#home-title').exists(),true)
+  globalThis.__previewUser.identityEpoch='epoch-b'; await nextTick()
+  assert.equal(globalThis.__previewRouter.replaced,'/chat'); assert.equal(wrapper.find('#home-title').exists(),false)
+ wrapper.unmount()
+
+ let resolveLoad
+ globalThis.__previewLoad=()=>new Promise(resolve=>{resolveLoad=resolve})
+ globalThis.__previewRouter.replaced=null
+ globalThis.__previewUser=reactive({identityEpoch:'epoch-c',user:{role:'root'},isLoggedIn:true})
+ const pendingWrapper=mount(component,{attachTo:document.body})
+ await nextTick();globalThis.__previewUser.identityEpoch='epoch-d';await nextTick();resolveLoad(output)
+ await Promise.resolve();await nextTick();assert.equal(pendingWrapper.find('#home-title').exists(),false)
+ pendingWrapper.unmount();delete globalThis.__previewLoad;delete globalThis.__previewRouter;delete globalThis.__previewUser
+})
+
 test('mounted structured preview renders fixed Home with a ready provider and restores robots', async () => {
  document.head.innerHTML='<meta name="robots" content="index, follow">';document.body.replaceChildren()
  const [{mount},{nextTick}]=await Promise.all([import('@vue/test-utils'),import('vue')])
@@ -70,7 +113,8 @@ test('mounted structured preview renders fixed Home with a ready provider and re
  assert.deepEqual(template.errors,[])
  const vueURL=new URL('../../node_modules/vue/index.mjs',import.meta.url).href,data=code=>`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
  const modules=new Map([
-  ['vue',vueURL],['vue-router',data("export const useRoute=()=>({query:{revision:'5',priceReleaseGuid:'7'}})")],
+  ['vue',vueURL],['vue-router',data("export const useRoute=()=>({query:{revision:'5',priceReleaseGuid:'7'}});export const useRouter=()=>({replace:async()=>{}})")],
+  ['@/stores/user',data('export const useUserStore=()=>({identityEpoch:"epoch-a",user:{role:"root"},isLoggedIn:true})')],
   ['@/api/publicContentAdmin.js',data('export const loadStructuredContentPreview=args=>globalThis.__previewLoad(args)')],
   ['@/api/publicHomeContentAdmin.js',data('export const publicHomeContentAdminApi={name:"home"}')],
   ['@/api/publicPricingAdmin.js',data('export const publicPricingAdminApi={name:"pricing"}')],

@@ -100,6 +100,7 @@ const ownDataValue = (value, key) => {
     return descriptor && Object.hasOwn(descriptor, 'value') ? { value: descriptor.value } : null
   } catch { return null }
 }
+const isIdentityChangedError = error => ownDataValue(error, 'code')?.value === 'identity_changed'
 const freeze = value => Array.isArray(value) ? Object.freeze(value.map(freeze)) : value && typeof value === 'object' ? Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, freeze(item)]))) : value
 const compareGuid = (left, right) => left.length === right.length ? left < right ? -1 : left > right ? 1 : 0 : left.length - right.length
 const compareAnnouncement = (left, right) => left.sortOrder - right.sortOrder || (left.effectiveAt === right.effectiveAt ? 0 : left.effectiveAt === null ? -1 : right.effectiveAt === null ? 1 : left.effectiveAt < right.effectiveAt ? -1 : 1) || compareGuid(left.guid, right.guid)
@@ -163,22 +164,29 @@ function mapError(error) {
   return new PublicHomeContentAdminError(status === 403 ? 'root_required' : status === 409 ? 'revision_conflict' : expected, status, requestId)
 }
 
-export function createPublicHomeContentAdminProductionRequest({ fetchImpl = globalThis.fetch, baseURL = import.meta.env?.VITE_API_BASE ?? '', getAuthorization } = {}) {
+export function createPublicHomeContentAdminProductionRequest({ fetchImpl = globalThis.fetch, authenticatedFetchImpl, captureAuth, assertAuthCurrent, baseURL = import.meta.env?.VITE_API_BASE ?? '', getAuthorization } = {}) {
   return async input => {
-    const headers = {}; const authorization = getAuthorization?.(); if (authorization) headers.Authorization = authorization
+    const isRead = input.method === 'GET'
+    const headers = {}; const authorization = !isRead && getAuthorization?.(); if (authorization) headers.Authorization = authorization
     if (input.method !== 'GET' && input.method !== 'DELETE' || input.body !== undefined) headers['Content-Type'] = 'application/json'
+    const authContext = isRead ? captureAuth?.() : null
     let response
-    try { response = await fetchImpl(`${baseURL}${input.path}`, { method: input.method, headers, credentials: 'include', signal: input.signal, ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }) }) } catch (error) { if (isGenuineAbortError(error)) throw error; throw new PublicHomeContentAdminError('network_error') }
+    try {
+      if (isRead && typeof authenticatedFetchImpl !== 'function') throw new PublicHomeContentAdminError('request_failed')
+      const send = isRead ? authenticatedFetchImpl : fetchImpl
+      response = await send(`${baseURL}${input.path}`, { method: input.method, headers, credentials: 'include', signal: input.signal, ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }) })
+    } catch (error) { if (isGenuineAbortError(error) || isIdentityChangedError(error) || error instanceof PublicHomeContentAdminError) throw error; throw new PublicHomeContentAdminError('network_error') }
     const responseView = snapshotFetchResponse(response)
     if (!responseView) throw new PublicHomeContentAdminError('request_failed')
     let data = null
-    if (responseView.status !== 204) { try { data = await responseView.json() } catch { data = null } }
+    if (responseView.status !== 204) { try { data = await responseView.json() } catch (error) { if (isGenuineAbortError(error) || isIdentityChangedError(error)) throw error; data = null } }
+    if (authContext && typeof assertAuthCurrent === 'function') assertAuthCurrent(authContext)
     const result = { data, status: responseView.status, headers: responseView.headers }
     if (!responseView.ok) throw { response: result }
     return result
   }
 }
-async function productionRequest(input) { const { getAuthToken } = await import('./request.js'); return createPublicHomeContentAdminProductionRequest({ getAuthorization: () => { const token = getAuthToken(); return token ? `Bearer ${token}` : null } })(input) }
+async function productionRequest(input) { const { authenticatedFetch, authSession, getAuthToken } = await import('./request.js'); return createPublicHomeContentAdminProductionRequest({ authenticatedFetchImpl: authenticatedFetch, captureAuth: () => authSession.capture(), assertAuthCurrent: context => authSession.assertCurrent(context), getAuthorization: () => { const token = getAuthToken(); return token ? `Bearer ${token}` : null } })(input) }
 
 function revision(value) { if (!positive(value)) invalidRequest(); return value }
 function guid(value) { if (!validGuid(value)) invalidRequest(); return encodeURIComponent(value) }

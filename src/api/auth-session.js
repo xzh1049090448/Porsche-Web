@@ -47,6 +47,8 @@ export function isSafeAuthRead(url = '', method = 'GET') {
     /^\/api\/v1\/billing\/analytics\/(?:access|summary|models|export|charts\/[^/]+)$/,
     /^\/api\/v1\/tokens(?:\/[^/]+)?$/,
     /^\/admin\/v2\/notifications(?:\/unread-count)?$/,
+    /^\/admin\/v2\/public-content\/(?:home-draft|home-preview|documents-draft)$/,
+    /^\/admin\/v2\/public-content\/releases\/[1-9]\d{0,18}\/home-config$/,
   ].some(pattern => pattern.test(path))
 }
 
