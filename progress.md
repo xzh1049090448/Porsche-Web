@@ -393,10 +393,10 @@
 - 本条只记录本地前端限定证据；真实 HTTPS 双标签浏览器、真实账号、后端联合验收、生产部署与 web-009 整体 M3 签收仍未运行，`web-009` 继续保持 `blocked`。
 
 
-## 2026-09-16：Fixed Home Structured Content Task12 本地证据（FAIL_LOCAL_GATE）
+## 2026-09-16：Fixed Home Structured Content Task12 本地证据（PASS_LIMITED_SCOPE）
 
 - 候选基线 `71d66d7f3916870c35defa84e30f0c38e0e826f9`。9 个 private `git archive` mutation 均按预期 RED；公共页面/chunk focused 27/27、响应式宽度与 public zoom/scale 2/2 GREEN，未发现新的 scope 内生产缺陷。
-- 六份后端合同显式注入的 `npm test` 在 180 秒预算耗尽后中断；已观测 1129 tests、1124 pass、4 fail、1 cancelled、0 skip。4 个失败是 scope 外陈旧断言；完整 typography 因有界中断被取消。`VITE_USE_MOCK=false npm run build` PASS。
-- public chunk checker FAIL：旧 allowlist 拒绝 Task9 已引入的 `src/stores/publicHomeContent.js`；检查器不在本任务 scope，未越界修改。完整门禁因此保持 `FAIL_LOCAL_GATE`。
+- 独立 gate-repair scope 修正了 platform v2 合同断言、固定 Footer 断言、native dialog/真实标题断言、typography 重复级联计算及 public chunk 精确 allowlist。定向 platform 6/6、visual shell 13/13、full-site typography 9/9、public chunks 13/13；完整 typography 8/8，用时 48.754 秒，七个宽度及 zoom/scale、真实字号、44px 控件断言均保留。
+- 六份后端合同显式注入的 `npm test` 1137/1137、0 fail/skip/cancel/todo，56.368 秒；`VITE_USE_MOCK=false npm run build` PASS；public chunk checker PASS（9 chunks、171480 JS bytes、20362 CSS bytes）。完整本地前端门禁为 `PASS_LIMITED_SCOPE`。
 - visible Chromium synthetic API：公共 ready/503 11/11、匿名 `/admin/public-content` 拒绝 1/1 PASS；覆盖 375/390/768/1280/1600、light/dark、中英文、reduced-motion、44px、focus/Escape、overflow、动态内容与价格版本。production preview 与浏览器均已清理。
 - API 使用 Playwright `page.route`，没有启动真实后端 fixture。Root CRUD/preview/validate/publish/history/restore、真实 MySQL/RBAC/事务、生产部署与验收均 `NOT_RUN`；P08 真实性标准保持 `BLOCKED_PRODUCT`。`web-012` 继续 `in_progress`。详见 `docs/agents/validation/2026-09-16-fixed-home-structured-content/`。

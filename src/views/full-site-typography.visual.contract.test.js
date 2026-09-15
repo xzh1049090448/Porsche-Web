@@ -624,7 +624,6 @@ test('representative page families retain real template ancestry for the typogra
     ['public pricing admin', './PublicPricingAdmin.vue', 'console-page'],
     ['public content admin', './PublicContentAdmin.vue', 'console-page'],
     ['notifications', './RootNotifications.vue', 'console-page'],
-    ['native dialog', './PublicContentAdmin.vue', 'responsive-dialog'],
     ['Element dialog', '../components/public-admin/PublicModelForm.vue', 'responsive-dialog'],
     ['responsive table', './Users.vue', 'responsive-table'],
     ['public pricing table', '../components/public/PricingTable.vue', 'pricing-table'],
@@ -637,6 +636,10 @@ test('representative page families retain real template ancestry for the typogra
   for (const [family, path, className] of families) {
     assert.ok(templateClasses(path).has(className), `${family} must render .${className}`)
   }
+  const restoreTitlePath = templateElementPath('./PublicContentAdmin.vue', (node, ancestors) => node.tag === 'h2'
+    && staticAttributes(node).some(([name, value]) => name === 'id' && value === 'restore-title')
+    && ancestors.some(ancestor => ancestor.tag === 'dialog'))
+  assert.equal(restoreTitlePath.at(-2)?.tag, 'dialog', 'native restore title must remain inside the real dialog')
 })
 
 test('shared console, dialog, table and badge rules resolve to the compact semantic scale', () => {
@@ -731,7 +734,7 @@ test('each representative page family resolves real text targets through its fin
     { family: 'user detail badge', path: './UserDetail.vue', shell: 'console', expected: 12, predicate: node => node.tag === 'span' && staticClasses(node).includes('status-badge') },
     { family: 'public model admin table', path: './PublicModelsAdmin.vue', shell: 'console', expected: 14, predicate: node => node.tag === 'el-table' },
     { family: 'public pricing admin title', path: './PublicPricingAdmin.vue', shell: 'console', expected: 16, predicate: node => node.tag === 'h2' && staticAttributes(node).some(([name, value]) => name === 'id' && value === 'publish-title') },
-    { family: 'public content dialog', path: './PublicContentAdmin.vue', shell: 'console', expected: 16, predicate: node => node.tag === 'h2' && staticAttributes(node).some(([name, value]) => name === 'id' && value === 'restore-content-title') },
+    { family: 'public content dialog', path: './PublicContentAdmin.vue', shell: 'console', expected: 16, predicate: node => node.tag === 'h2' && staticAttributes(node).some(([name, value]) => name === 'id' && value === 'restore-title') },
     { family: 'notifications group title', path: './RootNotifications.vue', shell: 'console', expected: 16, predicate: (node, ancestors) => node.tag === 'h2' && ancestors.some(ancestor => staticClasses(ancestor).includes('notification-group')) },
     { family: 'Home proof label', path: './public/Home.vue', shell: 'public', expected: 12, predicate: (node, ancestors) => node.tag === 'span' && ancestors.some(ancestor => staticClasses(ancestor).includes('public-proof')) },
     { family: 'public pricing filter title', path: './public/Pricing.vue', shell: 'public', expected: 14, predicate: (node, ancestors) => node.tag === 'h2' && ancestors.some(ancestor => staticClasses(ancestor).includes('pricing-sidebar-heading')) },

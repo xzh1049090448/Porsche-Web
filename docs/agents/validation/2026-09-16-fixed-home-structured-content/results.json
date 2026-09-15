@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
   "recorded_at": "2026-09-16",
-  "candidate_base_revision": "71d66d7f3916870c35defa84e30f0c38e0e826f9",
-  "overall_status": "FAIL_LOCAL_GATE",
+  "candidate_base_revision": "4f6a2e157cc9666921f9f250e144571f700a98eb",
+  "implementation_revision": "71d66d7f3916870c35defa84e30f0c38e0e826f9",
+  "overall_status": "PASS_LIMITED_SCOPE",
   "scope_status": "PASS_LIMITED_SCOPE",
   "mutation_tests": [
     {
@@ -86,43 +87,25 @@
       "duration_ms": 18689
     }
   },
+  "gate_repair": {
+    "platform_generation_contract": { "tests": 6, "pass": 6, "fail": 0, "exit_code": 0 },
+    "visual_shell_contract": { "tests": 13, "pass": 13, "fail": 0, "exit_code": 0 },
+    "full_site_typography_contract": { "tests": 9, "pass": 9, "fail": 0, "exit_code": 0 },
+    "public_chunks_contract": { "tests": 13, "pass": 13, "fail": 0, "exit_code": 0 },
+    "typography_contract": { "tests": 8, "pass": 8, "fail": 0, "exit_code": 0, "duration_ms": 48754 }
+  },
   "full_test": {
     "command": "npm test (six explicit backend contract environment variables)",
-    "status": "TIMEOUT_WITH_FAILURES",
-    "requested_timeout_seconds": 180,
-    "observed_before_interrupt": {
-      "tests": 1129,
-      "pass": 1124,
-      "fail": 4,
-      "cancelled": 1,
-      "skipped": 0,
-      "exit_code": 1
-    },
-    "failures": [
-      {
-        "file": "src/api/platform-generation-contract.test.js",
-        "reason": "stale expected contract hash"
-      },
-      {
-        "file": "src/layouts/visual-shell.contract.test.js",
-        "reason": "stale dynamic footer assertion after fixed RouterLink footer"
-      },
-      {
-        "file": "src/views/full-site-typography.visual.contract.test.js",
-        "reason": "stale responsive-dialog assertion"
-      },
-      {
-        "file": "src/views/full-site-typography.visual.contract.test.js",
-        "reason": "stale PublicContentAdmin template path assertion"
-      }
-    ],
-    "cancelled": [
-      {
-        "file": "src/styles/typography.contract.test.js",
-        "reason": "bounded run interrupted after timeout"
-      }
-    ],
-    "classification": "Known stale test and tool gates outside Task12 write scope; coordinator confirmed production defect was not established."
+    "status": "PASS",
+    "requested_timeout_seconds": 600,
+    "tests": 1137,
+    "pass": 1137,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0,
+    "duration_ms": 56368,
+    "exit_code": 0
   },
   "production_build": {
     "command": "VITE_USE_MOCK=false npm run build",
@@ -131,9 +114,11 @@
   },
   "public_chunk_checker": {
     "command": "node scripts/check-public-route-chunks.mjs",
-    "status": "FAIL_LOCAL_GATE",
-    "exit_code": 1,
-    "reason": "stale allowlist rejects intentional Task9 public store src/stores/publicHomeContent.js; checker is outside Task12 scope"
+    "status": "PASS",
+    "exit_code": 0,
+    "chunk_count": 9,
+    "javascript_bytes": 171480,
+    "css_bytes": 20362
   },
   "browser": {
     "status": "PASS_LIMITED_SCOPE",
@@ -182,8 +167,6 @@
     "P08 production content truth criteria remains BLOCKED_PRODUCT"
   ],
   "next": [
-    "Repair six stale tests/checker in a separately authorized scope",
-    "Rerun full npm test and chunk checker",
     "Run Task13 real MySQL/RBAC/transaction and authenticated Root browser acceptance"
   ]
 }

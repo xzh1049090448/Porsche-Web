@@ -18,6 +18,7 @@ const PUBLIC_LOCAL_MODULES = new Set([
   'repo:src/i18n/public-messages.js',
   'repo:src/api/publicContent.js',
   'repo:src/stores/publicContent.js',
+  'repo:src/stores/publicHomeContent.js',
   'repo:src/stores/publicHomePublication.js',
   'repo:src/utils/public-catalog.js',
   'repo:src/utils/storage.js',

@@ -1,14 +1,16 @@
 Task12 local gate record — 2026-09-16
-candidate base: 71d66d7f3916870c35defa84e30f0c38e0e826f9
-overall: FAIL_LOCAL_GATE
+gate-repair base: 4f6a2e157cc9666921f9f250e144571f700a98eb
+implementation revision: 71d66d7f3916870c35defa84e30f0c38e0e826f9
+overall: PASS_LIMITED_SCOPE
 
 PASS  private archive mutation probes: 9/9 expected RED, exit 1
 PASS  node --test src/views/public/public-pages.contract.test.js src/router/public-chunks.test.js: 27/27
 PASS  responsive widths + public zoom/scale focused tests: 2/2 in 18.689s
-FAIL  npm test with six explicit backend contracts: timeout budget exhausted; 1124 pass, 4 fail, 1 cancelled, 0 skip, exit 1
-      failures are stale tests outside Task12 scope: platform contract hash, fixed footer assertion, two full-site typography/admin assertions
+PASS  gate-repair targets: platform 6/6, visual shell 13/13, full-site typography 9/9, public chunks 13/13
+PASS  full typography contract: 8/8 in 48.754s; all seven widths, zoom/scale, real type and 44px controls retained
+PASS  npm test with six explicit backend contracts: 1137/1137, 0 fail, 0 cancelled, 0 skip, 0 todo, 56.368s, exit 0
 PASS  VITE_USE_MOCK=false npm run build (existing non-blocking Vite/Rollup warnings only)
-FAIL  node scripts/check-public-route-chunks.mjs: stale allowlist rejects intentional Task9 publicHomeContent store; tool outside Task12 scope
+PASS  node scripts/check-public-route-chunks.mjs: 9 chunks, 171480 JS bytes, 20362 CSS bytes
 PASS  visible Chromium synthetic public matrix: 11/11
 PASS  anonymous /admin/public-content route rejection: 1/1
 NOT_RUN authenticated Root CRUD/preview/validate/publish/history/restore browser flow

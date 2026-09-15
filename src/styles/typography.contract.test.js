@@ -1017,7 +1017,10 @@ test('public typography rejects zoom and scale transforms', () => {
     { file: 'public-pricing.scss', source: read('./public-pricing.scss') },
   ], siteTypographyEvidence)
 })
+const selectorStructureCache = new Map()
 const selectorStructure = selector => {
+  const cached = selectorStructureCache.get(selector)
+  if (cached) return cached
   const compounds = []
   const combinators = []
   let buffer = ''
@@ -1052,7 +1055,9 @@ const selectorStructure = selector => {
     else buffer += character
   }
   push()
-  return { compounds, combinators, leading }
+  const parsed = { compounds, combinators, leading }
+  selectorStructureCache.set(selector, parsed)
+  return parsed
 }
 const selectorCompounds = selector => selectorStructure(selector).compounds
 const compoundTokens = compound => [...compound.matchAll(/[.#:][\w-]+|\[[^\]]+\]|(?:^|(?<=[^\w.#:-]))[a-z][\w-]*/gi)].map(match => match[0])
@@ -1214,7 +1219,10 @@ const selectorTargetsContract = (selector, target, evidence = siteTypographyEvid
     }))
 }
 const fontSizeFromShorthand = value => value.match(/(?:^|\s)(var\([^)]*\)|(?:\d*\.)?\d+(?:px|rem|em|%|vw|vh)|xx-small|x-small|small|medium|large|x-large|xx-large|smaller|larger)(?:\s*\/|\s|$)/i)?.[1] || value
+const selectorSpecificityCache = new Map()
 const selectorSpecificity = selector => {
+  const cached = selectorSpecificityCache.get(selector)
+  if (cached !== undefined) return cached
   let score = 0
   let plain = ''
   for (let cursor = 0; cursor < selector.length;) {
@@ -1231,7 +1239,23 @@ const selectorSpecificity = selector => {
     if (name !== 'where') score += ['is', 'not', 'has'].includes(name) ? Math.max(0, ...splitTopLevel(selector.slice(open + 1, end - 1), ',').map(selectorSpecificity)) : 10
     cursor = end
   }
-  return score + (plain.match(/#[\w-]+/g) || []).length * 100 + (plain.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (plain.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
+  const specificity = score + (plain.match(/#[\w-]+/g) || []).length * 100 + (plain.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length * 10 + (plain.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi) || []).filter(token => !token.trim().endsWith('*')).length
+  selectorSpecificityCache.set(selector, specificity)
+  return specificity
+}
+const matchingRuleCache = new WeakMap()
+const matchingRules = (stylesheet, selector, exactOnly) => {
+  let cache = matchingRuleCache.get(stylesheet)
+  if (!cache) { cache = new Map(); matchingRuleCache.set(stylesheet, cache) }
+  const key = `${Number(exactOnly)}\0${normalizeSelector(selector)}`
+  if (cache.has(key)) return cache.get(key)
+  const matches = []
+  for (const rule of stylesheet) {
+    const selectors = rule.selectors.filter(candidate => exactOnly ? normalizeSelector(candidate) === normalizeSelector(selector) : selectorTargetsContract(candidate, selector, siteTypographyEvidence))
+    if (selectors.length) matches.push({ rule, specificity: Math.max(...selectors.map(selectorSpecificity)) })
+  }
+  cache.set(key, matches)
+  return matches
 }
 const effectiveValue = (stylesheet, selector, property, width, reduced, exactOnly = false) => {
   let winner
@@ -1239,16 +1263,29 @@ const effectiveValue = (stylesheet, selector, property, width, reduced, exactOnl
     const candidate = { ...declaration, specificity }
     if (!winner || Number(candidate.important) > Number(winner.important) || (candidate.important === winner.important && (candidate.specificity > winner.specificity || (candidate.specificity === winner.specificity && candidate.order > winner.order)))) winner = candidate
   }
-  for (const rule of stylesheet) {
-    const matching = rule.selectors.filter(candidate => exactOnly ? normalizeSelector(candidate) === normalizeSelector(selector) : selectorTargetsContract(candidate, selector, siteTypographyEvidence))
-    if (!matching.length || !mediaMatchesScreen(rule.media, width, reduced)) continue
-    const specificity = Math.max(...matching.map(selectorSpecificity))
+  for (const { rule, specificity } of matchingRules(stylesheet, selector, exactOnly)) {
+    if (!mediaMatchesScreen(rule.media, width, reduced)) continue
     for (const declaration of rule.declarations) {
       if (declaration.property === property) apply(declaration, specificity)
       else if (property === 'font-size' && declaration.property === 'font') apply({ ...declaration, property, value: fontSizeFromShorthand(declaration.value) }, specificity)
     }
   }
   return winner?.value.trim()
+}
+const elementMatchingRuleCache = new WeakMap()
+const matchingElementRules = (stylesheet, element) => {
+  let cache = elementMatchingRuleCache.get(element)
+  if (!cache) { cache = new WeakMap(); elementMatchingRuleCache.set(element, cache) }
+  if (cache.has(stylesheet)) return cache.get(stylesheet)
+  const matches = []
+  for (const rule of stylesheet) {
+    const selectors = rule.selectors.filter(selector => {
+      try { return element.matches(selector) } catch { return false }
+    })
+    if (selectors.length) matches.push({ rule, specificity: Math.max(...selectors.map(selectorSpecificity)) })
+  }
+  cache.set(stylesheet, matches)
+  return matches
 }
 const assertMapping = (stylesheet, selector, property, expected, message, widths = allScreenWidths) => {
   for (const width of widths) for (const reduced of [false, true]) {
@@ -1298,13 +1335,8 @@ const assertElementMinimumControl = (stylesheet, element, property, message, wid
   for (const width of widths) for (const reduced of [false, true]) {
     const value = name => {
       let winner
-      for (const rule of stylesheet) {
+      for (const { rule, specificity } of matchingElementRules(stylesheet, element)) {
         if (!mediaMatchesScreen(rule.media, width, reduced)) continue
-        const matching = rule.selectors.filter(selector => {
-          try { return element.matches(selector) } catch { return false }
-        })
-        if (!matching.length) continue
-        const specificity = Math.max(...matching.map(selectorSpecificity))
         for (const declaration of rule.declarations.filter(candidate => candidate.property === name)) {
           const candidate = { ...declaration, specificity }
           if (!winner || Number(candidate.important) > Number(winner.important) || (candidate.important === winner.important && (candidate.specificity > winner.specificity || (candidate.specificity === winner.specificity && candidate.order > winner.order)))) winner = candidate

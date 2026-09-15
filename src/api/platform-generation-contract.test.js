@@ -372,7 +372,16 @@ test('BE06 contract additions do not weaken unrelated frozen contracts or legacy
   const contract = await readContract()
   const unrelated = contract.interfaces.filter(entry => !entry.path.startsWith('/api/v1/platform/chat'))
   assert.equal(hash(unrelated), '0de5a8611abc2a0c847cad6445044f784ac5cff2dbcc4d769f5d56dd85236dc9')
-  assert.equal(hash(contract.public_content_pricing), 'd2cb6cb2f2cf47bee4fc1f6585b5f68145d9bc4c6f0cb39bbe172cd8091f5c36')
+  const publicContent = contract.public_content_pricing
+  assert.equal(publicContent.version, 'v2')
+  assert.equal(publicContent.status, 'approved_contract_pending_implementation')
+  assert.equal(publicContent.routes.find(route => route.method === 'GET' && route.path === '/api/v1/public/home-config')?.response_schema, 'HomeConfigPublicResponse')
+  assert.deepEqual(publicContent.schemas.HomeConfigPublicResponse.required, [
+    'announcements', 'faqs', 'featured_model_keys', 'content_release_version', 'price_release_version',
+  ])
+  assert.equal(publicContent.schemas.AnnouncementDraft.properties.body_markdown.maxBytes, 16384)
+  assert.equal(publicContent.schemas.HomeConfigPublicAnnouncement.properties.body_html.type, 'string')
+  assert.equal(hash(publicContent), '0ebd8f8afc5f5028b1ecaa17b486e80e34fc90a7b7edd0a2ad7d4f5341c32937')
   assert.equal(hash(contract.sse_events), '915154b364c1dcfdb9ede6ce0d5bba2f24a3a6648440f64cfb2ffe2e0db55fd3')
   assert.equal(hash(contract.sse_rules), '948ce9031eb7e08afb7a653a24048c7137845f970d31c8fa95db21ced9bb9427')
   assert.equal(hash(contract.definitions), '663e189f8156571d23bd0b82e074b281c6084c4522026de8e38ff9b0ea7041b8')

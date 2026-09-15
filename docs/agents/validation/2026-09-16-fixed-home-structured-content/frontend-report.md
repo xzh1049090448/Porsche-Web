@@ -1,15 +1,15 @@
 # Fixed Home Structured Content — Task12 前端本地验收报告
 
 日期：2026-09-16
-被测基线：`71d66d7f3916870c35defa84e30f0c38e0e826f9`
-总体结论：`FAIL_LOCAL_GATE`
-已通过的限定范围：`PASS_LIMITED_SCOPE`
+门禁修复基线：`4f6a2e157cc9666921f9f250e144571f700a98eb`
+实现候选：`71d66d7f3916870c35defa84e30f0c38e0e826f9`
+总体结论：`PASS_LIMITED_SCOPE`
 
 ## 结论
 
-新增 Task12 合同反例与合成浏览器矩阵均通过，未从这些反例中发现新的生产代码缺陷。完整本地门禁尚未通过：`npm test` 在 180 秒预算耗尽后被中断，已观测到 1124 项通过、4 项失败、1 项取消；公共 chunk checker 也因旧 allowlist 拒绝 Task9 已引入的公共首页 store 而失败。失败均位于本任务不可写的测试或检查器范围，协调者已将其归类为陈旧门禁，后续须在独立 scope 修复并重跑。
+新增 Task12 合同反例与合成浏览器矩阵均通过，未从这些反例中发现新的生产代码缺陷。独立 gate-repair scope 已修正陈旧测试和公共 chunk allowlist；完整 `npm test` 1137/1137 通过，0 fail、0 cancelled、0 skip，生产构建和真实 chunk checker 均通过。
 
-`web-012` 保持 `in_progress`。本报告没有把生产 build、合成 fixture 或匿名路由检查当作真实后端、Root 管理闭环或生产验收。
+`web-012` 保持 `in_progress`。当前结论限于本地前端与合成浏览器证据；生产 build、合成 fixture 和匿名路由检查不代表真实后端、Root 管理闭环或生产验收。
 
 ## TDD 反例
 
@@ -27,12 +27,14 @@
 
 原实现定向 GREEN：公共页面和 chunk 合同 27/27；响应式宽度与 zoom/scale 两项 2/2。宽度合同明确包含 375、390、767、768、1280、1440、1600。
 
+陈旧门禁的修复后定向结果：platform generation 6/6、visual shell 13/13、full-site typography 9/9、public chunks 13/13；完整 typography 8/8，用时 48.754 秒。优化只缓存与宽度无关的选择器匹配和 specificity 计算，七个宽度、zoom/scale、真实字号及 44px 控件断言仍完整执行。
+
 ## 完整门禁
 
-- `VITE_USE_MOCK=false npm run build`：PASS，只有既有 Vite/Rollup 警告。
-- `npm test`（显式注入 A03/A05/A06/A08/A14/PublicPricing 六份后端合同）：TIMEOUT_WITH_FAILURES。预算耗尽时为 1129 tests、1124 pass、4 fail、1 cancelled、0 skip、exit 1。
-- 失败项：platform generation 合同 hash 旧值、visual shell 旧动态 Footer 断言、full-site typography 对旧 dialog 和旧 PublicContentAdmin 模板的两条断言。被中断项为完整 typography 合同。
-- `node scripts/check-public-route-chunks.mjs`：FAIL；旧 allowlist 未允许 Task9 的 `src/stores/publicHomeContent.js`。本 Task12 禁止修改检查器。
+- `npm test`（显式注入 A03/A05/A06/A08/A14/PublicPricing 六份后端合同）：1137 tests、1137 pass、0 fail、0 cancelled、0 skip、0 todo，56.368 秒，exit 0。
+- `VITE_USE_MOCK=false npm run build`：PASS，只有既有 Vite/Rollup 非阻塞警告。
+- `node scripts/check-public-route-chunks.mjs`：PASS，公共闭包 9 chunks、171480 JS bytes、20362 CSS bytes。
+- platform generation 测试同时固定 v2、结构化 home-config 字段和当前批准合同 hash；Footer 测试反向证明固定导航不读取发布链接；native dialog 测试直接验证 `dialog > #restore-title`。
 
 ## 可见浏览器验收
 
@@ -49,8 +51,7 @@
 
 ## 后续边界
 
-1. 在独立 scope 修复陈旧测试与 chunk checker，再重跑完整门禁。
-2. Task13 使用真实 MySQL、RBAC、事务和真实 Root 会话完成联合验收。
-3. P08 生产内容真实性标准保持 `BLOCKED_PRODUCT`。
+1. Task13 使用真实 MySQL、RBAC、事务和真实 Root 会话完成联合验收。
+2. P08 生产内容真实性标准保持 `BLOCKED_PRODUCT`。
 
 机器结果见 `results.json`，浏览器逐场景结果见 `browser-results.json`，原始门禁摘要见 `gates.txt`。

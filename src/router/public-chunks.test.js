@@ -52,6 +52,14 @@ test('public graph accepts the shared route transition used by the public bootst
   })
 })
 
+test('public graph accepts only the structured home state needed by the public layout', () => {
+  assert.deepEqual(validatePublicGraph(fixture(['src/stores/publicHomeContent.js'])), {
+    chunkCount: 2,
+    codeBytes: 15,
+    cssBytes: 100,
+  })
+})
+
 test('early document theme uses valid storage first and otherwise follows the system', () => {
   const html = readFileSync(new URL('../../index.html', import.meta.url), 'utf8')
   const parsed = new JSDOM(html)
