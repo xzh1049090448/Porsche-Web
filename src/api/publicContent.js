@@ -9,12 +9,14 @@ const positiveInteger = value => Number.isSafeInteger(value) && value >= 1
 const GUID = /^[1-9]\d{0,18}$/
 const MAX_INT64 = '9223372036854775807'
 const MODEL_KEY = /^[a-z][a-z0-9-]{0,127}$/
-const RFC3339 = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.\d+)?Z$/
+const RFC3339 = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)Z$/
 const UNSAFE_TEXT = /[\p{Cc}\p{Cf}]/u
+const UNSAFE_HTML = /[\p{Cc}\p{Cf}]/u
 const LONE_SURROGATE = /(?:[\uD800-\uDBFF](?![\uDC00-\uDFFF]))|(?:(?<![\uD800-\uDBFF])[\uDC00-\uDFFF])/
 const validScalars = value => !LONE_SURROGATE.test(value) && ![...value].some(character => { const code = character.codePointAt(0); return code === 0xfffd || code >= 0xfdd0 && code <= 0xfdef || (code & 0xffff) >= 0xfffe })
 const validGuid = value => typeof value === 'string' && GUID.test(value) && (value.length < MAX_INT64.length || value <= MAX_INT64)
 const validText = (value, max, { empty = false, bytes = false } = {}) => typeof value === 'string' && (empty || value.trim().length > 0) && !UNSAFE_TEXT.test(value) && validScalars(value) && (bytes ? new TextEncoder().encode(value).length : [...value].length) <= max
+const validHTML = value => typeof value === 'string' && ![...value].some(character => !['\t', '\n', '\r'].includes(character) && UNSAFE_HTML.test(character)) && validScalars(value)
 const validModelKey = value => typeof value === 'string' && MODEL_KEY.test(value) && !value.endsWith('-') && !value.includes('--')
 const validUTC = value => {
   if (value === null) return true
@@ -26,6 +28,12 @@ const validUTC = value => {
   return date.getUTCFullYear() === parts[0] && date.getUTCMonth() + 1 === parts[1] && date.getUTCDate() === parts[2] && date.getUTCHours() === parts[3] && date.getUTCMinutes() === parts[4] && date.getUTCSeconds() === parts[5]
 }
 const freeze = value => Array.isArray(value) ? Object.freeze(value.map(freeze)) : value && typeof value === 'object' ? Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, freeze(item)]))) : value
+const plainExact = (value, keys) => exact(value, keys) && Object.getPrototypeOf(value) === Object.prototype
+const standardArray = value => Array.isArray(value) && Object.getPrototypeOf(value) === Array.prototype
+const compareGuid = (left, right) => left.length === right.length ? left < right ? -1 : left > right ? 1 : 0 : left.length - right.length
+const compareAnnouncement = (left, right) => left.sortOrder - right.sortOrder || (left.effectiveAt === right.effectiveAt ? 0 : left.effectiveAt === null ? -1 : right.effectiveAt === null ? 1 : left.effectiveAt < right.effectiveAt ? -1 : 1) || compareGuid(left.guid, right.guid)
+const compareFAQ = (left, right) => left.sortOrder - right.sortOrder || compareGuid(left.guid, right.guid)
+const canonicalOrder = (items, compare) => items.every((item, index) => index === 0 || compare(items[index - 1], item) <= 0)
 
 function mapDocument(raw) {
   if (!exact(raw, ['document', 'release_version']) || typeof raw.document !== 'string' || !positiveInteger(raw.release_version)) throw new Error('invalid_public_document')
@@ -44,17 +52,31 @@ export function mapPublicHomeConfig(raw) {
   if (!exact(raw, keys) || !Array.isArray(raw.announcements) || raw.announcements.length > 20 || !Array.isArray(raw.faqs) || raw.faqs.length > 50 || !Array.isArray(raw.featured_model_keys) || raw.featured_model_keys.length > 12 || !positiveInteger(raw.content_release_version) || !positiveInteger(raw.price_release_version)) throw new Error('invalid_public_home_config')
   const announcementGuids = new Set(); const faqGuids = new Set(); const modelKeys = new Set()
   const announcements = raw.announcements.map(item => {
-    if (!exact(item, ['guid', 'title', 'body_html', 'effective_at', 'sort_order']) || !validGuid(item.guid) || announcementGuids.has(item.guid) || !validText(item.title, 120) || !validText(item.body_html, 262144, { empty: true, bytes: true }) || !validUTC(item.effective_at) || !Number.isSafeInteger(item.sort_order) || item.sort_order < 0 || item.sort_order > 1000000) throw new Error('invalid_public_home_config')
+    if (!exact(item, ['guid', 'title', 'body_html', 'effective_at', 'sort_order']) || !validGuid(item.guid) || announcementGuids.has(item.guid) || !validText(item.title, 120) || !validHTML(item.body_html) || !validUTC(item.effective_at) || !Number.isSafeInteger(item.sort_order) || item.sort_order < 0 || item.sort_order > 1000000) throw new Error('invalid_public_home_config')
     announcementGuids.add(item.guid)
     return { guid: item.guid, title: item.title, bodyHtml: item.body_html, effectiveAt: item.effective_at, sortOrder: item.sort_order }
   })
   const faqs = raw.faqs.map(item => {
-    if (!exact(item, ['guid', 'question', 'answer_html', 'sort_order']) || !validGuid(item.guid) || faqGuids.has(item.guid) || !validText(item.question, 200) || !validText(item.answer_html, 262144, { empty: true, bytes: true }) || !Number.isSafeInteger(item.sort_order) || item.sort_order < 0 || item.sort_order > 1000000) throw new Error('invalid_public_home_config')
+    if (!exact(item, ['guid', 'question', 'answer_html', 'sort_order']) || !validGuid(item.guid) || faqGuids.has(item.guid) || !validText(item.question, 200) || !validHTML(item.answer_html) || !Number.isSafeInteger(item.sort_order) || item.sort_order < 0 || item.sort_order > 1000000) throw new Error('invalid_public_home_config')
     faqGuids.add(item.guid)
     return { guid: item.guid, question: item.question, answerHtml: item.answer_html, sortOrder: item.sort_order }
   })
+  if (!canonicalOrder(announcements, compareAnnouncement) || !canonicalOrder(faqs, compareFAQ)) throw new Error('invalid_public_home_config')
   for (const key of raw.featured_model_keys) { if (!validModelKey(key) || modelKeys.has(key)) throw new Error('invalid_public_home_config'); modelKeys.add(key) }
   return freeze({ announcements, faqs, featuredModelKeys: raw.featured_model_keys, contentReleaseVersion: raw.content_release_version, priceReleaseVersion: raw.price_release_version })
+}
+
+function canonicalCachedHomeConfig(cached, path, requestETag) {
+  const resultKeys = ['data', 'etag', 'releaseVersion', 'publicationVersions', 'resourceKey', 'notModified']
+  const dataKeys = ['announcements', 'faqs', 'featuredModelKeys', 'contentReleaseVersion', 'priceReleaseVersion']
+  if (!plainExact(cached, resultKeys) || !plainExact(cached.data, dataKeys) || !plainExact(cached.publicationVersions, ['content','price']) || !standardArray(cached.data.announcements) || !standardArray(cached.data.faqs) || !standardArray(cached.data.featuredModelKeys) || !cached.data.announcements.every(item => plainExact(item, ['guid','title','bodyHtml','effectiveAt','sortOrder'])) || !cached.data.faqs.every(item => plainExact(item, ['guid','question','answerHtml','sortOrder'])) || cached.resourceKey !== path || typeof cached.notModified !== 'boolean' || typeof requestETag !== 'string' || !requestETag.trim() || cached.etag !== requestETag || !positiveInteger(cached.releaseVersion) || !positiveInteger(cached.publicationVersions.content) || !positiveInteger(cached.publicationVersions.price)) throw new Error('invalid_cache')
+  const data = mapPublicHomeConfig({
+    announcements: cached.data.announcements.map(item => ({ guid:item.guid, title:item.title, body_html:item.bodyHtml, effective_at:item.effectiveAt, sort_order:item.sortOrder })),
+    faqs: cached.data.faqs.map(item => ({ guid:item.guid, question:item.question, answer_html:item.answerHtml, sort_order:item.sortOrder })),
+    featured_model_keys: [...cached.data.featuredModelKeys], content_release_version:cached.data.contentReleaseVersion, price_release_version:cached.data.priceReleaseVersion,
+  })
+  if (cached.releaseVersion !== data.contentReleaseVersion || cached.publicationVersions.content !== data.contentReleaseVersion || cached.publicationVersions.price !== data.priceReleaseVersion) throw new Error('invalid_cache')
+  return Object.freeze({ data, etag: cached.etag, releaseVersion: data.contentReleaseVersion, publicationVersions: Object.freeze({ content:data.contentReleaseVersion, price:data.priceReleaseVersion }), resourceKey:path, notModified:true })
 }
 
 function queryString(filters = {}) {
@@ -91,7 +113,8 @@ export function createPublicContentClient({ fetchImpl = globalThis.fetch, authen
     catch (error) { if (error?.name === 'AbortError') throw error; throw new PublicContentError('network_error') }
     if (response.status === 304) {
       if (options.authenticated) throw new PublicContentError('invalid_304', 304)
-      if (!options.cached || (options.resourceKey && (typeof options.etag !== 'string' || !options.etag.trim() || options.cached.etag !== options.etag || options.cached.resourceKey !== path || !options.cacheValidator?.(options.cached)))) throw new PublicContentError('invalid_304', 304)
+      if (options.resourceKey) { try { return options.cacheMapper(options.cached, path, options.etag) } catch { throw new PublicContentError('invalid_304', 304) } }
+      if (!options.cached) throw new PublicContentError('invalid_304', 304)
       return { ...options.cached, notModified: true }
     }
     if (!response.ok) {
@@ -116,12 +139,13 @@ export function createPublicContentClient({ fetchImpl = globalThis.fetch, authen
     const publicationVersions = data.contentReleaseVersion === undefined
       ? path.includes('/models') ? { price: data.releaseVersion } : { content: data.releaseVersion }
       : { content: data.contentReleaseVersion, price: data.priceReleaseVersion }
-    return { data, etag: options.authenticated ? undefined : etag, releaseVersion: headerVersion, publicationVersions, ...(options.resourceKey ? { resourceKey: path } : {}), notModified: false }
+    const result = { data, etag: options.authenticated ? undefined : etag, releaseVersion: headerVersion, publicationVersions, ...(options.resourceKey ? { resourceKey: path } : {}), notModified: false }
+    return options.resourceKey ? Object.freeze({ ...result, publicationVersions: Object.freeze({ ...publicationVersions }) }) : result
   }
   const document = path => options => request(path, mapDocument, options)
   return {
     getSite: options => request('/api/v1/public/site', mapSite, options), getHome: document('/api/v1/public/home'),
-    getHomeConfig: (options = {}) => { if (!options || typeof options !== 'object' || Object.keys(options).some(key => !['etag','cached','signal'].includes(key))) throw new Error('invalid_public_home_config_options'); return request('/api/v1/public/home-config', mapPublicHomeConfig, { ...options, authenticated: false, resourceKey: true, cacheValidator: cached => { try { return cached?.releaseVersion === cached?.data?.contentReleaseVersion && typeof cached.etag === 'string' && cached.etag.trim() && exact(cached.publicationVersions, ['content', 'price']) && mapPublicHomeConfig({ announcements: cached.data.announcements.map(x => ({ guid: x.guid, title: x.title, body_html: x.bodyHtml, effective_at: x.effectiveAt, sort_order: x.sortOrder })), faqs: cached.data.faqs.map(x => ({ guid: x.guid, question: x.question, answer_html: x.answerHtml, sort_order: x.sortOrder })), featured_model_keys: [...cached.data.featuredModelKeys], content_release_version: cached.data.contentReleaseVersion, price_release_version: cached.data.priceReleaseVersion }) && cached.publicationVersions.content === cached.data.contentReleaseVersion && cached.publicationVersions.price === cached.data.priceReleaseVersion } catch { return false } } }) },
+    getHomeConfig: (options = {}) => { if (!plainExact(options, Object.keys(options)) || Object.keys(options).some(key => !['etag','cached','signal'].includes(key))) throw new Error('invalid_public_home_config_options'); return request('/api/v1/public/home-config', mapPublicHomeConfig, { ...options, authenticated: false, resourceKey: true, cacheMapper: canonicalCachedHomeConfig }) },
     getModels: (filters = {}, options = {}) => request(publicModelsResourceKey(filters), mapPublicModelList, options),
     getModel: (modelKey, options = {}) => { if (typeof modelKey !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(modelKey)) throw new Error('invalid_model_key'); return request(`/api/v1/public/models/${encodeURIComponent(modelKey)}`, mapDetail, options) },
     getAbout: document('/api/v1/public/pages/about'), getTerms: document('/api/v1/public/pages/terms'), getPrivacy: document('/api/v1/public/pages/privacy'),

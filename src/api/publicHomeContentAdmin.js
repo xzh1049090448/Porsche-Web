@@ -3,16 +3,16 @@ import { mapPublicHomeConfig } from './publicContent.js'
 const GUID = /^[1-9]\d{0,18}$/
 const MAX_INT64 = '9223372036854775807'
 const MODEL_KEY = /^[a-z][a-z0-9-]{0,127}$/
-const RFC3339 = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.\d+)?Z$/
+const RFC3339 = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)Z$/
 const UNSAFE = /[\p{Cc}\p{Cf}]/u
-const UNSAFE_MULTILINE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\p{Cf}]/u
 const LONE_SURROGATE = /(?:[\uD800-\uDBFF](?![\uDC00-\uDFFF]))|(?:(?<![\uD800-\uDBFF])[\uDC00-\uDFFF])/
-const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key))
+const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key))
+const standardArray = value => Array.isArray(value) && Object.getPrototypeOf(value) === Array.prototype
 const positive = value => Number.isSafeInteger(value) && value >= 1
 const validGuid = value => typeof value === 'string' && GUID.test(value) && (value.length < MAX_INT64.length || value <= MAX_INT64)
 const validModelKey = value => typeof value === 'string' && MODEL_KEY.test(value) && !value.endsWith('-') && !value.includes('--')
 const validScalars = value => !LONE_SURROGATE.test(value) && ![...value].some(character => { const code = character.codePointAt(0); return code === 0xfffd || code >= 0xfdd0 && code <= 0xfdef || (code & 0xffff) >= 0xfffe })
-const validText = (value, max, { empty = false, multiline = false, bytes = false } = {}) => typeof value === 'string' && (empty || value.trim().length > 0) && !(multiline ? UNSAFE_MULTILINE : UNSAFE).test(value) && validScalars(value) && (bytes ? new TextEncoder().encode(value).length : [...value].length) <= max
+const validText = (value, max, { empty = false, multiline = false, bytes = false } = {}) => typeof value === 'string' && (empty || value.trim().length > 0) && ![...value].some(character => multiline && ['\t', '\n', '\r'].includes(character) ? false : UNSAFE.test(character)) && validScalars(value) && (bytes ? new TextEncoder().encode(value).length : [...value].length) <= max
 const validTime = value => {
   if (value === null) return true
   const match = typeof value === 'string' ? RFC3339.exec(value) : null
@@ -24,6 +24,10 @@ const validTime = value => {
 const validSort = value => Number.isSafeInteger(value) && value >= 0 && value <= 1000000
 const header = (headers, name) => { const value = typeof headers?.get === 'function' ? headers.get(name) : headers?.[name] ?? headers?.[name.toLowerCase()]; return typeof value === 'string' ? value : null }
 const freeze = value => Array.isArray(value) ? Object.freeze(value.map(freeze)) : value && typeof value === 'object' ? Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, freeze(item)]))) : value
+const compareGuid = (left, right) => left.length === right.length ? left < right ? -1 : left > right ? 1 : 0 : left.length - right.length
+const compareAnnouncement = (left, right) => left.sortOrder - right.sortOrder || (left.effectiveAt === right.effectiveAt ? 0 : left.effectiveAt === null ? -1 : right.effectiveAt === null ? 1 : left.effectiveAt < right.effectiveAt ? -1 : 1) || compareGuid(left.guid, right.guid)
+const compareFAQ = (left, right) => left.sortOrder - right.sortOrder || compareGuid(left.guid, right.guid)
+const canonicalOrder = (items, compare) => items.every((item, index) => index === 0 || compare(items[index - 1], item) <= 0)
 const invalidRequest = () => { throw new Error('invalid_public_home_content_admin_request') }
 class InvalidResponse extends Error { constructor() { super('invalid_public_home_content_admin_response') } }
 const invalid = () => { throw new InvalidResponse() }
@@ -37,9 +41,9 @@ function mapFAQ(raw) {
   return freeze({ guid: raw.guid, question: raw.question, answerMarkdown: raw.answer_markdown, isVisible: raw.is_visible, sortOrder: raw.sort_order })
 }
 function mapHomeDraft(raw) {
-  if (!exact(raw, ['revision', 'announcements', 'faqs', 'featured_model_keys']) || !positive(raw.revision) || !Array.isArray(raw.announcements) || raw.announcements.length > 20 || !Array.isArray(raw.faqs) || raw.faqs.length > 50 || !Array.isArray(raw.featured_model_keys) || raw.featured_model_keys.length > 12) invalid()
+  if (!exact(raw, ['revision', 'announcements', 'faqs', 'featured_model_keys']) || !positive(raw.revision) || !standardArray(raw.announcements) || raw.announcements.length > 20 || !standardArray(raw.faqs) || raw.faqs.length > 50 || !standardArray(raw.featured_model_keys) || raw.featured_model_keys.length > 12) invalid()
   const announcements = raw.announcements.map(mapAnnouncement), faqs = raw.faqs.map(mapFAQ), keys = raw.featured_model_keys
-  if (new Set(announcements.map(item => item.guid)).size !== announcements.length || new Set(faqs.map(item => item.guid)).size !== faqs.length || new Set(keys).size !== keys.length || !keys.every(validModelKey)) invalid()
+  if (new Set(announcements.map(item => item.guid)).size !== announcements.length || new Set(faqs.map(item => item.guid)).size !== faqs.length || new Set(keys).size !== keys.length || !keys.every(validModelKey) || !canonicalOrder(announcements, compareAnnouncement) || !canonicalOrder(faqs, compareFAQ)) invalid()
   return freeze({ revision: raw.revision, announcements, faqs, featuredModelKeys: keys })
 }
 function mapDocuments(raw) {
@@ -84,15 +88,16 @@ async function productionRequest(input) { const { getAuthToken } = await import(
 function revision(value) { if (!positive(value)) invalidRequest(); return value }
 function guid(value) { if (!validGuid(value)) invalidRequest(); return encodeURIComponent(value) }
 function exactInput(value, keys) { if (!exact(value, keys)) invalidRequest() }
+function requestOptions(value, allowed = ['signal']) { if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype || Object.keys(value).some(key => !allowed.includes(key))) invalidRequest(); return value }
 function announcementBody(value, update = false) {
-  const allowed = ['expectedRevision', 'title', 'bodyMarkdown', 'effectiveAt', 'isVisible', 'sortOrder']; if (!value || typeof value !== 'object' || Object.keys(value).some(key => !allowed.includes(key)) || !positive(value.expectedRevision)) invalidRequest()
+  const allowed = ['expectedRevision', 'title', 'bodyMarkdown', 'effectiveAt', 'isVisible', 'sortOrder']; if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype || Object.keys(value).some(key => !allowed.includes(key)) || !Object.hasOwn(value, 'expectedRevision') || !positive(value.expectedRevision)) invalidRequest()
   if (!update && allowed.some(key => !Object.hasOwn(value, key))) invalidRequest()
   const body = { expected_revision: value.expectedRevision }
   for (const [source, target, validate] of [['title','title',v=>validText(v,120)],['bodyMarkdown','body_markdown',v=>validText(v,16384,{empty:true,multiline:true,bytes:true})],['effectiveAt','effective_at',validTime],['isVisible','is_visible',v=>typeof v==='boolean'],['sortOrder','sort_order',validSort]]) if (Object.hasOwn(value, source)) { if (!validate(value[source])) invalidRequest(); body[target] = value[source] }
   return body
 }
 function faqBody(value, update = false) {
-  const allowed = ['expectedRevision', 'question', 'answerMarkdown', 'isVisible', 'sortOrder']; if (!value || typeof value !== 'object' || Object.keys(value).some(key => !allowed.includes(key)) || !positive(value.expectedRevision)) invalidRequest()
+  const allowed = ['expectedRevision', 'question', 'answerMarkdown', 'isVisible', 'sortOrder']; if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype || Object.keys(value).some(key => !allowed.includes(key)) || !Object.hasOwn(value, 'expectedRevision') || !positive(value.expectedRevision)) invalidRequest()
   if (!update && allowed.some(key => !Object.hasOwn(value, key))) invalidRequest()
   const body = { expected_revision: value.expectedRevision }
   for (const [source, target, validate] of [['question','question',v=>validText(v,200)],['answerMarkdown','answer_markdown',v=>validText(v,16384,{empty:true,multiline:true,bytes:true})],['isVisible','is_visible',v=>typeof v==='boolean'],['sortOrder','sort_order',validSort]]) if (Object.hasOwn(value, source)) { if (!validate(value[source])) invalidRequest(); body[target] = value[source] }
@@ -103,18 +108,18 @@ export function createPublicHomeContentAdminApi({ request = productionRequest } 
   const run = async (input, status, mapper, options) => { try { return mapper(metadata(await request(input), status, options)) } catch (error) { if (error instanceof InvalidResponse || error instanceof PublicHomeContentAdminError) throw error; throw mapError(error) } }
   const home = (input, status) => run(input, status, mapHomeDraft)
   return Object.freeze({
-    getHomeDraft: (options = {}) => home({ method: 'GET', path: '/admin/v2/public-content/home-draft', signal: options.signal }, 200),
-    createAnnouncement: (value, options = {}) => home({ method: 'POST', path: '/admin/v2/public-content/home-draft/announcements', body: announcementBody(value), signal: options.signal }, 201),
-    updateAnnouncement: (id, value, options = {}) => home({ method: 'PATCH', path: `/admin/v2/public-content/home-draft/announcements/${guid(id)}`, body: announcementBody(value, true), signal: options.signal }, 200),
-    deleteAnnouncement: (id, expectedRevision, options = {}) => run({ method: 'DELETE', path: `/admin/v2/public-content/home-draft/announcements/${guid(id)}`, body: { expected_revision: revision(expectedRevision) }, signal: options.signal }, 204, value => value, { deletion: true }),
-    createFAQ: (value, options = {}) => home({ method: 'POST', path: '/admin/v2/public-content/home-draft/faqs', body: faqBody(value), signal: options.signal }, 201),
-    updateFAQ: (id, value, options = {}) => home({ method: 'PATCH', path: `/admin/v2/public-content/home-draft/faqs/${guid(id)}`, body: faqBody(value, true), signal: options.signal }, 200),
-    deleteFAQ: (id, expectedRevision, options = {}) => run({ method: 'DELETE', path: `/admin/v2/public-content/home-draft/faqs/${guid(id)}`, body: { expected_revision: revision(expectedRevision) }, signal: options.signal }, 204, value => value, { deletion: true }),
-    saveFeaturedModels: (expectedRevision, featuredModelKeys, options = {}) => { if (!Array.isArray(featuredModelKeys) || featuredModelKeys.length > 12 || new Set(featuredModelKeys).size !== featuredModelKeys.length || !featuredModelKeys.every(validModelKey)) invalidRequest(); return home({ method: 'PUT', path: '/admin/v2/public-content/home-draft/featured-models', body: { expected_revision: revision(expectedRevision), featured_model_keys: [...featuredModelKeys] }, signal: options.signal }, 200) },
-    previewHome: (draftRevision, options = {}) => { if (draftRevision !== undefined && !positive(draftRevision)) invalidRequest(); return run({ method: 'GET', path: `/admin/v2/public-content/home-preview${draftRevision === undefined ? '' : `?revision=${draftRevision}`}`, signal: options.signal }, 200, mapHomeDraft, { preview: true }) },
-    getReleaseHomeConfig: (id, options = {}) => run({ method: 'GET', path: `/admin/v2/public-content/releases/${guid(id)}/home-config`, signal: options.signal }, 200, raw => { try { return mapPublicHomeConfig(raw) } catch { invalid() } }),
-    getDocumentsDraft: (options = {}) => run({ method: 'GET', path: '/admin/v2/public-content/documents-draft', signal: options.signal }, 200, mapDocuments),
-    saveDocumentsDraft: (value, options = {}) => { exactInput(value, ['expectedRevision','about','terms','privacy','legalReviewed']); if (![value.about,value.terms,value.privacy].every(item=>validText(item,262144,{empty:true,multiline:true,bytes:true})) || typeof value.legalReviewed !== 'boolean') invalidRequest(); return run({ method: 'PUT', path: '/admin/v2/public-content/documents-draft', body: { expected_revision: revision(value.expectedRevision), about:value.about, terms:value.terms, privacy:value.privacy, legal_reviewed:value.legalReviewed }, signal: options.signal }, 200, mapDocuments) },
+    getHomeDraft: (options = {}) => { options=requestOptions(options); return home({ method: 'GET', path: '/admin/v2/public-content/home-draft', signal: options.signal }, 200) },
+    createAnnouncement: (value, options = {}) => { const body=announcementBody(value); options=requestOptions(options); return home({ method: 'POST', path: '/admin/v2/public-content/home-draft/announcements', body, signal: options.signal }, 201) },
+    updateAnnouncement: (id, value, options = {}) => { const pathGuid=guid(id),body=announcementBody(value,true);options=requestOptions(options);return home({ method: 'PATCH', path: `/admin/v2/public-content/home-draft/announcements/${pathGuid}`, body, signal: options.signal }, 200) },
+    deleteAnnouncement: (id, expectedRevision, options = {}) => { const pathGuid=guid(id),rev=revision(expectedRevision);options=requestOptions(options);return run({ method: 'DELETE', path: `/admin/v2/public-content/home-draft/announcements/${pathGuid}`, body: { expected_revision: rev }, signal: options.signal }, 204, value => value, { deletion: true }) },
+    createFAQ: (value, options = {}) => { const body=faqBody(value);options=requestOptions(options);return home({ method: 'POST', path: '/admin/v2/public-content/home-draft/faqs', body, signal: options.signal }, 201) },
+    updateFAQ: (id, value, options = {}) => { const pathGuid=guid(id),body=faqBody(value,true);options=requestOptions(options);return home({ method: 'PATCH', path: `/admin/v2/public-content/home-draft/faqs/${pathGuid}`, body, signal: options.signal }, 200) },
+    deleteFAQ: (id, expectedRevision, options = {}) => { const pathGuid=guid(id),rev=revision(expectedRevision);options=requestOptions(options);return run({ method: 'DELETE', path: `/admin/v2/public-content/home-draft/faqs/${pathGuid}`, body: { expected_revision: rev }, signal: options.signal }, 204, value => value, { deletion: true }) },
+    saveFeaturedModels: (expectedRevision, featuredModelKeys, options = {}) => { if (!standardArray(featuredModelKeys) || featuredModelKeys.length > 12 || new Set(featuredModelKeys).size !== featuredModelKeys.length || !featuredModelKeys.every(validModelKey)) invalidRequest(); const rev=revision(expectedRevision);options=requestOptions(options);return home({ method: 'PUT', path: '/admin/v2/public-content/home-draft/featured-models', body: { expected_revision: rev, featured_model_keys: [...featuredModelKeys] }, signal: options.signal }, 200) },
+    previewHome: (draftRevision, options = {}) => { if (draftRevision !== undefined && !positive(draftRevision)) invalidRequest();options=requestOptions(options);return run({ method: 'GET', path: `/admin/v2/public-content/home-preview${draftRevision === undefined ? '' : `?revision=${draftRevision}`}`, signal: options.signal }, 200, mapHomeDraft, { preview: true }) },
+    getReleaseHomeConfig: (id, options = {}) => { const pathGuid=guid(id);options=requestOptions(options);return run({ method: 'GET', path: `/admin/v2/public-content/releases/${pathGuid}/home-config`, signal: options.signal }, 200, raw => { try { return mapPublicHomeConfig(raw) } catch { invalid() } }) },
+    getDocumentsDraft: (options = {}) => { options=requestOptions(options);return run({ method: 'GET', path: '/admin/v2/public-content/documents-draft', signal: options.signal }, 200, mapDocuments) },
+    saveDocumentsDraft: (value, options = {}) => { exactInput(value, ['expectedRevision','about','terms','privacy','legalReviewed']); if (![value.about,value.terms,value.privacy].every(item=>validText(item,262144,{empty:true,multiline:true,bytes:true})) || typeof value.legalReviewed !== 'boolean') invalidRequest(); const rev=revision(value.expectedRevision);options=requestOptions(options);return run({ method: 'PUT', path: '/admin/v2/public-content/documents-draft', body: { expected_revision: rev, about:value.about, terms:value.terms, privacy:value.privacy, legal_reviewed:value.legalReviewed }, signal: options.signal }, 200, mapDocuments) },
   })
 }
 export const publicHomeContentAdminApi = createPublicHomeContentAdminApi()

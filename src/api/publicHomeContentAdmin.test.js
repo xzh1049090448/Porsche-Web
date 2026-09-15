@@ -8,7 +8,7 @@ const announcement = { guid: '7', title: 'Notice', body_markdown: '**text**', ef
 const faq = { guid: '8', question: 'How?', answer_markdown: 'Safely', is_visible: true, sort_order: 2 }
 const home = { revision: 4, announcements: [announcement], faqs: [faq], featured_model_keys: ['deepseek-chat'] }
 const documents = { revision: 4, about: '# About', terms: '# Terms', privacy: '# Privacy', legal_reviewed: true }
-const publicHome = { announcements: [{ guid: '7', title: 'Notice', body_html: '<p>text</p>', effective_at: null, sort_order: 1 }], faqs: [{ guid: '8', question: 'How?', answer_html: '<p>Safely</p>', sort_order: 2 }], featured_model_keys: ['deepseek-chat'], content_release_version: 5, price_release_version: 6 }
+const publicHome = { announcements: [{ guid: '7', title: 'Notice', body_html: '<p>text</p>\n', effective_at: null, sort_order: 1 }], faqs: [{ guid: '8', question: 'How?', answer_html: '<p>Safely</p>\n', sort_order: 2 }], featured_model_keys: ['deepseek-chat'], content_release_version: 5, price_release_version: 6 }
 
 test('root home client maps all routes and exact snake case request bodies', async () => {
   const calls = []
@@ -67,4 +67,43 @@ test('production adapter uses bearer direct fetch for mutations without replay',
   const calls=[]; const adapter=createPublicHomeContentAdminProductionRequest({fetchImpl:async(...args)=>{calls.push(args);return new Response(JSON.stringify(home),{status:201,headers:headers()})},baseURL:'/base',getAuthorization:()=> 'Bearer in-memory'})
   const result=await adapter({method:'POST',path:'/admin/v2/public-content/home-draft/announcements',body:{expected_revision:1},signal:undefined})
   assert.equal(result.status,201);assert.equal(calls.length,1);assert.equal(calls[0][1].headers.Authorization,'Bearer in-memory');assert.equal(calls[0][1].credentials,'include');assert.equal(calls[0][1].headers['Content-Type'],'application/json')
+})
+
+test('root input objects and options reject inherited or exotic properties before transport', () => {
+  let calls = 0; const api = createPublicHomeContentAdminApi({ request: async () => { calls++; return ok(home) } })
+  const inheritedRevision = Object.assign(Object.create({ expectedRevision: 4 }), { title: 'Changed' })
+  const inheritedUnknown = Object.assign(Object.create({ hidden: 'secret' }), { expectedRevision: 4, title: 'Next', bodyMarkdown: '', effectiveAt: null, isVisible: true, sortOrder: 0 })
+  const inheritedDocument = Object.assign(Object.create({ expectedRevision: 4 }), { about: '', terms: '', privacy: '', legalReviewed: true })
+  const inheritedOptions = Object.create({ signal: new AbortController().signal })
+  const exoticFeatured = Object.setPrototypeOf(['deepseek-chat'], { inherited: true })
+  for (const run of [
+    () => api.updateAnnouncement('7', inheritedRevision),
+    () => api.createAnnouncement(inheritedUnknown),
+    () => api.updateFAQ('8', Object.assign(Object.create({ expectedRevision: 4 }), { isVisible: false })),
+    () => api.saveDocumentsDraft(inheritedDocument),
+    () => api.getHomeDraft(inheritedOptions),
+    () => api.deleteFAQ('8', 4, inheritedOptions),
+    () => api.saveFeaturedModels(4, exoticFeatured),
+  ]) assert.throws(run, /invalid_public_home_content_admin_request/)
+  assert.equal(calls, 0)
+})
+
+test('root draft and release mappings reject fractional time and unstable ordering', async () => {
+  const ann = (guid, sortOrder, effectiveAt = null) => ({ guid, title: `N${guid}`, body_markdown: '', effective_at: effectiveAt, is_visible: true, sort_order: sortOrder })
+  const faqItem = (guid, sortOrder) => ({ guid, question: `Q${guid}`, answer_markdown: '', is_visible: true, sort_order: sortOrder })
+  const invalidDrafts = [
+    { ...home, announcements: [ann('2', 2), ann('1', 1)] },
+    { ...home, announcements: [ann('1', 1, '2026-09-15T00:00:00Z'), ann('2', 1, null)] },
+    { ...home, announcements: [ann('9223372036854775807', 1), ann('9223372036854775806', 1)] },
+    { ...home, announcements: [ann('1', 1, '2026-09-15T00:00:00.123Z')] },
+    { ...home, faqs: [faqItem('9223372036854775807', 1), faqItem('9223372036854775806', 1)] },
+  ]
+  for (const raw of invalidDrafts) await assert.rejects(() => createPublicHomeContentAdminApi({ request: async () => ok(raw) }).getHomeDraft(), /invalid_public_home_content_admin_response/)
+  const invalidReleases = [
+    { ...publicHome, announcements: [{ guid:'2',title:'N2',body_html:'<p>x</p>\n',effective_at:null,sort_order:2 }, { guid:'1',title:'N1',body_html:'<p>x</p>\n',effective_at:null,sort_order:1 }] },
+    { ...publicHome, announcements: [{ ...publicHome.announcements[0], effective_at:'2026-09-15T00:00:00.123Z' }] },
+  ]
+  for (const raw of invalidReleases) await assert.rejects(() => createPublicHomeContentAdminApi({ request: async () => ok(raw) }).getReleaseHomeConfig('9'), /invalid_public_home_content_admin_response/)
+  assert.throws(() => createPublicHomeContentAdminApi().createAnnouncement({ expectedRevision: 1, title: 'x', bodyMarkdown: '', effectiveAt: '2026-09-15T00:00:00.123Z', isVisible: true, sortOrder: 0 }), /invalid_public_home_content_admin_request/)
+  assert.throws(() => createPublicHomeContentAdminApi().createAnnouncement({ expectedRevision: 1, title: 'x', bodyMarkdown: 'bad\u0085text', effectiveAt: null, isVisible: true, sortOrder: 0 }), /invalid_public_home_content_admin_request/)
 })

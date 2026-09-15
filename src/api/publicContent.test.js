@@ -254,15 +254,15 @@ test('a leading domain response refreshes site and refetches cleanly while a rea
 })
 
 const homeConfigBody = () => ({
-  announcements: [{ guid: '7', title: 'Notice', body_html: '<p>Ready</p>', effective_at: '2026-09-15T00:00:00Z', sort_order: 1 }],
-  faqs: [{ guid: '8', question: 'How?', answer_html: '<p>Safely.</p>', sort_order: 2 }],
+  announcements: [{ guid: '7', title: 'Notice', body_html: '<p>Ready</p>\n', effective_at: '2026-09-15T00:00:00Z', sort_order: 1 }],
+  faqs: [{ guid: '8', question: 'How?', answer_html: '<p>Safely.</p>\n', sort_order: 2 }],
   featured_model_keys: ['deepseek-chat'], content_release_version: 2, price_release_version: 3,
 })
 
 test('public home config maps exact immutable DTO and binds header to content version', async () => {
   const client = createPublicContentClient({ fetchImpl: async () => response(homeConfigBody(), { headers: { 'X-Public-Release-Version': '2' } }) })
   const out = await client.getHomeConfig()
-  assert.deepEqual(out.data, { announcements: [{ guid: '7', title: 'Notice', bodyHtml: '<p>Ready</p>', effectiveAt: '2026-09-15T00:00:00Z', sortOrder: 1 }], faqs: [{ guid: '8', question: 'How?', answerHtml: '<p>Safely.</p>', sortOrder: 2 }], featuredModelKeys: ['deepseek-chat'], contentReleaseVersion: 2, priceReleaseVersion: 3 })
+  assert.deepEqual(out.data, { announcements: [{ guid: '7', title: 'Notice', bodyHtml: '<p>Ready</p>\n', effectiveAt: '2026-09-15T00:00:00Z', sortOrder: 1 }], faqs: [{ guid: '8', question: 'How?', answerHtml: '<p>Safely.</p>\n', sortOrder: 2 }], featuredModelKeys: ['deepseek-chat'], contentReleaseVersion: 2, priceReleaseVersion: 3 })
   assert.deepEqual(out.publicationVersions, { content: 2, price: 3 })
   assert.equal(out.resourceKey, '/api/v1/public/home-config')
   assert.ok(Object.isFrozen(out.data) && Object.isFrozen(out.data.announcements) && Object.isFrozen(out.data.announcements[0]))
@@ -278,7 +278,12 @@ test('public home config rejects malformed, leaking, duplicate, invalid text and
     { ...homeConfigBody(), featured_model_keys: ['DeepSeek_chat'] },
     { ...homeConfigBody(), announcements: [{ ...homeConfigBody().announcements[0], title: 'bad\u0000text' }] },
     { ...homeConfigBody(), announcements: [{ ...homeConfigBody().announcements[0], title: '\ufffd' }] },
+    { ...homeConfigBody(), announcements: [{ ...homeConfigBody().announcements[0], body_html: '\ufffd' }] },
+    { ...homeConfigBody(), announcements: [{ ...homeConfigBody().announcements[0], body_html: '\ud800' }] },
+    { ...homeConfigBody(), announcements: [{ ...homeConfigBody().announcements[0], body_html: '<p>bad\u0085text</p>' }] },
+    { ...homeConfigBody(), faqs: [{ ...homeConfigBody().faqs[0], answer_html: [] }] },
     { ...homeConfigBody(), announcements: [{ ...homeConfigBody().announcements[0], effective_at: '2026-02-30T00:00:00Z' }] },
+    { ...homeConfigBody(), announcements: [{ ...homeConfigBody().announcements[0], effective_at: '2026-09-15T00:00:00.123Z' }] },
     { ...homeConfigBody(), announcements: Array.from({ length: 21 }, (_, index) => ({ ...homeConfigBody().announcements[0], guid: String(index + 1) })) },
     { ...homeConfigBody(), faqs: Array.from({ length: 51 }, (_, index) => ({ ...homeConfigBody().faqs[0], guid: String(index + 1) })) },
     { ...homeConfigBody(), featured_model_keys: Array.from({ length: 13 }, (_, index) => `model-${index}`) },
@@ -291,10 +296,35 @@ test('public home config rejects malformed, leaking, duplicate, invalid text and
 test('home config 304 requires a validated same-resource cache', async () => {
   const mapped = await createPublicContentClient({ fetchImpl: async () => response(homeConfigBody(), { headers: { 'X-Public-Release-Version': '2' } }) }).getHomeConfig()
   const client = createPublicContentClient({ fetchImpl: async () => new Response(null, { status: 304 }) })
-  const cached = mapped
-  assert.equal((await client.getHomeConfig({ etag: cached.etag, cached })).notModified, true)
+  const cached = JSON.parse(JSON.stringify(mapped))
+  const reused = await client.getHomeConfig({ etag: cached.etag, cached })
+  assert.equal(reused.notModified, true)
+  assert.notEqual(reused, cached); assert.notEqual(reused.data, cached.data); assert.notEqual(reused.data.announcements, cached.data.announcements)
+  assert.ok(Object.isFrozen(reused) && Object.isFrozen(reused.publicationVersions) && Object.isFrozen(reused.data.announcements[0]))
+  cached.data.announcements[0].bodyHtml = '<script>changed</script>'; cached.data.featuredModelKeys[0] = 'changed'
+  assert.equal(reused.data.announcements[0].bodyHtml, '<p>Ready</p>\n'); assert.deepEqual(reused.data.featuredModelKeys, ['deepseek-chat'])
   for (const bad of [undefined, { ...cached, resourceKey: '/api/v1/public/home' }, { ...cached, data: { leaked: true } }]) await assert.rejects(() => client.getHomeConfig({ etag: cached.etag, cached: bad }), e => e.code === 'invalid_304')
+  const extra = { ...JSON.parse(JSON.stringify(mapped)), extra: true }
+  const wrongVersion = { ...JSON.parse(JSON.stringify(mapped)), releaseVersion: 3 }
+  const wrongPublication = { ...JSON.parse(JSON.stringify(mapped)), publicationVersions: { content: 2, price: 4 } }
+  const prototype = Object.assign(Object.create({ inherited: true }), JSON.parse(JSON.stringify(mapped)))
+  for (const bad of [extra, wrongVersion, wrongPublication, prototype]) await assert.rejects(() => client.getHomeConfig({ etag: mapped.etag, cached: bad }), e => e.code === 'invalid_304')
   await assert.rejects(() => client.getHomeConfig({ cached }), e => e.code === 'invalid_304')
+})
+
+test('home config rejects noncanonical server ordering with int64-safe GUID comparison', async () => {
+  const announcement = (guid, sort_order, effective_at = null) => ({ guid, title: `N${guid}`, body_html: '<p>x</p>\n', effective_at, sort_order })
+  const faq = (guid, sort_order) => ({ guid, question: `Q${guid}`, answer_html: '<p>a</p>\n', sort_order })
+  const invalid = [
+    { ...homeConfigBody(), announcements: [announcement('2', 2), announcement('1', 1)] },
+    { ...homeConfigBody(), announcements: [announcement('1', 1, '2026-09-15T00:00:00Z'), announcement('2', 1, null)] },
+    { ...homeConfigBody(), announcements: [announcement('9223372036854775807', 1), announcement('9223372036854775806', 1)] },
+    { ...homeConfigBody(), faqs: [faq('2', 2), faq('1', 1)] },
+    { ...homeConfigBody(), faqs: [faq('9223372036854775807', 1), faq('9223372036854775806', 1)] },
+  ]
+  for (const body of invalid) await assert.rejects(() => createPublicContentClient({ fetchImpl: async () => response(body, { headers: { 'X-Public-Release-Version': '2' } }) }).getHomeConfig(), error => error.code === 'invalid_response')
+  const valid = { ...homeConfigBody(), announcements: [announcement('9223372036854775806', 1), announcement('9223372036854775807', 1)] }
+  assert.equal((await createPublicContentClient({ fetchImpl: async () => response(valid, { headers: { 'X-Public-Release-Version': '2' } }) }).getHomeConfig()).data.announcements.length, 2)
 })
 
 test('home config exposes only allowlisted public failure metadata and preserves abort identity', async () => {
