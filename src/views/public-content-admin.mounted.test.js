@@ -327,6 +327,46 @@ test('publish execute network ambiguity preserves proof and reuses one idempoten
  wrapper.unmount()
 })
 
+test('a pending parent validation disables history and rejects direct restore entry points', async () => {
+ const release={guid:'9',version:1,reason:'root_publish',sourceRevision:4,createdAt:'2026-09-15T00:00:00Z'}, pricing=deferred()
+ let restores=0
+ const {wrapper}=await setup({}, {}, {
+  listReleases:async()=>({items:[release],page:1,pageSize:20,total:1}),
+  restore:async()=>{restores++;return release},
+ }, {getRelease:()=>pricing.promise})
+ await wrapper.get('#price-release-guid').setValue('7');await flush()
+ const validating=wrapper.vm.validateForPublication();await Promise.resolve();await flush()
+ const trigger=wrapper.get('[data-action="restore"]')
+ assert.equal(wrapper.vm.busy,true);assert.equal(trigger.attributes('disabled'),'')
+ await wrapper.vm.beginRestore(release,{currentTarget:trigger.element});await flush()
+ assert.equal(wrapper.vm.restoreDialog.open,false);assert.equal(wrapper.vm.restoreTarget,null)
+ wrapper.vm.restoreTarget=release;wrapper.vm.restorePassword='private-password'
+ assert.equal(await wrapper.vm.confirmRestore(),null);assert.equal(restores,0);assert.equal(wrapper.vm.restorePassword,'private-password')
+ pricing.resolve({release:{guid:'7',version:3},items:[]});await validating;await flush()
+ wrapper.vm.restoreTarget=null;wrapper.vm.restorePassword='';wrapper.unmount()
+})
+
+test('a restore dialog opened before parent busy stays cancellable without concurrent restore', async () => {
+ const release={guid:'9',version:1,reason:'root_publish',sourceRevision:4,createdAt:'2026-09-15T00:00:00Z'}, pricing=deferred()
+ let restores=0
+ const {wrapper}=await setup({}, {}, {
+  listReleases:async()=>({items:[release],page:1,pageSize:20,total:1}),
+  restore:async()=>{restores++;return release},
+ }, {getRelease:()=>pricing.promise})
+ await wrapper.get('#price-release-guid').setValue('7');await flush()
+ const trigger=wrapper.get('[data-action="restore"]');await trigger.trigger('click');await flush()
+ await wrapper.get('#restore-password').setValue('private-password')
+ const validating=wrapper.vm.validateForPublication();await Promise.resolve();await flush()
+ assert.equal(wrapper.vm.busy,true);assert.equal(wrapper.vm.restoreDialog.open,true)
+ assert.equal(wrapper.get('[data-action="confirm-restore"]').attributes('disabled'),'')
+ assert.equal(await wrapper.vm.confirmRestore(),null);assert.equal(restores,0)
+ assert.equal(wrapper.vm.restoreDialog.open,true);assert.equal(wrapper.vm.restorePassword,'private-password')
+ pricing.resolve({release:{guid:'7',version:3},items:[]});await validating;await flush()
+ wrapper.vm.cancelRestore();await flush()
+ assert.equal(wrapper.vm.restoreDialog.open,false);assert.equal(wrapper.vm.restorePassword,'');assert.equal(document.activeElement,trigger.element)
+ wrapper.unmount()
+})
+
 test('restore dialog focuses safely and cancel or Escape restores the connected trigger', async () => {
  const release={guid:'9',version:1,reason:'root_publish',sourceRevision:4,createdAt:'2026-09-15T00:00:00Z'}
  const {wrapper}=await setup({}, {}, {listReleases:async()=>({items:[release],page:1,pageSize:20,total:1})})

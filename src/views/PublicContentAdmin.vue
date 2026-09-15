@@ -31,10 +31,10 @@
         <button type="button" :disabled="busy || workflow.busy || !publishEnabled || !publishPassword" data-action="publish" @click="publishContent">{{ t('publicContentAdmin.publish') }}</button>
         <p v-if="workflow.pendingRecovery" role="status">{{ t('publicContentAdmin.pendingRecovery') }}</p>
       </SurfaceCard>
-      <ContentReleaseHistory :items="historyItems" :total="historyTotal" :busy="workflow.busy || historyLoading" :restore-disabled="!ready" @restore="beginRestore" @more="loadMoreHistory" />
+      <ContentReleaseHistory :items="historyItems" :total="historyTotal" :busy="busy || workflow.busy || historyLoading" :restore-disabled="!ready" @restore="beginRestore" @more="loadMoreHistory" />
     </template>
     <SurfaceCard v-if="conflictBuffer" class="conflict" aria-labelledby="conflict-title"><h2 id="conflict-title">{{ t('publicContentStructuredAdmin.conflictTitle') }}</h2><p>{{ t('publicContentStructuredAdmin.conflictHelp') }}</p><div class="conflict-columns"><section><h3>{{ t('publicContentStructuredAdmin.localVersion') }}</h3><pre>{{ formatConflict(conflictBuffer.local) }}</pre></section><section><h3>{{ t('publicContentStructuredAdmin.serverVersion') }}</h3><pre>{{ formatConflict(conflictBuffer.server) }}</pre></section></div></SurfaceCard>
-    <dialog ref="restoreDialog" aria-labelledby="restore-title" @cancel.prevent="cancelRestore" @close="restoreFocus"><h2 id="restore-title">{{ t('publicContentAdmin.restore') }}</h2><label for="restore-password">{{ t('publicContentAdmin.password') }}</label><input id="restore-password" v-model="restorePassword" data-publication-secret type="password" autocomplete="current-password"><div class="actions"><button type="button" @click="cancelRestore">{{ t('common.cancel') }}</button><button type="button" :disabled="workflow.busy || !restorePassword" data-action="confirm-restore" @click="confirmRestore">{{ t('publicContentAdmin.restore') }}</button></div></dialog>
+    <dialog ref="restoreDialog" aria-labelledby="restore-title" @cancel.prevent="cancelRestore" @close="restoreFocus"><h2 id="restore-title">{{ t('publicContentAdmin.restore') }}</h2><label for="restore-password">{{ t('publicContentAdmin.password') }}</label><input id="restore-password" v-model="restorePassword" data-publication-secret type="password" autocomplete="current-password"><div class="actions"><button type="button" @click="cancelRestore">{{ t('common.cancel') }}</button><button type="button" :disabled="busy || workflow.busy || historyLoading || !ready || userStore.user?.role !== 'root' || !restorePassword" data-action="confirm-restore" @click="confirmRestore">{{ t('publicContentAdmin.restore') }}</button></div></dialog>
   </main>
 </template>
 
@@ -204,11 +204,11 @@ async function publishContent() {
   clearValidationProof(); await load(); await loadHistory(); return output
 }
 
-async function beginRestore(release, event) { if (!ready.value || workflow.busy) return; const candidate = event?.currentTarget; restoreTrigger = candidate instanceof HTMLElement ? candidate : null; restoreTarget.value = release; restorePassword.value = ''; restoreDialog.value?.showModal?.(); await nextTick(); if (restoreDialog.value?.open) restoreDialog.value.querySelector('#restore-password')?.focus() }
+async function beginRestore(release, event) { if (busy.value || workflow.busy || historyLoading.value || !ready.value || userStore.user?.role !== 'root') return null; const candidate = event?.currentTarget; restoreTrigger = candidate instanceof HTMLElement ? candidate : null; restoreTarget.value = release; restorePassword.value = ''; restoreDialog.value?.showModal?.(); await nextTick(); if (restoreDialog.value?.open) restoreDialog.value.querySelector('#restore-password')?.focus() }
 function restoreFocus() { const trigger = restoreTrigger; restoreTrigger = null; void nextTick(() => { if (trigger?.isConnected && !trigger.disabled) trigger.focus(); else if (heading.value?.isConnected) heading.value.focus() }) }
 function cancelRestore() { restorePassword.value = ''; restoreTarget.value = null; if (restoreDialog.value?.open) restoreDialog.value.close(); else restoreFocus() }
 async function confirmRestore() {
-  if (!restoreTarget.value || !restorePassword.value || workflow.busy || !ready.value) return null
+  if (!restoreTarget.value || !restorePassword.value || busy.value || workflow.busy || historyLoading.value || !ready.value || userStore.user?.role !== 'root') return null
   const target = restoreTarget.value.guid, expectedRevision = revision.value, password = restorePassword.value
   restorePassword.value = ''
   const pending = publicationCoordinator.restore(target, expectedRevision, password)
