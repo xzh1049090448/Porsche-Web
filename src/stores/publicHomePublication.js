@@ -1,24 +1,21 @@
 import { shallowRef, watch } from 'vue'
+import { publicContentApi } from '../api/publicContent.js'
 
 const readyStructuredHome = homeContent => {
   const state = homeContent?.value?.value
   return state?.status === 'ready' && state.data ? state.data : null
 }
 
-export function createPublicHomePublication({ store, homeContent, loadSite } = {}) {
+export function createPublicHomePublication({ store, homeContent, loadSite, modelClient = publicContentApi } = {}) {
   const featuredModels = shallowRef(null)
   const activeModelLoads = new Map()
-  const modelOwners = new Map()
+  const modelCache = new Map()
   let epoch = 0
 
   const releaseModelLoads = (owner, cancel = false) => {
-    const keys = activeModelLoads.get(owner)
-    if (!keys) return
-    for (const key of keys) {
-      if (modelOwners.get(key) !== owner) continue
-      modelOwners.delete(key)
-      if (cancel) store.cancel(`detail:${key}`)
-    }
+    const controllers = activeModelLoads.get(owner)
+    if (!controllers) return
+    if (cancel) for (const controller of controllers.values()) controller.abort()
     activeModelLoads.delete(owner)
   }
 
@@ -44,16 +41,24 @@ export function createPublicHomePublication({ store, homeContent, loadSite } = {
     const state = store.value
     if (state.site.status !== 'ready' || state.site.data?.priceReleaseVersion !== expectedPriceVersion || state.publicationVersions.price !== expectedPriceVersion) return null
 
-    activeModelLoads.set(current, keys)
-    for (const key of keys) modelOwners.set(key, current)
-    let loadedModels
+    const controllers = new Map()
+    activeModelLoads.set(current, controllers)
+    let loaded
     try {
-      loadedModels = await Promise.all(keys.map(async key => {
-        const detail = await store.loadModel(key)
-        if (current !== epoch || modelOwners.get(key) !== current) throw new Error('obsolete_featured_model_load')
-        const model = detail?.model
-        if (!model || model.modelKey !== key || model.releaseVersion !== expectedPriceVersion) throw new Error('invalid_featured_model_generation')
-        return model
+      loaded = await Promise.all(keys.map(async key => {
+        const controller = new AbortController()
+        controllers.set(key, controller)
+        const cached = modelCache.get(key)
+        const result = await modelClient.getModel(key, {
+          signal: controller.signal,
+          etag: cached?.etag,
+          cached,
+          varyAuthorization: state.site.data?.priceVisibility === 'authenticated_only',
+        })
+        if (current !== epoch || activeModelLoads.get(current)?.get(key) !== controller) throw new Error('obsolete_featured_model_load')
+        const model = result?.data?.model
+        if (!model || model.modelKey !== key || model.releaseVersion !== expectedPriceVersion || result.releaseVersion !== expectedPriceVersion || result.publicationVersions?.price !== expectedPriceVersion) throw new Error('invalid_featured_model_generation')
+        return { key, model, result }
       }))
     } catch {
       if (current === epoch) releaseModelLoads(current, true)
@@ -65,13 +70,9 @@ export function createPublicHomePublication({ store, homeContent, loadSite } = {
       releaseModelLoads(current, true)
       return null
     }
-    const models = keys.map(key => currentState.details[key])
-    if (models.some((slot, index) => slot?.status !== 'ready' || slot.data?.model?.modelKey !== keys[index] || slot.data.model.releaseVersion !== expectedPriceVersion)) {
-      releaseModelLoads(current, true)
-      return null
-    }
     releaseModelLoads(current)
-    featuredModels.value = Object.freeze(loadedModels)
+    for (const item of loaded) modelCache.set(item.key, item.result)
+    featuredModels.value = Object.freeze(loaded.map(item => item.model))
     return featuredModels.value
   }
 
@@ -85,7 +86,7 @@ export function createPublicHomePublication({ store, homeContent, loadSite } = {
   return Object.freeze({ homeContent, featuredModels, load, cancel })
 }
 
-export function createPublicLayoutPublication({ store, homeContent } = {}) {
+export function createPublicLayoutPublication({ store, homeContent, modelClient = publicContentApi } = {}) {
   const publication = shallowRef(null)
   const homeHydration = shallowRef(Promise.resolve(null))
   const activePages = new Set()
@@ -109,7 +110,7 @@ export function createPublicLayoutPublication({ store, homeContent } = {}) {
     return running
   }
 
-  publication.value = createPublicHomePublication({ store, homeContent, loadSite: ensureSite })
+  publication.value = createPublicHomePublication({ store, homeContent, loadSite: ensureSite, modelClient })
 
   function loadHome() {
     if (disposed) return Promise.resolve(null)
