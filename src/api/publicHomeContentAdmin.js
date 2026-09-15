@@ -7,7 +7,13 @@ const RFC3339 = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)Z$/
 const UNSAFE = /[\p{Cc}\p{Cf}]/u
 const LONE_SURROGATE = /(?:[\uD800-\uDBFF](?![\uDC00-\uDFFF]))|(?:(?<![\uD800-\uDBFF])[\uDC00-\uDFFF])/
 const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key))
-const standardArray = value => Array.isArray(value) && Object.getPrototypeOf(value) === Array.prototype
+const denseArray = value => {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return false
+  const enumerable = Object.keys(value)
+  if (enumerable.length !== value.length || !enumerable.every((key, index) => key === String(index))) return false
+  const own = Reflect.ownKeys(value)
+  return own.length === value.length + 1 && own.includes('length')
+}
 const positive = value => Number.isSafeInteger(value) && value >= 1
 const validGuid = value => typeof value === 'string' && GUID.test(value) && (value.length < MAX_INT64.length || value <= MAX_INT64)
 const validModelKey = value => typeof value === 'string' && MODEL_KEY.test(value) && !value.endsWith('-') && !value.includes('--')
@@ -41,7 +47,7 @@ function mapFAQ(raw) {
   return freeze({ guid: raw.guid, question: raw.question, answerMarkdown: raw.answer_markdown, isVisible: raw.is_visible, sortOrder: raw.sort_order })
 }
 function mapHomeDraft(raw) {
-  if (!exact(raw, ['revision', 'announcements', 'faqs', 'featured_model_keys']) || !positive(raw.revision) || !standardArray(raw.announcements) || raw.announcements.length > 20 || !standardArray(raw.faqs) || raw.faqs.length > 50 || !standardArray(raw.featured_model_keys) || raw.featured_model_keys.length > 12) invalid()
+  if (!exact(raw, ['revision', 'announcements', 'faqs', 'featured_model_keys']) || !positive(raw.revision) || !denseArray(raw.announcements) || raw.announcements.length > 20 || !denseArray(raw.faqs) || raw.faqs.length > 50 || !denseArray(raw.featured_model_keys) || raw.featured_model_keys.length > 12) invalid()
   const announcements = raw.announcements.map(mapAnnouncement), faqs = raw.faqs.map(mapFAQ), keys = raw.featured_model_keys
   if (new Set(announcements.map(item => item.guid)).size !== announcements.length || new Set(faqs.map(item => item.guid)).size !== faqs.length || new Set(keys).size !== keys.length || !keys.every(validModelKey) || !canonicalOrder(announcements, compareAnnouncement) || !canonicalOrder(faqs, compareFAQ)) invalid()
   return freeze({ revision: raw.revision, announcements, faqs, featuredModelKeys: keys })
@@ -115,7 +121,7 @@ export function createPublicHomeContentAdminApi({ request = productionRequest } 
     createFAQ: (value, options = {}) => { const body=faqBody(value);options=requestOptions(options);return home({ method: 'POST', path: '/admin/v2/public-content/home-draft/faqs', body, signal: options.signal }, 201) },
     updateFAQ: (id, value, options = {}) => { const pathGuid=guid(id),body=faqBody(value,true);options=requestOptions(options);return home({ method: 'PATCH', path: `/admin/v2/public-content/home-draft/faqs/${pathGuid}`, body, signal: options.signal }, 200) },
     deleteFAQ: (id, expectedRevision, options = {}) => { const pathGuid=guid(id),rev=revision(expectedRevision);options=requestOptions(options);return run({ method: 'DELETE', path: `/admin/v2/public-content/home-draft/faqs/${pathGuid}`, body: { expected_revision: rev }, signal: options.signal }, 204, value => value, { deletion: true }) },
-    saveFeaturedModels: (expectedRevision, featuredModelKeys, options = {}) => { if (!standardArray(featuredModelKeys) || featuredModelKeys.length > 12 || new Set(featuredModelKeys).size !== featuredModelKeys.length || !featuredModelKeys.every(validModelKey)) invalidRequest(); const rev=revision(expectedRevision);options=requestOptions(options);return home({ method: 'PUT', path: '/admin/v2/public-content/home-draft/featured-models', body: { expected_revision: rev, featured_model_keys: [...featuredModelKeys] }, signal: options.signal }, 200) },
+    saveFeaturedModels: (expectedRevision, featuredModelKeys, options = {}) => { if (!denseArray(featuredModelKeys) || featuredModelKeys.length > 12 || new Set(featuredModelKeys).size !== featuredModelKeys.length || !featuredModelKeys.every(validModelKey)) invalidRequest(); const rev=revision(expectedRevision);options=requestOptions(options);return home({ method: 'PUT', path: '/admin/v2/public-content/home-draft/featured-models', body: { expected_revision: rev, featured_model_keys: [...featuredModelKeys] }, signal: options.signal }, 200) },
     previewHome: (draftRevision, options = {}) => { if (draftRevision !== undefined && !positive(draftRevision)) invalidRequest();options=requestOptions(options);return run({ method: 'GET', path: `/admin/v2/public-content/home-preview${draftRevision === undefined ? '' : `?revision=${draftRevision}`}`, signal: options.signal }, 200, mapHomeDraft, { preview: true }) },
     getReleaseHomeConfig: (id, options = {}) => { const pathGuid=guid(id);options=requestOptions(options);return run({ method: 'GET', path: `/admin/v2/public-content/releases/${pathGuid}/home-config`, signal: options.signal }, 200, raw => { try { return mapPublicHomeConfig(raw) } catch { invalid() } }) },
     getDocumentsDraft: (options = {}) => { options=requestOptions(options);return run({ method: 'GET', path: '/admin/v2/public-content/documents-draft', signal: options.signal }, 200, mapDocuments) },

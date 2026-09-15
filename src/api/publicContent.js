@@ -29,7 +29,13 @@ const validUTC = value => {
 }
 const freeze = value => Array.isArray(value) ? Object.freeze(value.map(freeze)) : value && typeof value === 'object' ? Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, freeze(item)]))) : value
 const plainExact = (value, keys) => exact(value, keys) && Object.getPrototypeOf(value) === Object.prototype
-const standardArray = value => Array.isArray(value) && Object.getPrototypeOf(value) === Array.prototype
+const denseArray = value => {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return false
+  const enumerable = Object.keys(value)
+  if (enumerable.length !== value.length || !enumerable.every((key, index) => key === String(index))) return false
+  const own = Reflect.ownKeys(value)
+  return own.length === value.length + 1 && own.includes('length')
+}
 const compareGuid = (left, right) => left.length === right.length ? left < right ? -1 : left > right ? 1 : 0 : left.length - right.length
 const compareAnnouncement = (left, right) => left.sortOrder - right.sortOrder || (left.effectiveAt === right.effectiveAt ? 0 : left.effectiveAt === null ? -1 : right.effectiveAt === null ? 1 : left.effectiveAt < right.effectiveAt ? -1 : 1) || compareGuid(left.guid, right.guid)
 const compareFAQ = (left, right) => left.sortOrder - right.sortOrder || compareGuid(left.guid, right.guid)
@@ -49,7 +55,7 @@ function mapDetail(raw) {
 }
 export function mapPublicHomeConfig(raw) {
   const keys = ['announcements', 'faqs', 'featured_model_keys', 'content_release_version', 'price_release_version']
-  if (!exact(raw, keys) || !Array.isArray(raw.announcements) || raw.announcements.length > 20 || !Array.isArray(raw.faqs) || raw.faqs.length > 50 || !Array.isArray(raw.featured_model_keys) || raw.featured_model_keys.length > 12 || !positiveInteger(raw.content_release_version) || !positiveInteger(raw.price_release_version)) throw new Error('invalid_public_home_config')
+  if (!exact(raw, keys) || !denseArray(raw.announcements) || raw.announcements.length > 20 || !denseArray(raw.faqs) || raw.faqs.length > 50 || !denseArray(raw.featured_model_keys) || raw.featured_model_keys.length > 12 || !positiveInteger(raw.content_release_version) || !positiveInteger(raw.price_release_version)) throw new Error('invalid_public_home_config')
   const announcementGuids = new Set(); const faqGuids = new Set(); const modelKeys = new Set()
   const announcements = raw.announcements.map(item => {
     if (!exact(item, ['guid', 'title', 'body_html', 'effective_at', 'sort_order']) || !validGuid(item.guid) || announcementGuids.has(item.guid) || !validText(item.title, 120) || !validHTML(item.body_html) || !validUTC(item.effective_at) || !Number.isSafeInteger(item.sort_order) || item.sort_order < 0 || item.sort_order > 1000000) throw new Error('invalid_public_home_config')
@@ -69,7 +75,7 @@ export function mapPublicHomeConfig(raw) {
 function canonicalCachedHomeConfig(cached, path, requestETag) {
   const resultKeys = ['data', 'etag', 'releaseVersion', 'publicationVersions', 'resourceKey', 'notModified']
   const dataKeys = ['announcements', 'faqs', 'featuredModelKeys', 'contentReleaseVersion', 'priceReleaseVersion']
-  if (!plainExact(cached, resultKeys) || !plainExact(cached.data, dataKeys) || !plainExact(cached.publicationVersions, ['content','price']) || !standardArray(cached.data.announcements) || !standardArray(cached.data.faqs) || !standardArray(cached.data.featuredModelKeys) || !cached.data.announcements.every(item => plainExact(item, ['guid','title','bodyHtml','effectiveAt','sortOrder'])) || !cached.data.faqs.every(item => plainExact(item, ['guid','question','answerHtml','sortOrder'])) || cached.resourceKey !== path || typeof cached.notModified !== 'boolean' || typeof requestETag !== 'string' || !requestETag.trim() || cached.etag !== requestETag || !positiveInteger(cached.releaseVersion) || !positiveInteger(cached.publicationVersions.content) || !positiveInteger(cached.publicationVersions.price)) throw new Error('invalid_cache')
+  if (!plainExact(cached, resultKeys) || !plainExact(cached.data, dataKeys) || !plainExact(cached.publicationVersions, ['content','price']) || !denseArray(cached.data.announcements) || !denseArray(cached.data.faqs) || !denseArray(cached.data.featuredModelKeys) || !cached.data.announcements.every(item => plainExact(item, ['guid','title','bodyHtml','effectiveAt','sortOrder'])) || !cached.data.faqs.every(item => plainExact(item, ['guid','question','answerHtml','sortOrder'])) || cached.resourceKey !== path || typeof cached.notModified !== 'boolean' || typeof requestETag !== 'string' || !requestETag.trim() || cached.etag !== requestETag || !positiveInteger(cached.releaseVersion) || !positiveInteger(cached.publicationVersions.content) || !positiveInteger(cached.publicationVersions.price)) throw new Error('invalid_cache')
   const data = mapPublicHomeConfig({
     announcements: cached.data.announcements.map(item => ({ guid:item.guid, title:item.title, body_html:item.bodyHtml, effective_at:item.effectiveAt, sort_order:item.sortOrder })),
     faqs: cached.data.faqs.map(item => ({ guid:item.guid, question:item.question, answer_html:item.answerHtml, sort_order:item.sortOrder })),

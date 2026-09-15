@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createPublicContentClient, PublicContentError } from './publicContent.js'
+import { createPublicContentClient, mapPublicHomeConfig, PublicContentError } from './publicContent.js'
 import { createPublicContentState } from '../stores/publicContent.js'
 
 const headers = { ETag: '"abc"', 'X-Public-Release-Version': '7', 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' }
@@ -310,6 +310,29 @@ test('home config 304 requires a validated same-resource cache', async () => {
   const prototype = Object.assign(Object.create({ inherited: true }), JSON.parse(JSON.stringify(mapped)))
   for (const bad of [extra, wrongVersion, wrongPublication, prototype]) await assert.rejects(() => client.getHomeConfig({ etag: mapped.etag, cached: bad }), e => e.code === 'invalid_304')
   await assert.rejects(() => client.getHomeConfig({ cached }), e => e.code === 'invalid_304')
+})
+
+test('home config 304 rejects sparse cached arrays instead of returning holes', async () => {
+  const mapped = await createPublicContentClient({ fetchImpl: async () => response(homeConfigBody(), { headers: { 'X-Public-Release-Version': '2' } }) }).getHomeConfig()
+  const cached = JSON.parse(JSON.stringify(mapped))
+  delete cached.data.announcements[0]
+  const client = createPublicContentClient({ fetchImpl: async () => new Response(null, { status: 304 }) })
+  await assert.rejects(() => client.getHomeConfig({ etag: cached.etag, cached }), error => error.code === 'invalid_304')
+  const adorned = JSON.parse(JSON.stringify(mapped)); adorned.data.faqs.extra = true
+  await assert.rejects(() => client.getHomeConfig({ etag: adorned.etag, cached: adorned }), error => error.code === 'invalid_304')
+})
+
+test('home config 200 rejects sparse or adorned structured arrays', async () => {
+  const sparseAnnouncements = [...homeConfigBody().announcements]; delete sparseAnnouncements[0]
+  const sparseFAQs = [...homeConfigBody().faqs]; delete sparseFAQs[0]
+  const sparseFeatured = [...homeConfigBody().featured_model_keys]; delete sparseFeatured[0]
+  const adornedAnnouncements = [...homeConfigBody().announcements]; adornedAnnouncements.extra = true
+  for (const body of [
+    { ...homeConfigBody(), announcements: sparseAnnouncements },
+    { ...homeConfigBody(), faqs: sparseFAQs },
+    { ...homeConfigBody(), featured_model_keys: sparseFeatured },
+  ]) await assert.rejects(() => createPublicContentClient({ fetchImpl: async () => response(body, { headers: { 'X-Public-Release-Version': '2' } }) }).getHomeConfig(), error => error.code === 'invalid_response')
+  assert.throws(() => mapPublicHomeConfig({ ...homeConfigBody(), announcements: adornedAnnouncements }), /invalid_public_home_config/)
 })
 
 test('home config rejects noncanonical server ordering with int64-safe GUID comparison', async () => {

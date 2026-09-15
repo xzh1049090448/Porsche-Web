@@ -107,3 +107,26 @@ test('root draft and release mappings reject fractional time and unstable orderi
   assert.throws(() => createPublicHomeContentAdminApi().createAnnouncement({ expectedRevision: 1, title: 'x', bodyMarkdown: '', effectiveAt: '2026-09-15T00:00:00.123Z', isVisible: true, sortOrder: 0 }), /invalid_public_home_content_admin_request/)
   assert.throws(() => createPublicHomeContentAdminApi().createAnnouncement({ expectedRevision: 1, title: 'x', bodyMarkdown: 'bad\u0085text', effectiveAt: null, isVisible: true, sortOrder: 0 }), /invalid_public_home_content_admin_request/)
 })
+
+test('root structured arrays reject holes and extra properties before mapping or transport', async () => {
+  const sparseAnnouncements = [...home.announcements]; delete sparseAnnouncements[0]
+  const sparseFAQs = [...home.faqs]; delete sparseFAQs[0]
+  const sparseFeaturedResponse = [...home.featured_model_keys]; delete sparseFeaturedResponse[0]
+  const adornedFAQs = [...home.faqs]; adornedFAQs.extra = true
+  for (const raw of [
+    { ...home, announcements: sparseAnnouncements },
+    { ...home, faqs: sparseFAQs },
+    { ...home, featured_model_keys: sparseFeaturedResponse },
+    { ...home, faqs: adornedFAQs },
+  ]) await assert.rejects(() => createPublicHomeContentAdminApi({ request: async () => ok(raw) }).getHomeDraft(), /invalid_public_home_content_admin_response/)
+  const sparseReleaseAnnouncements = [...publicHome.announcements]; delete sparseReleaseAnnouncements[0]
+  await assert.rejects(() => createPublicHomeContentAdminApi({ request: async () => ok({ ...publicHome, announcements: sparseReleaseAnnouncements }) }).getReleaseHomeConfig('9'), /invalid_public_home_content_admin_response/)
+
+  let calls = 0
+  const api = createPublicHomeContentAdminApi({ request: async () => { calls++; return ok(home) } })
+  const sparseFeaturedInput = ['deepseek-chat']; delete sparseFeaturedInput[0]
+  const adornedFeaturedInput = ['deepseek-chat']; adornedFeaturedInput.extra = true
+  assert.throws(() => api.saveFeaturedModels(4, sparseFeaturedInput), /invalid_public_home_content_admin_request/)
+  assert.throws(() => api.saveFeaturedModels(4, adornedFeaturedInput), /invalid_public_home_content_admin_request/)
+  assert.equal(calls, 0)
+})
