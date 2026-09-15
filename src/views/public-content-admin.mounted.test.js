@@ -1,56 +1,232 @@
-import test,{afterEach}from'node:test'
-import assert from'node:assert/strict'
-import{readFile}from'node:fs/promises'
-import{compileScript,compileTemplate,parse}from'@vue/compiler-sfc'
-import{JSDOM}from'jsdom'
-const dom=new JSDOM('<!doctype html><html><head></head><body></body></html>',{url:'https://local.test/admin/public-content'});for(const key of ['window','document','Document','navigator','Node','Element','HTMLElement','HTMLDialogElement','HTMLInputElement','SVGElement','Event','MouseEvent','KeyboardEvent','MutationObserver'])Object.defineProperty(globalThis,key,{configurable:true,writable:true,value:dom.window[key]});HTMLDialogElement.prototype.showModal=function(){this.open=true};HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new Event('close'))}
-const[{mount},vue]=await Promise.all([import('@vue/test-utils'),import('vue')]);const{nextTick,reactive}=vue
-afterEach(()=>{document.body.replaceChildren();for(const meta of document.head.querySelectorAll('meta[name="robots"]'))meta.remove();window.localStorage.clear();window.sessionStorage.clear();delete globalThis.__pcApi;delete globalThis.__pcPricing;delete globalThis.__pcRouter;delete globalThis.__pcUser;delete globalThis.open})
-const data=code=>`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
-async function component(){const source=await readFile(new URL('./PublicContentAdmin.vue',import.meta.url),'utf8'),descriptor=parse(source,{filename:'PublicContentAdmin.vue'}).descriptor,script=compileScript(descriptor,{id:'pc-mounted',genDefaultAs:'__sfc__'}),template=compileTemplate({id:'pc-mounted',filename:'PublicContentAdmin.vue',source:descriptor.template.content,compilerOptions:{bindingMetadata:script.bindings}});assert.deepEqual(template.errors,[]);const actual=new URL('../api/publicContentAdmin.js',import.meta.url).href,validation=new URL('../utils/public-content-validation.js',import.meta.url).href,vueURL=new URL('../../node_modules/vue/index.mjs',import.meta.url).href
-  const shell=data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({inheritAttrs:false,setup(_,{attrs,slots}){return()=>h('section',attrs,[slots.default?.(),slots.actions?.()])}})`);const modules=new Map([
- ['vue',new URL('../../node_modules/vue/index.mjs',import.meta.url).href],
- ['vue-router',data("export const useRouter=()=>globalThis.__pcRouter")],
- ['@/api/publicContentAdmin.js',data(`import*as a from '${actual}';const p=new Proxy({}, {get:(_,k)=>(...v)=>globalThis.__pcApi[k](...v)});export const canonicalContentDraft=a.canonicalContentDraft,contentValidationProofMatches=a.contentValidationProofMatches,createContentValidationProof=a.createContentValidationProof;export const createContentPublicationCoordinator=o=>a.createContentPublicationCoordinator({...o,api:p,generateKey:()=> 'ik_'+('A'.repeat(42))+'Q'});export const publicContentAdminApi=p`)],
- ['@/api/publicPricingAdmin.js',data("export const publicPricingAdminApi=new Proxy({}, {get:(_,k)=>(...v)=>globalThis.__pcPricing[k](...v)})")],
- ['@/utils/public-content-validation.js',data(`import{validatePublicContentDraft as validate}from '${validation}';export const PUBLIC_CONTENT_APPROVAL_EVIDENCE=Object.freeze({approved:true,source:'mounted-test-signoff'});export const validatePublicContentDraft=(...a)=>validate(...a)`)],
- ['@/composables/useI18n',data("export const useI18n=()=>({t:(k,p)=>k+(p?.revision?':'+p.revision:'')})")],
- ['@/stores/user',data("export const useUserStore=()=>globalThis.__pcUser")],
- ['@/components/public-admin/SafeMarkdownEditor.vue',data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({props:['modelValue','id','label','help'],emits:['update:modelValue'],setup(p,{emit}){return()=>h('textarea',{id:p.id,value:p.modelValue,onInput:e=>emit('update:modelValue',e.target.value)})}})`) ],
- ['@/components/public-admin/ContentReleaseHistory.vue',data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({props:['items','total','busy','restoreDisabled'],emits:['more','restore'],setup(p,{emit}){return()=>h('section',[h('button',{id:'more',disabled:p.busy,onClick:()=>emit('more')},'more'),...(p.items||[]).map(x=>h('button',{class:'restore',disabled:p.restoreDisabled,onClick:e=>emit('restore',x,e)},x.guid))])}})`) ],
- ['@/components/shell/PageHeader.vue',shell],['@/components/shell/SurfaceCard.vue',shell],['@/components/shell/StatusBadge.vue',shell],
- ]);let code=`${script.content}\n${template.code}\n__sfc__.render=render\nexport default __sfc__`;for(const[from,to]of modules)code=code.replaceAll(`from '${from}'`,`from '${to}'`).replaceAll(`from'${from}'`,`from'${to}'`).replaceAll(`from "${from}"`,`from "${to}"`).replaceAll(`from"${from}"`,`from"${to}"`);return(await import(data(code))).default}
-async function previewComponent(){const source=await readFile(new URL('./PublicContentPreview.vue',import.meta.url),'utf8'),descriptor=parse(source,{filename:'PublicContentPreview.vue'}).descriptor,script=compileScript(descriptor,{id:'preview-mounted',genDefaultAs:'__sfc__'}),template=compileTemplate({id:'preview-mounted',filename:'PublicContentPreview.vue',source:descriptor.template.content,compilerOptions:{bindingMetadata:script.bindings}});assert.deepEqual(template.errors,[]);const vueURL=new URL('../../node_modules/vue/index.mjs',import.meta.url).href,modules=new Map([
- ['vue',vueURL],
- ['vue-router',data("export const useRoute=()=>({query:{revision:'2'}})")],
- ['@/api/publicContentAdmin.js',data("export const publicContentAdminApi={preview:(...v)=>globalThis.__pcApi.preview(...v)}")],
- ['@/utils/public-content-validation.js',data("export const renderSafePublicMarkdown=v=>'<p>'+v.replace(/[<>&]/g,'')+'</p>'")],
- ['@/composables/useI18n',data("export const useI18n=()=>({t:k=>k})")],
- ['@/components/public/PublicHeader.vue',data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({setup:()=>()=>h('header')})`)],
- ['@/components/public/PublicFooter.vue',data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({setup:()=>()=>h('footer')})`)],
- ['@/styles/public-content.scss',data('export{}')],
- ]);let code=`${script.content}\n${template.code}\n__sfc__.render=render\nexport default __sfc__`;for(const[from,to]of modules)code=code.replaceAll(`from '${from}'`,`from '${to}'`).replaceAll(`from'${from}'`,`from'${to}'`).replaceAll(`from "${from}"`,`from "${to}"`).replaceAll(`from"${from}"`,`from"${to}"`).replaceAll(`import '${from}'`,`import '${to}'`).replaceAll(`import'${from}'`,`import'${to}'`).replaceAll(`import "${from}"`,`import "${to}"`).replaceAll(`import"${from}"`,`import"${to}"`);return(await import(data(code))).default}
-const legal=title=>`# ${title}\n\nVersion: v1\n\nEffective Date: 2026-09-11\n\n## Body\nText\n\n## Contact\nsupport@example.com`,base={revision:2,home:'# Home',about:'# About',terms:legal('Terms'),privacy:legal('Privacy'),legalReviewed:true}
-async function flush(){for(let i=0;i<8;i++)await nextTick();await new Promise(r=>setTimeout(r,0));await nextTick()}
-async function waitFor(predicate){for(let i=0;i<100;i++){if(predicate())return;await new Promise(r=>setTimeout(r,1));await nextTick()}assert.fail('mounted condition did not settle')}
-async function setup(overrides={}){globalThis.__pcUser=reactive({user:{role:'root'}});globalThis.__pcRouter={resolve:()=>({href:'/admin/public-content/preview?revision=2'}),replace:async value=>{globalThis.__pcRouter.replaced=value}};globalThis.open=()=>null;window.open=()=>null;const calls=[];globalThis.__pcApi={getDraft:async()=>({...base}),listReleases:async({page})=>({items:page===1?[{guid:'11',version:1,reason:'root_publish',sourceRevision:2,createdAt:'2026-09-11T00:00:00Z'}]:[{guid:'12',version:2,reason:'restore',sourceRevision:2,createdAt:'2026-09-11T01:00:00Z'}],page,pageSize:20,total:2}),saveDraft:async v=>({...v,revision:v.revision+1}),validate:async()=>({valid:true,issues:[]}),issuePublishVerification:async()=>({ticket:'ticket'}),publish:async(...a)=>(calls.push(['publish',...a]),{guid:'20'}),issueRestoreVerification:async()=>({ticket:'ticket'}),restore:async(...a)=>(calls.push(['restore',...a]),{guid:'21'}),...overrides};globalThis.__pcPricing={getRelease:async()=>({items:[{modelKey:'model-a'}]})};const C=await component(),wrapper=mount(C,{attachTo:document.body});await flush();return{wrapper,calls}}
-async function establish(wrapper){await wrapper.get('input[inputmode="numeric"]').setValue('7');await flush();await wrapper.findAll('button').find(x=>x.text().includes('validate')).trigger('click');await waitFor(()=>wrapper.vm.validationProof?.valid===true)}
-test('mounted edits review and price changes invalidate proof and unsaved content blocks preview',async()=>{const{wrapper}=await setup();const password=wrapper.get('input[autocomplete="current-password"]'),publish=wrapper.findAll('button').find(x=>x.text()==='publicContentAdmin.publish'),preview=wrapper.findAll('button').find(x=>x.text()==='publicContentAdmin.preview');await establish(wrapper);await password.setValue('secret');await flush();assert.equal(publish.attributes('disabled'),undefined);await wrapper.get('textarea').setValue('# changed');await flush();assert.notEqual(publish.attributes('disabled'),undefined);assert.notEqual(preview.attributes('disabled'),undefined);await wrapper.findAll('button').find(x=>x.text()==='publicContentAdmin.save').trigger('click');await flush();await establish(wrapper);await password.setValue('secret');await flush();await wrapper.get('input[type="checkbox"]').setValue(false);await flush();assert.notEqual(publish.attributes('disabled'),undefined);await wrapper.get('input[type="checkbox"]').setValue(true);await flush();await wrapper.findAll('button').find(x=>x.text()==='publicContentAdmin.save').trigger('click');await flush();await establish(wrapper);await password.setValue('secret');await flush();await wrapper.get('input[inputmode="numeric"]').setValue('8');await flush();assert.notEqual(publish.attributes('disabled'),undefined);wrapper.unmount()})
-test('mounted double click shares one issue and demotion clears privileged state before redirect',async()=>{let resolve,issues=0,executes=0;const{wrapper}=await setup({issuePublishVerification:()=>{issues++;return new Promise(r=>resolve=r)},publish:async()=>{executes++}});await establish(wrapper);const password=wrapper.get('input[autocomplete="current-password"]');await password.setValue('secret');await flush();const publish=wrapper.findAll('button').find(x=>x.text()==='publicContentAdmin.publish');publish.element.click();publish.element.click();await waitFor(()=>issues===1);globalThis.__pcUser.user.role='admin';assert.equal(wrapper.vm.draft,null);assert.deepEqual(wrapper.vm.history,[]);assert.equal(wrapper.vm.total,0);assert.equal(wrapper.vm.savedCanonical,null);assert.equal(wrapper.vm.restoreTarget,null);assert.deepEqual(globalThis.__pcRouter.replaced,{path:'/chat',replace:true});await nextTick();resolve({ticket:'late'});await flush();assert.equal(executes,0);assert.equal(wrapper.find('textarea').exists(),false);wrapper.unmount()})
-test('demotion rejects late save and validation responses that ignore abort',async()=>{let resolveSave,resolveRelease;const{wrapper}=await setup({saveDraft:()=>new Promise(r=>resolveSave=r)});const save=wrapper.findAll('button').find(x=>x.text()==='publicContentAdmin.save');await save.trigger('click');globalThis.__pcUser.user.role='admin';resolveSave({...base,revision:99,home:'# leaked'});await flush();assert.equal(wrapper.vm.draft,null);assert.equal(wrapper.vm.savedCanonical,null);wrapper.unmount();const second=await setup();await second.wrapper.get('input[inputmode="numeric"]').setValue('7');globalThis.__pcPricing.getRelease=()=>new Promise(r=>resolveRelease=r);await second.wrapper.findAll('button').find(x=>x.text()==='publicContentAdmin.validate').trigger('click');globalThis.__pcUser.user.role='admin';resolveRelease({items:[{modelKey:'model-a'}]});await flush();assert.equal(second.wrapper.vm.draft,null);assert.deepEqual(second.wrapper.vm.localIssues,[]);assert.equal(second.wrapper.vm.validationProof,null);second.wrapper.unmount()})
-test('demotion rejects late draft and history responses that ignore abort',async()=>{let resolveDraft,resolveHistory,draftReads=0;const{wrapper}=await setup({getDraft:()=>++draftReads===1?Promise.resolve({...base}):new Promise(r=>resolveDraft=r),listReleases:({page})=>page===1?Promise.resolve({items:[{guid:'11',version:1,reason:'root_publish',sourceRevision:2,createdAt:'2026-09-11T00:00:00Z'}],page:1,pageSize:20,total:2}):new Promise(r=>resolveHistory=r)});await wrapper.get('#more').trigger('click');await wrapper.findAll('button').find(x=>x.text()==='publicContentAdmin.refresh').trigger('click');globalThis.__pcUser.user.role='admin';resolveDraft({...base,revision:88,home:'# leaked'});resolveHistory({items:[{guid:'99',version:9,reason:'restore',sourceRevision:2,createdAt:'2026-09-11T00:00:00Z'}],page:2,pageSize:20,total:2});await flush();assert.equal(wrapper.vm.draft,null);assert.deepEqual(wrapper.vm.history,[]);assert.equal(wrapper.vm.total,0);wrapper.unmount()})
-test('mounted execute ambiguity retries one binding and reconcile abandons it',async()=>{let execute=0;const{wrapper}=await setup({publish:async()=>{execute++;throw{code:'network_error'}}});await establish(wrapper);const password=wrapper.get('input[autocomplete="current-password"]'),publish=wrapper.findAll('button').find(x=>x.text()==='publicContentAdmin.publish');await password.setValue('one');await publish.trigger('click');await flush();assert.equal(execute,1);await password.setValue('two');await publish.trigger('click');await flush();assert.equal(execute,2);const reconcile=wrapper.findAll('button').find(x=>x.text()==='publicContentAdmin.reconcile');await reconcile.trigger('click');await flush();assert.equal(wrapper.findAll('button').some(x=>x.text()==='publicContentAdmin.reconcile'),false);wrapper.unmount()})
-test('mounted 409 reloads the current saved revision for comparison',async()=>{let reads=0;const{wrapper}=await setup({getDraft:async()=>({...base,revision:++reads===1?2:3}),publish:async()=>{throw{code:'revision_conflict'}}});await establish(wrapper);await wrapper.get('input[autocomplete="current-password"]').setValue('secret');await flush();await wrapper.findAll('button').find(x=>x.text()==='publicContentAdmin.publish').trigger('click');await flush();assert.match(wrapper.get('.status').text(),/:3$/);assert.equal(reads,2);wrapper.unmount()})
-test('mounted history pagination rejects stale ownership and restore dialog handles Escape focus',async()=>{let resolvePage;const listReleases=({page})=>page===1?Promise.resolve({items:[{guid:'11',version:1,reason:'root_publish',sourceRevision:2,createdAt:'2026-09-11T00:00:00Z'}],page:1,pageSize:20,total:2}):new Promise(r=>resolvePage=r);const{wrapper}=await setup({listReleases});const more=wrapper.get('#more');await more.trigger('click');const refresh=wrapper.findAll('button').find(x=>x.text()==='publicContentAdmin.refresh');await refresh.trigger('click');resolvePage?.({items:[{guid:'12',version:2,reason:'restore',sourceRevision:2,createdAt:'2026-09-11T00:00:00Z'}],page:2,pageSize:20,total:2});await flush();assert.equal(wrapper.findAll('.restore').some(x=>x.text()==='12'),false);const restore=wrapper.get('.restore');restore.element.focus();await restore.trigger('click');await flush();const dialog=wrapper.get('dialog');assert.equal(dialog.attributes('aria-labelledby'),'restore-content-title');dialog.element.dispatchEvent(new Event('cancel',{cancelable:true}));await flush();assert.equal(document.activeElement,restore.element);wrapper.unmount()})
-test('mounted preview installs robots metadata and removes it on unmount',async()=>{globalThis.__pcApi={preview:async()=>({revision:2,documents:{home:'# Home',about:'About',terms:'Terms',privacy:'Privacy'}})};const C=await previewComponent(),wrapper=mount(C,{attachTo:document.body});await flush();const robots=document.head.querySelector('meta[name="robots"]');assert.equal(robots?.content,'noindex, nofollow, noarchive');assert.match(wrapper.get('article').html(),/Home/);wrapper.unmount();assert.equal(document.head.querySelector('meta[name="robots"]'),null)})
+import test, { afterEach } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
+import { JSDOM } from 'jsdom'
 
-test('content administration and preview compose shared shells without weakening publication controls',async()=>{
- const [admin,preview,editor,history]=await Promise.all([
-  readFile(new URL('./PublicContentAdmin.vue',import.meta.url),'utf8'),readFile(new URL('./PublicContentPreview.vue',import.meta.url),'utf8'),readFile(new URL('../components/public-admin/SafeMarkdownEditor.vue',import.meta.url),'utf8'),readFile(new URL('../components/public-admin/ContentReleaseHistory.vue',import.meta.url),'utf8')])
- for(const component of ['PageHeader','SurfaceCard','StatusBadge']){assert.match(admin,new RegExp(`import ${component} from ['\"]@\\/components\\/shell\\/${component}\\.vue['\"]`));assert.match(admin,new RegExp(`<${component}\\b`))}
- for(const source of [editor,history]){assert.match(source,/import SurfaceCard from ['"]@\/components\/shell\/SurfaceCard\.vue['"]/);assert.match(source,/<SurfaceCard\b/)}
- for(const component of ['PublicHeader','PublicFooter']){assert.match(preview,new RegExp(`import ${component} from ['\"]@\\/components\\/public\\/${component}\\.vue['\"]`));assert.match(preview,new RegExp(`<${component}\\b`))}
- for(const token of ['SafeMarkdownEditor','preview','validationProof','pendingRecovery','ContentReleaseHistory','revision_conflict','responsive-dialog','responsive-table'])assert.match(admin,new RegExp(token),token)
- assert.match(admin,/\.publish input,dialog input\{min-height:44px\}/,'publication password and release inputs keep a 44px touch target')
- assert.match(preview,/preview-banner/);assert.match(preview,/renderSafePublicMarkdown/);assert.doesNotMatch(preview,/v-html="documents/)
+const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'https://local.test/admin/public-content' })
+for (const key of ['window','document','Document','navigator','Node','Element','HTMLElement','HTMLDialogElement','HTMLInputElement','SVGElement','Event','MouseEvent','KeyboardEvent','MutationObserver']) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: dom.window[key] })
+HTMLDialogElement.prototype.showModal = function () { this.open = true }
+HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new Event('close')) }
+const [{ mount }, vue] = await Promise.all([import('@vue/test-utils'), import('vue')])
+const { nextTick, reactive } = vue
+const data = code => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
+const deferred = () => { let resolve, reject; const promise = new Promise((done, fail) => { resolve = done; reject = fail }); return { promise, resolve, reject } }
+const home = revision => ({ revision, announcements: [], faqs: [], featuredModelKeys: [] })
+const documents = revision => ({ revision, about: '# About', terms: '# Terms', privacy: '# Privacy', legalReviewed: true })
+const responseHome = (revision, patch = {}) => ({ ...home(revision), ...patch })
+
+afterEach(() => {
+  document.body.replaceChildren(); window.localStorage.clear(); window.sessionStorage.clear()
+  delete globalThis.__homeApi; delete globalThis.__modelApi; delete globalThis.__pcRouter; delete globalThis.__pcUser
+})
+
+async function component() {
+  const source = await readFile(new URL('./PublicContentAdmin.vue', import.meta.url), 'utf8')
+  const descriptor = parse(source, { filename: 'PublicContentAdmin.vue' }).descriptor
+  const script = compileScript(descriptor, { id: 'task10-admin', genDefaultAs: '__sfc__' })
+  const template = compileTemplate({ id: 'task10-admin', filename: 'PublicContentAdmin.vue', source: descriptor.template.content, compilerOptions: { bindingMetadata: script.bindings } })
+  assert.deepEqual(template.errors, [])
+  const vueURL = new URL('../../node_modules/vue/index.mjs', import.meta.url).href
+  const shell = data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({inheritAttrs:false,setup(_,{attrs,slots}){return()=>h('section',attrs,[slots.default?.(),slots.actions?.()])}})`)
+  const editor = marker => data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({inheritAttrs:false,props:['items','selected','results','search','searching','busy','labels'],emits:['create','update','remove','move','save','search'],setup(p,{attrs,emit}){return()=>h('section',{...attrs,'data-editor':'${marker}'},[h('button',{'data-action':'create',onClick:()=>emit('create',{title:'本地公告',bodyMarkdown:'正文',effectiveAt:null,isVisible:true,sortOrder:10})},'create'),h('button',{'data-action':'save-featured',onClick:()=>emit('save',['model-a'])},'featured'),h('input',{'data-action':'search',value:p.search,onInput:e=>emit('search',e.target.value)})])}})`)
+  const modules = new Map([
+    ['vue', vueURL],
+    ['vue-router', data('export const useRouter=()=>globalThis.__pcRouter')],
+    ['@/api/publicHomeContentAdmin.js', data('export const publicHomeContentAdminApi=new Proxy({}, {get:(_,key)=>(...args)=>globalThis.__homeApi[key](...args)})')],
+    ['@/api/publicModelAdmin.js', data('export const publicModelAdminApi=new Proxy({}, {get:(_,key)=>(...args)=>globalThis.__modelApi[key](...args)})')],
+    ['@/composables/useI18n', data("export const useI18n=()=>({t:(key,p)=>key+(p?.revision?':'+p.revision:'')})")],
+    ['@/stores/user', data('export const useUserStore=()=>globalThis.__pcUser')],
+    ['@/components/public-admin/AnnouncementEditor.vue', editor('announcement')],
+    ['@/components/public-admin/FaqEditor.vue', editor('faq')],
+    ['@/components/public-admin/FeaturedModelSelector.vue', editor('featured-models')],
+    ['@/components/public-admin/SafeMarkdownEditor.vue', data(`import{defineComponent,h}from'${vueURL}';export default defineComponent({props:['modelValue','id'],emits:['update:modelValue'],setup(p,{emit}){return()=>h('textarea',{id:p.id,value:p.modelValue,onInput:e=>emit('update:modelValue',e.target.value)})}})`) ],
+    ['@/components/shell/PageHeader.vue', shell], ['@/components/shell/SurfaceCard.vue', shell], ['@/components/shell/StatusBadge.vue', shell],
+  ])
+  let code = `${script.content}\n${template.code}\n__sfc__.render=render\nexport default __sfc__`
+  for (const [from, to] of modules) code = code.replaceAll(`from '${from}'`, `from '${to}'`).replaceAll(`from'${from}'`, `from'${to}'`).replaceAll(`from "${from}"`, `from "${to}"`).replaceAll(`from"${from}"`, `from"${to}"`)
+  return (await import(data(code))).default
+}
+
+async function flush() { for (let index = 0; index < 8; index++) await nextTick(); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick() }
+async function setup(overrides = {}, modelOverrides = {}) {
+  const calls = []
+  globalThis.__pcUser = reactive({ user: { role: 'root' } })
+  globalThis.__pcRouter = { replace: async value => { globalThis.__pcRouter.replaced = value } }
+  globalThis.__homeApi = {
+    getHomeDraft: async () => home(4), getDocumentsDraft: async () => documents(4),
+    createAnnouncement: async value => (calls.push(['createAnnouncement', value]), responseHome(value.expectedRevision + 1, { announcements: [{ guid: '1', title: value.title, bodyMarkdown: value.bodyMarkdown, effectiveAt: value.effectiveAt, isVisible: value.isVisible, sortOrder: value.sortOrder }] })),
+    updateAnnouncement: async (guid, value) => (calls.push(['updateAnnouncement', guid, value]), responseHome(value.expectedRevision + 1)),
+    deleteAnnouncement: async (guid, revision) => (calls.push(['deleteAnnouncement', guid, revision]), revision + 1),
+    createFAQ: async value => (calls.push(['createFAQ', value]), responseHome(value.expectedRevision + 1)),
+    updateFAQ: async (guid, value) => (calls.push(['updateFAQ', guid, value]), responseHome(value.expectedRevision + 1)),
+    deleteFAQ: async (guid, revision) => (calls.push(['deleteFAQ', guid, revision]), revision + 1),
+    saveFeaturedModels: async (revision, keys) => (calls.push(['saveFeaturedModels', revision, keys]), responseHome(revision + 1, { featuredModelKeys: keys })),
+    saveDocumentsDraft: async value => (calls.push(['saveDocumentsDraft', value]), { ...documents(value.expectedRevision + 1), ...value, revision: value.expectedRevision + 1 }),
+    ...overrides,
+  }
+  globalThis.__modelApi = { list: async (filters, options) => (calls.push(['search', filters, options]), { items: [] }), ...modelOverrides }
+  const wrapper = mount(await component(), { attachTo: document.body }); await flush()
+  return { wrapper, calls }
+}
+
+test('structured admin loads only a matching home and document generation and has no legacy home markdown', async () => {
+  const { wrapper } = await setup()
+  for (const marker of ['announcement','faq','featured-models']) assert.equal(wrapper.find(`[data-editor="${marker}"]`).exists(), true)
+  assert.equal(wrapper.find('#content-home').exists(), false)
+  assert.equal(wrapper.vm.revision, 4)
+  assert.deepEqual(wrapper.vm.documentNames, ['about','terms','privacy'])
+  assert.deepEqual(wrapper.vm.homeSections, ['announcements','faqs','featuredModels'])
+  assert.equal(wrapper.find('[data-task11-disabled]').exists(), true)
+  wrapper.unmount()
+})
+
+test('mismatched initial generations are reread once and never rendered together', async () => {
+  let homeReads = 0, documentReads = 0
+  const { wrapper } = await setup({ getHomeDraft: async () => home(++homeReads === 1 ? 4 : 6), getDocumentsDraft: async () => documents(++documentReads === 1 ? 5 : 7) })
+  assert.equal(homeReads, 2); assert.equal(documentReads, 2)
+  assert.equal(wrapper.vm.ready, null)
+  assert.equal(wrapper.vm.revision, null)
+  assert.equal(wrapper.vm.error.code, 'revision_conflict')
+  assert.equal(wrapper.find('[data-editor="announcement"]').exists(), false)
+  wrapper.unmount()
+})
+
+test('every structured write carries the current aggregate revision and advances from the full response', async () => {
+  const { wrapper, calls } = await setup()
+  await wrapper.get('[data-editor="announcement"] [data-action="create"]').trigger('click'); await flush()
+  assert.equal(calls[0][0], 'createAnnouncement')
+  assert.equal(calls[0][1].expectedRevision, 4)
+  assert.equal(wrapper.vm.revision, 5)
+  await wrapper.get('[data-editor="featured-models"] [data-action="save-featured"]').trigger('click'); await flush()
+  const featured = calls.find(call => call[0] === 'saveFeaturedModels')
+  assert.deepEqual(featured.slice(1), [5, ['model-a']])
+  assert.equal(wrapper.vm.revision, 6)
+  assert.equal(wrapper.vm.validationProof, null)
+  wrapper.unmount()
+})
+
+test('every remaining Root mutation carries the current aggregate revision', async () => {
+  const cases = [
+    ['updateAnnouncement', [{ guid: '1', title: 'Updated', bodyMarkdown: 'Body', effectiveAt: null, isVisible: true, sortOrder: 10 }], 'updateAnnouncement', call => call[2].expectedRevision],
+    ['deleteAnnouncement', ['1'], 'deleteAnnouncement', call => call[2]],
+    ['createFAQ', [{ question: 'Question', answerMarkdown: 'Answer', isVisible: true, sortOrder: 10 }], 'createFAQ', call => call[1].expectedRevision],
+    ['updateFAQ', [{ guid: '2', question: 'Updated?', answerMarkdown: 'Answer', isVisible: true, sortOrder: 10 }], 'updateFAQ', call => call[2].expectedRevision],
+    ['deleteFAQ', ['2'], 'deleteFAQ', call => call[2]],
+    ['saveDocuments', [], 'saveDocumentsDraft', call => call[1].expectedRevision],
+  ]
+  for (const [method, args, callName, revisionOf] of cases) {
+    const { wrapper, calls } = await setup()
+    await wrapper.vm[method](...args); await flush()
+    const call = calls.find(item => item[0] === callName)
+    assert.ok(call, `${callName} must be called`)
+    assert.equal(revisionOf(call), 4)
+    wrapper.unmount()
+  }
+})
+
+test('sorting performs one PATCH when an integer gap exists and otherwise fails without transport', async () => {
+  const withGap = await setup({
+    getHomeDraft: async () => responseHome(4, { announcements: [
+      { guid: '1', title: 'A', bodyMarkdown: 'A', effectiveAt: null, isVisible: true, sortOrder: 10 },
+      { guid: '2', title: 'B', bodyMarkdown: 'B', effectiveAt: null, isVisible: true, sortOrder: 20 },
+    ] }),
+  })
+  await withGap.wrapper.vm.moveAnnouncement({ guid: '2', direction: -1 }); await flush()
+  const patches = withGap.calls.filter(call => call[0] === 'updateAnnouncement')
+  assert.equal(patches.length, 1)
+  assert.equal(patches[0][2].sortOrder, 5)
+  withGap.wrapper.unmount()
+
+  const withoutGap = await setup({
+    getHomeDraft: async () => responseHome(4, { announcements: [
+      { guid: '1', title: 'A', bodyMarkdown: 'A', effectiveAt: null, isVisible: true, sortOrder: 0 },
+      { guid: '2', title: 'B', bodyMarkdown: 'B', effectiveAt: null, isVisible: true, sortOrder: 1 },
+    ] }),
+  })
+  await withoutGap.wrapper.vm.moveAnnouncement({ guid: '2', direction: -1 }); await flush()
+  assert.equal(withoutGap.calls.some(call => call[0] === 'updateAnnouncement'), false)
+  assert.equal(withoutGap.wrapper.vm.error.code, 'sort_gap_required')
+  withoutGap.wrapper.unmount()
+})
+
+test('409 keeps local input only in memory, rereads authority, shows a side by side diff, and never replays', async () => {
+  let creates = 0, reads = 0
+  const conflict = Object.assign(new Error('conflict'), { code: 'revision_conflict', requestId: 'req-409' })
+  const { wrapper } = await setup({
+    getHomeDraft: async () => home(++reads > 1 ? 5 : 4),
+    getDocumentsDraft: async () => documents(reads > 1 ? 5 : 4),
+    createAnnouncement: async () => { creates++; throw conflict },
+  })
+  await wrapper.get('[data-editor="announcement"] [data-action="create"]').trigger('click'); await flush()
+  assert.equal(creates, 1)
+  assert.equal(wrapper.vm.revision, 5)
+  assert.equal(wrapper.vm.conflictBuffer.local.title, '本地公告')
+  assert.equal(wrapper.vm.conflictBuffer.server.home.revision, 5)
+  assert.equal(wrapper.findAll('.conflict-columns section').length, 2)
+  assert.equal(window.localStorage.length, 0); assert.equal(window.sessionStorage.length, 0)
+  wrapper.unmount()
+})
+
+test('model search aborts its predecessor, ignores late data, and requests only active present complete models', async () => {
+  const first = deferred(), second = deferred(), searches = []
+  const { wrapper } = await setup({}, { list: (filters, options) => { searches.push({ filters, signal: options.signal }); return searches.length === 1 ? first.promise : second.promise } })
+  void wrapper.vm.searchModels('old'); await Promise.resolve()
+  const latest = wrapper.vm.searchModels('new'); await Promise.resolve()
+  assert.equal(searches[0].signal.aborted, true)
+  assert.deepEqual(searches[1].filters, { search: 'new', status: 'active', upstreamState: 'present', completeness: 'complete', page: 1, pageSize: 20 })
+  first.resolve({ items: [{ guid: '1', modelKey: 'old', displayName: 'Old' }] })
+  second.resolve({ items: [{ guid: '2', modelKey: 'new', displayName: 'New' }] })
+  await latest; await flush()
+  assert.deepEqual(wrapper.vm.modelResults.map(item => item.modelKey), ['new'])
+  wrapper.unmount()
+})
+
+test('Root demotion aborts reads and search, clears sensitive state, redirects, and rejects late responses', async () => {
+  const lateHome = deferred(), lateDocuments = deferred(), lateSearch = deferred(); let homeSignal, documentSignal, searchSignal
+  const { wrapper } = await setup({
+    getHomeDraft: options => { homeSignal = options.signal; return lateHome.promise },
+    getDocumentsDraft: options => { documentSignal = options.signal; return lateDocuments.promise },
+  }, { list: (_filters, options) => { searchSignal = options.signal; return lateSearch.promise } })
+  void wrapper.vm.searchModels('secret-query'); await Promise.resolve()
+  globalThis.__pcUser.user.role = 'admin'; await nextTick()
+  assert.equal(homeSignal.aborted, true); assert.equal(documentSignal.aborted, true); assert.equal(searchSignal.aborted, true)
+  assert.equal(wrapper.vm.homeDraft, null); assert.equal(wrapper.vm.documentsDraft, null); assert.equal(wrapper.vm.conflictBuffer, null); assert.deepEqual(wrapper.vm.modelResults, [])
+  assert.equal(globalThis.__pcRouter.replaced, '/chat')
+  lateHome.resolve(home(99)); lateDocuments.resolve(documents(99)); lateSearch.resolve({ items: [{ modelKey: 'leaked' }] }); await flush()
+  assert.equal(wrapper.vm.homeDraft, null); assert.deepEqual(wrapper.vm.modelResults, [])
+  wrapper.unmount()
+})
+
+test('Root demotion aborts an owned write and its late response cannot restore privileged data', async () => {
+  const lateWrite = deferred(); let writeSignal
+  const { wrapper } = await setup({ createAnnouncement: (value, options) => { writeSignal = options.signal; return lateWrite.promise } })
+  const pending = wrapper.vm.createAnnouncement({ title: 'Private draft', bodyMarkdown: 'secret body', effectiveAt: null, isVisible: true, sortOrder: 10 })
+  await Promise.resolve()
+  globalThis.__pcUser.user.role = 'admin'; await nextTick()
+  assert.equal(writeSignal.aborted, true)
+  lateWrite.resolve(responseHome(99, { announcements: [{ guid: '99', title: 'Leaked', bodyMarkdown: 'secret', effectiveAt: null, isVisible: true, sortOrder: 10 }] }))
+  await pending; await flush()
+  assert.equal(wrapper.vm.homeDraft, null)
+  assert.equal(wrapper.vm.documentsDraft, null)
+  assert.equal(wrapper.vm.revision, null)
+  wrapper.unmount()
+})
+
+test('editing fixed documents invalidates any earlier validation proof before save', async () => {
+  const { wrapper } = await setup()
+  wrapper.vm.validationProof = { valid: true, revision: 4 }
+  await wrapper.get('#content-about').setValue('# Changed')
+  await nextTick()
+  assert.equal(wrapper.vm.validationProof, null)
+  wrapper.unmount()
+})
+
+test('Task10 source keeps fixed documents, single-item sort patches, and no draft storage', async () => {
+  const source = await readFile(new URL('./PublicContentAdmin.vue', import.meta.url), 'utf8')
+  assert.match(source, /documentNames=\['about','terms','privacy'\]/)
+  assert.match(source, /homeSections=\['announcements','faqs','featuredModels'\]/)
+  assert.match(source, /getHomeDraft/); assert.match(source, /getDocumentsDraft/); assert.match(source, /publicModelAdminApi\.list/)
+  assert.doesNotMatch(source, /content-home|localStorage|sessionStorage|dragstart|draggable/)
+  assert.match(source, /sort_gap_required/)
 })
