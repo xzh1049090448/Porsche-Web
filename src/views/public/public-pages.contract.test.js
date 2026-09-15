@@ -7,6 +7,7 @@ import { JSDOM } from 'jsdom'
 import { messages } from '../../i18n/messages.js'
 import { publicHomeMessages, publicMessages } from '../../i18n/public-messages.js'
 import { routes } from '../../router/index.js'
+import { createPublicContentClient } from '../../api/publicContent.js'
 
 const callableBodyEffect = (body, expressionEffect, staticCondition) => {
   const expressionPaths = (expression, normalKind = 'normal') => {
@@ -3042,6 +3043,33 @@ test('fixed homepage and shell never depend on published document navigation or 
   assert.match(home, /data-section=["']cta["']/)
   assert.match(home, /HomeDynamicContent/)
   assert.doesNotMatch(`${header}${footer}`, /props:\s*\{\s*links|props\.links|publishedLink|classifyPublicLink/)
+  assert.doesNotMatch(home, /getHome|public-document/)
+  assert.doesNotMatch(layout, /shellLinks[^\n]*publication|home\.value[^\n]*shellLinks/)
+  assert.doesNotMatch(home, /PublicContentState[^\n]+status\s*=\s*["']error["']/)
+})
+
+test('anonymous structured home rejects draft markdown fields at every nested boundary', async () => {
+  const base = {
+    announcements: [{ guid:'7', title:'Notice', body_html:'<p>Ready</p>\n', effective_at:null, sort_order:1 }],
+    faqs: [{ guid:'8', question:'How?', answer_html:'<p>Safely.</p>\n', sort_order:2 }],
+    featured_model_keys: [], content_release_version:2, price_release_version:3,
+  }
+  const makeClient = body => createPublicContentClient({ fetchImpl: async () => new Response(JSON.stringify(body), { status:200, headers:{ ETag:'"home-2"', 'X-Public-Release-Version':'2', 'Cache-Control':'public, max-age=60, stale-while-revalidate=300' } }) })
+  const leaked = [
+    { ...base, announcements:[{ ...base.announcements[0], body_markdown:'private draft' }] },
+    { ...base, faqs:[{ ...base.faqs[0], answer_markdown:'private draft' }] },
+  ]
+  for (const body of leaked) await assert.rejects(() => makeClient(body).getHomeConfig(), error => error?.code === 'invalid_response')
+})
+
+test('Root demotion keeps generation fences that reject every late privileged response', () => {
+  const admin = source('../PublicContentAdmin.vue')
+  const mounted = source('../public-content-admin.mounted.test.js')
+  assert.match(admin, /const ownsPrivilege\s*=\s*generation\s*=>\s*generation === privilegeGeneration && userStore\.user\?\.role === ['"]root['"]/)
+  assert.ok((admin.match(/ownsPrivilege\(/g) || []).length >= 10, 'all privileged asynchronous paths retain ownership checks')
+  assert.match(admin, /function clearPrivilegedState\(\)\s*\{[^}]*privilegeGeneration\+\+[^}]*readController\.abort\(\)[^}]*writeController\.abort\(\)[^}]*validationController\.abort\(\)/s)
+  assert.match(mounted, /Root demotion aborts reads and search, clears sensitive state, redirects, and rejects late responses/)
+  assert.match(mounted, /Root demotion aborts an owned write and its late response cannot restore privileged data/)
 })
 
 test('structured home rich text removes scripts event handlers and dangerous URLs', async () => withPublicDom(async () => {
@@ -3143,6 +3171,9 @@ test('public pages are lazy routes and styles cover themes, breakpoints and redu
   assert.match(shell, /max-width:\s*767px/)
   assert.match(shell, /min-width:\s*768px/)
   assert.match(shell, /max-width:\s*1279px/)
+  const content = source('../../styles/public-content.scss')
+  const reduced = content.match(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\}\s*$/)?.[1] || ''
+  assert.match(reduced, /\.hero-preview__provider[^{}]*\{[^}]*animation:\s*none[^}]*transform:\s*none[^}]*transition:\s*none/s)
 })
 
 test('public content pages compose the approved safe landing system', () => {

@@ -105,6 +105,14 @@ test('build-produced graph rejects a protected module injected into the public c
   assert.throws(() => validatePublicGraph(graph), /non-public module.*admin-user-actions/)
 })
 
+test('public chunks reject synchronous Root content administration packages', () => {
+  for (const moduleId of [
+    'src/views/PublicContentAdmin.vue',
+    'src/api/publicHomeContentAdmin.js',
+    'src/components/public-admin/AnnouncementEditor.vue',
+  ]) assert.throws(() => validatePublicGraph(fixture([moduleId])), /non-public module/)
+})
+
 test('build-produced graph rejects an unknown local module even without protected markers', () => {
   const graph = fixture(['src/utils/innocent-looking-unknown.js'])
   assert.throws(() => validatePublicGraph(graph), /non-public module.*innocent-looking-unknown/)

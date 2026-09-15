@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-09-16",
+  "candidate_base_revision": "71d66d7f3916870c35defa84e30f0c38e0e826f9",
+  "overall_status": "FAIL_LOCAL_GATE",
+  "scope_status": "PASS_LIMITED_SCOPE",
+  "mutation_tests": [
+    {
+      "name": "draft-markdown-leak",
+      "command": "node --test src/views/public/public-pages.contract.test.js",
+      "expected": "RED",
+      "exit_code": 1,
+      "result": "PASS"
+    },
+    {
+      "name": "legacy-get-home",
+      "command": "node --test src/views/public/public-pages.contract.test.js",
+      "expected": "RED",
+      "exit_code": 1,
+      "result": "PASS"
+    },
+    {
+      "name": "published-navigation",
+      "command": "node --test src/views/public/public-pages.contract.test.js",
+      "expected": "RED",
+      "exit_code": 1,
+      "result": "PASS"
+    },
+    {
+      "name": "home-503-card",
+      "command": "node --test src/views/public/public-pages.contract.test.js",
+      "expected": "RED",
+      "exit_code": 1,
+      "result": "PASS"
+    },
+    {
+      "name": "home-390-overflow",
+      "command": "node --test src/views/public/public-pages.contract.test.js",
+      "expected": "RED",
+      "exit_code": 1,
+      "result": "PASS"
+    },
+    {
+      "name": "reduced-motion-animation",
+      "command": "node --test src/views/public/public-pages.contract.test.js",
+      "expected": "RED",
+      "exit_code": 1,
+      "result": "PASS"
+    },
+    {
+      "name": "root-late-refill",
+      "command": "node --test src/views/public/public-pages.contract.test.js",
+      "expected": "RED",
+      "exit_code": 1,
+      "result": "PASS"
+    },
+    {
+      "name": "typography-zoom",
+      "command": "node --test --test-name-pattern='typography and interaction contracts cover|public typography rejects' src/styles/typography.contract.test.js",
+      "expected": "RED",
+      "exit_code": 1,
+      "result": "PASS"
+    },
+    {
+      "name": "typography-scale",
+      "command": "node --test --test-name-pattern='typography and interaction contracts cover|public typography rejects' src/styles/typography.contract.test.js",
+      "expected": "RED",
+      "exit_code": 1,
+      "result": "PASS"
+    }
+  ],
+  "focused": {
+    "public_and_chunk_contracts": {
+      "command": "node --test src/views/public/public-pages.contract.test.js src/router/public-chunks.test.js",
+      "tests": 27,
+      "pass": 27,
+      "fail": 0,
+      "exit_code": 0
+    },
+    "responsive_width_and_zoom_contracts": {
+      "command": "node --test --test-name-pattern='typography and interaction contracts cover|public typography rejects' src/styles/typography.contract.test.js",
+      "tests": 2,
+      "pass": 2,
+      "fail": 0,
+      "exit_code": 0,
+      "duration_ms": 18689
+    }
+  },
+  "full_test": {
+    "command": "npm test (six explicit backend contract environment variables)",
+    "status": "TIMEOUT_WITH_FAILURES",
+    "requested_timeout_seconds": 180,
+    "observed_before_interrupt": {
+      "tests": 1129,
+      "pass": 1124,
+      "fail": 4,
+      "cancelled": 1,
+      "skipped": 0,
+      "exit_code": 1
+    },
+    "failures": [
+      {
+        "file": "src/api/platform-generation-contract.test.js",
+        "reason": "stale expected contract hash"
+      },
+      {
+        "file": "src/layouts/visual-shell.contract.test.js",
+        "reason": "stale dynamic footer assertion after fixed RouterLink footer"
+      },
+      {
+        "file": "src/views/full-site-typography.visual.contract.test.js",
+        "reason": "stale responsive-dialog assertion"
+      },
+      {
+        "file": "src/views/full-site-typography.visual.contract.test.js",
+        "reason": "stale PublicContentAdmin template path assertion"
+      }
+    ],
+    "cancelled": [
+      {
+        "file": "src/styles/typography.contract.test.js",
+        "reason": "bounded run interrupted after timeout"
+      }
+    ],
+    "classification": "Known stale test and tool gates outside Task12 write scope; coordinator confirmed production defect was not established."
+  },
+  "production_build": {
+    "command": "VITE_USE_MOCK=false npm run build",
+    "status": "PASS_WITH_EXISTING_WARNINGS",
+    "exit_code": 0
+  },
+  "public_chunk_checker": {
+    "command": "node scripts/check-public-route-chunks.mjs",
+    "status": "FAIL_LOCAL_GATE",
+    "exit_code": 1,
+    "reason": "stale allowlist rejects intentional Task9 public store src/stores/publicHomeContent.js; checker is outside Task12 scope"
+  },
+  "browser": {
+    "status": "PASS_LIMITED_SCOPE",
+    "runner": "visible Chromium via playwright-skill",
+    "fixture": "Playwright page.route synthetic API responses; no real 127.0.0.1:8000 backend fixture",
+    "public_scenarios": {
+      "total": 11,
+      "pass": 11,
+      "fail": 0
+    },
+    "anonymous_admin_route": {
+      "total": 1,
+      "pass": 1,
+      "fail": 0
+    },
+    "covered": [
+      "ready and 503 fixed homepage behavior",
+      "375/390/768/1280/1600 responsive widths",
+      "light/dark representatives",
+      "zh/en at 390/1280",
+      "reduced motion",
+      "44px mobile targets",
+      "mobile menu focus and Escape",
+      "horizontal overflow",
+      "featured model version/request count",
+      "anonymous Root route rejection"
+    ],
+    "not_run": [
+      "authenticated Root CRUD",
+      "preview",
+      "validate",
+      "publish",
+      "history",
+      "restore",
+      "real MySQL/RBAC/transaction backend",
+      "production deployment"
+    ],
+    "evidence": "browser-results.json"
+  },
+  "cleanup": {
+    "vite_preview_127_0_0_1_4173": "STOPPED",
+    "visible_chromium": "CLOSED",
+    "temporary_synthetic_fixture": "NO_SERVER_STARTED"
+  },
+  "product_blockers": [
+    "P08 production content truth criteria remains BLOCKED_PRODUCT"
+  ],
+  "next": [
+    "Repair six stale tests/checker in a separately authorized scope",
+    "Rerun full npm test and chunk checker",
+    "Run Task13 real MySQL/RBAC/transaction and authenticated Root browser acceptance"
+  ]
+}

@@ -1,0 +1,381 @@
+{
+  "target": "http://127.0.0.1:4173",
+  "fixture": "playwright-page-route-fulfill",
+  "generatedAt": "2026-09-15T16:56:57.533Z",
+  "publicScenarios": [
+    {
+      "name": "ready-375-light-zh",
+      "width": 375,
+      "theme": "light",
+      "locale": "zh",
+      "mode": "ready",
+      "reduced": false,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/public/site",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/home-config",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/models/model-a",
+          "query": ""
+        }
+      ],
+      "expectedErrors": [],
+      "geometry": {
+        "scrollWidth": 360,
+        "clientWidth": 360,
+        "lang": "zh-CN",
+        "theme": "light"
+      },
+      "status": "PASS"
+    },
+    {
+      "name": "ready-390-light-zh",
+      "width": 390,
+      "theme": "light",
+      "locale": "zh",
+      "mode": "ready",
+      "reduced": true,
+      "screenshot": "ready-390-light.png",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/public/site",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/home-config",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/models/model-a",
+          "query": ""
+        }
+      ],
+      "expectedErrors": [],
+      "geometry": {
+        "scrollWidth": 375,
+        "clientWidth": 375,
+        "lang": "zh-CN",
+        "theme": "light"
+      },
+      "status": "PASS"
+    },
+    {
+      "name": "ready-768-light-zh",
+      "width": 768,
+      "theme": "light",
+      "locale": "zh",
+      "mode": "ready",
+      "reduced": false,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/public/site",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/home-config",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/models/model-a",
+          "query": ""
+        }
+      ],
+      "expectedErrors": [],
+      "geometry": {
+        "scrollWidth": 753,
+        "clientWidth": 753,
+        "lang": "zh-CN",
+        "theme": "light"
+      },
+      "status": "PASS"
+    },
+    {
+      "name": "ready-1280-light-zh",
+      "width": 1280,
+      "theme": "light",
+      "locale": "zh",
+      "mode": "ready",
+      "reduced": false,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/public/site",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/home-config",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/models/model-a",
+          "query": ""
+        }
+      ],
+      "expectedErrors": [],
+      "geometry": {
+        "scrollWidth": 1265,
+        "clientWidth": 1265,
+        "lang": "zh-CN",
+        "theme": "light"
+      },
+      "status": "PASS"
+    },
+    {
+      "name": "ready-1600-light-zh",
+      "width": 1600,
+      "theme": "light",
+      "locale": "zh",
+      "mode": "ready",
+      "reduced": false,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/public/site",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/home-config",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/models/model-a",
+          "query": ""
+        }
+      ],
+      "expectedErrors": [],
+      "geometry": {
+        "scrollWidth": 1585,
+        "clientWidth": 1585,
+        "lang": "zh-CN",
+        "theme": "light"
+      },
+      "status": "PASS"
+    },
+    {
+      "name": "ready-390-dark-zh",
+      "width": 390,
+      "theme": "dark",
+      "locale": "zh",
+      "mode": "ready",
+      "reduced": true,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/public/site",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/home-config",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/models/model-a",
+          "query": ""
+        }
+      ],
+      "expectedErrors": [],
+      "geometry": {
+        "scrollWidth": 375,
+        "clientWidth": 375,
+        "lang": "zh-CN",
+        "theme": "dark"
+      },
+      "status": "PASS"
+    },
+    {
+      "name": "ready-1280-dark-zh",
+      "width": 1280,
+      "theme": "dark",
+      "locale": "zh",
+      "mode": "ready",
+      "reduced": false,
+      "screenshot": "ready-1280-dark.png",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/public/site",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/home-config",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/models/model-a",
+          "query": ""
+        }
+      ],
+      "expectedErrors": [],
+      "geometry": {
+        "scrollWidth": 1265,
+        "clientWidth": 1265,
+        "lang": "zh-CN",
+        "theme": "dark"
+      },
+      "status": "PASS"
+    },
+    {
+      "name": "ready-390-light-en",
+      "width": 390,
+      "theme": "light",
+      "locale": "en",
+      "mode": "ready",
+      "reduced": false,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/public/site",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/home-config",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/models/model-a",
+          "query": ""
+        }
+      ],
+      "expectedErrors": [],
+      "geometry": {
+        "scrollWidth": 375,
+        "clientWidth": 375,
+        "lang": "en",
+        "theme": "light"
+      },
+      "status": "PASS"
+    },
+    {
+      "name": "ready-1280-light-en",
+      "width": 1280,
+      "theme": "light",
+      "locale": "en",
+      "mode": "ready",
+      "reduced": false,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/public/site",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/home-config",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/models/model-a",
+          "query": ""
+        }
+      ],
+      "expectedErrors": [],
+      "geometry": {
+        "scrollWidth": 1265,
+        "clientWidth": 1265,
+        "lang": "en",
+        "theme": "light"
+      },
+      "status": "PASS"
+    },
+    {
+      "name": "unavailable-390-light-zh",
+      "width": 390,
+      "theme": "light",
+      "locale": "zh",
+      "mode": "unavailable",
+      "reduced": true,
+      "screenshot": "unavailable-390-light.png",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/public/site",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/home-config",
+          "query": ""
+        }
+      ],
+      "expectedErrors": [
+        "console:Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "geometry": {
+        "scrollWidth": 375,
+        "clientWidth": 375,
+        "lang": "zh-CN",
+        "theme": "light"
+      },
+      "status": "PASS"
+    },
+    {
+      "name": "unavailable-1280-dark-zh",
+      "width": 1280,
+      "theme": "dark",
+      "locale": "zh",
+      "mode": "unavailable",
+      "reduced": false,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/public/site",
+          "query": ""
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/public/home-config",
+          "query": ""
+        }
+      ],
+      "expectedErrors": [
+        "console:Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "geometry": {
+        "scrollWidth": 1265,
+        "clientWidth": 1265,
+        "lang": "zh-CN",
+        "theme": "dark"
+      },
+      "status": "PASS"
+    }
+  ],
+  "anonymousAdmin": {
+    "status": "PASS",
+    "url": "http://127.0.0.1:4173/login?redirect=/admin/public-content",
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/v1/auth/refresh",
+        "query": ""
+      }
+    ],
+    "expectedErrors": [
+      "console:Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  }
+}

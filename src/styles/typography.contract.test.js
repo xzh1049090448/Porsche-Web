@@ -995,7 +995,7 @@ const representativeScreenWidths = (...stylesheets) => {
     .flatMap(query => [...query.matchAll(/(\d+(?:\.\d+)?)px/gi)].map(match => Number(match[1]))))]
     .filter(threshold => Number.isFinite(threshold) && threshold > 0 && threshold <= Number.MAX_SAFE_INTEGER)
     .sort((left, right) => left - right)
-  const widths = new Set([375, 767, 768, 1440])
+  const widths = new Set([375, 390, 767, 768, 1280, 1440, 1600])
   const add = candidate => { if (Number.isFinite(candidate) && candidate > 0 && candidate <= Number.MAX_SAFE_INTEGER) widths.add(candidate) }
   for (const threshold of thresholds) {
     const delta = Math.max(0.01, Math.abs(threshold) * Number.EPSILON * 8)
@@ -1005,6 +1005,18 @@ const representativeScreenWidths = (...stylesheets) => {
   return [...widths].sort((left, right) => left - right)
 }
 const allScreenWidths = representativeScreenWidths(...surfaces)
+
+test('typography and interaction contracts cover the final responsive acceptance widths', () => {
+  for (const width of [375, 390, 767, 768, 1280, 1440, 1600]) assert.ok(allScreenWidths.includes(width), `${width}px is included in the final matrix`)
+})
+
+test('public typography rejects zoom and scale transforms', () => {
+  assertTypographyScalingPolicy([
+    { file: 'public-shell.scss', source: read('./public-shell.scss') },
+    { file: 'public-content.scss', source: read('./public-content.scss') },
+    { file: 'public-pricing.scss', source: read('./public-pricing.scss') },
+  ], siteTypographyEvidence)
+})
 const selectorStructure = selector => {
   const compounds = []
   const combinators = []

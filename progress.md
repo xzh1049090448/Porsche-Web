@@ -391,3 +391,12 @@
 - 认证/UI/router 定向回归 `node --test src/api/auth-p0.test.js src/api/auth-session.test.js src/api/auth-response.test.js src/api/auth-request-policy.test.js src/api/auth-browser.test.js src/api/auth-refresh.test.js src/views/Login.auth-status.test.js src/router/auth-guard.test.js`：`86/86 PASS`；生产构建 `VITE_USE_MOCK=false npm run build`：PASS；`git diff --check`：PASS。独立规格复核与质量复核均 PASS。
 - 可见 Chromium 双标签 synthetic 验收 PASS：页面 A 从 `/login` 恢复到 `/chat`，页面 B 保持 `/login` 但解除未决提示并恢复登录按钮；refresh 请求严格 `1` 次，协调记录收敛为 `pending:null/suppressed:false`。聊天初始化因未配置模型 API 的 404 噪声不属于本次认证验收范围。
 - 本条只记录本地前端限定证据；真实 HTTPS 双标签浏览器、真实账号、后端联合验收、生产部署与 web-009 整体 M3 签收仍未运行，`web-009` 继续保持 `blocked`。
+
+
+## 2026-09-16：Fixed Home Structured Content Task12 本地证据（FAIL_LOCAL_GATE）
+
+- 候选基线 `71d66d7f3916870c35defa84e30f0c38e0e826f9`。9 个 private `git archive` mutation 均按预期 RED；公共页面/chunk focused 27/27、响应式宽度与 public zoom/scale 2/2 GREEN，未发现新的 scope 内生产缺陷。
+- 六份后端合同显式注入的 `npm test` 在 180 秒预算耗尽后中断；已观测 1129 tests、1124 pass、4 fail、1 cancelled、0 skip。4 个失败是 scope 外陈旧断言；完整 typography 因有界中断被取消。`VITE_USE_MOCK=false npm run build` PASS。
+- public chunk checker FAIL：旧 allowlist 拒绝 Task9 已引入的 `src/stores/publicHomeContent.js`；检查器不在本任务 scope，未越界修改。完整门禁因此保持 `FAIL_LOCAL_GATE`。
+- visible Chromium synthetic API：公共 ready/503 11/11、匿名 `/admin/public-content` 拒绝 1/1 PASS；覆盖 375/390/768/1280/1600、light/dark、中英文、reduced-motion、44px、focus/Escape、overflow、动态内容与价格版本。production preview 与浏览器均已清理。
+- API 使用 Playwright `page.route`，没有启动真实后端 fixture。Root CRUD/preview/validate/publish/history/restore、真实 MySQL/RBAC/事务、生产部署与验收均 `NOT_RUN`；P08 真实性标准保持 `BLOCKED_PRODUCT`。`web-012` 继续 `in_progress`。详见 `docs/agents/validation/2026-09-16-fixed-home-structured-content/`。
