@@ -46,7 +46,7 @@ export default {
         link('/#models', t('models')),
         link('/pricing', t('pricing')),
         link('/about', t('about')),
-        link('/chat', t('console'), { class: 'public-button public-button--small public-console-cta' }),
+        link('/chat', t('console'), { class: 'public-button public-button--small public-console-cta public-console-cta--mobile' }),
       ]
       return h('header', { class: ['public-header', { 'is-scrolled': scrolled.value }] }, [
         h('div', { class: 'public-header__primary' }, [
@@ -57,6 +57,7 @@ export default {
         h('div', { class: 'public-header__actions' }, [
           h('button', { type: 'button', class: 'public-locale', 'aria-label': t('language'), onClick: toggle }, t('language')),
           h('button', { type: 'button', class: 'public-theme', 'aria-label': '切换主题 / Switch theme', 'aria-pressed': document.documentElement.dataset.theme === 'dark', onClick: toggleTheme }, '◐'),
+          link('/chat', t('console'), { class: 'public-button public-button--small public-console-cta public-console-cta--desktop' }),
         ]),
       ])
     }
