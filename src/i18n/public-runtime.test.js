@@ -14,7 +14,7 @@ test('public runtime imports only the dedicated public message catalog', () => {
 test('dedicated public messages stay identical to the authenticated catalog', () => {
   for (const locale of ['zh', 'en']) {
     assert.deepEqual(publicMessages[locale], {
-      app: { title: messages[locale].app.title },
+      app: { title: messages[locale].app.title, subtitle: messages[locale].app.subtitle },
       publicSite: messages[locale].publicSite,
     })
   }

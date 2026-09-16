@@ -70,11 +70,13 @@ async function mountedPublicHeader() {
 
   const vueURL = new URL('../../node_modules/vue/index.mjs', import.meta.url).href
   const routerStub = dataModule(`import{h}from'${vueURL}';export const useRouter=()=>({afterEach(fn){globalThis.__publicRouteHook=fn;return()=>{globalThis.__publicRouteHook=null}}});export const RouterLink={props:['to'],setup(p,{attrs,slots}){return()=>h('a',{...attrs,href:p.to},slots.default?.())}}`)
-  const i18nStub = dataModule(`import{ref}from'${vueURL}';export const usePublicI18n=()=>({locale:ref('zh'),t:key=>key,toggle(){}})`)
+  const brandStub = dataModule(`import{h}from'${vueURL}';export default{props:['title','subtitle'],setup(p){return()=>h('a',{class:'app-brand',href:'/'},[h('strong',p.title),h('small',p.subtitle)])}}`)
+  const i18nStub = dataModule(`import{ref}from'${vueURL}';export const usePublicI18n=()=>({locale:ref('zh'),t:key=>key,app:key=>({title:'中国大模型聚合平台',subtitle:'智谱 GLM / DeepSeek'})[key]||key,toggle(){}})`)
   let code = script.content
   code = code.replaceAll("from 'vue'", `from '${vueURL}'`).replaceAll('from "vue"', `from '${vueURL}'`)
   code = code.replaceAll("from 'vue-router'", `from '${routerStub}'`)
     .replaceAll("from '@/i18n/public-runtime.js'", `from '${i18nStub}'`)
+    .replaceAll("from '@/components/shell/AppBrand.vue'", `from '${brandStub}'`)
   return (await import(`${dataModule(code)}#${Date.now()}-${Math.random()}`)).default
 }
 
