@@ -1,5 +1,11 @@
 # 当前验证进度
 
+## 2026-09-16：公共页脚品牌统一
+
+- 公共页脚移除旧的 `AI Porsche` 自定义标识，直接复用与公共页头、控制台一致的 `AppBrand`、`/logo.png` 及中英文标题/副标题；页脚品牌仍链接公共首页。
+- RED→GREEN 合同覆盖共享组件、精确双语文案、旧标识移除及深色页脚可读性；`public-pages` 与 `typography` 定向测试 23/23 PASS，六份权威后端契约注入后的全量测试 1144/1144 PASS，`VITE_USE_MOCK=false npm run build` 与公共模块图检查通过（11 chunks、172280 JS bytes、20806 CSS bytes）。
+- 可见 Chromium production preview 在 1280px 与 390px 验证标题、副标题、logo、首页链接、无旧 `Porsche` 文案及零横向溢出；本轮未部署生产环境，`web-012` 与 P08 状态不变。
+
 ## 2026-09-16：Fixed Home Structured Content Task13 跨仓库数据层验证（PASS_LIMITED_SCOPE）
 
 - 前端候选 `ab18718f89b55ea7106d0ac52ff9972576e4e9e4` 配对后端 `77c4e003310f3194f3e7a90cdadb7d650cbd3ba1`（含 `f6ed4e1` target locks、`8303a28` renderer 与稳定 modelKey 合同）；跨仓库总合同 `interface-contract.json` 为 `v1.0.0-p0 / agreed_for_implementation`、SHA-256 `9bc9c70e70bb45b63185b3b619ae49e5e6a251ba3c4a30f64539774cb272a3ce`，后端公共内容子合同为 `v2 / implemented_locally_pending_acceptance`、SHA-256 `4db4380dcef26f0098443f591d9fe098f9faefd32a367f02ce2a14ba62d8309d`。

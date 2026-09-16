@@ -1387,9 +1387,8 @@ test('responsive Element Plus dialogs remain bounded by the viewport', () => {
 test('public pages map hero, section and supporting copy to the shared typography scale', () => {
   const mobileWidths = allScreenWidths.filter(width => width <= 767)
   const desktopWidths = allScreenWidths.filter(width => width >= 768)
-  assertMapping(publicShell, '.public-footer__brand .public-brand__mark', 'display', 'inline-flex', 'footer brand mark keeps its scoped visual treatment')
-  assertMapping(publicShell, '.public-footer__brand .public-brand__mark', 'background', 'var(--public-primary)', 'footer brand mark keeps its brand background')
-  assertMapping(publicShell, '.public-footer__brand .public-brand__mark', 'font-size', '11px', 'footer brand mark keeps its compact lettering')
+  assertMapping(publicShell, '.public-footer .app-brand', 'color', '#fff', 'footer shared brand title stays readable on the dark surface')
+  assertMapping(publicShell, '.public-footer .app-brand__copy small', 'color', '#cbd5e1', 'footer shared brand subtitle stays readable on the dark surface')
   assertMapping(publicShell, '.public-hero h1', 'font-size', 'var(--font-size-hero)', 'desktop hero uses the hero token', desktopWidths)
   assertMapping(publicShell, '.public-lead', 'font-size', 'var(--font-size-subtitle)', 'lead copy uses the subtitle token')
   assertMapping(publicShell, '.public-eyebrow', 'font-size', 'var(--font-size-sm)', 'eyebrows use the small token')

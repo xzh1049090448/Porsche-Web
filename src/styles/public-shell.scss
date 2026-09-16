@@ -25,7 +25,8 @@
 .public-footer { padding: 48px max(24px, calc((100vw - 1200px) / 2)); color: #cbd5e1; background: #111827; }
 .public-footer__inner { display: flex; max-width: 1200px; align-items: center; justify-content: space-between; gap: 32px; margin: 0 auto; }
 .public-footer__brand { display: inline-flex; align-items: center; gap: 9px; }
-.public-footer__brand .public-brand__mark { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 8px; color: #fff; background: var(--public-primary); font-size: 11px; font-weight: 800; letter-spacing: 0; }
+.public-footer .app-brand { color: #fff; }
+.public-footer .app-brand__copy small { color: #cbd5e1; }
 .public-footer strong { color: #fff; }
 .public-home { width: 100%; margin: 0; }
 .public-document { width: min(1200px, calc(100% - 48px)); margin: 0 auto; }

@@ -2961,10 +2961,10 @@ test('fixed shell navigation ignores every published link including dangerous de
   const route = { hook: null }
   globalThis.__publicTest = { router: { afterEach(fn) { route.hook = fn; return () => { route.hook = null } } } }
   const header = await compiledHeader()
-  const { router, i18n } = publicComponentStubs()
+  const { router, brand, i18n } = publicComponentStubs()
   const footer = await compilePublicComponent({
     path: '../../components/public/PublicFooter.vue', filename: 'PublicFooter.vue', id: 'public-footer-contract',
-    replacements: new Map([['vue-router', router], ['@/i18n/public-runtime.js', i18n], ['./PublicHeader.vue', header.url]]),
+    replacements: new Map([['vue-router', router], ['@/components/shell/AppBrand.vue', brand], ['@/i18n/public-runtime.js', i18n], ['./PublicHeader.vue', header.url]]),
   })
   const links = [
     { placement: 'header', label: 'Published internal', href: '/pricing' },
@@ -2986,6 +2986,11 @@ test('fixed shell navigation ignores every published link including dangerous de
     }
     for (const item of links) assert.equal(dom.window.document.body.textContent.includes(item.label), false, `${item.label} is ignored`)
     assert.equal([...dom.window.document.querySelectorAll('a')].some(anchor => /^(?:javascript|data):/i.test(anchor.getAttribute('href') || '')), false)
+    const footerBrand = footerWrapper.container.querySelector('.public-footer__brand.app-brand')
+    assert.equal(footerBrand?.querySelector('strong')?.textContent, '中国大模型聚合平台')
+    assert.equal(footerBrand?.querySelector('small')?.textContent, '智谱 GLM / DeepSeek')
+    assert.equal(footerBrand?.getAttribute('href'), '/')
+    assert.equal(footerWrapper.container.textContent.includes('Porsche'), false)
   } finally { headerWrapper.unmount(); footerWrapper.unmount() }
 }))
 
@@ -3215,6 +3220,11 @@ test('public content pages compose the approved safe landing system', () => {
   assert.match(header, /import AppBrand from ['"]@[\/]components[\/]shell[\/]AppBrand[.]vue['"]/)
   assert.match(header, /h\(AppBrand/)
   assert.doesNotMatch(header, /public-brand__mark/)
+  assert.match(footer, /import AppBrand from ['"]@[\/]components[\/]shell[\/]AppBrand[.]vue['"]/)
+  assert.match(footer, /h\(AppBrand/)
+  assert.match(footer, /app\(['"]title['"]\)/)
+  assert.match(footer, /app\(['"]subtitle['"]\)/)
+  assert.doesNotMatch(footer, /public-brand__mark|['"]Porsche['"]/)
   assert.match(header, /scrolled/)
   assert.match(header, /addEventListener\(['"]scroll['"]/)
   assert.match(header, /removeEventListener\(['"]scroll['"]/)
