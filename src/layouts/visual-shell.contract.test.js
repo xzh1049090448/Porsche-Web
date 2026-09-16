@@ -303,7 +303,7 @@ test('public mobile navigation closes for route changes, Escape, and desktop bre
       assert.equal(wrapper.element.querySelectorAll('a[href="/chat"]').length, 2)
       assert.equal(wrapper.element.querySelectorAll('.public-console-cta--desktop').length, 1)
       assert.equal(wrapper.element.querySelectorAll('.public-console-cta--mobile').length, 1)
-      assert.equal(wrapper.element.querySelectorAll('.public-console-cta').length, 0)
+      assert.equal(wrapper.element.querySelectorAll('.public-console-cta').length, 2)
       assert.ok(desktopCta)
       assert.ok(mobileCta)
       assert.equal(desktopCta.getAttribute('href'), '/chat')
