@@ -1399,6 +1399,15 @@ test('public pages map hero, section and supporting copy to the shared typograph
   assertMapping(publicPricing, '.pricing-heading h1', 'font-size', 'var(--font-size-page-title)', 'pricing headings use the compact page-title token')
   assertMapping(publicPricing, '.pricing-detail-title', 'font-size', 'var(--font-size-page-title)', 'pricing detail headings use the compact page-title token')
   assertMapping(publicPricing, '.pricing-heading p', 'font-size', 'var(--font-size-body)', 'pricing supporting copy uses the body token')
+  for (const width of mobileWidths) for (const reduced of [false, true]) {
+    assert.equal(effectiveValue(publicShell, '.public-header .app-brand__copy small', 'display', width, reduced, true), 'none', `public mobile brand hides its subtitle at ${width}px with reduced motion ${reduced}`)
+    assert.equal(effectiveValue(publicShell, '.public-header .app-brand__copy strong', 'white-space', width, reduced, true), 'nowrap', `public mobile brand title stays on one line at ${width}px with reduced motion ${reduced}`)
+    assert.equal(effectiveValue(publicShell, '.public-header .app-brand__copy strong', 'overflow', width, reduced, true), 'hidden', `public mobile brand title clips safely at ${width}px with reduced motion ${reduced}`)
+    assert.equal(effectiveValue(publicShell, '.public-header .app-brand__copy strong', 'text-overflow', width, reduced, true), 'ellipsis', `public mobile brand title shows an ellipsis at ${width}px with reduced motion ${reduced}`)
+  }
+  for (const width of desktopWidths) for (const reduced of [false, true]) {
+    assert.notEqual(effectiveValue(publicShell, '.public-header .app-brand__copy small', 'display', width, reduced, true), 'none', `public desktop brand keeps its subtitle at ${width}px with reduced motion ${reduced}`)
+  }
 })
 
 test('console surfaces map brand, navigation, headings and statuses to semantic tokens', () => {

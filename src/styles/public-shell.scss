@@ -66,6 +66,10 @@ html[data-theme='dark'] .public-shell { color-scheme: dark; }
 @media (prefers-color-scheme: dark) { html:not([data-theme='light']) .public-shell { color-scheme: dark; } }
 @media (max-width: 767px) {
   .public-header { padding: 0 16px; }
+  .public-header .app-brand { overflow: hidden; }
+  .public-header .app-brand__copy { overflow: hidden; }
+  .public-header .app-brand__copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .public-header .app-brand__copy small { display: none; }
   .public-nav-toggle { display: inline-flex; }
   .public-console-cta--desktop { display: none; }
   .public-header__primary { gap: 0; }
