@@ -1368,6 +1368,8 @@ test('semantic typography tokens keep the approved exact pixel scale', () => {
 
 test('foundations and global components map body, page and component text to semantic tokens', () => {
   assertMapping(foundations, 'body', 'font-size', 'var(--font-size-body)', 'body text uses the body token')
+  assertMapping(foundations, '.app-brand__copy strong', 'font-size', 'var(--font-size-subtitle)', 'shared brand uses subtitle text')
+  assertMapping(foundations, '.app-brand__copy small', 'font-size', 'var(--font-size-xs)', 'shared brand detail uses extra-small text')
   assertMapping(global, '.page-title', 'font-size', 'var(--font-size-page-title)', 'page titles use the page-title token')
   assertMapping(global, '.el-dialog', '--el-dialog-title-font-size', 'var(--font-size-subtitle)', 'dialog titles use the subtitle token')
   assertMapping(global, '.el-alert', '--el-alert-title-font-size', 'var(--font-size-sm)', 'alert titles use the small token')
@@ -1385,7 +1387,9 @@ test('responsive Element Plus dialogs remain bounded by the viewport', () => {
 test('public pages map hero, section and supporting copy to the shared typography scale', () => {
   const mobileWidths = allScreenWidths.filter(width => width <= 767)
   const desktopWidths = allScreenWidths.filter(width => width >= 768)
-  assertMapping(publicShell, '.public-brand', 'font-size', 'var(--font-size-subtitle)', 'public brand uses subtitle text')
+  assertMapping(publicShell, '.public-footer__brand .public-brand__mark', 'display', 'inline-flex', 'footer brand mark keeps its scoped visual treatment')
+  assertMapping(publicShell, '.public-footer__brand .public-brand__mark', 'background', 'var(--public-primary)', 'footer brand mark keeps its brand background')
+  assertMapping(publicShell, '.public-footer__brand .public-brand__mark', 'font-size', '11px', 'footer brand mark keeps its compact lettering')
   assertMapping(publicShell, '.public-hero h1', 'font-size', 'var(--font-size-hero)', 'desktop hero uses the hero token', desktopWidths)
   assertMapping(publicShell, '.public-lead', 'font-size', 'var(--font-size-subtitle)', 'lead copy uses the subtitle token')
   assertMapping(publicShell, '.public-eyebrow', 'font-size', 'var(--font-size-sm)', 'eyebrows use the small token')
@@ -1398,8 +1402,6 @@ test('public pages map hero, section and supporting copy to the shared typograph
 })
 
 test('console surfaces map brand, navigation, headings and statuses to semantic tokens', () => {
-  assertMapping(consoleShell, '.app-brand__copy strong', 'font-size', 'var(--font-size-subtitle)', 'console brand uses subtitle text')
-  assertMapping(consoleShell, '.app-brand__copy small', 'font-size', 'var(--font-size-xs)', 'console brand detail uses extra-small text')
   assertMapping(consoleShell, '.token-stat', 'font-size', 'var(--font-size-sm)', 'token stats use small text')
   assertMapping(consoleShell, '.console-sidebar__group', 'font-size', 'var(--font-size-xs)', 'sidebar group labels use extra-small text')
   assertMapping(consoleShell, '.page-header h1', 'font-size', 'var(--font-size-page-title)', 'console headings use the page-title token')
