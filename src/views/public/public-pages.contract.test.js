@@ -87,8 +87,9 @@ const compilePublicComponent = async ({ path, filename, id, sourceOverride, repl
 const publicComponentStubs = () => {
   const vueURL = new URL('../../../node_modules/vue/index.mjs', import.meta.url).href
   const router = dataModule(`import{h}from'${vueURL}';export const useRouter=()=>globalThis.__publicTest.router;export const RouterLink={props:['to'],setup(p,{attrs,slots}){return()=>h('a',{...attrs,href:p.to,'data-router-link':'true'},slots.default?.())}}`)
-  const i18n = dataModule(`import{ref}from'${vueURL}';export const usePublicI18n=()=>({locale:ref('zh'),t:key=>key,toggle(){}})`)
-  return { router, i18n }
+  const brand = dataModule(`import{h}from'${vueURL}';export default{props:['title','subtitle'],setup(p){return()=>h('a',{class:'app-brand',href:'/'},[h('strong',p.title),h('small',p.subtitle)])}}`)
+  const i18n = dataModule(`import{ref}from'${vueURL}';export const usePublicI18n=()=>({locale:ref('zh'),t:key=>key,app:key=>({title:'中国大模型聚合平台',subtitle:'智谱 GLM / DeepSeek'})[key]||key,toggle(){}})`)
+  return { router, brand, i18n }
 }
 const mountPublicComponent = async (component, props = {}) => {
   const { createRenderer } = await import('@vue/runtime-core')
@@ -2848,10 +2849,10 @@ const withPublicDom = async run => {
 }
 
 const compiledHeader = async () => {
-  const { router, i18n } = publicComponentStubs()
+  const { router, brand, i18n } = publicComponentStubs()
   return compilePublicComponent({
     path: '../../components/public/PublicHeader.vue', filename: 'PublicHeader.vue', id: 'public-header-contract',
-    replacements: new Map([['vue-router', router], ['@/i18n/public-runtime.js', i18n]]),
+    replacements: new Map([['vue-router', router], ['@/components/shell/AppBrand.vue', brand], ['@/i18n/public-runtime.js', i18n]]),
   })
 }
 
