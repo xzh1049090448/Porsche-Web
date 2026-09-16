@@ -11,6 +11,7 @@ const PUBLIC_LOCAL_MODULES = new Set([
   'repo:src/router/page-transition.js',
   'repo:src/utils/auth-redirect.js',
   'repo:src/layouts/PublicLayout.vue',
+  'repo:src/components/shell/AppBrand.vue',
   'repo:src/components/shell/RouteViewTransition.vue',
   'repo:src/components/public/PublicHeader.vue',
   'repo:src/components/public/PublicFooter.vue',
@@ -33,6 +34,7 @@ const PUBLIC_VIRTUAL_MODULES = new Set([
   'virtual:vite/modulepreload-polyfill.js',
   'virtual:vite/preload-helper.js',
 ])
+const PUBLIC_ASSET_MODULES = new Set(['public:/logo.png'])
 const MAX_PUBLIC_CODE_BYTES = 200_000
 const MAX_PUBLIC_CSS_BYTES = 21_000
 
@@ -62,7 +64,7 @@ export function validatePublicGraph(graph) {
     codeBytes += chunk.codeBytes || 0
     cssBytes += chunk.cssBytes || 0
     for (const moduleId of chunk.modules || []) {
-      if (PUBLIC_LOCAL_MODULES.has(moduleId) || PUBLIC_RUNTIME_PACKAGES.test(moduleId) || PUBLIC_VIRTUAL_MODULES.has(moduleId)) continue
+      if (PUBLIC_LOCAL_MODULES.has(moduleId) || PUBLIC_RUNTIME_PACKAGES.test(moduleId) || PUBLIC_VIRTUAL_MODULES.has(moduleId) || PUBLIC_ASSET_MODULES.has(moduleId)) continue
       throw new Error(`non-public module ${moduleId}`)
     }
   }

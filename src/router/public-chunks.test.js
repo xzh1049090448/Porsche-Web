@@ -52,6 +52,35 @@ test('public graph accepts the shared route transition used by the public bootst
   })
 })
 
+test('public graph accepts exactly the shared AppBrand shell component', () => {
+  const graph = fixture(['src/components/shell/AppBrand.vue'])
+  assert.ok(Object.values(graph.chunks).some(chunk => chunk.modules.includes('repo:src/components/shell/AppBrand.vue')))
+  assert.deepEqual(validatePublicGraph(graph), {
+    chunkCount: 2,
+    codeBytes: 15,
+    cssBytes: 100,
+  })
+  for (const moduleId of [
+    'src/components/shell/AppBrandMenu.vue',
+    'src/components/shell/ConsoleSidebar.vue',
+  ]) assert.throws(() => validatePublicGraph(fixture([moduleId])), /non-public module/)
+})
+
+test('public graph names and accepts only the exact root logo asset', () => {
+  const graph = fixture(['/logo.png'])
+  assert.ok(Object.values(graph.chunks).some(chunk => chunk.modules.includes('public:/logo.png')))
+  assert.deepEqual(validatePublicGraph(graph), {
+    chunkCount: 2,
+    codeBytes: 15,
+    cssBytes: 100,
+  })
+  for (const moduleId of [
+    '/other-logo.png',
+    '/logo.svg',
+    '\0/logo.png',
+  ]) assert.throws(() => validatePublicGraph(fixture([moduleId])), /non-public module/)
+})
+
 test('public graph accepts only the structured home state needed by the public layout', () => {
   assert.deepEqual(validatePublicGraph(fixture(['src/stores/publicHomeContent.js'])), {
     chunkCount: 2,

@@ -6,12 +6,14 @@ const KNOWN_VIRTUAL_IDS = new Set([
   'vite/modulepreload-polyfill.js',
   'vite/preload-helper.js',
 ])
+const KNOWN_PUBLIC_ROOT_ASSETS = new Set(['/logo.png'])
 
 function opaqueId(value) {
   return createHash('sha256').update(value).digest('hex').slice(0, 16)
 }
 
 function sanitizeModuleId(id, root) {
+  if (KNOWN_PUBLIC_ROOT_ASSETS.has(id)) return `public:${id}`
   const clean = id.replace(/^\0+/, '').split('?')[0]
   const nodeModules = clean.lastIndexOf(`${sep}node_modules${sep}`)
   if (nodeModules >= 0) return `npm:${clean.slice(nodeModules + `${sep}node_modules${sep}`.length).split(sep).join('/')}`
