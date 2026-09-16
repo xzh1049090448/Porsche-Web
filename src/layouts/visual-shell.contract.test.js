@@ -9,6 +9,13 @@ const dataModule = source => `data:text/javascript;base64,${Buffer.from(source).
 const DOM_GLOBAL_KEYS = ['window', 'document', 'navigator', 'Node', 'Element', 'HTMLElement', 'SVGElement', 'XMLSerializer', 'Event', 'MouseEvent', 'matchMedia', 'getComputedStyle']
 const originalDomDescriptors = new Map(DOM_GLOBAL_KEYS.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
 
+function ruleDeclarations(stylesheet, selector) {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = stylesheet.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`))
+  assert.ok(match, `missing CSS rule for ${selector}`)
+  return match[1]
+}
+
 function installDomGlobals(dom) {
   for (const key of DOM_GLOBAL_KEYS) {
     const value = key === 'getComputedStyle' ? dom.window.getComputedStyle.bind(dom.window) : dom.window[key]
@@ -341,6 +348,20 @@ test('public mobile navigation closes for route changes, Escape, and desktop bre
     restoreDomGlobals()
     dom.window.close()
   }
+})
+
+test('public console CTA visibility exposes one responsive entry per viewport', async () => {
+  const shell = await read('../styles/public-shell.scss')
+  const mobileMediaStart = shell.search(/@media\s*\(\s*max-width\s*:\s*767px\s*\)\s*\{/)
+  assert.notEqual(mobileMediaStart, -1, 'missing the mobile breakpoint')
+
+  const nextMediaStart = shell.indexOf('@media', mobileMediaStart + 6)
+  const defaultRules = shell.slice(0, mobileMediaStart)
+  const mobileRules = shell.slice(mobileMediaStart, nextMediaStart === -1 ? shell.length : nextMediaStart)
+
+  assert.match(ruleDeclarations(defaultRules, '.public-console-cta--mobile'), /(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/)
+  assert.match(ruleDeclarations(mobileRules, '.public-console-cta--desktop'), /(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/)
+  assert.match(ruleDeclarations(mobileRules, '.public-nav .public-console-cta--mobile'), /(?:^|;)\s*display\s*:\s*flex\s*(?:;|$)/)
 })
 
 test('public shell selectors and legacy public tokens have one stylesheet owner', async () => {
