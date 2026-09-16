@@ -1,8 +1,9 @@
-/** @type {Record<"zh"|"en", {app: {title: string}, publicSite: Record<string, unknown>}>} */
+/** @type {Record<"zh"|"en", {app: {title: string, subtitle: string}, publicSite: Record<string, unknown>}>} */
 export const publicMessages = {
   "zh": {
     "app": {
-      "title": "中国大模型聚合平台"
+      "title": "中国大模型聚合平台",
+      "subtitle": "智谱 GLM / DeepSeek"
     },
     "publicSite": {
       "home": "首页",
@@ -93,7 +94,8 @@ export const publicMessages = {
   },
   "en": {
     "app": {
-      "title": "China LLM Hub"
+      "title": "China LLM Hub",
+      "subtitle": "Zhipu GLM / DeepSeek"
     },
     "publicSite": {
       "home": "Home",

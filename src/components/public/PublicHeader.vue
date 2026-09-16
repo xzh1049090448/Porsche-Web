@@ -1,6 +1,7 @@
 <script>
 import { h, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
+import AppBrand from '@/components/shell/AppBrand.vue'
 import { usePublicI18n } from '@/i18n/public-runtime.js'
 
 export default {
@@ -11,7 +12,7 @@ export default {
     const toggleButton = ref()
     const navElement = ref()
     const navId = 'public-mobile-nav'
-    const { t, toggle } = usePublicI18n()
+    const { t, app, toggle } = usePublicI18n()
     const closeMenu = () => { menuOpen.value = false }
     const menuItems = () => [...(navElement.value?.querySelectorAll('a[href], button:not([disabled])') || [])]
     const toggleMenu = () => { menuOpen.value = !menuOpen.value; if (menuOpen.value) nextTick(() => menuItems()[0]?.focus()) }
@@ -49,7 +50,7 @@ export default {
       ]
       return h('header', { class: ['public-header', { 'is-scrolled': scrolled.value }] }, [
         h('div', { class: 'public-header__primary' }, [
-          link('/', [h('span', { class: 'public-brand__mark', 'aria-hidden': 'true' }, 'AI'), h('span', { class: 'public-brand__name' }, 'Porsche')], { class: 'public-brand', 'aria-label': t('home') }),
+          h(AppBrand, { title: app('title'), subtitle: app('subtitle') }),
           h('button', { ref: toggleButton, type: 'button', class: 'public-nav-toggle', 'aria-expanded': menuOpen.value, 'aria-controls': navId, onClick: toggleMenu }, [h('span', { 'aria-hidden': 'true' }, '☰'), h('span', { class: 'sr-only' }, t('menu'))]),
           h('nav', { ref: navElement, id: navId, class: ['public-nav', { 'is-open': menuOpen.value }], 'aria-label': t('menu') }, navLinks),
         ]),

@@ -15,8 +15,6 @@
 .public-header { position: sticky; top: 0; z-index: 100; display: flex; height: var(--header-height); align-items: center; justify-content: space-between; gap: 24px; padding: 0 max(24px, calc((100vw - 1200px) / 2)); border-bottom: 1px solid color-mix(in srgb, var(--public-border) 54%, transparent); background: color-mix(in srgb, var(--public-card) 88%, transparent); backdrop-filter: blur(16px); transition: box-shadow 180ms ease, background-color 180ms ease; }
 .public-header.is-scrolled { background: color-mix(in srgb, var(--public-card) 96%, transparent); box-shadow: 0 2px 8px rgb(15 23 42 / 7%); }
 .public-header__primary { display: flex; min-width: 0; align-items: center; gap: 34px; }
-.public-brand { display: inline-flex; flex: none; align-items: center; gap: 9px; color: var(--public-text); font-size: var(--font-size-subtitle); font-weight: 800; letter-spacing: -.02em; }
-.public-brand__mark { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 8px; color: #fff; background: var(--public-primary); font-size: 11px; font-weight: 800; letter-spacing: 0; }
 .public-nav, .public-header__actions, .public-footer nav { display: flex; align-items: center; gap: 22px; }
 .public-nav a, .public-nav__blocked, .public-footer a, .public-footer__blocked { color: var(--public-muted); }
 .public-nav a:hover, .public-footer a:hover { color: var(--public-primary); }

@@ -2,12 +2,9 @@
 
 .console-shell { height: calc(var(--vh, 1vh) * 100); min-height: 0; flex-direction: column; background: var(--surface-page); }
 .console-topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: var(--header-height); padding: 0 24px; background: var(--surface-card); border-bottom: 1px solid var(--border-default); box-shadow: var(--shadow-sm); z-index: 10; }
-.header-left, .header-right, .user-trigger, .app-brand { display: flex; align-items: center; }
+.header-left, .header-right, .user-trigger { display: flex; align-items: center; }
 .header-left { gap: 8px; min-width: 0; } .header-right { gap: 12px; flex-shrink: 0; }
 .mobile-menu-btn, .header-back-btn { display: none; }
-.app-brand { gap: 10px; min-width: 0; color: var(--text-primary); text-decoration: none; }
-.app-brand__icon { width: 32px; height: 32px; object-fit: contain; }
-.app-brand__copy { display: grid; min-width: 0; } .app-brand__copy strong { font-size: var(--font-size-subtitle); line-height: 20px; } .app-brand__copy small { color: var(--text-secondary); font-size: var(--font-size-xs); }
 .token-stat { color: var(--text-secondary); font-size: var(--font-size-sm); white-space: nowrap; }
 .user-trigger { gap: 8px; min-height: var(--control-min-size); padding: 0 8px; border-radius: var(--radius-sm); cursor: pointer; }
 .user-trigger:hover { background: var(--surface-hover); } .user-name { max-width: 100px; overflow: hidden; color: var(--text-primary); text-overflow: ellipsis; white-space: nowrap; }

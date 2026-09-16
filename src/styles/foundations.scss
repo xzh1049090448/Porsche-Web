@@ -49,6 +49,36 @@ a:hover {
   color: var(--color-brand-hover);
 }
 
+.app-brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.app-brand__icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
+.app-brand__copy {
+  display: grid;
+  min-width: 0;
+}
+
+.app-brand__copy strong {
+  font-size: var(--font-size-subtitle);
+  line-height: 20px;
+}
+
+.app-brand__copy small {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
 :focus-visible {
   outline: 3px solid var(--color-brand);
   outline-offset: 3px;
