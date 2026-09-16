@@ -352,6 +352,13 @@ test('public mobile navigation closes for route changes, Escape, and desktop bre
 
 test('public console CTA visibility exposes one responsive entry per viewport', async () => {
   const shell = await read('../styles/public-shell.scss')
+  const desktopDom = new JSDOM('<!doctype html><html><head></head><body><nav class="public-nav"><a class="public-button public-console-cta public-console-cta--mobile"></a></nav></body></html>')
+  const style = desktopDom.window.document.createElement('style')
+  style.textContent = shell
+  desktopDom.window.document.head.append(style)
+  assert.equal(desktopDom.window.getComputedStyle(desktopDom.window.document.querySelector('.public-console-cta--mobile')).display, 'none')
+  desktopDom.window.close()
+
   const mobileMediaStart = shell.search(/@media\s*\(\s*max-width\s*:\s*767px\s*\)\s*\{/)
   assert.notEqual(mobileMediaStart, -1, 'missing the mobile breakpoint')
 
@@ -359,7 +366,7 @@ test('public console CTA visibility exposes one responsive entry per viewport', 
   const defaultRules = shell.slice(0, mobileMediaStart)
   const mobileRules = shell.slice(mobileMediaStart, nextMediaStart === -1 ? shell.length : nextMediaStart)
 
-  assert.match(ruleDeclarations(defaultRules, '.public-console-cta--mobile'), /(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/)
+  assert.match(ruleDeclarations(defaultRules, '.public-nav .public-console-cta--mobile'), /(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/)
   assert.match(ruleDeclarations(mobileRules, '.public-console-cta--desktop'), /(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/)
   assert.match(ruleDeclarations(mobileRules, '.public-nav .public-console-cta--mobile'), /(?:^|;)\s*display\s*:\s*flex\s*(?:;|$)/)
 })

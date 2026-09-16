@@ -22,7 +22,6 @@
 .public-locale, .public-theme, .public-nav-toggle { display: inline-flex; min-width: var(--control-min-size); min-height: var(--control-min-size); align-items: center; justify-content: center; border: 0; border-radius: 8px; color: var(--public-muted); background: transparent; cursor: pointer; }
 .public-locale:hover, .public-theme:hover, .public-nav-toggle:hover { color: var(--public-primary); background: var(--color-brand-soft); }
 .public-nav-toggle { display: none; }
-.public-console-cta--mobile { display: none; }
 .public-footer { padding: 48px max(24px, calc((100vw - 1200px) / 2)); color: #cbd5e1; background: #111827; }
 .public-footer__inner { display: flex; max-width: 1200px; align-items: center; justify-content: space-between; gap: 32px; margin: 0 auto; }
 .public-footer__brand { display: inline-flex; align-items: center; gap: 9px; }
@@ -40,6 +39,7 @@
 .public-button--small { min-height: var(--control-min-size); }
 .public-button--secondary { border: 1px solid var(--public-border); background: var(--public-card); color: var(--public-primary) !important; }
 .public-button--light { background: #fff; color: #1d4ed8 !important; }
+.public-nav .public-console-cta--mobile { display: none; }
 .public-demo, .public-card, .public-state, .public-notice, .public-info-grid > div { border: 1px solid var(--public-border); border-radius: 16px; background: var(--public-card); box-shadow: var(--shadow-lg); }
 .public-demo, .public-card, .public-info-grid > div { padding: 24px; }
 .public-demo__label { padding: 5px 10px; border-radius: 999px; color: var(--public-primary); background: var(--color-brand-soft); }
