@@ -388,9 +388,18 @@
       "request": {
         "path_guid": "positive decimal-string"
       },
+      "contract_ref": "docs/agents/contracts/platform-compare-history-grouping-v1.json",
       "response": {
         "status": 200,
-        "body": "Conversation with messages"
+        "body": {
+          "guid": "positive decimal-string",
+          "title": "string",
+          "model": "string",
+          "created_at": "RFC3339Nano UTC string",
+          "updated_at": "RFC3339Nano UTC string",
+          "messages": "Message[]",
+          "generation_groups": "GenerationGroup[]; detail-only; [] when none; see contract_ref"
+        }
       },
       "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
       "source": "backend internal/handler/conversations_datasets.go + internal/dto/serializers.go",
@@ -408,9 +417,18 @@
           "title": "optional string|null; empty/omitted reads existing detail"
         }
       },
+      "contract_ref": "docs/agents/contracts/platform-compare-history-grouping-v1.json",
       "response": {
         "status": 200,
-        "body": "Conversation with messages"
+        "body": {
+          "guid": "positive decimal-string",
+          "title": "string",
+          "model": "string",
+          "created_at": "RFC3339Nano UTC string",
+          "updated_at": "RFC3339Nano UTC string",
+          "messages": "Message[]",
+          "generation_groups": "GenerationGroup[]; detail-only; [] when none; see contract_ref"
+        }
       },
       "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
       "source": "backend internal/handler/conversations_datasets.go + internal/dto/serializers.go",
@@ -1273,6 +1291,18 @@
         "execution": "read-only diff verification; backend tests not rerun in this task",
         "deployment": "90abbdc previously user-confirmed; 0bab2b7 deployment not verified"
       }
+    },
+    {
+      "kind": "compare_history_grouping_contract",
+      "version": "platform-compare-history-grouping.v1",
+      "status": "agreed_for_implementation",
+      "contract_ref": "docs/agents/contracts/platform-compare-history-grouping-v1.json",
+      "backend_design_commit": "65458ec",
+      "frontend_design_commit": "2ab6b95",
+      "backend_revision": "1f22cb878ed43ff97b61042919b71f2a096b0646",
+      "frontend_implementation_revision": "pending_final_revision",
+      "environment_browser_acceptance": "pending",
+      "production_accepted": false
     }
   ],
   "pagination": {
