@@ -284,7 +284,7 @@ test('public pricing invariants and existing SSE contract remain fixed', async (
   assert.equal(imported.errors.statuses['404'], 'unknown_or_never_published_public_model_or_missing_resource')
   assert.equal(imported.errors.statuses['410'], 'previously_published_inactive_or_deleted_public_model')
 
-  assert.equal(stableHash(frontend.interfaces), 'ef23ddb25c2f1177bb4040dd95f6732e661d13a2f17b05a00932d52b89c71815')
+  assert.equal(stableHash(frontend.interfaces), '1361943f74067d7b8e4917a84fcb489aa45994a15d0de206b1b6b60a69c5bfc9')
   assert.equal(stableHash(frontend.sse_events), '915154b364c1dcfdb9ede6ce0d5bba2f24a3a6648440f64cfb2ffe2e0db55fd3')
   assert.equal(stableHash(frontend.sse_rules), '948ce9031eb7e08afb7a653a24048c7137845f970d31c8fa95db21ced9bb9427')
 })

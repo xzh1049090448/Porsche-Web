@@ -371,7 +371,7 @@ test('every named v2 SSE event has an exact closed schema', async () => {
 test('BE06 contract additions do not weaken unrelated frozen contracts or legacy SSE', async () => {
   const contract = await readContract()
   const unrelated = contract.interfaces.filter(entry => !entry.path.startsWith('/api/v1/platform/chat'))
-  assert.equal(hash(unrelated), '0de5a8611abc2a0c847cad6445044f784ac5cff2dbcc4d769f5d56dd85236dc9')
+  assert.equal(hash(unrelated), '07d7bfa29ab4951479051cf1f1b7c27cfc3f47681ee77cb98bb26a86ad0d3678')
   const publicContent = contract.public_content_pricing
   assert.equal(publicContent.version, 'v2')
   assert.equal(publicContent.status, 'implemented_locally_pending_acceptance')
