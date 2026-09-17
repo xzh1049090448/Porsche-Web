@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT_CONTRACT_PATH = fileURLToPath(new URL('../../interface-contract.json', import.meta.url))
 const VERSIONED_CONTRACT_PATH = fileURLToPath(new URL('../../docs/agents/contracts/platform-compare-history-grouping-v1.json', import.meta.url))
-const BACKEND_CONTRACT_PATH = '/Users/xuzhihao/code/Porsche/.worktrees/compare-history-grouping/docs/agents/contracts/platform-compare-history-grouping-v1.json'
 const CONTRACT_REF = 'docs/agents/contracts/platform-compare-history-grouping-v1.json'
 const CONTRACT_HASH = '43d394e794dfd829fc2884c0982ff0aa68aa22f82c357f708ae7dca7ec19420f'
 
@@ -18,12 +17,10 @@ function sortedKeys(value) {
   return Object.keys(value).sort()
 }
 
-test('frontend compare-history artifact is byte-identical to the reviewed backend contract', () => {
-  const frontendBytes = readFileSync(VERSIONED_CONTRACT_PATH)
-  const backendBytes = readFileSync(BACKEND_CONTRACT_PATH)
+test('local compare-history artifact retains the reviewed contract checksum', () => {
+  const contractBytes = readFileSync(VERSIONED_CONTRACT_PATH)
 
-  assert.deepEqual(frontendBytes, backendBytes)
-  assert.equal(createHash('sha256').update(frontendBytes).digest('hex'), CONTRACT_HASH)
+  assert.equal(createHash('sha256').update(contractBytes).digest('hex'), CONTRACT_HASH)
 })
 
 test('versioned contract freezes detail-only endpoints and empty grouping behavior', () => {
