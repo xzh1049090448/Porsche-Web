@@ -63,8 +63,9 @@ const projectPersistentMessage = message => {
 }
 
 export function projectConversationForPersistence(conversation) {
+  const { rawMessages: _rawMessages, ...persistentConversation } = conversation
   return {
-    ...conversation,
+    ...persistentConversation,
     messages: (conversation.messages || []).filter(isContextMessage).map(projectPersistentMessage),
   }
 }
@@ -441,7 +442,9 @@ export const useChatStore = defineStore('chat', () => {
     if ((run.mode === 'single' && completed.length !== 1) || completed.length === 0) return null
     const resultGuids = completed.map(result => result.assistant_message_guid)
     if (new Set(resultGuids).size !== resultGuids.length || resultGuids.some(guid => canonicalConversationGuid(guid) !== guid)) return null
-    const messages = conversation.messages || []
+    const messages = Array.isArray(conversation.rawMessages)
+      ? conversation.rawMessages
+      : (conversation.messages || [])
     const assistants = []
     const indices = []
     for (const result of completed) {

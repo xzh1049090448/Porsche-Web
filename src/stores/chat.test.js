@@ -17,6 +17,24 @@ const D = '9223372036854775704'
 const listPath = '/api/v1/conversations'
 const summary = (guid) => ({ guid, title: `History ${guid}`, model: 'fixture-model', created_at: 1, updated_at: 2 })
 const detail = (guid) => ({ ...summary(guid), messages: [{ guid: `${guid}1`, role: 'user', content: `Message ${guid}`, created_at: 1 }] })
+const compareDetail = (guid, generationId = '01234567-89ab-4cde-8f01-23456789abcd') => ({
+  ...summary(guid),
+  messages: [
+    { guid: C, role: 'user', content: 'Compare these models', model: 'model-a', tokens: 0, created_at: 10 },
+    { guid: B, role: 'assistant', content: 'Answer A', model: 'model-a', tokens: 2, created_at: 11 },
+    { guid: D, role: 'assistant', content: 'Answer C', model: 'model-c', tokens: 5, created_at: 12 },
+  ],
+  generation_groups: [{
+    generation_id: generationId,
+    mode: 'compare',
+    user_message_guid: C,
+    results: [
+      { model: 'model-a', status: 'completed', assistant_message_guid: B, tokens: 2, error_code: null },
+      { model: 'model-b', status: 'failed', assistant_message_guid: null, tokens: 0, error_code: 'timeout' },
+      { model: 'model-c', status: 'completed', assistant_message_guid: D, tokens: 5, error_code: null },
+    ],
+  }],
+})
 function deferred() {
   let resolve, reject
   const promise = new Promise((yes, no) => { resolve = yes; reject = no })
@@ -126,6 +144,115 @@ test('initial mount sequence loads selected history exactly once and keeps real 
   assert.equal(calls.filter(([, url]) => url === `${listPath}/${A}`).length, 1)
   assert.equal(calls.some(([method]) => method === 'post'), false)
   assert.equal(writes.some(([key, value]) => /conversations|activeConversation/.test(key) || value.includes('Message')), false)
+})
+
+test('fresh authenticated history load keeps compare results in one aggregate reply with raw recovery messages', async () => {
+  route = ({ url }) => url === listPath
+    ? { items: [summary(A)], total: 1 }
+    : compareDetail(A)
+
+  const store = useChatStore()
+  await store.fetchConversations()
+  await store.ensureActive()
+
+  const conversation = store.getActive()
+  assert.deepEqual(conversation.messages.map(message => message.role), ['user', 'assistant'])
+  assert.equal(conversation.messages[1].multiModel, true)
+  assert.deepEqual(conversation.messages[1].models, ['model-a', 'model-b', 'model-c'])
+  assert.deepEqual(conversation.messages[1].replies, {
+    'model-a': 'Answer A',
+    'model-b': '',
+    'model-c': 'Answer C',
+  })
+  assert.deepEqual(conversation.messages[1].modelStates, {
+    'model-a': { status: 'completed', code: null },
+    'model-b': { status: 'failed', code: 'timeout' },
+    'model-c': { status: 'completed', code: null },
+  })
+  assert.deepEqual(conversation.rawMessages.map(message => [message.guid, message.role, message.content]), [
+    [C, 'user', 'Compare these models'],
+    [B, 'assistant', 'Answer A'],
+    [D, 'assistant', 'Answer C'],
+  ])
+  assert.equal(calls.filter(([, url]) => url === `${listPath}/${A}`).length, 1)
+})
+
+test('grouped history builds follow-up context from aggregate messages without replaying raw assistants', async () => {
+  route = ({ url }) => url === listPath
+    ? { items: [summary(A)], total: 1 }
+    : compareDetail(A)
+  const store = useChatStore(); useSettingsStore().selectedModelId = 'fixture-model'
+  await store.fetchConversations()
+  const originalFetch = globalThis.fetch; let sent
+  globalThis.fetch = async (_url, options) => {
+    sent = JSON.parse(options.body)
+    const generationId = sent.generation_id
+    return sseResponse([
+      `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: generationId, conversation_guid: A, models: ['fixture-model'] })}\n\n`,
+      `event: delta\ndata: ${JSON.stringify({ generation_id: generationId, model: 'fixture-model', seq: 1, delta: 'Follow-up answer' })}\n\n`,
+      `event: model_done\ndata: ${JSON.stringify({ generation_id: generationId, model: 'fixture-model', last_seq: 1 })}\n\n`,
+      `event: done\ndata: ${JSON.stringify({ generation_id: generationId, status: 'completed', conversation_guid: A, tokens: 1, total_tokens_used: 8 })}\n\n`,
+    ].join(''))
+  }
+  try {
+    await store.sendMessage('Follow-up question')
+    await waitFor(() => store.generationState?.status === 'completed')
+    assert.deepEqual(sent.messages, [
+      { role: 'user', content: 'Compare these models' },
+      { role: 'assistant', content: '__MULTI_MODEL__{"model-a":"Answer A","model-c":"Answer C"}' },
+      { role: 'user', content: 'Follow-up question' },
+    ])
+    assert.equal(sent.messages.filter(message => message.role === 'assistant').length, 1)
+    assert.equal(JSON.stringify(sent.messages).includes('timeout'), false)
+    assert.deepEqual(store.getActive().messages.map(message => message.role), ['user', 'assistant', 'user', 'assistant'])
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('persistence projection strips raw recovery history without mutating display or filter behavior', () => {
+  const conversation = {
+    guid: A,
+    title: 'Grouped history',
+    rawMessages: [
+      { guid: '9223372036854775601', role: 'assistant', content: 'source-only raw answer' },
+    ],
+    messages: [
+      { guid: C, role: 'user', content: 'Compare these models' },
+      {
+        guid: B,
+        role: 'assistant',
+        multiModel: true,
+        models: ['model-a', 'model-b'],
+        replies: { 'model-a': 'safe answer', 'model-b': 'failed overlay' },
+        contextReplies: { 'model-a': 'safe answer' },
+        modelStates: {
+          'model-a': { status: 'completed', code: null },
+          'model-b': { status: 'failed', code: 'timeout' },
+        },
+      },
+      { localKey: 'transient', role: 'assistant', content: 'temporary answer', transientAttempt: 'generation' },
+    ],
+  }
+  const before = structuredClone(conversation)
+
+  const persisted = projectConversationForPersistence(conversation)
+  const serialized = JSON.stringify(persisted)
+
+  assert.equal(Object.hasOwn(persisted, 'rawMessages'), false)
+  assert.equal(serialized.includes('source-only raw answer'), false)
+  assert.equal(serialized.includes('9223372036854775601'), false)
+  assert.equal(serialized.includes('temporary answer'), false)
+  assert.deepEqual(persisted.messages, [
+    { guid: C, role: 'user', content: 'Compare these models' },
+    {
+      guid: B,
+      role: 'assistant',
+      multiModel: true,
+      models: ['model-a'],
+      replies: { 'model-a': 'safe answer' },
+      modelStates: { 'model-a': { status: 'completed', code: null } },
+    },
+  ])
+  assert.deepEqual(conversation, before)
 })
 
 test('list reload preserves an existing selection and loads its detail', async () => {
@@ -1209,6 +1336,61 @@ test('recovered compare matches the exact tail attempt and preserves per-assista
     assert.deepEqual(usageCalls, [[7, 101]])
     assert.equal(await store.resumePendingGeneration(), false)
     assert.deepEqual(usageCalls, [[7, 101]])
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('recovered compare matches terminal assistant GUIDs in rawMessages and keeps one aggregate display reply', async () => {
+  const store = useChatStore(); store.conversations = [{ ...summary(A), messages: [] }]; store.activeId = A
+  const generationId = '123e4567-e89b-42d3-a456-426614174000'
+  sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId, mode: 'compare', models: ['model-a', 'model-c'], conversationGuid: A, messageKey: 'resume-grouped-compare', ownerGuid: '1', ownerEpoch: authSession.capture().epoch }))
+  const groupedDetail = compareDetail(A, generationId)
+  groupedDetail.generation_groups[0].results.splice(1, 1)
+  route = () => groupedDetail
+  const completed = { generation_id: generationId, status: 'completed', mode: 'compare', conversation_guid: A, total_tokens_used: 101, results: [
+    { model: 'model-a', status: 'completed', assistant_message_guid: B, content: 'Answer A', tokens: 2 },
+    { model: 'model-c', status: 'completed', assistant_message_guid: D, content: 'Answer C', tokens: 5 },
+  ] }
+  const originalFetch = globalThis.fetch; globalThis.fetch = async () => jsonResponse(completed)
+  const user = useUserStore(); const usageCalls = []; user.applyTokensUsed = (...args) => usageCalls.push(args)
+  try {
+    assert.equal(await store.resumePendingGeneration(), true)
+    await waitFor(() => store.generationState?.status === 'completed')
+    const conversation = store.getActive()
+    assert.deepEqual(conversation.messages.map(message => message.role), ['user', 'assistant'])
+    assert.equal(conversation.messages[1].multiModel, true)
+    assert.deepEqual(conversation.messages[1].models, ['model-a', 'model-c'])
+    assert.deepEqual(conversation.messages[1].replies, { 'model-a': 'Answer A', 'model-c': 'Answer C' })
+    assert.deepEqual(conversation.rawMessages.filter(message => message.role === 'assistant').map(message => [message.guid, message.tokens]), [[B, 2], [D, 5]])
+    assert.deepEqual(usageCalls, [[7, 101]])
+    assert.equal(conversation.messages.filter(message => message.role === 'assistant').length, 1)
+    assert.equal(conversation.messages.some(message => message.transientAttempt), false)
+    assert.equal(sessionStorage.getItem('llm_platform_active_generation_v2'), null)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('recovery never borrows matching rawMessages from another conversation', async () => {
+  const generationId = '123e4567-e89b-42d3-a456-426614174000'
+  const foreign = compareDetail(B, generationId)
+  const store = useChatStore()
+  store.conversations = [
+    { ...summary(A), messages: [] },
+    { ...summary(B), messages: [], rawMessages: foreign.messages },
+  ]
+  store.activeId = A
+  sessionStorage.setItem('llm_platform_active_generation_v2', JSON.stringify({ generationId, mode: 'compare', models: ['model-a', 'model-c'], conversationGuid: A, messageKey: 'resume-owned-compare', ownerGuid: '1', ownerEpoch: authSession.capture().epoch }))
+  route = () => ({ ...summary(A), messages: [{ guid: C, role: 'user', content: 'Current account prompt', model: 'model-a', tokens: 0, created_at: 1 }] })
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => jsonResponse({ generation_id: generationId, status: 'completed', mode: 'compare', conversation_guid: A, total_tokens_used: 7, results: [
+    { model: 'model-a', status: 'completed', assistant_message_guid: B, content: 'Answer A', tokens: 2 },
+    { model: 'model-c', status: 'completed', assistant_message_guid: D, content: 'Answer C', tokens: 5 },
+  ] })
+  try {
+    assert.equal(await store.resumePendingGeneration(), true)
+    await waitFor(() => store.streaming === false)
+    assert.notEqual(store.generationState?.status, 'completed')
+    assert.notEqual(sessionStorage.getItem('llm_platform_active_generation_v2'), null)
+    assert.equal(store.getActive().messages.some(message => message.guid === B || message.guid === D), false)
+    assert.deepEqual(store.conversations.find(conversation => conversation.guid === B).rawMessages, foreign.messages)
   } finally { globalThis.fetch = originalFetch }
 })
 
