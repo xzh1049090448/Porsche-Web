@@ -1,5 +1,13 @@
 # 当前验证进度
 
+## 2026-09-17：模型对比历史重新登录聚合修复（本地限定通过）
+
+- 后端候选 `1f22cb878ed43ff97b61042919b71f2a096b0646` 在 conversation detail GET/PUT 响应中增加经用户与会话归属校验的 `generation_groups`；前端行为候选 `aa92e67c7f51053f44cd6234cd4332bee6b313c0` 按消息 GUID、模型和 Token 精确校验分组，将多个持久化 assistant 消息投影为一条多模型展示消息，并保留 `rawMessages` 供中断恢复。无有效分组、旧后端或旧 `__MULTI_MODEL__` 内容继续使用原有行为。
+- `platform-compare-history-grouping.v1` 前后端版本化合同逐字节 `cmp` 通过，SHA-256 为 `43d394e794dfd829fc2884c0982ff0aa68aa22f82c357f708ae7dca7ec19420f`；根 `interface-contract.json` 仍为 `v1.0.0-p0 / agreed_for_implementation`，明确 detail-only、空数组、结果顺序和 completed/failed 字段，环境浏览器验收与生产验收保持 `pending`。
+- 显式绑定权威后端合同后的全量 `npm test` 为 `1211/1211 PASS`、0 fail、0 skip；`VITE_USE_MOCK=false npm run build` exit 0，保留既有大于 500 kB chunk 警告；`git diff --check` 通过。
+- 可见 Playwright 在隔离端口使用合同拦截完成首次登录与 `logout→login` 重开：两次均为 `aggregate=1`、`assistant=1`、`replyColumns=3`，详情读取合计 `detailReads=2`；截图为 `/private/tmp/compare-history-relogin-pass.png`。
+- 本结论仅覆盖本地前端、版本化合同和 synthetic 浏览器流程。未访问生产公开 HTTPS，未使用真实账号或真实上游，未运行真实 MySQL，未部署，也未完成生产联合验收。
+
 ## 2026-09-16：公共页脚品牌统一
 
 - 公共页脚移除旧的 `AI Porsche` 自定义标识，直接复用与公共页头、控制台一致的 `AppBrand`、`/logo.png` 及中英文标题/副标题；页脚品牌仍链接公共首页。

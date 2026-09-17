@@ -1,6 +1,6 @@
 {
   "project": "Porsche-Web（大模型聚合平台用户端前端）",
-  "last_updated": "2026-09-16",
+  "last_updated": "2026-09-17",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -172,6 +172,28 @@
         "证据：docs/agents/validation/2026-09-12-be06-cross-repo/manifest.json"
       ],
       "notes": "仅代表 BE06 本地跨仓库实现与 synthetic 联合验收通过，并已纳入本次 main 合并。真实账号、付费或真实上游、生产 migration/deploy、公开 HTTPS 均未执行，继续作为独立发布授权与验收边界；不改变 web-004 更宽泛对话功能或 web-009 历史 M3 状态。"
+    },
+    {
+      "id": "web-014",
+      "priority": 0,
+      "area": "llm-platform",
+      "title": "Issue #10：重新登录后保持模型对比历史聚合",
+      "user_visible_behavior": "模型对比对话在退出并重新登录后仍恢复为一条聚合回复，继续按原模型顺序显示各列，不拆成多个独立 assistant 消息。",
+      "status": "passing",
+      "phase": "local_synthetic_pass_pending_live_acceptance",
+      "verification": [
+        "generation_groups 版本化合同与前后端逐字节一致性检查",
+        "显式后端合同环境下全量 npm test 1211/1211、0 fail/skip",
+        "VITE_USE_MOCK=false npm run build 与 git diff --check",
+        "隔离端口可见 Playwright：首次登录及 logout→login 后聚合回复结构一致"
+      ],
+      "evidence": [
+        "2026-09-17：后端 conversation detail GET/PUT 提供经归属校验的 generation_groups；前端按消息 GUID、模型与 Token 精确校验后生成聚合展示，同时保留原始消息用于恢复。前端行为候选 aa92e67c7f51053f44cd6234cd4332bee6b313c0，后端候选 1f22cb878ed43ff97b61042919b71f2a096b0646。",
+        "2026-09-17：platform-compare-history-grouping.v1 前后端文件 cmp 通过，SHA-256 43d394e794dfd829fc2884c0982ff0aa68aa22f82c357f708ae7dca7ec19420f；根合同保持 v1.0.0-p0/agreed_for_implementation，生产验收仍为 pending。",
+        "2026-09-17：显式合同环境下全量 npm test 1211/1211 PASS、0 fail/skip；VITE_USE_MOCK=false 生产构建 exit 0，保留既有大于 500 kB chunk 警告。",
+        "2026-09-17：可见 Playwright 使用隔离端口和合同拦截，首次登录及 logout→login 后均为 aggregate=1、assistant=1、replyColumns=3；detailReads=2。截图 /private/tmp/compare-history-relogin-pass.png。"
+      ],
+      "notes": "仅代表本地前端、版本化接口合同和 synthetic 浏览器流程通过。未使用生产公开 HTTPS、真实账号或真实上游，未执行真实 MySQL、生产部署或生产联合验收；不据此关闭发布验收。"
     },
     {
       "id": "web-009",
