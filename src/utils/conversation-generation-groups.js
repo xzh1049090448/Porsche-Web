@@ -2,6 +2,15 @@ const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 const POSITIVE_DECIMAL_GUID = /^[1-9][0-9]*$/
 const STABLE_ERROR_CODE = /^[a-z][a-z0-9_]{0,63}$/
 const MAX_SIGNED_INT64 = 9223372036854775807n
+const ACCESS_FAILED = Symbol('access-failed')
+
+function readProperty(value, property) {
+  try { return value?.[property] } catch { return ACCESS_FAILED }
+}
+
+function isArray(value) {
+  try { return Array.isArray(value) } catch { return false }
+}
 
 function isCanonicalGuid(value) {
   if (typeof value !== 'string' || !POSITIVE_DECIMAL_GUID.test(value)) return false
@@ -10,43 +19,59 @@ function isCanonicalGuid(value) {
 
 function indexMessagesByCanonicalGuid(messages) {
   const byGuid = new Map()
-  messages.forEach((message, index) => {
-    if (!isCanonicalGuid(message?.guid)) return
-    const matches = byGuid.get(message.guid) || []
-    matches.push({ message, index })
-    byGuid.set(message.guid, matches)
-  })
+  const length = readProperty(messages, 'length')
+  if (length === ACCESS_FAILED) return null
+  for (let index = 0; index < length; index += 1) {
+    const message = readProperty(messages, index)
+    if (message === ACCESS_FAILED) return null
+    const guid = readProperty(message, 'guid')
+    const role = readProperty(message, 'role')
+    if (guid === ACCESS_FAILED || role === ACCESS_FAILED) return null
+    if (!isCanonicalGuid(guid)) continue
+    const matches = byGuid.get(guid) || []
+    matches.push({ message, index, role })
+    byGuid.set(guid, matches)
+  }
   return byGuid
 }
 
 function uniqueMessage(byGuid, guid, role) {
   if (!isCanonicalGuid(guid)) return null
   const matches = byGuid.get(guid)
-  if (matches?.length !== 1 || matches[0].message?.role !== role) return null
+  if (matches?.length !== 1 || matches[0].role !== role) return null
   return matches[0]
 }
 
-function validateResultShape(result) {
-  if (!result || typeof result !== 'object' || typeof result.model !== 'string' || result.model.trim() === '') return false
-  if (!['completed', 'failed'].includes(result.status)) return false
-  if (result.status === 'failed') {
-    return result.assistant_message_guid === null
-      && result.tokens === 0
-      && typeof result.error_code === 'string'
-      && STABLE_ERROR_CODE.test(result.error_code)
+function readResult(result) {
+  if (!result || typeof result !== 'object') return null
+  const model = readProperty(result, 'model')
+  const status = readProperty(result, 'status')
+  const assistantMessageGuid = readProperty(result, 'assistant_message_guid')
+  const tokens = readProperty(result, 'tokens')
+  const errorCode = readProperty(result, 'error_code')
+  if ([model, status, assistantMessageGuid, tokens, errorCode].includes(ACCESS_FAILED)) return null
+  if (typeof model !== 'string' || model.trim() === '' || !['completed', 'failed'].includes(status)) return null
+  if (status === 'failed') {
+    if (assistantMessageGuid !== null || tokens !== 0 || typeof errorCode !== 'string' || !STABLE_ERROR_CODE.test(errorCode)) return null
+  } else if (!isCanonicalGuid(assistantMessageGuid) || !Number.isSafeInteger(tokens) || tokens < 0 || errorCode !== null) {
+    return null
   }
-  return isCanonicalGuid(result.assistant_message_guid)
-    && Number.isSafeInteger(result.tokens)
-    && result.tokens >= 0
-    && result.error_code === null
+  return { model, status, assistantMessageGuid, tokens, errorCode }
 }
 
 function validateGenerationGroup(group, byGuid, usedUsers, usedAssistants) {
-  if (!group || typeof group !== 'object' || typeof group.generation_id !== 'string' || !CANONICAL_UUID.test(group.generation_id) || group.mode !== 'compare') return null
-  if (!Array.isArray(group.results) || group.results.length < 2 || group.results.length > 3) return null
+  if (!group || typeof group !== 'object') return null
+  const generationId = readProperty(group, 'generation_id')
+  const mode = readProperty(group, 'mode')
+  const userMessageGuid = readProperty(group, 'user_message_guid')
+  const results = readProperty(group, 'results')
+  if ([generationId, mode, userMessageGuid, results].includes(ACCESS_FAILED)) return null
+  if (typeof generationId !== 'string' || !CANONICAL_UUID.test(generationId) || mode !== 'compare' || !isArray(results)) return null
+  const resultCount = readProperty(results, 'length')
+  if (resultCount === ACCESS_FAILED || resultCount < 2 || resultCount > 3) return null
 
-  const userMatch = uniqueMessage(byGuid, group.user_message_guid, 'user')
-  if (!userMatch || usedUsers.has(group.user_message_guid)) return null
+  const userMatch = uniqueMessage(byGuid, userMessageGuid, 'user')
+  if (!userMatch || usedUsers.has(userMessageGuid)) return null
 
   const models = new Set()
   const assistantGuids = new Set()
@@ -54,8 +79,11 @@ function validateGenerationGroup(group, byGuid, usedUsers, usedAssistants) {
   const normalizedResults = []
   let totalTokens = 0
 
-  for (const result of group.results) {
-    if (!validateResultShape(result) || models.has(result.model)) return null
+  for (let index = 0; index < resultCount; index += 1) {
+    const rawResult = readProperty(results, index)
+    if (rawResult === ACCESS_FAILED) return null
+    const result = readResult(rawResult)
+    if (!result || models.has(result.model)) return null
     models.add(result.model)
 
     if (result.status === 'failed') {
@@ -63,10 +91,17 @@ function validateGenerationGroup(group, byGuid, usedUsers, usedAssistants) {
       continue
     }
 
-    if (assistantGuids.has(result.assistant_message_guid) || usedAssistants.has(result.assistant_message_guid)) return null
-    const assistant = uniqueMessage(byGuid, result.assistant_message_guid, 'assistant')
-    if (!assistant || assistant.message.model !== result.model || assistant.message.tokens !== result.tokens) return null
-    assistantGuids.add(result.assistant_message_guid)
+    if (assistantGuids.has(result.assistantMessageGuid) || usedAssistants.has(result.assistantMessageGuid)) return null
+    const assistantMatch = uniqueMessage(byGuid, result.assistantMessageGuid, 'assistant')
+    if (!assistantMatch) return null
+    const assistantModel = readProperty(assistantMatch.message, 'model')
+    const assistantTokens = readProperty(assistantMatch.message, 'tokens')
+    const assistantContent = readProperty(assistantMatch.message, 'content')
+    const assistantCreatedAt = readProperty(assistantMatch.message, 'createdAt')
+    if ([assistantModel, assistantTokens, assistantContent, assistantCreatedAt].includes(ACCESS_FAILED)) return null
+    if (assistantModel !== result.model || assistantTokens !== result.tokens) return null
+    const assistant = { guid: result.assistantMessageGuid, content: assistantContent, createdAt: assistantCreatedAt, index: assistantMatch.index }
+    assistantGuids.add(result.assistantMessageGuid)
     totalTokens += result.tokens
     if (!Number.isSafeInteger(totalTokens)) return null
     completed.push(assistant)
@@ -74,14 +109,14 @@ function validateGenerationGroup(group, byGuid, usedUsers, usedAssistants) {
   }
 
   if (completed.length === 0) return null
-  const firstCompleted = normalizedResults.find(item => item.assistant)?.assistant.message
-  const replies = Object.fromEntries(normalizedResults.map(({ result, assistant }) => [result.model, assistant ? assistant.message.content : '']))
-  const contextReplies = Object.fromEntries(normalizedResults.filter(item => item.assistant).map(({ result, assistant }) => [result.model, assistant.message.content]))
-  const modelStates = Object.fromEntries(normalizedResults.map(({ result }) => [result.model, { status: result.status, code: result.error_code }]))
-  const sourceAssistantGuids = normalizedResults.filter(item => item.assistant).map(({ result }) => result.assistant_message_guid)
+  const firstCompleted = normalizedResults.find(item => item.assistant)?.assistant
+  const replies = Object.fromEntries(normalizedResults.map(({ result, assistant }) => [result.model, assistant ? assistant.content : '']))
+  const contextReplies = Object.fromEntries(normalizedResults.filter(item => item.assistant).map(({ result, assistant }) => [result.model, assistant.content]))
+  const modelStates = Object.fromEntries(normalizedResults.map(({ result }) => [result.model, { status: result.status, code: result.errorCode }]))
+  const sourceAssistantGuids = normalizedResults.filter(item => item.assistant).map(({ result }) => result.assistantMessageGuid)
 
   return {
-    userMessageGuid: group.user_message_guid,
+    userMessageGuid,
     sourceAssistantGuids,
     insertIndex: Math.min(...completed.map(item => item.index)),
     aggregate: {
@@ -92,8 +127,8 @@ function validateGenerationGroup(group, byGuid, usedUsers, usedAssistants) {
       tokens: totalTokens,
       createdAt: firstCompleted.createdAt,
       multiModel: true,
-      generationId: group.generation_id,
-      models: group.results.map(result => result.model),
+      generationId,
+      models: normalizedResults.map(({ result }) => result.model),
       replies,
       contextReplies,
       modelStates,
@@ -106,11 +141,17 @@ function replaceAssistantMessages(messages, accepted) {
   const removed = new Set(accepted.flatMap(candidate => candidate.sourceAssistantGuids))
   const aggregateByIndex = new Map(accepted.map(candidate => [candidate.insertIndex, candidate.aggregate]))
   const projected = []
-  messages.forEach((message, index) => {
+  const length = readProperty(messages, 'length')
+  if (length === ACCESS_FAILED) return null
+  for (let index = 0; index < length; index += 1) {
+    const message = readProperty(messages, index)
+    if (message === ACCESS_FAILED) return null
     const aggregate = aggregateByIndex.get(index)
     if (aggregate) projected.push(aggregate)
-    if (!removed.has(message?.guid)) projected.push(message)
-  })
+    const guid = readProperty(message, 'guid')
+    if (guid === ACCESS_FAILED) return null
+    if (!removed.has(guid)) projected.push(message)
+  }
   return projected
 }
 
@@ -119,14 +160,19 @@ function replaceAssistantMessages(messages, accepted) {
  * Invalid metadata is ignored so the original flat message history remains intact.
  */
 export function projectConversationGenerationGroups(rawMessages, generationGroups) {
-  const messages = Array.isArray(rawMessages) ? rawMessages : []
-  const groups = Array.isArray(generationGroups) ? generationGroups : []
+  const messages = isArray(rawMessages) ? rawMessages : []
+  const groups = isArray(generationGroups) ? generationGroups : []
   const byGuid = indexMessagesByCanonicalGuid(messages)
+  if (!byGuid) return { messages }
   const usedUsers = new Set()
   const usedAssistants = new Set()
   const accepted = []
 
-  for (const group of groups) {
+  const groupCount = readProperty(groups, 'length')
+  if (groupCount === ACCESS_FAILED) return { messages }
+  for (let index = 0; index < groupCount; index += 1) {
+    const group = readProperty(groups, index)
+    if (group === ACCESS_FAILED) continue
     const candidate = validateGenerationGroup(group, byGuid, usedUsers, usedAssistants)
     if (!candidate) continue
     accepted.push(candidate)
@@ -135,5 +181,7 @@ export function projectConversationGenerationGroups(rawMessages, generationGroup
   }
 
   if (accepted.length === 0) return { messages }
-  return { messages: replaceAssistantMessages(messages, accepted), rawMessages: messages }
+  const projected = replaceAssistantMessages(messages, accepted)
+  if (!projected) return { messages }
+  return { messages: projected, rawMessages: messages }
 }

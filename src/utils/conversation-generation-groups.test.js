@@ -239,3 +239,101 @@ test('ignores damaged groups without dropping or cloning any original message', 
   assert.deepEqual(projection.messages, originalRefs)
   projection.messages.forEach((message, index) => assert.strictEqual(message, originalRefs[index]))
 })
+
+test('fails closed to the original array when indexing a raw message throws', () => {
+  const throwingMessage = new Proxy({}, {
+    get(_target, property) {
+      if (property === 'guid') throw new Error('raw-guid-secret')
+      return undefined
+    },
+  })
+  const rawMessages = [throwingMessage, ...rawCompareMessages()]
+
+  let projection
+  assert.doesNotThrow(() => { projection = projectConversationGenerationGroups(rawMessages, [group()]) })
+  assert.deepEqual(projection, { messages: rawMessages })
+  assert.strictEqual(projection.messages, rawMessages)
+})
+
+test('fails closed when indexing an unrelated raw message role throws', () => {
+  const throwingMessage = {
+    guid: '999',
+    get role() { throw new Error('raw-role-secret') },
+  }
+  const rawMessages = [throwingMessage, ...rawCompareMessages()]
+
+  let projection
+  assert.doesNotThrow(() => { projection = projectConversationGenerationGroups(rawMessages, [group()]) })
+  assert.deepEqual(projection, { messages: rawMessages })
+  assert.strictEqual(projection.messages, rawMessages)
+})
+
+test('rejects only the malformed group when group, result, or assistant getters throw', () => {
+  const contentFailure = { guid: '302', role: 'assistant', model: 'model-x', tokens: 7, createdAt: 32 }
+  Object.defineProperty(contentFailure, 'content', {
+    enumerable: true,
+    get() { throw new Error('assistant-content-secret') },
+  })
+  const rawMessages = [
+    ...rawCompareMessages(),
+    { guid: '201', role: 'user', content: 'bad result', createdAt: 25 },
+    { guid: '202', role: 'assistant', content: 'X', model: 'model-x', tokens: 7, createdAt: 26 },
+    { guid: '203', role: 'assistant', content: 'Y', model: 'model-y', tokens: 8, createdAt: 27 },
+    { guid: '301', role: 'user', content: 'bad assistant', createdAt: 31 },
+    contentFailure,
+    { guid: '303', role: 'assistant', content: 'Y2', model: 'model-y', tokens: 8, createdAt: 33 },
+  ]
+  const throwingGroup = new Proxy({}, {
+    get(_target, property) {
+      if (property === 'generation_id') throw new Error('group-id-secret')
+      return undefined
+    },
+  })
+  const throwingResult = new Proxy(completed('model-x', '202', 7), {
+    get(target, property, receiver) {
+      if (property === 'model') throw new Error('result-model-secret')
+      return Reflect.get(target, property, receiver)
+    },
+  })
+  const badResultGroup = group({
+    generation_id: '21234567-89ab-4cde-8f01-23456789abcd',
+    user_message_guid: '201',
+    results: [throwingResult, completed('model-y', '203', 8)],
+  })
+  const badContentGroup = group({
+    generation_id: '31234567-89ab-4cde-8f01-23456789abcd',
+    user_message_guid: '301',
+    results: [completed('model-x', '302', 7), completed('model-y', '303', 8)],
+  })
+
+  let projection
+  assert.doesNotThrow(() => {
+    projection = projectConversationGenerationGroups(rawMessages, [throwingGroup, badResultGroup, badContentGroup, group()])
+  })
+  assert.strictEqual(projection.rawMessages, rawMessages)
+  assert.equal(projection.messages.filter(message => message.multiModel).length, 1)
+  assert.equal(projection.messages.find(message => message.multiModel).generationId, GENERATION_A)
+  assert.ok(projection.messages.includes(contentFailure))
+})
+
+test('fails closed without dropping messages when replacement reads a volatile GUID', () => {
+  let guidReads = 0
+  const volatileMessage = {
+    role: 'assistant',
+    content: 'unrelated',
+    model: 'solo',
+    tokens: 1,
+    createdAt: 40,
+    get guid() {
+      guidReads += 1
+      if (guidReads === 1) return '999'
+      throw new Error('replace-guid-secret')
+    },
+  }
+  const rawMessages = [...rawCompareMessages(), volatileMessage]
+
+  let projection
+  assert.doesNotThrow(() => { projection = projectConversationGenerationGroups(rawMessages, [group()]) })
+  assert.deepEqual(projection, { messages: rawMessages })
+  assert.strictEqual(projection.messages, rawMessages)
+})
