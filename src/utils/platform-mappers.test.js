@@ -9,6 +9,35 @@ import {
 } from './platform-mappers.js'
 
 const SNOWFLAKE_GUID = '903496573054181376'
+const GENERATION_ID = '01234567-89ab-4cde-8f01-23456789abcd'
+
+function compareConversationDetail(overrides = {}) {
+  return {
+    id: 91,
+    guid: '100',
+    title: 'Compare models',
+    model: 'compare',
+    created_at: '2026-09-17T01:02:03.123456789Z',
+    updated_at: 1789606924000,
+    messages: [
+      { id: 1, guid: '101', role: 'user', content: 'Compare this', model: null, tokens: 0, created_at: 1789606924100 },
+      { id: 2, guid: '102', role: 'assistant', content: 'Answer A', model: 'model-a', tokens: 2, created_at: 1789606924200 },
+      { id: 3, guid: '103', role: 'assistant', content: 'Answer B', model: 'model-b', tokens: 3, created_at: 1789606924300 },
+    ],
+    generation_groups: [{
+      id: 92,
+      receipt_id: 93,
+      generation_id: GENERATION_ID,
+      mode: 'compare',
+      user_message_guid: '101',
+      results: [
+        { id: 94, receipt_id: 93, model: 'model-a', status: 'completed', assistant_message_guid: '102', tokens: 2, error_code: null },
+        { id: 95, receipt_id: 93, model: 'model-b', status: 'completed', assistant_message_guid: '103', tokens: 3, error_code: null },
+      ],
+    }],
+    ...overrides,
+  }
+}
 
 test('platform mappers expose business GUIDs as strings without internal IDs or dataset fields', () => {
   const user = mapUserProfile({
@@ -109,4 +138,139 @@ test('profile timestamps accept RFC3339Nano and milliseconds, and reject invalid
   assert.equal(mapUserProfile({ created_at: '2026-09-02T01:02:03.123456789Z' }).createdAt, Date.parse('2026-09-02T01:02:03.123Z'))
   assert.equal(mapUserProfile({ created_at: 1750000000000 }).createdAt, 1750000000000)
   assert.equal(mapUserProfile({ created_at: 'invalid' }).createdAt, null)
+})
+
+test('conversation mapper exposes grouped display messages and raw recovery messages', () => {
+  const conversation = mapConversation(compareConversationDetail())
+
+  assert.deepEqual({
+    guid: conversation.guid,
+    title: conversation.title,
+    model: conversation.model,
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+  }, {
+    guid: '100',
+    title: 'Compare models',
+    model: 'compare',
+    createdAt: Date.parse('2026-09-17T01:02:03.123Z'),
+    updatedAt: 1789606924000,
+  })
+  assert.deepEqual(conversation.messages, [
+    conversation.rawMessages[0],
+    {
+      guid: '102',
+      role: 'assistant',
+      content: null,
+      model: null,
+      tokens: 5,
+      createdAt: 1789606924200,
+      multiModel: true,
+      generationId: GENERATION_ID,
+      models: ['model-a', 'model-b'],
+      replies: { 'model-a': 'Answer A', 'model-b': 'Answer B' },
+      contextReplies: { 'model-a': 'Answer A', 'model-b': 'Answer B' },
+      modelStates: {
+        'model-a': { status: 'completed', code: null },
+        'model-b': { status: 'completed', code: null },
+      },
+      sourceAssistantGuids: ['102', '103'],
+    },
+  ])
+  assert.deepEqual(conversation.rawMessages.map(message => message.guid), ['101', '102', '103'])
+  assert.deepEqual(conversation.rawMessages.map(message => message.content), ['Compare this', 'Answer A', 'Answer B'])
+  assert.strictEqual(conversation.messages[0], conversation.rawMessages[0])
+  assert.equal(JSON.stringify(conversation).includes('receipt_id'), false)
+  assert.equal(JSON.stringify(conversation).includes('"id"'), false)
+})
+
+test('conversation mapper preserves backend result order for a partial compare failure', () => {
+  const detail = compareConversationDetail()
+  detail.generation_groups[0].results = [
+    { model: 'model-b', status: 'completed', assistant_message_guid: '103', tokens: 3, error_code: null },
+    { model: 'model-c', status: 'failed', assistant_message_guid: null, tokens: 0, error_code: 'upstream_timeout' },
+    { model: 'model-a', status: 'completed', assistant_message_guid: '102', tokens: 2, error_code: null },
+  ]
+
+  const conversation = mapConversation(detail)
+
+  assert.deepEqual(conversation.messages.map(message => message.guid), ['101', '103'])
+  assert.deepEqual(conversation.messages[1].models, ['model-b', 'model-c', 'model-a'])
+  assert.deepEqual(conversation.messages[1].replies, {
+    'model-b': 'Answer B',
+    'model-c': '',
+    'model-a': 'Answer A',
+  })
+  assert.deepEqual(conversation.messages[1].contextReplies, {
+    'model-b': 'Answer B',
+    'model-a': 'Answer A',
+  })
+  assert.deepEqual(conversation.messages[1].modelStates, {
+    'model-b': { status: 'completed', code: null },
+    'model-c': { status: 'failed', code: 'upstream_timeout' },
+    'model-a': { status: 'completed', code: null },
+  })
+  assert.strictEqual(conversation.rawMessages[1].content, 'Answer A')
+  assert.strictEqual(conversation.rawMessages[2].content, 'Answer B')
+})
+
+test('conversation mapper keeps its established shape when grouping metadata is absent or rejected', async t => {
+  const cases = [
+    ['absent', detail => { delete detail.generation_groups }],
+    ['empty', detail => { detail.generation_groups = [] }],
+    ['null', detail => { detail.generation_groups = null }],
+    ['malformed', detail => { detail.generation_groups = { results: [] } }],
+    ['invalid group', detail => { detail.generation_groups[0].results[0].tokens = 999 }],
+  ]
+
+  for (const [name, mutate] of cases) {
+    await t.test(name, () => {
+      const detail = compareConversationDetail()
+      mutate(detail)
+      const conversation = mapConversation(detail)
+
+      assert.equal('rawMessages' in conversation, false)
+      assert.deepEqual(conversation.messages.map(message => message.guid), ['101', '102', '103'])
+      assert.equal(conversation.messages.some(message => message.multiModel), false)
+    })
+  }
+})
+
+test('conversation mapper preserves legacy multi-model marker decoding', () => {
+  const legacy = mapConversation(compareConversationDetail({
+    messages: [{
+      guid: '201',
+      role: 'assistant',
+      content: '__MULTI_MODEL__{"legacy-a":"A","legacy-b":"B"}',
+      model: null,
+      tokens: 4,
+      created_at: 1789606924400,
+    }],
+    generation_groups: undefined,
+  }))
+
+  assert.equal('rawMessages' in legacy, false)
+  assert.deepEqual(legacy.messages[0], {
+    guid: '201',
+    role: 'assistant',
+    content: '__MULTI_MODEL__{"legacy-a":"A","legacy-b":"B"}',
+    model: null,
+    tokens: 4,
+    createdAt: 1789606924400,
+    multiModel: true,
+    models: ['legacy-a', 'legacy-b'],
+    replies: { 'legacy-a': 'A', 'legacy-b': 'B' },
+  })
+})
+
+test('conversation mapper fails closed when generation_groups access throws', () => {
+  const detail = compareConversationDetail()
+  Object.defineProperty(detail, 'generation_groups', {
+    get() { throw new Error('generation-group-secret') },
+  })
+
+  let conversation
+  assert.doesNotThrow(() => { conversation = mapConversation(detail) })
+  assert.equal('rawMessages' in conversation, false)
+  assert.deepEqual(conversation.messages.map(message => message.guid), ['101', '102', '103'])
 })
