@@ -316,24 +316,63 @@ test('rejects only the malformed group when group, result, or assistant getters 
   assert.ok(projection.messages.includes(contentFailure))
 })
 
-test('fails closed without dropping messages when replacement reads a volatile GUID', () => {
-  let guidReads = 0
-  const volatileMessage = {
-    role: 'assistant',
-    content: 'unrelated',
-    model: 'solo',
-    tokens: 1,
-    createdAt: 40,
-    get guid() {
-      guidReads += 1
-      if (guidReads === 1) return '999'
-      throw new Error('replace-guid-secret')
-    },
-  }
-  const rawMessages = [...rawCompareMessages(), volatileMessage]
+test('uses the first assistant GUID snapshot when a later getter read would drift or throw', async t => {
+  for (const behavior of ['drift', 'throw']) {
+    await t.test(behavior, () => {
+      let guidReads = 0
+      const volatileAssistant = {
+        role: 'assistant',
+        content: 'A',
+        model: 'model-a',
+        tokens: 2,
+        createdAt: 20,
+        get guid() {
+          guidReads += 1
+          if (guidReads === 1) return '102'
+          if (behavior === 'drift') return '999'
+          throw new Error('second-guid-read')
+        },
+      }
+      const rawMessages = rawCompareMessages()
+      rawMessages[1] = volatileAssistant
+      const originalRefs = [...rawMessages]
 
-  let projection
-  assert.doesNotThrow(() => { projection = projectConversationGenerationGroups(rawMessages, [group()]) })
-  assert.deepEqual(projection, { messages: rawMessages })
-  assert.strictEqual(projection.messages, rawMessages)
+      const projection = projectConversationGenerationGroups(rawMessages, [group()])
+
+      assert.equal(guidReads, 1)
+      assert.strictEqual(projection.rawMessages, rawMessages)
+      assert.deepEqual(projection.messages.map(message => message.guid), ['101', '102', '104'])
+      assert.equal(projection.messages[1].multiModel, true)
+      assert.equal(projection.messages.includes(volatileAssistant), false)
+      assert.equal(rawMessages.length, originalRefs.length)
+      rawMessages.forEach((message, index) => assert.strictEqual(message, originalRefs[index]))
+    })
+  }
+})
+
+test('uses one stable array-index snapshot when later Proxy reads would drift', () => {
+  const target = rawCompareMessages()
+  const originalRefs = [...target]
+  const indexReads = new Map()
+  const rawMessages = new Proxy(target, {
+    get(array, property, receiver) {
+      if (typeof property === 'string' && /^(0|[1-9][0-9]*)$/.test(property)) {
+        const count = (indexReads.get(property) || 0) + 1
+        indexReads.set(property, count)
+        if (property === '1' && count > 1) {
+          return { guid: '999', role: 'assistant', content: 'drift', model: 'other', tokens: 99, createdAt: 99 }
+        }
+      }
+      return Reflect.get(array, property, receiver)
+    },
+  })
+
+  const projection = projectConversationGenerationGroups(rawMessages, [group()])
+
+  assert.strictEqual(projection.rawMessages, rawMessages)
+  assert.deepEqual(projection.messages.map(message => message.guid), ['101', '102', '104'])
+  assert.equal(projection.messages[1].multiModel, true)
+  assert.deepEqual([...indexReads.values()], [1, 1, 1, 1])
+  assert.equal(target.length, originalRefs.length)
+  target.forEach((message, index) => assert.strictEqual(message, originalRefs[index]))
 })

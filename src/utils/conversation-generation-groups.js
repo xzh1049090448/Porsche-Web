@@ -19,6 +19,7 @@ function isCanonicalGuid(value) {
 
 function indexMessagesByCanonicalGuid(messages) {
   const byGuid = new Map()
+  const ordered = []
   const length = readProperty(messages, 'length')
   if (length === ACCESS_FAILED) return null
   for (let index = 0; index < length; index += 1) {
@@ -27,12 +28,14 @@ function indexMessagesByCanonicalGuid(messages) {
     const guid = readProperty(message, 'guid')
     const role = readProperty(message, 'role')
     if (guid === ACCESS_FAILED || role === ACCESS_FAILED) return null
+    const snapshot = { message, index, guid, role }
+    ordered.push(snapshot)
     if (!isCanonicalGuid(guid)) continue
     const matches = byGuid.get(guid) || []
-    matches.push({ message, index, role })
+    matches.push(snapshot)
     byGuid.set(guid, matches)
   }
-  return byGuid
+  return { byGuid, ordered }
 }
 
 function uniqueMessage(byGuid, guid, role) {
@@ -137,20 +140,14 @@ function validateGenerationGroup(group, byGuid, usedUsers, usedAssistants) {
   }
 }
 
-function replaceAssistantMessages(messages, accepted) {
+function replaceAssistantMessages(messageSnapshots, accepted) {
   const removed = new Set(accepted.flatMap(candidate => candidate.sourceAssistantGuids))
   const aggregateByIndex = new Map(accepted.map(candidate => [candidate.insertIndex, candidate.aggregate]))
   const projected = []
-  const length = readProperty(messages, 'length')
-  if (length === ACCESS_FAILED) return null
-  for (let index = 0; index < length; index += 1) {
-    const message = readProperty(messages, index)
-    if (message === ACCESS_FAILED) return null
-    const aggregate = aggregateByIndex.get(index)
+  for (const snapshot of messageSnapshots) {
+    const aggregate = aggregateByIndex.get(snapshot.index)
     if (aggregate) projected.push(aggregate)
-    const guid = readProperty(message, 'guid')
-    if (guid === ACCESS_FAILED) return null
-    if (!removed.has(guid)) projected.push(message)
+    if (!removed.has(snapshot.guid)) projected.push(snapshot.message)
   }
   return projected
 }
@@ -162,8 +159,9 @@ function replaceAssistantMessages(messages, accepted) {
 export function projectConversationGenerationGroups(rawMessages, generationGroups) {
   const messages = isArray(rawMessages) ? rawMessages : []
   const groups = isArray(generationGroups) ? generationGroups : []
-  const byGuid = indexMessagesByCanonicalGuid(messages)
-  if (!byGuid) return { messages }
+  const messageIndex = indexMessagesByCanonicalGuid(messages)
+  if (!messageIndex) return { messages }
+  const { byGuid, ordered } = messageIndex
   const usedUsers = new Set()
   const usedAssistants = new Set()
   const accepted = []
@@ -181,7 +179,5 @@ export function projectConversationGenerationGroups(rawMessages, generationGroup
   }
 
   if (accepted.length === 0) return { messages }
-  const projected = replaceAssistantMessages(messages, accepted)
-  if (!projected) return { messages }
-  return { messages: projected, rawMessages: messages }
+  return { messages: replaceAssistantMessages(ordered, accepted), rawMessages: messages }
 }
