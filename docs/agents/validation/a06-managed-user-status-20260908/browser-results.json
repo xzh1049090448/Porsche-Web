@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "engine": "Google Chrome headless",
+  "viewports": [
+    {"width": 375, "document_width": 375, "body_width": 375, "actions_flex_wrap": "wrap", "name_overflow_wrap": "anywhere"},
+    {"width": 390, "document_width": 390, "body_width": 390, "actions_flex_wrap": "wrap", "name_overflow_wrap": "anywhere"}
+  ],
+  "horizontal_overflow": false,
+  "transient_screenshots": ["/private/tmp/a06-user-detail-375.png", "/private/tmp/a06-user-detail-390.png"]
+}

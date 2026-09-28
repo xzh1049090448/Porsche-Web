@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-09-16",
+  "overall_status": "PASS_LIMITED_SCOPE",
+  "review_status": "PENDING_ORDERED_REVIEW_CHAIN_EXTERNAL_RECEIPT",
+  "code_under_test": {
+    "frontend": "ab18718f89b55ea7106d0ac52ff9972576e4e9e4",
+    "backend": "77c4e003310f3194f3e7a90cdadb7d650cbd3ba1",
+    "backend_included_commits": [
+      "f6ed4e1",
+      "8303a28",
+      "cf9243b",
+      "77c4e00"
+    ]
+  },
+  "backend_real_fixture": {
+    "mysql": "8.4.11, loopback-only, tmpfs",
+    "redis": "redis:7-alpine, loopback-only, no persistence",
+    "migration_before": "20 lines, 0001-0020",
+    "migration_after": "20 lines, 0001-0020",
+    "normal_p1": {
+      "migration_seconds": 3.86,
+      "service_seconds": 3.178,
+      "handler_seconds": 0.519,
+      "result": "PASS",
+      "unexpected_skip": 0
+    },
+    "race": {
+      "service_seconds": 7.051,
+      "handler_seconds": 1.643,
+      "result": "PASS",
+      "unexpected_skip": 0
+    },
+    "root_static_go_test_all": "PASS_WITH_LOOPBACK_PERMISSION",
+    "real_service_full_serial": "PASS: 171.312s",
+    "real_handler_full_serial": "PASS: 17.009s",
+    "static_and_build_gates": "PASS: go vet, build, deploy/test-dockerfile.sh, gofmt -d, git diff --check",
+    "full_real_migration_package_extra_check": "NON_BLOCKING_EXTRA_CHECK_FAIL: historical tests hard-code obsolete terminal/dependency assumptions",
+    "full_real_migration_package_failures": [
+      "TestBusinessGroupMigrationOnIsolatedMySQL/backfills_active_and_tombstoned_users",
+      "TestPublicPriceDraftStateMigrationRealMySQLDownAndReapply",
+      "TestPublicRenderJobTerminalMigrationRealMySQLDownAndReapply",
+      "TestUpstreamMonitorLeaseMigrationRealMySQLDownAndReapply"
+    ]
+  },
+  "renderer": {
+    "artifact_type": "structured snapshot for fixed Vue shell",
+    "server_generated_html": false,
+    "deterministic_stale_overwrite": "RED_THEN_FLOCK_GREEN",
+    "race_count_3": "PASS",
+    "coverage": [
+      "safe root",
+      "symlink rejection",
+      "directory mode 0700",
+      "file mode 0600",
+      "canonical SHA and manifest",
+      "generation and fence binding",
+      "atomic current pointer",
+      "stale rollback protection"
+    ]
+  },
+  "browser": {
+    "source": "Task12 synthetic Playwright page.route matrix",
+    "scenarios": "12/12",
+    "assertions": "234/234",
+    "sanitized_requests": 32,
+    "unexpected_console_errors": 0,
+    "page_errors": 0,
+    "real_backend_browser": "NOT_RUN"
+  },
+  "cleanup": {
+    "mysql_container_id": "230609b618dde469fdf1093ed109c747d9989f41fd91b4e5bc3f432f702ba3c0",
+    "redis_container_id": "4156fde30229cb2372c2a8376b608a678b4e952d6a1cf0b6f28af16f0c38f00e",
+    "containers_removed": true,
+    "matching_names": 0,
+    "ports_52179_54737_closed": true,
+    "credential_files_absent": true
+  },
+  "not_run": [
+    "authenticated Root real browser CRUD/RBAC/transactions",
+    "external scheduler or systemd",
+    "production volume mount",
+    "frontend artifact reader",
+    "production migration",
+    "deployment",
+    "content publication",
+    "public HTTPS acceptance"
+  ],
+  "product_blockers": [
+    "P08 production content truth criteria remains BLOCKED_PRODUCT"
+  ],
+  "delivery_actions": {
+    "push": false,
+    "pull_request": false,
+    "merge": false,
+    "deploy": false
+  },
+  "contracts": {
+    "cross_repo": {
+      "path": "interface-contract.json",
+      "version": "v1.0.0-p0",
+      "status": "agreed_for_implementation",
+      "sha256": "9bc9c70e70bb45b63185b3b619ae49e5e6a251ba3c4a30f64539774cb272a3ce"
+    },
+    "backend_public_content": {
+      "path": "Porsche/docs/agents/contracts/public-content-pricing-v1.json",
+      "version": "v2",
+      "status": "implemented_locally_pending_acceptance",
+      "sha256": "4db4380dcef26f0098443f591d9fe098f9faefd32a367f02ce2a14ba62d8309d"
+    }
+  },
+  "backend_commands": [
+    {
+      "command": "go test -p 1 ./internal/migration ./internal/service ./internal/handler -run 'Test.*PublicHome|Test.*PublicContent|Test.*PublicCatalog' -count=1",
+      "exit": 0,
+      "unexpected_skip": 0
+    },
+    {
+      "command": "go test -race -p 1 ./internal/service ./internal/handler -run 'Test.*PublicHome|Test.*PublicContent' -count=1",
+      "exit": 0,
+      "unexpected_skip": 0
+    },
+    {
+      "command": "go test ./... -count=1",
+      "exit": 0,
+      "boundary": "root loopback permission"
+    },
+    {
+      "command": "go test -p 1 ./internal/migration ./internal/service ./internal/handler -count=1",
+      "exit": 1,
+      "classification": "NON_BLOCKING_EXTRA_CHECK_FAIL"
+    }
+  ],
+  "review_receipt": {
+    "path": "/private/tmp/porsche-fixed-home-structured-content-review/frontend/final-review-receipt.json",
+    "location": "outside_worktree",
+    "status": "PENDING",
+    "excluded_from_reviewed_scope": true
+  },
+  "post_contract_status_revalidation": {
+    "focused_public_platform_contracts": {
+      "tests": 61,
+      "pass": 61,
+      "fail": 0,
+      "skip": 0,
+      "exit": 0
+    },
+    "full_npm_test": {
+      "tests": 1140,
+      "pass": 1140,
+      "fail": 0,
+      "skip": 0,
+      "cancelled": 0,
+      "todo": 0,
+      "seconds": 47.689,
+      "exit": 0
+    },
+    "production_build": "PASS",
+    "public_route_chunks": {
+      "chunks": 9,
+      "javascript_bytes": 171428,
+      "css_bytes": 20362,
+      "exit": 0
+    },
+    "git_diff_check": "PASS",
+    "sandbox_only_deviation": "two loopback tests returned listen EPERM before permitted rerun",
+    "focused_security_remediation": {
+      "tests": 22,
+      "pass": 22,
+      "fail": 0,
+      "skip": 0,
+      "exit": 0
+    },
+    "related_auth_public_focused": {
+      "tests": 99,
+      "pass": 99,
+      "fail": 0,
+      "skip": 0,
+      "exit": 0
+    }
+  },
+  "spec_remediation": {
+    "invalidated_snapshot": "6cdec47f13716e4f546b19d69c56050f5bde5f159416d91c708f3b7ce2727d92",
+    "verdict": "SPEC_FAIL",
+    "findings": [
+      "preview X-Robots-Tag spacing rejected backend literal",
+      "stable modelKey backend rule absent from contracts and public detail client too broad"
+    ],
+    "red": "backend contract failed; frontend focused 3 failures",
+    "fix_commits": {
+      "backend": "77c4e003310f3194f3e7a90cdadb7d650cbd3ba1",
+      "frontend": "61c1ccb6512198539ae13b3d98e4043ef77a1dca"
+    },
+    "green": "backend focused/full and frontend 61/61 plus 1138/1138"
+  },
+  "quality_remediation": {
+    "invalidated_snapshot": "ec31d2ef3279bee6d08a902fe264fc6289be7cd80cab1076b92ab3669a29daf4",
+    "verdict": "QUALITY_FAIL",
+    "findings": [
+      "preview retained unpublished content across logout, demotion, or account switch",
+      "home draft GET bypassed authenticated read refresh and identity fencing"
+    ],
+    "red": "authenticated GET and mounted preview identity tests failed",
+    "fix_commit": "ab18718f89b55ea7106d0ac52ff9972576e4e9e4",
+    "green": "API/preview 22/22, related 99/99, full 1140/1140, production build and chunks PASS"
+  }
+}

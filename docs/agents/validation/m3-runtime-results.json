@@ -1,0 +1,12 @@
+{
+  "container": "d2de587030c3055d4c4e913c3d0a1052297294810e6a4047b81b710edfe0b56b",
+  "image": "sha256:31abaeb16799f1bfad6501cf7d765ea443d5682561bbeed3f74255c8d8733b9a",
+  "binary_sha256": "1e7b71229813caaf4ad00f7100f167ad0f0ef5b5f812f598ba4e39d0a46b3cd5",
+  "metadata": [
+    "/private/tmp/porsche-m3-server-binary: go1.22.12",
+    "path\tgithub.com/porsche/ai-gateway-go/cmd/server",
+    "build\tGOARCH=amd64",
+    "build\tGOOS=linux"
+  ],
+  "has_vcs_revision": false
+}

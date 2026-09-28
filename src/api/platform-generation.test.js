@@ -1,0 +1,665 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { setImmediate } from 'node:timers/promises'
+
+import {
+  PlatformGenerationHTTPError,
+  PlatformGenerationIndeterminateError,
+  PlatformGenerationRemoteError,
+  createPlatformGenerationClient,
+} from './platform-generation.js'
+
+const generationId = '550e8400-e29b-41d4-a716-446655440000'
+const otherGenerationId = '550e8400-e29b-41d4-a716-446655440001'
+const encoder = new TextEncoder()
+const jsonResponse = (data, status = 200, headers = {}) => new Response(JSON.stringify(data), {
+  status,
+  headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers },
+})
+const streamResponse = (chunks, { status = 200, headers = {}, error } = {}) => new Response(new ReadableStream({
+  start(controller) {
+    chunks.forEach(chunk => controller.enqueue(encoder.encode(chunk)))
+    if (error) controller.error(error)
+    else controller.close()
+  },
+}), { status, headers: { 'Content-Type': 'text/event-stream', ...headers } })
+const meta = (models, id = generationId) => `event: meta\ndata: ${JSON.stringify({ schema: 'platform-chat-sse.v2', generation_id: id, conversation_guid: '42', models })}\n\n`
+const delta = (model, seq, text, id = generationId) => `event: delta\ndata: ${JSON.stringify({ generation_id: id, model, seq, delta: text })}\n\n`
+const modelDone = (model, seq, id = generationId) => `event: model_done\ndata: ${JSON.stringify({ generation_id: id, model, last_seq: seq })}\n\n`
+const singleDone = (id = generationId) => `event: done\ndata: ${JSON.stringify({ generation_id: id, status: 'completed', conversation_guid: '42', tokens: 2, total_tokens_used: 9 })}\n\n`
+const compareDone = (id = generationId) => `event: done\ndata: ${JSON.stringify({ generation_id: id, status: 'completed', conversation_guid: '42', total_tokens_used: 9, models: { a: { status: 'completed', tokens: 2 }, b: { status: 'completed', tokens: 3 } } })}\n\n`
+
+function harness(responses, overrides = {}) {
+  const calls = []
+  const queue = [...responses]
+  const client = createPlatformGenerationClient({
+    baseURL: 'https://api.example.test',
+    authenticatedFetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      const next = queue.shift()
+      if (next instanceof Error) throw next
+      if (typeof next === 'function') return next(url, init)
+      return next
+    },
+    randomUUID: () => generationId.toUpperCase(),
+    ...overrides,
+  })
+  return { client, calls, queue }
+}
+
+function controlledStreamResponse({ chunks = [], contentType = 'text/event-stream', keepOpen = false, readError = null } = {}) {
+  let reads = 0
+  let readerCancels = 0
+  let bodyCancels = 0
+  let releases = 0
+  const encoded = chunks.map(chunk => encoder.encode(chunk))
+  const reader = {
+    async read() {
+      reads++
+      if (encoded.length) return { done: false, value: encoded.shift() }
+      if (readError) throw readError
+      if (keepOpen) return new Promise(() => {})
+      return { done: true, value: undefined }
+    },
+    async cancel() { readerCancels++ },
+    releaseLock() { releases++ },
+  }
+  const body = {
+    getReader() { return reader },
+    async cancel() { bodyCancels++ },
+  }
+  return {
+    response: { ok: true, status: 200, headers: new Headers({ 'Content-Type': contentType }), body },
+    counts: () => ({ reads, readerCancels, bodyCancels, releases }),
+  }
+}
+
+function controlledJSONResponse(data, { status = 200, cacheControl = 'no-store', retryAfter, contentType = 'application/json' } = {}) {
+  let jsonReads = 0
+  let bodyCancels = 0
+  const values = new Map([
+    ['content-type', contentType],
+    ...(cacheControl === null ? [] : [['cache-control', cacheControl]]),
+    ...(retryAfter === undefined ? [] : [['retry-after', retryAfter]]),
+  ])
+  return {
+    response: {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: { get: name => values.get(name.toLowerCase()) ?? null },
+      body: { async cancel() { bodyCancels++ } },
+      async json() { jsonReads++; return data },
+    },
+    counts: () => ({ jsonReads, bodyCancels }),
+  }
+}
+
+const publicError = (code, message, type, requestId = 'req-1') => ({
+  error: { code, message, type, request_id: requestId },
+})
+
+test('creates one canonical lowercase v4 UUID and reuses it in a single POST body', async () => {
+  let uuidCalls = 0
+  const { client, calls } = harness([
+    streamResponse([meta(['model-a']), modelDone('model-a', 0), singleDone()]),
+  ], { randomUUID: () => { uuidCalls++; return generationId.toUpperCase() } })
+  const events = []
+  const result = await client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'hello' }], max_tokens: 8 }, { onEvent: event => events.push(event) })
+
+  assert.equal(uuidCalls, 1)
+  assert.equal(result.generation_id, generationId)
+  assert.equal(result.status, 'completed')
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].url, 'https://api.example.test/api/v1/platform/chat/completions')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    model: 'model-a', messages: [{ role: 'user', content: 'hello' }], max_tokens: 8,
+    stream: true, stream_version: 'platform-chat-sse.v2', generation_id: generationId,
+  })
+  assert.deepEqual(events.map(event => event.type), ['meta', 'model_done', 'done'])
+  assert.ok(events.every(event => event.generation_id === generationId))
+})
+
+test('compare POST preserves contract fields, model order, and one generation id', async () => {
+  const { client, calls } = harness([
+    streamResponse([meta(['a', 'b']), delta('a', 1, 'A'), delta('b', 1, 'B'), modelDone('a', 1), modelDone('b', 1), compareDone()]),
+  ])
+  const result = await client.streamCompare({
+    model: 'a', models: ['a', 'b'], messages: [{ role: 'user', content: 'hello' }], max_tokens: 8,
+    conversation_guid: null, temperature: null, stop: [null], stream_options: { include_usage: true },
+  })
+  assert.equal(result.generation_id, generationId)
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    model: 'a', models: ['a', 'b'], messages: [{ role: 'user', content: 'hello' }], max_tokens: 8,
+    conversation_guid: null, temperature: null, stop: [null], stream_options: { include_usage: true },
+    stream: true, stream_version: 'platform-chat-sse.v2', generation_id: generationId,
+  })
+})
+
+test('single and compare model identifiers fail closed before POST without coercing attacker objects', async () => {
+  let coercions = 0
+  const attacker = { toString() { coercions++; throw new Error('private attacker detail') } }
+  const invalidSingle = [attacker, '', ' model-a ', 'a'.repeat(129), '界'.repeat(43)]
+  const invalidCompare = [
+    attacker,
+    [],
+    ['a'],
+    ['a', 'b', 'c', 'd'],
+    ['a', 'a'],
+    ['a', attacker],
+    ['a', '界'.repeat(43)],
+  ]
+  const { client, calls } = harness([])
+  for (const model of invalidSingle) {
+    await assert.rejects(
+      client.streamSingle({ model, messages: [], max_tokens: 1 }),
+      error => error instanceof PlatformGenerationIndeterminateError
+        && error.generation_id === generationId
+        && error.reason === 'invalid_generation_request'
+        && !error.message.includes('attacker'),
+    )
+  }
+  for (const models of invalidCompare) {
+    await assert.rejects(
+      client.streamCompare({ model: 'a', models, messages: [], max_tokens: 1 }),
+      error => error instanceof PlatformGenerationIndeterminateError
+        && error.generation_id === generationId
+        && error.reason === 'invalid_generation_request'
+        && !error.message.includes('attacker'),
+    )
+  }
+  assert.equal(coercions, 0)
+  assert.equal(calls.length, 0)
+})
+
+test('compare routing model is validated before serialization or POST without coercion', async () => {
+  let coercions = 0
+  const attacker = {
+    toJSON() { coercions++; throw new Error('private toJSON detail') },
+    toString() { coercions++; throw new Error('private toString detail') },
+  }
+  const { client, calls } = harness([])
+  for (const model of [attacker, '', '   ', ' routed ', 'a'.repeat(129), '界'.repeat(43)]) {
+    await assert.rejects(
+      client.streamCompare({ model, models: ['a', 'b'], messages: [], max_tokens: 1 }),
+      error => error instanceof PlatformGenerationIndeterminateError
+        && error.generation_id === generationId
+        && error.reason === 'invalid_generation_request'
+        && !error.message.includes('private'),
+    )
+  }
+  assert.equal(coercions, 0)
+  assert.equal(calls.length, 0)
+})
+
+test('model validation accepts the frozen 128-byte boundary and preserves compare order', async () => {
+  const multibyte = '界'.repeat(42)
+  const { client, calls } = harness([
+    streamResponse([meta([multibyte]), modelDone(multibyte, 0), singleDone()]),
+    streamResponse([meta(['b', 'a']), modelDone('b', 0), modelDone('a', 0), compareDone()]),
+  ])
+  await client.streamSingle({ model: multibyte, messages: [], max_tokens: 1 })
+  await client.streamCompare({ model: 'b', models: ['b', 'a'], messages: [], max_tokens: 1 })
+  assert.deepEqual(JSON.parse(calls[1].init.body).models, ['b', 'a'])
+})
+
+test('strict parser completes only on a valid done event and sanitizes model errors', async () => {
+  const modelError = `event: model_error\ndata: ${JSON.stringify({ generation_id: generationId, model: 'a', code: 'timeout', request_id: 'req-1' })}\n\n`
+  const done = `event: done\ndata: ${JSON.stringify({ generation_id: generationId, status: 'completed', conversation_guid: '42', total_tokens_used: 0, models: { a: { status: 'failed', code: 'timeout' }, b: { status: 'completed', tokens: 0 } } })}\n\n`
+  const { client } = harness([streamResponse([meta(['a', 'b']), modelError, modelDone('b', 0), done])])
+  const events = []
+  const result = await client.streamCompare({ model: 'a', models: ['a', 'b'], messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }, { onEvent: event => events.push(event) })
+  assert.equal(result.status, 'completed')
+  assert.deepEqual(events.find(event => event.type === 'model_error'), { type: 'model_error', generation_id: generationId, model: 'a', code: 'timeout' })
+})
+
+test('valid done terminates immediately, cancels the still-open body once, and ignores a later abort', async () => {
+  const controlled = controlledStreamResponse({
+    chunks: [meta(['model-a']) + modelDone('model-a', 0) + singleDone()],
+    keepOpen: true,
+  })
+  const controller = new AbortController()
+  const { client } = harness([controlled.response])
+  const outcome = await Promise.race([
+    client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }, { signal: controller.signal }),
+    setImmediate('timed_out'),
+  ])
+  assert.notEqual(outcome, 'timed_out')
+  assert.equal(outcome.status, 'completed')
+  controller.abort()
+  await Promise.resolve()
+  assert.deepEqual(controlled.counts(), { reads: 1, readerCancels: 1, bodyCancels: 0, releases: 1 })
+})
+
+for (const [name, response, reason] of [
+  ['EOF before done', streamResponse([meta(['model-a']), modelDone('model-a', 0)]), 'SSE_V2_EOF_WITHOUT_TERMINAL'],
+  ['malformed event', streamResponse([meta(['model-a']), 'event: delta\ndata: {bad}\n\n']), 'SSE_V2_INVALID_JSON'],
+  ['network failure', streamResponse([meta(['model-a'])], { error: new TypeError('private network detail') }), 'network_error'],
+]) {
+  test(`${name} is indeterminate, carries the generation id, and never replays POST`, async () => {
+    const { client, calls } = harness([response])
+    await assert.rejects(
+      client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }),
+      error => error instanceof PlatformGenerationIndeterminateError && error.generation_id === generationId && error.reason === reason,
+    )
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].init.method, 'POST')
+  })
+}
+
+test('client abort is an indeterminate generation outcome with no replay', async () => {
+  const controller = new AbortController()
+  const response = new Response(new ReadableStream({ start() {} }), { headers: { 'Content-Type': 'text/event-stream' } })
+  const { client, calls } = harness([response])
+  const pending = client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }, { signal: controller.signal })
+  controller.abort()
+  await assert.rejects(pending, error => error instanceof PlatformGenerationIndeterminateError && error.generation_id === generationId && error.reason === 'aborted')
+  assert.equal(calls.length, 1)
+})
+
+test('a valid terminal server error is distinct from an indeterminate transport error', async () => {
+  const remote = `event: error\ndata: ${JSON.stringify({ generation_id: generationId, code: 'timeout', request_id: 'req-1' })}\n\n`
+  const { client } = harness([streamResponse([meta(['model-a']), remote])])
+  await assert.rejects(
+    client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }),
+    error => error instanceof PlatformGenerationRemoteError && error.generation_id === generationId && error.code === 'SSE_V2_REMOTE_ERROR',
+  )
+})
+
+test('strict parser failure cancels the unread response body', async () => {
+  let cancellations = 0
+  const response = new Response(new ReadableStream({
+    start(controller) { controller.enqueue(encoder.encode(meta(['model-a']) + 'event: delta\ndata: {bad}\n\n')) },
+    cancel() { cancellations++ },
+  }), { headers: { 'Content-Type': 'text/event-stream' } })
+  const { client } = harness([response])
+  await assert.rejects(client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }), PlatformGenerationIndeterminateError)
+  assert.equal(cancellations, 1)
+})
+
+test('invalid Content-Type cancels the unlocked body exactly once', async () => {
+  const controlled = controlledStreamResponse({ contentType: 'application/json', keepOpen: true })
+  const { client } = harness([controlled.response])
+  await assert.rejects(
+    client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }),
+    error => error instanceof PlatformGenerationIndeterminateError && error.reason === 'invalid_stream_response',
+  )
+  assert.deepEqual(controlled.counts(), { reads: 0, readerCancels: 0, bodyCancels: 1, releases: 0 })
+})
+
+test('an already-aborted stream cancels the body before establishing a reader', async () => {
+  const controlled = controlledStreamResponse({ keepOpen: true })
+  const controller = new AbortController()
+  controller.abort()
+  const { client } = harness([controlled.response])
+  await assert.rejects(
+    client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }, { signal: controller.signal }),
+    error => error instanceof PlatformGenerationIndeterminateError && error.reason === 'aborted',
+  )
+  assert.deepEqual(controlled.counts(), { reads: 0, readerCancels: 0, bodyCancels: 1, releases: 0 })
+})
+
+test('reader network failure cancels and releases its reader exactly once', async () => {
+  const controlled = controlledStreamResponse({ chunks: [meta(['model-a'])], readError: new TypeError('private network detail') })
+  const { client } = harness([controlled.response])
+  await assert.rejects(
+    client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }),
+    error => error instanceof PlatformGenerationIndeterminateError && error.reason === 'network_error',
+  )
+  assert.deepEqual(controlled.counts(), { reads: 2, readerCancels: 1, bodyCancels: 0, releases: 1 })
+})
+
+test('parser construction failure is sanitized and cancels/releases the reader exactly once', async () => {
+  const controlled = controlledStreamResponse()
+  const { client } = harness([controlled.response], {
+    parserFactory: () => { throw new Error('private parser construction detail') },
+  })
+  await assert.rejects(
+    client.streamSingle({ model: 'model-a', messages: [], max_tokens: 1 }),
+    error => error instanceof PlatformGenerationIndeterminateError
+      && error.generation_id === generationId
+      && error.reason === 'parser_initialization_error'
+      && !error.message.includes('private'),
+  )
+  assert.deepEqual(controlled.counts(), { reads: 0, readerCancels: 1, bodyCancels: 0, releases: 1 })
+})
+
+for (const contentType of [
+  'TEXT/EVENT-STREAM',
+  ' text/event-stream ; charset=utf-8 ',
+  'text/event-stream;charset="utf-8"',
+  'text/event-stream; profile="a;b"',
+]) {
+  test(`accepts exact event-stream MIME with legal casing, OWS, or parameters: ${contentType}`, async () => {
+    const controlled = controlledStreamResponse({ chunks: [meta(['model-a']) + modelDone('model-a', 0) + singleDone()], contentType })
+    const { client } = harness([controlled.response])
+    assert.equal((await client.streamSingle({ model: 'model-a', messages: [], max_tokens: 1 })).status, 'completed')
+  })
+}
+
+for (const contentType of [
+  'text/event-stream-evil',
+  'text/event-streamx',
+  'text/event-stream; broken',
+  'text/event-stream; charset',
+]) {
+  test(`rejects non-event-stream or malformed MIME token: ${contentType}`, async () => {
+    const controlled = controlledStreamResponse({ contentType })
+    const { client } = harness([controlled.response])
+    await assert.rejects(
+      client.streamSingle({ model: 'model-a', messages: [], max_tokens: 1 }),
+      error => error instanceof PlatformGenerationIndeterminateError && error.reason === 'invalid_stream_response',
+    )
+    assert.equal(controlled.counts().bodyCancels, 1)
+  })
+}
+
+const running = { generation_id: generationId, status: 'running', mode: 'single', conversation_guid: null }
+const cancelling = { generation_id: generationId, status: 'cancelling', mode: 'single', conversation_guid: null }
+const cancelled = { generation_id: generationId, status: 'cancelled', mode: 'single', conversation_guid: null }
+const completed = { generation_id: generationId, status: 'completed', mode: 'single', conversation_guid: '42', result: { model: 'a', status: 'completed', assistant_message_guid: '88', content: 'ok', tokens: 2 }, total_tokens_used: 2 }
+
+test('GET accepts exact pending and terminal schemas and rejects drift', async () => {
+  const { client, calls } = harness([jsonResponse(running), jsonResponse(completed), jsonResponse({ ...running, private: 'secret' })])
+  assert.deepEqual(await client.get(generationId), running)
+  assert.deepEqual(await client.get(generationId), completed)
+  await assert.rejects(client.get(generationId), error => error instanceof PlatformGenerationIndeterminateError && error.reason === 'invalid_status_response')
+  assert.ok(calls.every(call => call.init.method === 'GET'))
+  assert.ok(calls.every(call => call.init.cache === 'no-store'))
+})
+
+for (const cacheControl of [null, 'private', 'no-cache', 'no-store, private']) {
+  test(`GET rejects an untrusted successful response Cache-Control ${JSON.stringify(cacheControl)}`, async () => {
+    const controlled = controlledJSONResponse(running, { cacheControl })
+    const { client } = harness([controlled.response])
+    await assert.rejects(
+      client.get(generationId),
+      error => error instanceof PlatformGenerationIndeterminateError
+        && error.generation_id === generationId
+        && error.reason === 'invalid_cache_control',
+    )
+    assert.deepEqual(controlled.counts(), { jsonReads: 0, bodyCancels: 1 })
+  })
+}
+
+test('GET accepts the sole no-store directive case-insensitively', async () => {
+  const { client } = harness([
+    controlledJSONResponse(running, { cacheControl: 'No-Store' }).response,
+    controlledJSONResponse(completed, { cacheControl: ' no-store ' }).response,
+  ])
+  assert.deepEqual(await client.get(generationId), running)
+  assert.deepEqual(await client.get(generationId), completed)
+})
+
+test('successful GET accepts application/json MIME casing, OWS, and legal parameters', async () => {
+  const { client } = harness([
+    controlledJSONResponse(running, { contentType: 'APPLICATION/JSON' }).response,
+    controlledJSONResponse(completed, { contentType: ' application/json ; charset="utf-8" ' }).response,
+  ])
+  assert.deepEqual(await client.get(generationId), running)
+  assert.deepEqual(await client.get(generationId), completed)
+})
+
+for (const contentType of [null, 'text/plain', 'application/json-evil', 'application/json; broken']) {
+  test(`successful GET rejects untrusted Content-Type ${JSON.stringify(contentType)} before JSON read`, async () => {
+    for (const status of [running, completed]) {
+      const controlled = controlledJSONResponse(status, { contentType })
+      const { client, calls } = harness([controlled.response])
+      await assert.rejects(
+        client.get(generationId),
+        error => error instanceof PlatformGenerationIndeterminateError
+          && error.generation_id === generationId
+          && error.reason === 'invalid_status_response',
+      )
+      assert.deepEqual(controlled.counts(), { jsonReads: 0, bodyCancels: 1 })
+      assert.deepEqual(calls.map(call => call.init.method), ['GET'])
+    }
+  })
+}
+
+test('GET preserves HTTP failures and rejects noncanonical IDs before network', async () => {
+  const { client, calls } = harness([jsonResponse(publicError('generation_not_found', 'Generation not found.', 'invalid_request_error'), 404)])
+  await assert.rejects(client.get(generationId), error => error instanceof PlatformGenerationHTTPError && error.status === 404 && error.code === 'generation_not_found' && error.generation_id === generationId)
+  await assert.rejects(client.get(generationId.toUpperCase()), /canonical lowercase UUID/)
+  assert.equal(calls.length, 1)
+})
+
+test('GET and cancel accept only their exact closed public error combinations', async () => {
+  const getCases = [
+    [400, 'invalid_request', 'Invalid request.', 'invalid_request_error'],
+    [404, 'generation_not_found', 'Generation not found.', 'invalid_request_error'],
+    [503, 'generation_status_unavailable', 'Generation status is temporarily unavailable.', 'api_error'],
+  ]
+  const cancelCases = [
+    [400, 'invalid_request', 'Invalid request.', 'invalid_request_error'],
+    [503, 'generation_status_unavailable', 'Generation status is temporarily unavailable.', 'api_error'],
+  ]
+  for (const [status, code, message, type] of getCases) {
+    const { client } = harness([jsonResponse(publicError(code, message, type), status)])
+    await assert.rejects(client.get(generationId), error => error instanceof PlatformGenerationHTTPError && error.code === code && error.status === status)
+  }
+  for (const [status, code, message, type] of cancelCases) {
+    const { client, calls } = harness([jsonResponse(publicError(code, message, type), status)])
+    await assert.rejects(client.cancel(generationId), error => error instanceof PlatformGenerationHTTPError && error.code === code && error.status === status)
+    assert.deepEqual(calls.map(call => call.init.method), ['POST'])
+  }
+})
+
+test('single and compare POST accept only exact pre-stream public error combinations without replay', async () => {
+  const cases = [
+    [400, 'invalid_request', 'Invalid request.', 'invalid_request_error'],
+    [415, 'invalid_request', 'Invalid request.', 'invalid_request_error'],
+    [400, 'unsupported_parameter', 'Invalid request.', 'invalid_request_error'],
+    [400, 'missing_max_tokens', 'max_tokens is required.', 'invalid_request_error'],
+    [404, 'model_unavailable', 'Invalid request.', 'invalid_request_error'],
+    [413, 'request_too_large', 'Request body is too large.', 'invalid_request_error'],
+    [429, 'rate_limited', 'Invalid request.', 'api_error'],
+    [503, 'gateway_upstream_unavailable', 'The upstream service is unavailable.', 'api_error'],
+    [503, 'platform_stream_v2_unavailable', 'Invalid request.', 'api_error'],
+  ]
+  for (const compare of [false, true]) {
+    for (const [status, code, message, type] of cases) {
+      const { client, calls } = harness([jsonResponse(publicError(code, message, type), status)])
+      const operation = compare
+        ? client.streamCompare({ model: 'a', models: ['a', 'b'], messages: [], max_tokens: 1 })
+        : client.streamSingle({ model: 'a', messages: [], max_tokens: 1 })
+      await assert.rejects(operation, error => error instanceof PlatformGenerationHTTPError && error.code === code && error.status === status && error.generation_id === generationId)
+      assert.deepEqual(calls.map(call => call.init.method), ['POST'])
+    }
+  }
+})
+
+test('reviewer probes cannot promote malformed or route-mismatched HTTP errors', async () => {
+  const valid = publicError('generation_not_found', 'Generation not found.', 'invalid_request_error')
+  let coercions = 0
+  const attacker = { toString() { coercions++; throw new Error('private coercion detail') } }
+  const probes = [
+    { body: { ...valid, prompt: 'secret prompt' }, status: 404 },
+    { body: { error: { ...valid.error, token: 'secret-token' } }, status: 404 },
+    { body: { error: { ...valid.error, path: '/private', body: 'secret', upstream: 'secret' } }, status: 404 },
+    { body: publicError('generation_not_found', 'Generation not found.', 'invalid_request_error'), status: 503 },
+    { body: publicError('generation_status_unavailable', 'Generation not found.', 'api_error'), status: 503 },
+    { body: publicError('generation_status_unavailable', 'Generation status is temporarily unavailable.', 'invalid_request_error'), status: 503 },
+    { body: publicError('unknown_private_code', 'secret', 'api_error'), status: 503 },
+    { body: publicError('generation_not_found', 'Generation not found.', 'invalid_request_error', 'bad/request'), status: 404 },
+    { body: publicError('generation_not_found', 'Generation not found.', 'invalid_request_error', '请求'), status: 404 },
+    { body: publicError('generation_not_found', 'Generation not found.', 'invalid_request_error', 123), status: 404 },
+    { body: publicError('generation_not_found', 'Generation not found.', 'invalid_request_error', attacker), status: 404 },
+    { body: publicError('generation_not_found', 'Generation not found.', 'invalid_request_error', 'a'.repeat(129)), status: 404 },
+  ]
+  for (const probe of probes) {
+    const controlled = controlledJSONResponse(probe.body, { status: probe.status })
+    const { client } = harness([controlled.response])
+    await assert.rejects(
+      client.get(generationId),
+      error => error instanceof PlatformGenerationHTTPError
+        && error.code === 'request_failed'
+        && error.generation_id === generationId
+        && !error.message.includes('secret'),
+    )
+    assert.deepEqual(controlled.counts(), { jsonReads: 1, bodyCancels: 0 })
+  }
+  assert.equal(coercions, 0)
+})
+
+test('route-specific codes cannot cross GET, cancel, single, or compare boundaries', async () => {
+  const cases = [
+    ['get', 429, publicError('rate_limited', 'Invalid request.', 'api_error')],
+    ['cancel', 404, publicError('generation_not_found', 'Generation not found.', 'invalid_request_error')],
+    ['single', 404, publicError('generation_not_found', 'Generation not found.', 'invalid_request_error')],
+    ['compare', 503, publicError('generation_status_unavailable', 'Generation status is temporarily unavailable.', 'api_error')],
+  ]
+  for (const [route, status, body] of cases) {
+    const { client, calls } = harness([jsonResponse(body, status)])
+    const operation = route === 'get' ? client.get(generationId)
+      : route === 'cancel' ? client.cancel(generationId)
+        : route === 'single' ? client.streamSingle({ model: 'a', messages: [], max_tokens: 1 })
+          : client.streamCompare({ model: 'a', models: ['a', 'b'], messages: [], max_tokens: 1 })
+    await assert.rejects(operation, error => error instanceof PlatformGenerationHTTPError && error.code === 'request_failed' && error.generation_id === generationId)
+    assert.equal(calls.length, 1)
+  }
+})
+
+for (const contentType of [null, 'text/html', 'application/json-evil', 'application/json; broken']) {
+  test(`HTTP error rejects untrusted Content-Type ${JSON.stringify(contentType)} and cancels unread body`, async () => {
+    const controlled = controlledJSONResponse(publicError('generation_not_found', 'Generation not found.', 'invalid_request_error'), { status: 404, contentType })
+    const { client } = harness([controlled.response])
+    await assert.rejects(client.get(generationId), error => error instanceof PlatformGenerationHTTPError && error.code === 'request_failed' && error.generation_id === generationId)
+    assert.deepEqual(controlled.counts(), { jsonReads: 0, bodyCancels: 1 })
+  })
+}
+
+for (const cacheControl of [null, 'private', 'no-store, private']) {
+  test(`GET does not trust an error envelope without contract Cache-Control ${JSON.stringify(cacheControl)}`, async () => {
+    const controlled = controlledJSONResponse({ error: { code: 'generation_not_found', message: 'private' } }, { status: 404, cacheControl })
+    const { client } = harness([controlled.response])
+    await assert.rejects(
+      client.get(generationId),
+      error => error instanceof PlatformGenerationHTTPError
+        && error.status === 404
+        && error.code === 'request_failed'
+        && error.generation_id === generationId
+        && !error.message.includes('private'),
+    )
+    assert.deepEqual(controlled.counts(), { jsonReads: 0, bodyCancels: 1 })
+  })
+}
+
+test('HTTP errors never expose an unknown server-controlled code', async () => {
+  const { client } = harness([jsonResponse({ error: { code: 'private_internal_detail', message: 'secret' } }, 503)])
+  await assert.rejects(client.get(generationId), error => error instanceof PlatformGenerationHTTPError && error.status === 503 && error.code === 'request_failed' && !error.message.includes('secret'))
+})
+
+test('GET rejects result values outside the frozen UTF-8 byte boundaries', async () => {
+  const tooWideModel = { ...completed, result: { ...completed.result, model: '模'.repeat(65) } }
+  const tooLargeContent = { ...completed, result: { ...completed.result, content: '界'.repeat(21846) } }
+  const { client } = harness([jsonResponse(tooWideModel), jsonResponse(tooLargeContent)])
+  await assert.rejects(client.get(generationId), error => error instanceof PlatformGenerationIndeterminateError && error.reason === 'invalid_status_response')
+  await assert.rejects(client.get(generationId), error => error instanceof PlatformGenerationIndeterminateError && error.reason === 'invalid_status_response')
+})
+
+test('cancel returns terminal 200 without polling', async () => {
+  const { client, calls } = harness([jsonResponse(cancelled, 200)])
+  assert.deepEqual(await client.cancel(generationId), cancelled)
+  assert.deepEqual(calls.map(call => call.init.method), ['POST'])
+  assert.equal(calls[0].url, `https://api.example.test/api/v1/platform/chat/generations/${generationId}/cancel`)
+  assert.equal(calls[0].init.body, undefined)
+  assert.equal(calls[0].init.cache, 'no-store')
+})
+
+test('cancel 202 honors a valid Retry-After then continues with GET only', async () => {
+  const sleeps = []
+  const { client, calls } = harness([
+    jsonResponse(cancelling, 202, { 'Retry-After': '1' }), jsonResponse(completed),
+  ], { sleep: async ms => { sleeps.push(ms) }, now: () => 0 })
+  assert.deepEqual(await client.cancel(generationId), completed)
+  assert.deepEqual(sleeps, [1000])
+  assert.deepEqual(calls.map(call => call.init.method), ['POST', 'GET'])
+  assert.ok(calls.every(call => call.init.cache === 'no-store'))
+})
+
+for (const [status, data, retryAfter] of [[200, cancelled, undefined], [202, cancelling, '1']]) {
+  for (const contentType of [null, 'text/plain', 'application/json-evil', 'application/json; broken']) {
+    test(`cancel ${status} rejects untrusted Content-Type ${JSON.stringify(contentType)} without polling`, async () => {
+      const sleeps = []
+      const controlled = controlledJSONResponse(data, { status, retryAfter, contentType })
+      const { client, calls } = harness([controlled.response], { sleep: async ms => { sleeps.push(ms) } })
+      await assert.rejects(
+        client.cancel(generationId),
+        error => error instanceof PlatformGenerationIndeterminateError
+          && error.generation_id === generationId
+          && error.reason === 'invalid_status_response',
+      )
+      assert.deepEqual(controlled.counts(), { jsonReads: 0, bodyCancels: 1 })
+      assert.deepEqual(calls.map(call => call.init.method), ['POST'])
+      assert.deepEqual(sleeps, [])
+    })
+  }
+}
+
+for (const [status, data, retryAfter] of [[200, cancelled, undefined], [202, cancelling, '1']]) {
+  for (const cacheControl of [null, 'private', 'no-store, private']) {
+    test(`cancel ${status} rejects untrusted Cache-Control ${JSON.stringify(cacheControl)}`, async () => {
+      const controlled = controlledJSONResponse(data, { status, cacheControl, retryAfter })
+      const { client, calls } = harness([controlled.response])
+      await assert.rejects(
+        client.cancel(generationId),
+        error => error instanceof PlatformGenerationIndeterminateError
+          && error.generation_id === generationId
+          && error.reason === 'invalid_cache_control',
+      )
+      assert.deepEqual(controlled.counts(), { jsonReads: 0, bodyCancels: 1 })
+      assert.deepEqual(calls.map(call => call.init.method), ['POST'])
+    })
+  }
+}
+
+for (const retryAfter of [undefined, '', 'private', '0', '2', '3', '01', '1 ']) {
+  test(`cancel 202 rejects non-contract Retry-After ${JSON.stringify(retryAfter)}`, async () => {
+    const sleeps = []
+    const response = { ok: true, status: 202, headers: { get: name => name.toLowerCase() === 'retry-after' ? retryAfter ?? null : name.toLowerCase() === 'cache-control' ? 'no-store' : name.toLowerCase() === 'content-type' ? 'application/json' : null }, json: async () => cancelling }
+    const { client, calls } = harness([response], { sleep: async ms => { sleeps.push(ms) } })
+    await assert.rejects(
+      client.cancel(generationId),
+      error => error instanceof PlatformGenerationIndeterminateError && error.reason === 'invalid_cancel_response' && error.generation_id === generationId,
+    )
+    assert.deepEqual(sleeps, [])
+    assert.deepEqual(calls.map(call => call.init.method), ['POST'])
+  })
+}
+
+test('an ambiguous cancel network failure is indeterminate with the generation id and no replay', async () => {
+  const { client, calls } = harness([new TypeError('private network detail')])
+  await assert.rejects(client.cancel(generationId), error => error instanceof PlatformGenerationIndeterminateError && error.reason === 'network_error' && error.generation_id === generationId)
+  assert.deepEqual(calls.map(call => call.init.method), ['POST'])
+})
+
+test('poll uses 250ms, 500ms, 1s, 2s, caps the first 10s at eight GETs, then waits 5s', async () => {
+  const sleeps = []
+  let time = 0
+  const responses = Array.from({ length: 8 }, () => jsonResponse(running))
+  responses.push(jsonResponse(running), jsonResponse(completed))
+  const { client, calls } = harness(responses, { sleep: async ms => { sleeps.push(ms); time += ms }, now: () => time })
+  assert.deepEqual(await client.poll(generationId), completed)
+  assert.deepEqual(sleeps, [250, 500, 1000, 2000, 2000, 2000, 2000, 5000, 5000])
+  assert.equal(calls.filter(call => call.init.method === 'GET').length, 10)
+  assert.equal(calls.filter(call => call.init.method === 'POST').length, 0)
+})
+
+test('poll supports AbortSignal and does not busy-loop or POST', async () => {
+  const controller = new AbortController()
+  let sleeps = 0
+  const { client, calls } = harness([jsonResponse(running)], { sleep: async () => { sleeps++; controller.abort() }, now: () => 0 })
+  await assert.rejects(client.poll(generationId, { signal: controller.signal }), error => error?.name === 'AbortError')
+  assert.equal(sleeps, 1)
+  assert.deepEqual(calls.map(call => call.init.method), ['GET'])
+})
+
+test('caller-supplied canonical generation id is reused but invalid or different ids are rejected locally', async () => {
+  const { client, calls } = harness([streamResponse([meta(['model-a'], otherGenerationId), modelDone('model-a', 0, otherGenerationId), singleDone(otherGenerationId)])])
+  const result = await client.streamSingle({ model: 'model-a', messages: [{ role: 'user', content: 'x' }], max_tokens: 1 }, { generationId: otherGenerationId })
+  assert.equal(result.generation_id, otherGenerationId)
+  assert.equal(JSON.parse(calls[0].init.body).generation_id, otherGenerationId)
+  await assert.rejects(client.streamSingle({ model: 'a', messages: [], max_tokens: 1 }, { generationId: generationId.toUpperCase() }), /canonical lowercase UUID/)
+  assert.equal(calls.length, 1)
+})

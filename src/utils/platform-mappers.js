@@ -1,9 +1,16 @@
 /** Maps stable local platform API fields to view state. */
 import { enrichMessage } from './multi-model-message.js'
+import { projectConversationGenerationGroups } from './conversation-generation-groups.js'
+
+function readOptionalProperty(value, property) {
+  try { return value?.[property] } catch { return undefined }
+}
 
 function mapUnixMilliseconds(value) {
-  if (value == null) return null
-  return typeof value === 'number' ? value : Number(value)
+  if (value == null || value === '') return null
+  const milliseconds = typeof value === 'number' ? value
+    : typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) ? Date.parse(value) : Number(value)
+  return Number.isFinite(milliseconds) ? milliseconds : null
 }
 
 function mapGuid(value) {
@@ -20,7 +27,9 @@ export function mapUsageStats(raw) {
 }
 
 export function mapConversation(raw) {
-  return { guid: mapGuid(raw.guid), title: raw.title, model: raw.model, createdAt: mapUnixMilliseconds(raw.created_at), updatedAt: mapUnixMilliseconds(raw.updated_at), messages: (raw.messages || []).map(mapMessage) }
+  const rawMessages = (raw.messages || []).map(mapMessage)
+  const projection = projectConversationGenerationGroups(rawMessages, readOptionalProperty(raw, 'generation_groups'))
+  return { guid: mapGuid(raw.guid), title: raw.title, model: raw.model, createdAt: mapUnixMilliseconds(raw.created_at), updatedAt: mapUnixMilliseconds(raw.updated_at), ...projection }
 }
 
 export function mapMessage(raw) {

@@ -1,0 +1,31 @@
+{
+  "modelDetail": {
+    "status": 200,
+    "data": {
+      "id": "gpt-5.4-nano",
+      "object": "model",
+      "created": 1773818708,
+      "owned_by": "jiekou",
+      "title": "gpt-5.4-nano",
+      "description": "Our cheapest GPT-5.4-class model for simple high-volume tasks",
+      "input_token_price_per_m": 1900,
+      "output_token_price_per_m": 11875
+    }
+  },
+  "catalog": {
+    "status": 200,
+    "stale": false,
+    "count": 40
+  },
+  "usage": {
+    "daily_call_limit": 100,
+    "daily_calls_used": 1,
+    "plan_type": "free",
+    "remaining_daily_calls": 99,
+    "total_tokens_used": 0
+  },
+  "failedRequestConversationCleanup": [
+    200
+  ],
+  "logout": 204
+}

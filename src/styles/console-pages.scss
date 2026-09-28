@@ -1,0 +1,71 @@
+.console-page {
+  width: min(1280px, 100%);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: var(--space-6);
+  color: var(--text-primary);
+}
+
+.console-page .surface-card,
+.token-surface {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.console-page h2 {
+  font-size: var(--font-size-subtitle);
+}
+
+.console-page h3 {
+  font-size: var(--font-size-body);
+}
+
+.auth-page {
+  position: relative;
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: var(--space-6);
+  background:
+    radial-gradient(circle at 16% 12%, rgba(var(--color-brand-rgb), 0.13), transparent 30rem),
+    var(--surface-page);
+}
+
+.auth-card.surface-card {
+  width: min(420px, 100%);
+  padding: var(--space-8);
+}
+
+.auth-brand { margin-bottom: var(--space-6); text-align: center; }
+.auth-brand h1 { margin: var(--space-3) 0 var(--space-1); font-size: var(--font-size-page-title); }
+.auth-brand p { margin: 0; color: var(--text-secondary); font-size: var(--font-size-body); }
+
+.chat-workspace {
+  background: var(--surface-page);
+}
+
+.chat-workspace .chat-sidebar-wrap,
+.chat-workspace .chat-config-wrap,
+.chat-workspace .panel-toolbar {
+  background: var(--surface-card);
+  border-color: var(--border-default);
+}
+
+.surface-rail,
+.model-surface,
+.conversation-surface,
+.composer-surface {
+  background: var(--surface-card);
+  border-color: var(--border-default);
+}
+
+.console-stat-grid { margin-bottom: var(--space-5); }
+.console-section { margin-top: var(--space-5); }
+.token-surface { overflow: hidden; }
+
+@media (max-width: 767px) {
+  .console-page, .auth-page { padding: var(--space-4); }
+  .auth-card.surface-card { padding: var(--space-6); }
+}

@@ -1,0 +1,39 @@
+{
+  "generatedAt": "2026-09-04T04:26:12.234Z",
+  "rows": [
+    {
+      "id": "A05-A08",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "Current catalog and permission reads enforced Root/user/hidden boundaries. Unauthorized forged legacy update was 403; invalid legacy status was 422 before mutation. New v2 write paths were 404/405 and recorded as NOT_IMPLEMENTED, not a write-security pass."
+    },
+    {
+      "id": "A05-A08-draft-writes",
+      "status": "BLOCKED_NOT_IMPLEMENTED",
+      "detail": "New v2 writer endpoints returned 404/404; no implemented write behavior exists to accept."
+    },
+    {
+      "id": "A13",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "Live Root list omitted Root and both list/detail surfaces exposed no create/edit/delete/protection-changing controls. Only display/read paths were exercised."
+    },
+    {
+      "id": "V01",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "Saved populated 1440 users and Admin-detail screenshots. No versioned visual prototype artifact was present for pixel comparison; current live page omits landing/pricing acceptance and marks group/quota columns as not integrated."
+    },
+    {
+      "id": "V02",
+      "status": "PASS_LIMITED_SCOPE",
+      "detail": "375/768/1440 had no document-level horizontal overflow; Tab/Enter/Escape and visible focus were exercised; filter labeling/table role and heading-to-body computed contrast passed (12.13:1). Axe was unavailable and was not installed; this is a manual/DOM basic check, not an axe audit."
+    },
+    {
+      "id": "PHASE2_EXECUTION",
+      "status": "FAIL",
+      "detail": "logout guard api keys"
+    }
+  ],
+  "failures": [
+    "logout guard api keys"
+  ],
+  "secretFree": true
+}

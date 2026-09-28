@@ -1,25 +1,24 @@
 <template>
-  <div class="profile-page page-container">
-    <h1 class="page-title">{{ t('profile.title') }}</h1>
+  <div class="profile-page page-container console-page">
+    <PageHeader :title="t('profile.title')" />
 
+    <el-alert v-if="userStore.profileError" title="个人资料暂时不可用，登录仍然有效" type="warning" :closable="false"><el-button @click="loadProfile">重试资料</el-button></el-alert>
     <el-row :gutter="20">
       <el-col :xs="24" :md="14">
-        <el-card shadow="never">
+        <el-card shadow="never" class="surface-card">
           <template #header>{{ t('profile.basicInfo') }}</template>
           <el-form :model="form" label-width="100px">
             <el-form-item :label="t('profile.nickname')">
               <el-input v-model="form.nickname" />
             </el-form-item>
-            <el-form-item :label="t('profile.phone')">
-              <el-input v-model="form.phone" disabled />
-            </el-form-item>
+            <el-form-item :label="t('login.username')"><el-input :model-value="user?.username" disabled /></el-form-item>
             <el-form-item>
               <el-button type="primary" :loading="saving" @click="saveProfile">{{ t('profile.save') }}</el-button>
             </el-form-item>
           </el-form>
         </el-card>
 
-        <el-card shadow="never" class="mt-card">
+        <el-card shadow="never" class="mt-card surface-card">
           <template #header>{{ t('profile.changePassword') }}</template>
           <el-form :model="pwdForm" label-width="100px">
             <el-form-item :label="t('profile.oldPassword')">
@@ -39,7 +38,7 @@
       </el-col>
 
       <el-col :xs="24" :md="10">
-        <el-card shadow="never">
+        <el-card shadow="never" class="surface-card">
           <template #header>
             <span>{{ t('profile.verify') }}</span>
             <el-tag v-if="user?.verified" type="success" size="small" style="margin-left: 8px">
@@ -72,7 +71,7 @@
           </el-form>
         </el-card>
 
-        <el-card shadow="never" class="mt-card">
+        <el-card shadow="never" class="mt-card surface-card">
           <template #header>{{ t('profile.usageOverview') }}</template>
           <el-descriptions :column="1" border>
             <el-descriptions-item :label="t('profile.totalTokens')">
@@ -89,6 +88,20 @@
         </el-card>
       </el-col>
     </el-row>
+    <el-card shadow="never" class="mt-card surface-card">
+      <template #header>{{ t('profile.sessions') }}</template>
+      <el-button :loading="sessionsLoading" @click="loadSessions">{{ t('profile.refreshSessions') }}</el-button>
+      <el-button type="warning" :disabled="sessionsLoading" @click="revokeOthers">{{ t('profile.revokeOthers') }}</el-button>
+      <el-table :data="sessions">
+        <el-table-column prop="loginMethod" :label="t('profile.loginMethod')" />
+        <el-table-column prop="ip" label="IP" />
+        <el-table-column prop="userAgent" :label="t('profile.userAgent')" />
+        <el-table-column :label="t('profile.actions')"><template #default="{ row }">
+          <el-tag v-if="row.current">{{ t('profile.currentSession') }}</el-tag>
+          <el-button link type="danger" @click="revoke(row)">{{ t('profile.revoke') }}</el-button>
+        </template></el-table-column>
+      </el-table>
+    </el-card>
   </div>
 </template>
 
@@ -96,9 +109,14 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
+import { useRouter } from 'vue-router'
+import { authSession } from '@/api/request'
+import { authErrorMessage } from '@/api/auth-errors'
+import { listSessions, revokeOtherSessions, revokeSession } from '@/api/auth'
 import { changePassword, submitRealName } from '@/api/users'
 import { getUsageStats } from '@/api/billing'
 import { useI18n } from '@/composables/useI18n'
+import PageHeader from '@/components/shell/PageHeader.vue'
 
 const userStore = useUserStore()
 const { t } = useI18n()
@@ -118,12 +136,40 @@ const planLabel = computed(() => {
   return t('plan.free')
 })
 
+const router = useRouter()
+const sessions = ref([])
+const sessionsLoading = ref(false)
+async function loadProfile() {
+  try {
+    await userStore.fetchProfile()
+    form.nickname = user.value?.nickname || ''
+    form.phone = user.value?.phone || ''
+  } catch { /* Retried independently through the visible profile warning. */ }
+}
+async function loadSessions() {
+  sessionsLoading.value = true
+  try { sessions.value = await listSessions() }
+  catch (error) { if (error.code !== 'identity_changed') ElMessage.error(authErrorMessage(error)) }
+  finally { sessionsLoading.value = false }
+}
+async function revoke(row) {
+  try {
+    await revokeSession(row.guid, row.current)
+    if (row.current) await router.replace('/login')
+    else await loadSessions()
+  } catch (error) { ElMessage.error(authErrorMessage(error)) }
+}
+async function revokeOthers() {
+  try { await revokeOtherSessions(); await loadSessions() }
+  catch (error) { ElMessage.error(authErrorMessage(error)) }
+}
 onMounted(async () => {
-  if (user.value) {
-    form.nickname = user.value.nickname || ''
-    form.phone = user.value.phone || ''
-  }
-  usage.value = await getUsageStats()
+  const context = authSession.capture()
+  await Promise.allSettled([loadProfile(), loadSessions(), (async () => {
+    const result = await getUsageStats()
+    authSession.assertCurrent(context)
+    usage.value = result
+  })()])
 })
 
 async function saveProfile() {
@@ -145,6 +191,7 @@ async function changePwd() {
     ElMessage.warning(t('profile.passwordMismatch'))
     return
   }
+  try {
   await changePassword({
     oldPassword: pwdForm.oldPassword,
     newPassword: pwdForm.newPassword,
@@ -153,6 +200,8 @@ async function changePwd() {
   pwdForm.oldPassword = ''
   pwdForm.newPassword = ''
   pwdForm.confirm = ''
+  await router.replace('/login')
+  } catch (error) { ElMessage.error(authErrorMessage(error)) }
 }
 
 async function submitVerify() {

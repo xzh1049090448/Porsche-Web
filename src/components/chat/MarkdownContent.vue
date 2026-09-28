@@ -44,15 +44,15 @@ const html = computed(() => renderMarkdown(props.content, { streaming: props.str
   }
 
   :deep(h1) {
-    font-size: 1.35em;
+    font-size: var(--font-size-page-title);
   }
 
   :deep(h2) {
-    font-size: 1.2em;
+    font-size: var(--font-size-subtitle);
   }
 
   :deep(h3) {
-    font-size: 1.1em;
+    font-size: var(--font-size-body);
   }
 
   :deep(ul),

@@ -6,7 +6,7 @@
 
 | 模块 | 功能 |
 |------|------|
-| 登录 | 手机号验证码登录、账号密码登录 |
+| 登录 | 用户名注册/登录、会话刷新、注销和设备管理 |
 | 模型面板 | 由后端授权目录动态提供的模型切换、温度/Token/上下文参数、多模型对比 |
 | 对话 | 流式打字机效果、多轮对话、历史命名/删除、复制、Markdown/PDF 导出、图片上传（多模态模型） |
 | 个人中心 | 资料修改、密码修改、实名认证、用量概览 |
@@ -16,7 +16,7 @@
 
 ```bash
 # 在本目录下执行（需 Node.js 18+）
-npm install          # 必须先执行，且不要加 --omit=dev / --production
+npm ci               # 按已提交的 package-lock.json 安装完整依赖
 npm run dev
 npm run build        # 产物在 dist/
 ```
@@ -24,17 +24,30 @@ npm run build        # 产物在 dist/
 若出现 `vite: not found`，说明未安装开发依赖，请重新执行：
 
 ```bash
-rm -rf node_modules package-lock.json
-npm install
+rm -rf node_modules
+npm ci
 npm run build
 ```
 
+生产构建会先读取 `.env.production` 和 `.env.production.local`，并以当前进程环境变量为最高优先级。`VITE_USE_MOCK` 必须明确设置为 `false`，否则构建会在 Vite 启动前失败，避免发布 Mock 数据模式。
+
+生产一键发布由后端 `deploy/restart-all.sh` 统一编排。它只把前端
+`.env.example` 中新增、但 `.env` 尚不存在的 key 追加进去，不覆盖任何既有
+配置；随后在统一发布锁和环境文件协作锁内执行 `npm ci` 与生产构建。构建完成
+后静态目录在同一文件系统上原子切换，Nginx reload 失败时恢复上一目录。该流程
+与后端不可变 image ID、source revision 和同一环境快照一起构成一次发布候选。
+
 访问 http://localhost:5173
 
-### 演示账号
+### 认证与开发验证
 
-- **验证码登录**：任意 11 位手机号 + 验证码 `123456`
-- **密码登录**：任意账号 + 密码 `demo123`
+本分支以最新后端 `0bab2b7` 核对用户名与可撤销会话协议（与 `90abbdc` 公开接口兼容），契约见 [interface-contract.json](interface-contract.json)。注册成功后仍需登录；没有可用于正式接口的通用演示账号。
+
+Access Token 仅在内存，Refresh Cookie 由后端以 HttpOnly/Secure/SameSite=Lax 设置。认证需要浏览器 Web Locks、跨标签通知和可写的非敏感协调存储；能力不足时停止认证并提示。用户名、密码、Token、SID 和用户资料不写入协调存储。
+
+本地 `npm run dev` + 拦截 API 的浏览器测试只验证客户端行为，不能代替真实 Cookie 验收。真实联调必须使用已授权的同源 HTTPS 环境、正确 Origin 与专用测试账号；不要将 localhost 直接跨站调用正式域名当成 Cookie 联调方案，不应放宽 Cookie 或伪造 Origin。
+
+认证请求结果不确定时，界面区分本地退出与服务端注销确认；刷新页面不会自动解除未知状态。不要手工删除协调标记来绕过保护，应按提示确认其他标签/未知请求状态并在授权测试环境复核。
 
 ## 环境变量
 
@@ -65,12 +78,12 @@ src/
 
 | 模块 | 路径前缀 | 说明 |
 |------|----------|------|
-| 认证 | `/api/v1/auth` | `send-code`、`login/code`、`login/password` |
-| 用户 | `/api/v1/users` | `me`、`me/password`、`me/verify`、`me/usage` |
+| 认证 | `/api/v1/auth` | `register`、`login`、`refresh`、`logout`、`self`、`sessions`、`self/password` |
+| 用户 | `/api/v1/users` | `me`、`me/usage`；改密走 `/auth/self/password`，实名走 `/auth/self/verify` |
 | 平台对话 | `/api/v1/platform` | `models`、`chat/completions`（SSE）、`chat/compare` |
 | 对话历史 | `/api/v1/conversations` | GUID CRUD、`export/markdown`；删除为逻辑删除，见 [docs/conversation-delete-api.md](./docs/conversation-delete-api.md) |
 | 计费 | `/api/v1/billing` | `plans`、`orders`、`orders/{guid}/pay`、`invoice` |
 
-鉴权：`Authorization: Bearer {access_token}`
+鉴权：短期内存 `Authorization: Bearer {access_token}`；Refresh/logout 按契约携带浏览器 Cookie 与可信 Origin。
 
 前端实现见 `src/api/`，字段映射见 `src/utils/platform-mappers.js`。所有业务资源标识均使用不经数值转换的字符串 GUID。

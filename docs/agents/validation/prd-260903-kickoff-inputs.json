@@ -1,0 +1,66 @@
+{
+  "prd": "PRD-260903",
+  "version": "v0.2",
+  "recordedAt": "2026-09-03T08:30:39.597818+00:00",
+  "source": "/Users/xuzhihao/code/PRD-260903-管理员用户管理与公共页面体系.md",
+  "sourceSHA256": "58ab6fa63c9e5bcc9704ecc2167c1dfe75b77ff9ca0c8117f834fe88333eb31a",
+  "frozenCopy": "docs/requirements/PRD-260903-admin-public-v0.2.md",
+  "scope": "Coordination and design; not implementation acceptance, production deployment or migration authorization",
+  "repositories": [
+    {
+      "root": "/Users/xuzhihao/code/Porsche/.worktrees/admin-public-260903",
+      "head": "aec1619ee710c80cd71dbe529660e2d12b3fda7b",
+      "branch": "feature/admin-public-260903",
+      "statusAtSnapshot": "",
+      "last5": [
+        "aec1619ee710c80cd71dbe529660e2d12b3fda7b docs: record ad3f5b4 release and successful bounded SSE retest",
+        "88d92b262db73b89237b056f4e7f4abced39f653 docs: verify object diagnostic candidate and exact release readiness",
+        "ad3f5b4416854353ebb2b3647ae4b2a809b4a05c feat: add bounded object shape diagnostics for SSE rejection",
+        "70f603704741a4d0c59e852d6d7f13348533272e docs: plan bounded object diagnostics for remaining M3 request",
+        "341a49835c5bdf04a2e3bf11a238b7109e1ceb19 docs: authorize one additional bounded M3 diagnostic request"
+      ]
+    },
+    {
+      "root": "/Users/xuzhihao/code/Porsche-Web/.worktrees/admin-public-260903",
+      "head": "25a66a4ad546a481941dfc6e0cc9bc75da2e631b",
+      "branch": "feature/admin-public-260903",
+      "statusAtSnapshot": "?? docs/requirements/",
+      "last5": [
+        "25a66a4ad546a481941dfc6e0cc9bc75da2e631b docs: complete cross-team alignment memo and confirmed interface inventory",
+        "83c87fbe791204a6915ec784bfa6371475312598 docs: record M3 normal SSE pass and remaining acceptance gaps",
+        "181262c36198f9f4325b74de56b9b3fefa55dc1e docs: prepare bounded fourth M3 attempt for object diagnostics",
+        "dc8c1d6c21934eb45f936f5d635879fd5dd0d1a3 docs: extend M3 generation budget by one request",
+        "78cb65474f5cac70eb0a358241fdc93685688a1d docs: align object investigation and evidence requirements"
+      ]
+    }
+  ],
+  "references": [
+    {
+      "path": "/Users/xuzhihao/Doubao/chats/2026-09-01/new-chat-1/AI模型中转站-前端设计PRD.md",
+      "exists": true,
+      "sha256": "65e5bcffa898cb0df2240c61116df78331c7f893bb58f90c3a391a1719b6ffca"
+    },
+    {
+      "path": "/Users/xuzhihao/Doubao/chats/2026-09-01/new-chat-1/landing-prototype.html",
+      "exists": true,
+      "sha256": "9be27fce21a8b0f2cd882341819a88b91ef29ebf066a7d3db0c395cef10c71da"
+    },
+    {
+      "path": "/Users/xuzhihao/Doubao/chats/2026-09-01/new-chat-1/pricing.html",
+      "exists": true,
+      "sha256": "29a3ecb84f9cdac34867b162e57a2c7bd8bfc36e95cf8e956816f13712259b07"
+    },
+    {
+      "path": "/Users/xuzhihao/Doubao/chats/2026-09-01/new-chat-1/users-prototype.html",
+      "exists": true,
+      "sha256": "cd12ed57d0f9f7fc48684992af19d9a45b1c4fde6173d58b769ceeda4e9fbee2"
+    }
+  ],
+  "runtimeEvidence": "Historical frontend158a00e/backendad3f5b4 only; no online inspection this turn",
+  "legacyM3GenerationBudget": {
+    "used": 4,
+    "maximum": 4,
+    "remaining": 0
+  },
+  "businessBaselineTestsThisTurn": "NOT_RUN: design-only; install/build/DB tests required before implementation, past PASS is not reused as new branch verification"
+}

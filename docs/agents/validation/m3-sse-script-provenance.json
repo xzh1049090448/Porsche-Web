@@ -1,0 +1,8 @@
+{
+  "/private/tmp/playwright-test-m3-sse-normal.cjs": {
+    "sha256": "fe3b4ea45e8c248887b0379f23537afe04a103cc2657fe7c29cabc744a874558"
+  },
+  "/private/tmp/playwright-test-m3-sse-diagnose.cjs": {
+    "sha256": "6fee148472155aa017ac7dccdad4b64f5e8a3fefa0ca575a953970e19938838e"
+  }
+}

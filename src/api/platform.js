@@ -1,10 +1,14 @@
-import { getAuthToken, USE_MOCK } from './request'
+import { createStreamScope } from './stream-scope'
+import { USE_MOCK, authSession } from './request'
 import { mockApi } from './mock'
-import { readPlatformChatStream, readPlatformCompareStream } from '@/utils/sse'
 import request from './request'
 import { catalogModels } from '@/utils/model-catalog'
-import { optionalGuid } from './guid'
 import { getPlatformModelDetail } from './platform-model-detail'
+import {
+  PlatformGenerationIndeterminateError,
+  streamPlatformCompareGeneration,
+  streamPlatformGeneration,
+} from './platform-generation'
 
 const PREFIX = '/api/v1/platform'
 
@@ -25,88 +29,60 @@ export async function getModel(id) {
  * 流式对话
  * @param {object} body - 与后端 PlatformChatRequest 对齐
  */
-export async function streamPlatformChat(body, callbacks) {
-  if (USE_MOCK) {
-    return mockApi.streamChat({
+export async function streamPlatformChat(body, callbacks = {}) {
+  const scope = createStreamScope(authSession, callbacks)
+  try {
+    if (USE_MOCK) return await mockApi.streamChat({
       modelId: body.model,
-      content: body.messages?.filter((m) => m.role === 'user').pop()?.content || '',
-      onChunk: callbacks.onChunk,
-      onDone: callbacks.onDone,
-      onMeta: callbacks.onMeta,
+      content: body.messages?.filter(m => m.role === 'user').pop()?.content || '',
+      ...scope.callbacks,
+      signal: scope.signal,
     })
-  }
-
-  const payload = {
-    model: body.model,
-    messages: body.messages,
-    conversation_guid: optionalGuid(body.conversationGuid),
-    temperature: body.temperature,
-    max_tokens: body.max_tokens,
-    context_window: body.context_window,
-    stream: true,
-  }
-
-  const response = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${getAuthToken()}`,
-    },
-    body: JSON.stringify(payload),
-  })
-
-  return readPlatformChatStream(response, callbacks)
+    return await streamPlatformGeneration(body, {
+      signal: scope.signal,
+      onEvent(event) {
+        if (event.type === 'meta') scope.callbacks.onMeta?.({ conversationGuid: event.conversation_guid, generationId: event.generation_id, models: event.models })
+        else if (event.type === 'delta') scope.callbacks.onChunk?.(event.delta)
+        else if (event.type === 'done') scope.callbacks.onDone?.({ conversationGuid: event.conversation_guid, generationId: event.generation_id, tokens: event.tokens, totalTokensUsed: event.total_tokens_used })
+      },
+    })
+  } catch (error) {
+    if (error instanceof PlatformGenerationIndeterminateError && error.reason === 'aborted') scope.callbacks.onCancel?.({ generationId: error.generation_id })
+    else scope.callbacks.onError?.(error.code || 'generation_indeterminate', { generationId: error.generation_id })
+    throw error
+  } finally { scope.cleanup() }
 }
 
-/**
- * 多模型对比（SSE：各模型并行流式输出）
- */
+/** Existing multi-model comparison shares the same no-replay and terminal policy. */
 export async function comparePlatformChat(body, callbacks = {}) {
-  if (USE_MOCK) {
-    await mockApi.compareModels({
-      modelIds: body.models,
-      content: body.messages?.filter((m) => m.role === 'user').pop()?.content || '',
-      onModelChunk: (payload) => callbacks.onModelChunk?.(payload),
+  const scope = createStreamScope(authSession, callbacks)
+  try {
+    if (USE_MOCK) {
+      await mockApi.compareModels({ modelIds: body.models,
+        content: body.messages?.filter(m => m.role === 'user').pop()?.content || '',
+        onModelChunk: scope.callbacks.onModelChunk, signal: scope.signal,
+      })
+      const tokens = Math.ceil((body.messages?.filter(m => m.role === 'user').pop()?.content || '').length * 1.2 * body.models.length)
+      scope.callbacks.onDone?.({ tokens })
+      return { results: [], conversationGuid: null }
+    }
+    return await streamPlatformCompareGeneration({ ...body, model: body.model ?? body.models?.[0] }, {
+      signal: scope.signal,
+      onEvent(event) {
+        if (event.type === 'meta') scope.callbacks.onMeta?.({ conversationGuid: event.conversation_guid, generationId: event.generation_id, models: event.models })
+        else if (event.type === 'delta') scope.callbacks.onModelChunk?.({ model: event.model, delta: event.delta })
+        else if (event.type === 'model_done') {
+          const result = { model: event.model }
+          scope.callbacks.onModelResult?.(result)
+        } else if (event.type === 'model_error') {
+          const result = { model: event.model, code: event.code, error: event.code }
+          scope.callbacks.onModelResult?.(result)
+        } else if (event.type === 'done') scope.callbacks.onDone?.({ conversationGuid: event.conversation_guid, generationId: event.generation_id, tokens: event.total_tokens_used, totalTokensUsed: event.total_tokens_used, models: event.models })
+      },
     })
-    const estTokens = Math.ceil((body.messages?.filter((m) => m.role === 'user').pop()?.content || '').length * 1.2 * body.models.length)
-    callbacks.onDone?.({
-      tokens: estTokens,
-    })
-    return { results: [], conversationGuid: null }
-  }
-
-  const payload = {
-    models: body.models,
-    messages: body.messages,
-    conversation_guid: optionalGuid(body.conversationGuid),
-    temperature: body.temperature,
-    max_tokens: body.max_tokens,
-    context_window: body.context_window,
-    stream: true,
-  }
-
-  const response = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}${PREFIX}/chat/compare`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${getAuthToken()}`,
-    },
-    body: JSON.stringify(payload),
-  })
-
-  const results = []
-  await readPlatformCompareStream(response, {
-    onModelChunk: callbacks.onModelChunk,
-    onModelResult(r) {
-      results.push(r)
-      callbacks.onModelResult?.(r)
-    },
-    onDone: callbacks.onDone,
-    onError: callbacks.onError,
-  })
-
-  return {
-    results,
-    conversationGuid: null,
-  }
+  } catch (error) {
+    if (error instanceof PlatformGenerationIndeterminateError && error.reason === 'aborted') scope.callbacks.onCancel?.({ generationId: error.generation_id })
+    else scope.callbacks.onError?.(error.code || 'generation_indeterminate', { generationId: error.generation_id })
+    throw error
+  } finally { scope.cleanup() }
 }

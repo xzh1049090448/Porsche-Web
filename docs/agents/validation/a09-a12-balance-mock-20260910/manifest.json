@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-10T00:37:08+08:00",
+  "scope": "PRD-260903 A09-A12 local limited-scope acceptance",
+  "status": "PASS_LIMITED_SCOPE",
+  "code_under_test": {
+    "frontend": "86122422a8234db3d5ee486eda8a0def6646dcc6",
+    "backend": "258abb42a9e1f018845b3175e7dbca0a013231f1"
+  },
+  "items": {
+    "A09": "PASS_LIMITED_SCOPE",
+    "A10": "PASS_LIMITED_SCOPE",
+    "A11": "PASS_LIMITED_SCOPE",
+    "A12": "PASS_LIMITED_SCOPE_REVALIDATED"
+  },
+  "verification": {
+    "frontend_focused": "8/8 PASS",
+    "frontend_full": "455/455 PASS, 0 fail, 0 skip",
+    "frontend_production_build": "PASS; development route, marker and synthetic username absent from dist",
+    "visible_chromium": "PASS: login, development route, synthetic user, success, failure atomicity, 390px overflow, reload reset",
+    "backend_balance_route_boundary": "PASS: three representative quota/balance mutation paths remain 404",
+    "backend_full": "go test ./... -count=1 PASS",
+    "backend_build": "GOCACHE=/tmp/porsche-a09-a12-go-cache go build ./... PASS",
+    "a12_frontend_revalidation": "65/65 focused delete tests PASS",
+    "a12_backend_revalidation": "authz/dto/handler/router/service focused delete tests PASS",
+    "merged_migration_chain": "real MySQL 8 migration 0011-0013 and A08 0013 down compatibility PASS in disposable fixture"
+  },
+  "browser_observation": {
+    "business_checks": "PASS",
+    "console_noise": "Mock login background /api/v1/auth/self attempted the absent local backend and returned 500 twice; balance demo stayed memory-only and all assertions passed",
+    "production_api_or_database_used": false
+  },
+  "limitations": [
+    "A09 and A10 are a development-only CNY synthetic-user demonstration; they are not real balance, ledger, billing, recharge, refund or deduction capabilities.",
+    "The production build contains no demo route or fixture marker and real user list/detail continue to say the amount capability is unavailable.",
+    "A12 remains the previously accepted users.delete soft-delete slice; this run revalidated it and did not add restore behavior.",
+    "The merged A08 service fixture suite did not complete a new full rerun after a disposable MySQL host-mapping connection failure; prior A08 real-service evidence and the current no-fixture full suite remain separately identified.",
+    "External backend project_manager written confirmation, production migration, deployment, production acceptance and real business accounts were not run."
+  ],
+  "production": {
+    "touched": false,
+    "migration": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "acceptance": "NOT_RUN"
+  },
+  "cleanup": "PASS; disposable containers labeled codex.task=a08-merged-fixture have zero residue"
+}

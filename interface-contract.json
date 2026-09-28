@@ -1,0 +1,3793 @@
+{
+  "version": "v1.0.0-p0",
+  "status": "agreed_for_implementation",
+  "update_time": "2026-09-03",
+  "maintainers": [
+    "front_end_project_coordinator",
+    "project_manager"
+  ],
+  "baseline": {
+    "frontend_main": "9e133518874e1c0554615ae988f57d6d6cecfbf6",
+    "frontend_reused": "6f8fbca",
+    "backend": "0bab2b7fd7515789c7a853edab7db120771b6028",
+    "backend_old_main_not_target": "e0efac2e22a9946491da72be1c0f3269156835eb",
+    "frontend_upstream_integrated": "7fbf616",
+    "backend_current_code": "ad3f5b4416854353ebb2b3647ae4b2a809b4a05c",
+    "backend_prior_confirmed_deployment": "90abbdc49513039fa9218a6ce72d3147fbf1721e",
+    "frontend_current_code": "158a00e2ff3c70d302c748d0e62f419a155835ae",
+    "documentation_heads": {
+      "/Users/xuzhihao/code/Porsche-Web/.worktrees/auth-p0-harden": "83c87fbe791204a6915ec784bfa6371475312598",
+      "/Users/xuzhihao/code/Porsche/.worktrees/m3-sse-diagnostics": "aec1619ee710c80cd71dbe529660e2d12b3fda7b"
+    },
+    "note": "Historical backend/main baselines retained; current_code is last verified released candidate, not a fresh remote check."
+  },
+  "interfaces": [
+    {
+      "name": "register",
+      "method": "POST",
+      "path": "/api/v1/auth/register",
+      "authentication": "none",
+      "request": {
+        "username": "required string",
+        "password": "required string",
+        "nickname": "optional string|null"
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "user": "AuthUser"
+        }
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "login",
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "authentication": "none",
+      "request": {
+        "username": "required string",
+        "password": "required string"
+      },
+      "response": {
+        "status": 200,
+        "body": "LoginResponse"
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "refresh",
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "authentication": "refresh-cookie + trusted Origin",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": "LoginResponse"
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "logout",
+      "method": "POST",
+      "path": "/api/v1/auth/logout",
+      "authentication": "Bearer + refresh-cookie + trusted Origin",
+      "request": null,
+      "response": {
+        "status": 204,
+        "body": null
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "self",
+      "method": "GET",
+      "path": "/api/v1/auth/self",
+      "authentication": "Bearer",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "user": "AuthUser"
+        }
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "sessions",
+      "method": "GET",
+      "path": "/api/v1/auth/sessions",
+      "authentication": "Bearer",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "data": "AuthSession[]"
+        }
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "revoke_session",
+      "method": "DELETE",
+      "path": "/api/v1/auth/sessions/{guid}",
+      "authentication": "Bearer",
+      "request": {
+        "path_guid": "positive decimal-string"
+      },
+      "response": {
+        "status": 204,
+        "body": null
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "revoke_others",
+      "method": "POST",
+      "path": "/api/v1/auth/sessions/revoke-others",
+      "authentication": "Bearer",
+      "request": null,
+      "response": {
+        "status": 204,
+        "body": null
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "change_password",
+      "method": "POST",
+      "path": "/api/v1/auth/self/password",
+      "authentication": "Bearer",
+      "request": {
+        "old_password": "required string",
+        "new_password": "required string"
+      },
+      "response": {
+        "status": 204,
+        "body": null
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.auth_handler and errors.middleware; endpoint-specific status semantics, no unified wrapper"
+    },
+    {
+      "name": "profile",
+      "method": "GET",
+      "path": "/api/v1/users/me",
+      "authentication": "Bearer",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": "UserProfile"
+      },
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance",
+      "scope": "P0 core",
+      "error_contract": "errors.middleware and existing detail-style handler errors"
+    },
+    {
+      "name": "platform_models",
+      "method": "GET",
+      "path": "/api/v1/platform/models",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "data": "Model[]",
+          "catalog_stale": "boolean"
+        }
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/platform.go + internal/whitelabel/types.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "platform_model_detail",
+      "method": "GET",
+      "path": "/api/v1/platform/models/detail",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "query": {
+          "id": "required opaque model ID, URL encoded exactly once; slash preserved as ID content"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "Model"
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/platform.go + internal/whitelabel/types.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "platform_chat_stream",
+      "method": "POST",
+      "path": "/api/v1/platform/chat/completions",
+      "authentication": "Bearer",
+      "scope": "BE06 platform-chat-sse.v2 single generation; legacy protocol remains separately compatible",
+      "request": {
+        "body": "PlatformChatRequest",
+        "required_control_fields": {
+          "stream": true,
+          "stream_version": "platform-chat-sse.v2",
+          "generation_id": "canonical lowercase UUID"
+        }
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "headers": {
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no"
+        },
+        "body": "platform_chat_sse_v2.events; first-frame failure instead returns HTTP error JSON",
+        "duplicate_generation_status": 409
+      },
+      "error_contract": "platform_chat_sse_v2 stable safe pre-stream errors; no JSON is appended after the stream starts; POST is never replayed",
+      "source": "backend@4680c549 internal/handler/platform.go + internal/service/platform_single_generation.go + internal/service/platform_sse_v2.go",
+      "confirmation": "BE06 code-contract freeze; local contract evidence only, not live acceptance"
+    },
+    {
+      "name": "platform_chat_compare_stream",
+      "method": "POST",
+      "path": "/api/v1/platform/chat/compare",
+      "authentication": "Bearer",
+      "scope": "BE06 platform-chat-sse.v2 ordered multi-model generation",
+      "request": {
+        "body": "PlatformCompareRequest",
+        "models": "required ordered unique model ID array with 2..3 entries",
+        "required_control_fields": {
+          "stream": true,
+          "stream_version": "platform-chat-sse.v2",
+          "generation_id": "canonical lowercase UUID"
+        }
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "headers": {
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no"
+        },
+        "body": "platform_chat_sse_v2.events with model order preserved",
+        "duplicate_generation_status": 409
+      },
+      "error_contract": "platform_chat_sse_v2 stable safe pre-stream errors; no JSON is appended after the stream starts; POST is never replayed",
+      "source": "backend@4680c549 internal/handler/platform.go + internal/service/platform_compare_generation.go + internal/service/platform_sse_v2.go",
+      "confirmation": "BE06 code-contract freeze; local contract evidence only, not live acceptance"
+    },
+    {
+      "name": "platform_generation_cancel",
+      "method": "POST",
+      "path": "/api/v1/platform/chat/generations/{generation_id}/cancel",
+      "authentication": "Bearer",
+      "scope": "BE06 owner-bound explicit cancellation",
+      "request": {
+        "path": {
+          "generation_id": "canonical lowercase UUID"
+        },
+        "body": null
+      },
+      "response": {
+        "headers": {
+          "Cache-Control": "no-store"
+        },
+        "one_of": [
+          "200 terminal cancelled|completed|failed GenerationStatus",
+          "202 pending cancelling|committing GenerationStatus with Retry-After: 1"
+        ]
+      },
+      "error_contract": "400 invalid UUID; owner-scoped missing generation creates a cancelled tombstone without exposing another owner's generation; 503 unavailable",
+      "source": "backend@4680c549 internal/handler/platform_generation.go",
+      "confirmation": "BE06 code-contract freeze; local contract evidence only, not live acceptance"
+    },
+    {
+      "name": "platform_generation_get",
+      "method": "GET",
+      "path": "/api/v1/platform/chat/generations/{generation_id}",
+      "authentication": "Bearer",
+      "scope": "BE06 owner-bound recovery without POST replay",
+      "request": {
+        "path": {
+          "generation_id": "canonical lowercase UUID"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Cache-Control": "no-store"
+        },
+        "body": "platform_chat_sse_v2.generation_get"
+      },
+      "error_contract": "400 invalid UUID; 404 unknown or foreign-owned generation; 503 unavailable",
+      "source": "backend@4680c549 internal/handler/platform_generation.go",
+      "confirmation": "BE06 code-contract freeze; local contract evidence only, not live acceptance"
+    },
+    {
+      "name": "usage",
+      "method": "GET",
+      "path": "/api/v1/users/me/usage",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": null,
+      "response": {
+        "status": 200,
+        "body": "Usage"
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/auth_users.go + internal/service/billing.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "conversation_list",
+      "method": "GET",
+      "path": "/api/v1/conversations",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "query": {
+          "skip": "client should send integer >=0; default 0",
+          "limit": "client should send integer >=0; default 20; capped at100"
+        },
+        "server_parsing": "Atoi with fallback to default for invalid strings; no explicit negative rejection; limit>100 capped. Client constraint is not server validation proof."
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "items": "Conversation[] without messages",
+          "total": "integer"
+        }
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/conversations_datasets.go + internal/dto/serializers.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "conversation_create",
+      "method": "POST",
+      "path": "/api/v1/conversations",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "title": "optional string|null",
+        "model": "optional string|null"
+      },
+      "response": {
+        "status": 200,
+        "body": "Conversation without messages"
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/conversations_datasets.go + internal/dto/serializers.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "conversation_detail",
+      "method": "GET",
+      "path": "/api/v1/conversations/{guid}",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "path_guid": "positive decimal-string"
+      },
+      "contract_ref": "docs/agents/contracts/platform-compare-history-grouping-v1.json",
+      "response": {
+        "status": 200,
+        "body": {
+          "guid": "positive decimal-string",
+          "title": "string",
+          "model": "string",
+          "created_at": "RFC3339Nano UTC string",
+          "updated_at": "RFC3339Nano UTC string",
+          "messages": "Message[]",
+          "generation_groups": "GenerationGroup[]; detail-only; [] when none; see contract_ref"
+        }
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/conversations_datasets.go + internal/dto/serializers.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "conversation_title",
+      "method": "PUT",
+      "path": "/api/v1/conversations/{guid}",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "path_guid": "positive decimal-string",
+        "body": {
+          "title": "optional string|null; empty/omitted reads existing detail"
+        }
+      },
+      "contract_ref": "docs/agents/contracts/platform-compare-history-grouping-v1.json",
+      "response": {
+        "status": 200,
+        "body": {
+          "guid": "positive decimal-string",
+          "title": "string",
+          "model": "string",
+          "created_at": "RFC3339Nano UTC string",
+          "updated_at": "RFC3339Nano UTC string",
+          "messages": "Message[]",
+          "generation_groups": "GenerationGroup[]; detail-only; [] when none; see contract_ref"
+        }
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/conversations_datasets.go + internal/dto/serializers.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "conversation_delete",
+      "method": "DELETE",
+      "path": "/api/v1/conversations/{guid}",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "path_guid": "positive decimal-string"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "message": "string"
+        }
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/conversations_datasets.go + internal/dto/serializers.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "conversation_markdown",
+      "method": "GET",
+      "path": "/api/v1/conversations/{guid}/export/markdown",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "path_guid": "positive decimal-string"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/plain; charset=utf-8",
+        "body": "Markdown text"
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/conversations_datasets.go + internal/dto/serializers.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "profile_update",
+      "method": "PUT",
+      "path": "/api/v1/users/me",
+      "authentication": "Bearer",
+      "scope": "Existing P0/M3 dependency inventory; no new feature commitment",
+      "request": {
+        "nickname": "optional string|null; omitted/null is no-op, not clearing; empty string follows service validation"
+      },
+      "response": {
+        "status": 200,
+        "body": "UserProfile"
+      },
+      "error_contract": "errors.platform for platform routes; otherwise detail-style handler/middleware errors; 401 and resource denial handled without write replay",
+      "source": "backend internal/handler/auth_users.go",
+      "confirmation": "CONFIRMED: project_manager A2 final ALIGN-20260903-02-r2 review and frontend coordinator explicit acceptance; code-contract inventory only, not endpoint live acceptance"
+    },
+    {
+      "name": "admin_user_patch",
+      "backend_contract": {
+        "path": "docs/agents/contracts/admin-user-edit-v1.json",
+        "revision": "2026-09-08-a05-v1"
+      },
+      "method": "PATCH",
+      "path": "/admin/v2/users/{guid}",
+      "request": {
+        "path_guid": "canonical positive decimal signed int64 string (1..9223372036854775807), no sign, whitespace, or leading zero",
+        "headers": {
+          "Authorization": "required Bearer authentication under the existing mechanism",
+          "Content-Type": "application/json"
+        },
+        "body_limit_bytes": 4096,
+        "strict_json": "one JSON object; reject duplicate keys, case-folded duplicate keys, invalid UTF-8, trailing values, unknown fields, and oversized bodies before service invocation",
+        "body": {
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "nickname",
+              "expected_auth_version"
+            ],
+            "properties": {
+              "nickname": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "rule": "required; null clears display name; strings trim surrounding whitespace and must then contain 1..64 Unicode code points"
+              },
+              "expected_auth_version": {
+                "type": "integer",
+                "rule": "required; positive INT32 (1..2147483647)"
+              }
+            }
+          },
+          "forbidden_field_policy": "only nickname and expected_auth_version are accepted; guid, username, role, auth_version, status, password, group_guid, plan_type, allowed_models, daily_call_limit, permission_overrides, amount and balance fields, and every other field are rejected before persistence"
+        }
+      },
+      "response": {
+        "status": 200,
+        "dto": "UserReadDTO",
+        "dto_keys": [
+          "guid",
+          "username",
+          "nickname",
+          "email",
+          "group",
+          "plan_type",
+          "role",
+          "status",
+          "auth_version",
+          "created_at",
+          "last_login_at"
+        ],
+        "headers": {
+          "Cache-Control": "no-store",
+          "X-Request-ID": "required non-empty"
+        }
+      },
+      "errors": {
+        "400": "invalid path, JSON, field, or nickname",
+        "401": "authentication session invalid",
+        "403": "missing users.edit capability or hierarchy denied",
+        "404": "target not visible",
+        "409": "auth_version_conflict",
+        "413": "request body too large",
+        "503": "database or projection unavailable"
+      },
+      "capability": "users.edit",
+      "retry": {
+        "mutation": "never"
+      },
+      "legacy_put": {
+        "excluded": true,
+        "path": "/admin/users/{guid}",
+        "rule": "not a new-interface write entry point and not expanded by A05"
+      },
+      "status": "AGREED_FOR_IMPLEMENTATION"
+    }
+  ],
+  "platform_chat_sse_v2": {
+    "status": "closed",
+    "protocol": "platform-chat-sse.v2",
+    "authentication": "Bearer",
+    "generation_identity": {
+      "source": "client",
+      "format": "canonical lowercase UUID",
+      "ownership": "authenticated owner bound on first claim"
+    },
+    "request": {
+      "required_control_fields": {
+        "stream": true,
+        "stream_version": "platform-chat-sse.v2",
+        "generation_id": "canonical lowercase UUID"
+      },
+      "single": {
+        "endpoint": "POST /api/v1/platform/chat/completions",
+        "model_cardinality": 1
+      },
+      "compare": {
+        "endpoint": "POST /api/v1/platform/chat/compare",
+        "models": "ordered unique model ID array with 2..3 entries"
+      },
+      "schemas": {
+        "PlatformCompareRequest": {
+          "required": [
+            "model",
+            "models",
+            "messages",
+            "max_tokens",
+            "stream",
+            "stream_version",
+            "generation_id"
+          ],
+          "optional": [
+            "conversation_guid",
+            "temperature",
+            "context_window",
+            "n",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "stop",
+            "tools",
+            "response_format",
+            "stream_options",
+            "seed"
+          ],
+          "explicit_null_equivalent_to_absent": [
+            "conversation_guid",
+            "temperature",
+            "context_window",
+            "n",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "tools",
+            "response_format",
+            "seed"
+          ],
+          "required_non_null": [
+            "model",
+            "models",
+            "messages",
+            "max_tokens",
+            "stream",
+            "stream_version",
+            "generation_id"
+          ],
+          "fields": {
+            "model": "non-empty routing model ID string used only for shared request validation",
+            "models": "ordered unique array of 2..3 trimmed non-empty valid UTF-8 authorized model ID strings, each at most 128 UTF-8 bytes; request order is preserved",
+            "messages": "array of 1..128 closed OpenAI-compatible role/content messages; after context trimming the final message must be role user with direct non-empty valid UTF-8 string content of at most 65535 bytes",
+            "max_tokens": "integer from 1 through 9223372036854775807",
+            "stream": "literal true",
+            "stream_version": "literal platform-chat-sse.v2",
+            "generation_id": "canonical lowercase UUID",
+            "conversation_guid": "optional null or canonical positive decimal-string in signed int64 range 1..9223372036854775807; null is equivalent to absent",
+            "temperature": "optional null or finite number strictly greater than 0 and strictly less than 2; null is equivalent to absent",
+            "context_window": "optional null or Go int; null or integer <=0 disables trimming, positive N retains at most the final N message pairs",
+            "n": "optional null or literal integer 1; null is equivalent to absent",
+            "top_p": "optional null or finite number greater than 0 through 1; null is equivalent to absent",
+            "frequency_penalty": "optional null or finite number strictly greater than -2 and strictly less than 2; null is equivalent to absent",
+            "presence_penalty": "optional null or finite number strictly greater than -2 and strictly less than 2; null is equivalent to absent",
+            "stop": "optional; null is accepted and forwarded as JSON null; any string including empty is accepted and forwarded unchanged; arrays of 0..4 string-or-null entries, including [null], are accepted by local validation and forwarded as the original JSON array unchanged",
+            "tools": "optional null or array of at most 32 closed function tools; null is equivalent to absent",
+            "response_format": "optional null or closed OpenAI-compatible response format; null is equivalent to absent",
+            "stream_options": "optional only by omission; when present must be the closed object {include_usage:true}; null is rejected by runner admission",
+            "seed": "optional null or integer from -9223372036854775808 through 9223372036854775807; null is equivalent to absent"
+          },
+          "additional_fields": "forbidden"
+        }
+      },
+      "post_replay_policy": "never_replay_generation_post"
+    },
+    "disconnect_policy": "reader_disconnect_does_not_cancel_generation",
+    "recovery_policy": "poll_owner_bound_generation_get_without_replaying_post",
+    "owner_isolation": {
+      "storage_key": "authenticated owner plus generation_id",
+      "foreign_get": "404 generation_not_found without data disclosure",
+      "foreign_cancel": "200 owner-scoped cancelled tombstone without altering another owner generation"
+    },
+    "generation_status_response_headers": {
+      "Cache-Control": "no-store"
+    },
+    "duplicate_generation": {
+      "status": 409,
+      "body": "owner_bound_generation_status_view",
+      "behavior": "conflict_never_starts_or_replays_generation"
+    },
+    "cancel": {
+      "terminal": {
+        "status": 200,
+        "generation_statuses": [
+          "cancelled",
+          "completed",
+          "failed"
+        ],
+        "retry_after": "absent"
+      },
+      "pending": {
+        "status": 202,
+        "generation_statuses": [
+          "cancelling",
+          "committing"
+        ],
+        "retry_after": "1"
+      }
+    },
+    "stable_safe_codes": [
+      "gateway_upstream_error",
+      "invalid_request",
+      "rate_limited",
+      "cancelled",
+      "timeout",
+      "internal_error",
+      "upstream_error"
+    ],
+    "events": {
+      "order": [
+        "meta",
+        "delta|model_done|model_error",
+        "done|error"
+      ],
+      "schemas": {
+        "meta": {
+          "required": [
+            "schema",
+            "generation_id",
+            "conversation_guid",
+            "models"
+          ],
+          "optional": [],
+          "fields": {
+            "schema": "literal platform-chat-sse.v2",
+            "generation_id": "canonical lowercase UUID",
+            "conversation_guid": "canonical positive decimal-string in signed int64 range 1..9223372036854775807",
+            "models": "ordered unique model ID array, single has 1 and compare has 2..3"
+          },
+          "additional_fields": "forbidden"
+        },
+        "delta": {
+          "required": [
+            "generation_id",
+            "model",
+            "seq",
+            "delta"
+          ],
+          "optional": [],
+          "fields": {
+            "generation_id": "canonical lowercase UUID",
+            "model": "requested model ID",
+            "seq": "positive JavaScript-safe integer, contiguous per model from 1",
+            "delta": "non-empty UTF-8 string"
+          },
+          "additional_fields": "forbidden"
+        },
+        "model_done": {
+          "required": [
+            "generation_id",
+            "model",
+            "last_seq"
+          ],
+          "optional": [],
+          "fields": {
+            "generation_id": "canonical lowercase UUID",
+            "model": "requested model ID",
+            "last_seq": "non-negative JavaScript-safe integer equal to the last contiguous seq"
+          },
+          "additional_fields": "forbidden"
+        },
+        "model_error": {
+          "required": [
+            "generation_id",
+            "model",
+            "code"
+          ],
+          "optional": [
+            "request_id"
+          ],
+          "fields": {
+            "generation_id": "canonical lowercase UUID",
+            "model": "requested model ID",
+            "code": "stable safe code",
+            "request_id": "optional 1..128 ASCII characters limited to A-Z a-z 0-9 dot underscore hyphen; unsafe values are omitted by backend and rejected if received"
+          },
+          "additional_fields": "forbidden"
+        },
+        "done": {
+          "one_of": [
+            "PlatformChatSSEV2SingleDone",
+            "PlatformChatSSEV2CompareDone"
+          ]
+        },
+        "error": {
+          "required": [
+            "generation_id",
+            "code"
+          ],
+          "optional": [
+            "request_id"
+          ],
+          "fields": {
+            "generation_id": "canonical lowercase UUID",
+            "code": "stable safe code",
+            "request_id": "optional 1..128 ASCII characters limited to A-Z a-z 0-9 dot underscore hyphen; unsafe values are omitted by backend and rejected if received"
+          },
+          "additional_fields": "forbidden"
+        }
+      },
+      "named_schemas": {
+        "PlatformChatSSEV2SingleDone": {
+          "required": [
+            "generation_id",
+            "status",
+            "conversation_guid",
+            "tokens",
+            "total_tokens_used"
+          ],
+          "literals": {
+            "status": "completed"
+          },
+          "additional_fields": "forbidden"
+        },
+        "PlatformChatSSEV2CompareDone": {
+          "required": [
+            "generation_id",
+            "status",
+            "conversation_guid",
+            "total_tokens_used",
+            "models"
+          ],
+          "literals": {
+            "status": "completed"
+          },
+          "models": "exact requested model keys; each value is completed+tokens or failed+stable safe code",
+          "additional_fields": "forbidden"
+        }
+      },
+      "terminal_rules": [
+        "exactly one meta is first",
+        "per-model seq is contiguous from 1",
+        "each requested model reaches exactly one model_done or model_error before done",
+        "done or error is the single terminal event",
+        "transport EOF without done or error is incomplete",
+        "v2 never emits legacy [DONE]"
+      ]
+    },
+    "generation_get": {
+      "nonterminal": {
+        "required": [
+          "generation_id",
+          "status",
+          "mode",
+          "conversation_guid"
+        ],
+        "optional": [],
+        "status": [
+          "running",
+          "cancelling",
+          "committing"
+        ],
+        "mode": [
+          "single",
+          "compare"
+        ],
+        "conversation_guid": null,
+        "additional_fields": "forbidden"
+      },
+      "terminal_noncompleted": {
+        "required": [
+          "generation_id",
+          "status",
+          "mode",
+          "conversation_guid"
+        ],
+        "optional": [
+          "code"
+        ],
+        "status": [
+          "cancelled",
+          "failed"
+        ],
+        "mode": [
+          "single",
+          "compare",
+          null
+        ],
+        "conversation_guid": null,
+        "code": "required stable safe code only for failed; forbidden for cancelled",
+        "additional_fields": "forbidden"
+      },
+      "completed_single": {
+        "required": [
+          "generation_id",
+          "status",
+          "mode",
+          "conversation_guid",
+          "result",
+          "total_tokens_used"
+        ],
+        "literals": {
+          "status": "completed",
+          "mode": "single"
+        },
+        "result_schema": "PlatformGenerationCompletedResult",
+        "additional_fields": "forbidden"
+      },
+      "completed_compare": {
+        "required": [
+          "generation_id",
+          "status",
+          "mode",
+          "conversation_guid",
+          "results",
+          "total_tokens_used"
+        ],
+        "literals": {
+          "status": "completed",
+          "mode": "compare"
+        },
+        "results_schema": {
+          "type": "array",
+          "items": {
+            "ref": "PlatformGenerationResult"
+          },
+          "cardinality": "exactly one result per requested model",
+          "order": "original requested model order"
+        },
+        "additional_fields": "forbidden"
+      },
+      "result_schemas": {
+        "PlatformGenerationResult": {
+          "one_of": [
+            {
+              "ref": "PlatformGenerationCompletedResult"
+            },
+            {
+              "ref": "PlatformGenerationFailedResult"
+            }
+          ]
+        },
+        "PlatformGenerationCompletedResult": {
+          "required": [
+            "model",
+            "status",
+            "assistant_message_guid",
+            "content",
+            "tokens"
+          ],
+          "optional": [],
+          "fields": {
+            "model": "trimmed non-empty UTF-8 requested model ID string of at most 128 bytes",
+            "status": "literal completed",
+            "assistant_message_guid": "positive decimal-string",
+            "content": "non-empty UTF-8 string of at most 65535 bytes",
+            "tokens": "integer from 0 through 2147483647"
+          },
+          "additional_fields": "forbidden"
+        },
+        "PlatformGenerationFailedResult": {
+          "required": [
+            "model",
+            "status",
+            "code"
+          ],
+          "optional": [],
+          "fields": {
+            "model": "trimmed non-empty UTF-8 requested model ID string of at most 128 bytes",
+            "status": "literal failed",
+            "code": "one of platform_chat_sse_v2.stable_safe_codes"
+          },
+          "additional_fields": "forbidden"
+        }
+      }
+    },
+    "legacy_compatibility": {
+      "protocol": "legacy_platform_chat_stream",
+      "compatibility": "preserved_separately",
+      "contract_sources": [
+        "sse_events",
+        "sse_rules"
+      ],
+      "v2_controls_absent": true
+    }
+  },
+  "sse_events": [
+    {
+      "event": "message",
+      "data": {
+        "type": "meta",
+        "conversation_guid": "decimal-string"
+      }
+    },
+    {
+      "event": "message",
+      "data": "ChatCompletionChunk"
+    },
+    {
+      "event": "message",
+      "data": "[DONE]",
+      "business_complete": false
+    },
+    {
+      "event": "message",
+      "data": {
+        "type": "done",
+        "tokens": "integer",
+        "total_tokens_used": "integer"
+      }
+    },
+    {
+      "event": "error",
+      "data": "errors.platform envelope; may follow [DONE]; terminal failure even if followed by transport [DONE]"
+    }
+  ],
+  "approvals": {
+    "front_end_project_coordinator": "Explicitly accepts A1-A8 and r2 21-endpoint existing-scope inventory; no new product acceptance",
+    "project_manager": "ALIGN-20260903-02 A1-A8 confirmed, A2 final exact r2 review; calendar dates/resources/P1 semantics/M3 completion pending",
+    "user": "Historical environment, implementation, exact candidate deployment and four generation authorizations executed; no new generation authorized",
+    "quality_gate": "M2 local implementation accepted; M3 normal SSE subcase accepted; overall M3 PARTIAL"
+  },
+  "open_issues": [
+    {
+      "id": "M3-ENV",
+      "status": "resolved_for_executed_scope",
+      "description": "Same-origin HTTPS and dedicated accounts authorized and used; historical not-authorized statement superseded; no new test authorization implied."
+    },
+    {
+      "id": "M3-REMAINING",
+      "status": "open",
+      "owner": "front_end_project_coordinator + project_manager",
+      "description": "Cancellation, in-stream error/EOF, post-DONE failure, cross-identity detail/stream callbacks and remaining registration/ACL matrix; core tests cannot be deferred by calling them P1."
+    },
+    {
+      "id": "OBJECT-CAUSE",
+      "status": "open",
+      "owner": "project_manager",
+      "description": "Earlier invalid_value/object not reproduced on attempt4; actual anomalous shape and root cause unknown."
+    },
+    {
+      "id": "SCHEDULE",
+      "status": "pending",
+      "owner": "both coordinators + user for resources",
+      "description": "Milestone gates confirmed; next integration date, capacity, extra generation budget and fixed daily clock time are not committed."
+    },
+    {
+      "id": "P1-FREEZE",
+      "status": "open",
+      "owner": "both coordinators",
+      "description": "Full model semantics including upstream created units, performance thresholds, compare/new product features and commercial settlement commitments not frozen; current code-shape inventory is not a new product commitment."
+    },
+    {
+      "id": "CURRENT-DB-REGRESSION",
+      "status": "open",
+      "owner": "project_manager",
+      "description": "98 default-suite tests skipped without isolated MySQL/Redis fixture on current diagnostic candidate; prior passing suites retain original revision scope."
+    }
+  ],
+  "alignment_id": "ALIGN-20260902-01",
+  "environment": {
+    "url": "https://aiportcloud.com/",
+    "origin": "https://aiportcloud.com",
+    "revision_confirmation": "version-bound release and request evidence at 2026-09-03T07:48:51Z",
+    "public_health_check": "200 {status:ok}; not a revision proof",
+    "business_test_authorization": true,
+    "authorization_scope": "Previously authorized dedicated account tests and exactly four gpt-5.4-nano generations with max_tokens=32; this document authorizes no new operation",
+    "generation_budget": {
+      "maximum": 4,
+      "used": 4,
+      "remaining": 0
+    },
+    "current_evidence": "docs/agents/validation/m3-object-postcheck.json"
+  },
+  "definitions": {
+    "AuthUser": {
+      "guid": "decimal-string",
+      "username": "string|null",
+      "nickname": "string|null",
+      "role": "string",
+      "status": "string"
+    },
+    "LoginResponse": {
+      "access_token": "string",
+      "token_type": "Bearer",
+      "expires_in": "integer seconds",
+      "user": "AuthUser"
+    },
+    "AuthSession": {
+      "guid": "decimal-string",
+      "login_method": "string",
+      "ip": "string",
+      "user_agent": "string",
+      "created_at": "UTC RFC3339Nano",
+      "last_active_at": "UTC RFC3339Nano",
+      "expires_at": "UTC RFC3339Nano",
+      "current": "boolean"
+    },
+    "UserProfile": {
+      "guid": "decimal-string",
+      "nickname": "string|null",
+      "is_verified": "boolean",
+      "plan_type": "string",
+      "total_tokens_used": "integer",
+      "daily_calls_used": "integer",
+      "daily_call_limit": "integer",
+      "created_at": "UTC RFC3339Nano"
+    },
+    "Model": {
+      "id": "opaque string",
+      "object": "optional string",
+      "created": "optional int64; upstream unit not confirmed, do not assume persistence milliseconds",
+      "owned_by": "optional string",
+      "title": "optional string",
+      "description": "optional string",
+      "context_window": "optional int64",
+      "max_tokens": "optional int64",
+      "input_token_price_per_m": "optional number; not settlement guarantee",
+      "output_token_price_per_m": "optional number; not settlement guarantee"
+    },
+    "Usage": {
+      "total_tokens_used": "integer",
+      "daily_calls_used": "integer",
+      "daily_call_limit": "integer",
+      "remaining_daily_calls": "integer",
+      "plan_type": "string"
+    },
+    "Conversation": {
+      "guid": "decimal-string",
+      "title": "string",
+      "model": "string|null",
+      "created_at": "UTC RFC3339Nano",
+      "updated_at": "UTC RFC3339Nano",
+      "messages": "Message[] present on detail and PUT response"
+    },
+    "Message": {
+      "guid": "decimal-string",
+      "role": "string enum from backend",
+      "content": "string",
+      "model": "string|null",
+      "tokens": "integer",
+      "created_at": "UTC RFC3339Nano"
+    },
+    "PlatformChatRequest": {
+      "model": "required nonblank opaque string",
+      "messages": "required array of ChatMessage; max 128; P0 text subset",
+      "max_tokens": "required positive integer",
+      "stream": "true in this streaming contract; nonstream behavior outside this inventory",
+      "conversation_guid": "optional decimal-string|null; omitted creates new conversation",
+      "temperature": "optional number|null; current validator accepts 0 < value < 2",
+      "context_window": "optional integer|null; backend local context policy",
+      "additional_fields": "No arbitrary fields. Current validator also recognizes n (platform only 1), top_p, frequency_penalty, presence_penalty, stop, tools, response_format, stream_options, seed. Their full behavior and product support are not newly frozen here; see internal/whitelabel/validation.go."
+    },
+    "ChatMessage": {
+      "role": "system|user|assistant|tool",
+      "content": "P0 text string. Structured multimodal content remains current-code compatibility surface, not newly accepted product feature."
+    },
+    "ChatCompletionChunk": {
+      "id": "nonempty string",
+      "object": "chat.completion.chunk",
+      "created": "nonnegative integer; upstream unit not newly agreed",
+      "model": "logical selected model ID",
+      "choices": "ChunkChoice[]; usage-only empty array possible",
+      "usage": "optional {prompt_tokens:integer,completion_tokens:integer,total_tokens:integer}, nonnegative"
+    },
+    "ChunkChoice": {
+      "index": "nonnegative integer",
+      "delta": "ChunkDelta",
+      "finish_reason": "string|null"
+    },
+    "ChunkDelta": {
+      "role": "optional string",
+      "content": "optional string",
+      "refusal": "optional string",
+      "tool_calls": "optional array of {index:integer,id?:string,type?:string,function?:{name?:string,arguments?:string}}; existing compatibility only"
+    }
+  },
+  "definition_format": "Descriptive field types, not JSON Schema or example responses",
+  "authentication": {
+    "access_storage": "memory-only",
+    "refresh_cookie": {
+      "name": "porsche_refresh",
+      "HttpOnly": true,
+      "Secure": true,
+      "SameSite": "Lax",
+      "Path": "/api/v1/auth",
+      "Domain": null
+    },
+    "session_header": "X-Auth-Session optional; if present must match SID, never session guid",
+    "logout": "Cookie SID must equal Bearer SID; clears Cookie",
+    "password_change": "clears Cookie and invalidates all sessions; old password error 401",
+    "register": "201 without session; trim username 3-20 ASCII alphanumeric underscore hyphen; password 8-20 Unicode characters and server weak-password rules",
+    "sessions": "active nonexpired nonrevoked, no pagination, max 100; last_active_at DESC then internal id DESC"
+  },
+  "errors": {
+    "auth_handler": {
+      "error": {
+        "code": "auth_invalid_request|auth_invalid_credentials|auth_invalid_refresh|auth_origin_denied|auth_request_failed|auth_unavailable",
+        "message": "safe string",
+        "type": "authentication_error",
+        "request_id": "string"
+      }
+    },
+    "middleware": {
+      "detail": "string"
+    },
+    "rules": [
+      "401 meaning depends on endpoint and envelope; never replay auth writes",
+      "403 permissions does not log out",
+      "unknown non-JSON data must not be displayed verbatim",
+      "retired phone auth is 410 only at target90abbdc, not old main"
+    ],
+    "platform": {
+      "error": {
+        "code": "invalid_request|unsupported_parameter|missing_max_tokens|request_too_large|model_unavailable|gateway_upstream_unavailable (route-specific, not global list)",
+        "message": "fixed safe string",
+        "type": "invalid_request_error|api_error|authentication_error",
+        "request_id": "local request identifier"
+      }
+    },
+    "platform_statuses": {
+      "400": "invalid/unsupported/missing required parameters",
+      "413": "request too large",
+      "415": "wrong content type",
+      "404": "model unavailable in catalog/ACL lookup",
+      "503": "Before first frame: upstream or projected-stream failure, and non-WhiteLabel local quota/database/conversation/message/serialization errors mapped by platformStreamPreError; do not infer upstream fault from status alone",
+      "stream_started": "event:error safe envelope; HTTP status cannot be replaced",
+      "401": "RequireUser detail envelope; no POST replay"
+    }
+  },
+  "sse_rules": [
+    "POST not automatically replayed",
+    "error is irreversible terminal; callbacks terminate at most once",
+    "EOF without business done is incomplete",
+    "cancel does not prove server cancellation or no billing",
+    "no ping/event id/resume commitment",
+    "existing compare compatibility must remain tested"
+  ],
+  "p1_outline": [
+    {
+      "method": "POST",
+      "path": "/api/v1/platform/chat/compare",
+      "status": "Existing compatibility must be preserved; full request/event inventory and real acceptance not frozen in this P0 supplement"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/self/verify",
+      "status": "Existing real-name feature outside this P0 supplement; do not infer provider availability or use old alias as replacement"
+    }
+  ],
+  "upstream_reconfirmation": {
+    "date": "2026-09-03",
+    "backend_role": "project_manager",
+    "status": "Historical 0bab2b7 confirmation retained in history; ad3f5b4 existing ten endpoints reconfirmed in ALIGN-20260903-02",
+    "scope": "9 auth endpoints + users/me DTO/path/Cookie/Origin/middleware and platform SSE unchanged from 90abbdc",
+    "change": "Refresh replay outside recovery window now returns 401 auth_request_failed after committed revocation/audit; no Set-Cookie. Stop recovery without replay; old/new Refresh and Access rejected after revocation.",
+    "execution": "read-only diff verification; backend tests not rerun in this task",
+    "deployment": "ad3f5b4 candidate source/image/container proven by archived release and attempt4 evidence; not an online check this turn"
+  },
+  "document_revision": "ALIGN-20260903-02-r2",
+  "reconciliation_id": "ALIGN-20260903-02",
+  "reconciliation_status": "confirmed_for_coordination_and_implementation_reference; M3 remains PARTIAL",
+  "history": [
+    {
+      "kind": "pre_reconciliation_metadata",
+      "alignment_id": "ALIGN-20260902-01",
+      "approvals": {
+        "front_end_project_coordinator": "ALIGN-20260902-01 C1-C7 accepted",
+        "project_manager": "backend_alignment final written C1-C7 response",
+        "user": "confirmed environment, deployed 90abbdc, M2 frontend implementation",
+        "quality_gate": "M1 design accepted; implementation and M3 not accepted yet"
+      },
+      "environment": {
+        "url": "https://aiportcloud.com/",
+        "origin": "https://aiportcloud.com",
+        "revision_confirmation": "user-confirmed",
+        "public_health_check": "200 {status:ok}; not a revision proof",
+        "business_test_authorization": false
+      },
+      "open_issues": [
+        {
+          "id": "M3-ENV",
+          "status": "open",
+          "description": "Dedicated HTTPS same-origin test data/accounts and actual Cookie/multi-tab tests are not authorized or executed by this implementation."
+        },
+        {
+          "id": "P1-FREEZE",
+          "status": "open",
+          "description": "Full model schema, upstream timestamp semantics, production performance and cancellation/billing acceptance remain P1/M3."
+        }
+      ],
+      "upstream_reconfirmation": {
+        "date": "2026-09-03",
+        "backend_role": "project_manager",
+        "status": "written code-contract confirmation; not deployment or joint acceptance",
+        "scope": "9 auth endpoints + users/me DTO/path/Cookie/Origin/middleware and platform SSE unchanged from 90abbdc",
+        "change": "Refresh replay outside recovery window now returns 401 auth_request_failed after committed revocation/audit; no Set-Cookie. Stop recovery without replay; old/new Refresh and Access rejected after revocation.",
+        "execution": "read-only diff verification; backend tests not rerun in this task",
+        "deployment": "90abbdc previously user-confirmed; 0bab2b7 deployment not verified"
+      }
+    },
+    {
+      "kind": "compare_history_grouping_contract",
+      "version": "platform-compare-history-grouping.v1",
+      "status": "agreed_for_implementation",
+      "contract_ref": "docs/agents/contracts/platform-compare-history-grouping-v1.json",
+      "backend_design_commit": "65458ec",
+      "frontend_design_commit": "2ab6b95",
+      "backend_revision": "1f22cb878ed43ff97b61042919b71f2a096b0646",
+      "frontend_implementation_revision": "pending_final_revision",
+      "environment_browser_acceptance": "pending",
+      "production_accepted": false
+    }
+  ],
+  "pagination": {
+    "auth_sessions": "No pagination; active unrevoked/unexpired max100",
+    "conversations": "Client uses nonnegative skip/limit; server Atoi fallback default0/default20, no explicit negative rejection, limit>100 capped; {items,total}, not pageNum/pageSize",
+    "platform_models": "{data,catalog_stale}; no pagination contract"
+  },
+  "versioning": {
+    "api_prefix": "/api/v1",
+    "contract_version": "v1.0.0-p0 retained; document_revision identifies evidence/catalogue update",
+    "change_process": "Change ID + old/new fields + impacted versions/tests/schedule + both coordinators written confirmation before authorized implementation",
+    "breaking_change": "Propose explicit new API/contract version and migration; no automatic version negotiation inferred"
+  },
+  "scope_confirmation": "P0 core unchanged; dependencies describe existing surfaces used in M3. Including them does not mark web-002/004/005/006 complete or remove cancellation/error acceptance gates.",
+  "confirmation_record": "docs/agents/2026-09-03-alignment-confirmations.md",
+  "confirmation_recorded_at": "2026-09-03T08:05:00.488090+00:00",
+  "public_content_pricing": {
+    "version": "v2",
+    "status": "implemented_locally_pending_acceptance",
+    "pending_implementation_routes": [],
+    "pricing": {
+      "currency": "USD",
+      "unit": "million_tokens",
+      "components": [
+        "input",
+        "output"
+      ],
+      "wire_type": "decimal_string",
+      "fractional_digits_maximum": 8,
+      "minimum": "0",
+      "maximum": "999999999999.99999999",
+      "safe_examples": {
+        "input_price_usd_per_million_tokens": "12.34567890",
+        "output_price_usd_per_million_tokens": "3.21000000"
+      },
+      "billing_semantics": "references_only_no_automatic_charge",
+      "missing_component_semantics": "omit_field_never_zero_or_free",
+      "provenance_required_when_any_component_present": [
+        "price_source",
+        "price_reviewer",
+        "effective_at",
+        "updated_at"
+      ]
+    },
+    "admin_model_completeness": {
+      "canonical_values": [
+        "complete",
+        "incomplete"
+      ],
+      "complete_requires": [
+        "input_price_usd_per_million_tokens",
+        "output_price_usd_per_million_tokens",
+        "price_source",
+        "price_reviewer",
+        "price_effective_at"
+      ],
+      "semantics": "complete requires both price components, nonblank source and reviewer, and a positive effective timestamp; incomplete is the exact complement among non-deleted rows",
+      "evaluation_scope": "server_global_before_pagination",
+      "excluded_fields": [
+        "status",
+        "consecutive_absences",
+        "last_upstream_check_at"
+      ]
+    },
+    "roles": {
+      "anonymous": "public_read_only",
+      "root": "authenticated_root_role_required"
+    },
+    "public_request_headers": {},
+    "public_response_headers": {
+      "ETag": "required",
+      "X-Public-Release-Version": "required_release_version",
+      "Cache-Control": "public_max_age_60_stale_while_revalidate_300"
+    },
+    "admin_request_headers": {
+      "Authorization": "required_authenticated_root_session_or_bearer"
+    },
+    "admin_verified_action_request_headers": {
+      "Authorization": "required_authenticated_root_session_or_bearer",
+      "X-Action-Ticket": "required_single_use_action_ticket"
+    },
+    "admin_publish_request_headers": {
+      "Authorization": "required_authenticated_root_session_or_bearer",
+      "Idempotency-Key": "required_exactly_once_unique_per_root_and_operation",
+      "X-Action-Ticket": "required_single_use_action_ticket"
+    },
+    "admin_response_headers": {
+      "Cache-Control": "no-store",
+      "X-Request-ID": "required_non_empty"
+    },
+    "admin_preview_response_headers": {
+      "Cache-Control": "no-store",
+      "X-Request-ID": "required_non_empty",
+      "X-Robots-Tag": "noindex, nofollow"
+    },
+    "body_rules": {
+      "object_mutation": {
+        "applies_to_body_schema_type": "object",
+        "payload": "one_exact_json_object_no_unknown_duplicate_or_trailing_fields"
+      },
+      "no_body_mutation": {
+        "applies_to_body_schema": "NoBody",
+        "payload": "no_request_body_content_allowed",
+        "routes": [
+          "POST /admin/v2/public-models/sync",
+          "POST /admin/v2/notifications/{guid}/read",
+          "POST /admin/v2/notifications/{guid}/acknowledge"
+        ]
+      },
+      "forbidden_body_fields": [
+        "action_ticket"
+      ],
+      "rejection": "400_invalid_public_content_pricing_request"
+    },
+    "mutation_requirements": {
+      "optimistic_concurrency_field": "expected_revision",
+      "expected_revision_routes": [
+        "PATCH /admin/v2/public-models/{guid}",
+        "POST /admin/v2/public-models/{guid}/activate",
+        "POST /admin/v2/public-models/{guid}/deactivate",
+        "DELETE /admin/v2/public-models/{guid}",
+        "PUT /admin/v2/public-pricing/draft",
+        "POST /admin/v2/public-pricing/validate",
+        "POST /admin/v2/public-pricing/publish",
+        "POST /admin/v2/public-pricing/releases/{guid}/restore",
+        "PUT /admin/v2/public-content/draft",
+        "POST /admin/v2/public-content/validate",
+        "POST /admin/v2/public-content/publish",
+        "POST /admin/v2/public-content/releases/{guid}/restore",
+        "POST /admin/v2/public-content/home-draft/announcements",
+        "PATCH /admin/v2/public-content/home-draft/announcements/{guid}",
+        "DELETE /admin/v2/public-content/home-draft/announcements/{guid}",
+        "POST /admin/v2/public-content/home-draft/faqs",
+        "PATCH /admin/v2/public-content/home-draft/faqs/{guid}",
+        "DELETE /admin/v2/public-content/home-draft/faqs/{guid}",
+        "PUT /admin/v2/public-content/home-draft/featured-models",
+        "PUT /admin/v2/public-content/documents-draft"
+      ],
+      "idempotency_key_routes": [
+        "POST /admin/v2/public-pricing/publish",
+        "POST /admin/v2/public-pricing/releases/{guid}/restore",
+        "POST /admin/v2/public-content/publish",
+        "POST /admin/v2/public-content/releases/{guid}/restore"
+      ],
+      "action_ticket_header_routes": [
+        "DELETE /admin/v2/public-models/{guid}",
+        "POST /admin/v2/public-pricing/publish",
+        "POST /admin/v2/public-pricing/releases/{guid}/restore",
+        "POST /admin/v2/public-content/publish",
+        "POST /admin/v2/public-content/releases/{guid}/restore"
+      ],
+      "idempotency_header": "Idempotency-Key required_exactly_once_unique_per_root_and_operation"
+    },
+    "model_lookup_semantics": {
+      "unknown_or_never_published": "404",
+      "previously_published_inactive_or_deleted": "410"
+    },
+    "notifications": {
+      "delivery": "in_app_only",
+      "types": [
+        "published_price_below_upstream",
+        "upstream_missing",
+        "automatic_inactivation",
+        "upstream_reappearance",
+        "catalog_sync_failure",
+        "price_not_comparable",
+        "renderer_failure"
+      ],
+      "receipt_scope": "independent_read_and_acknowledgement_per_root"
+    },
+    "schemas": {
+      "NoBody": {
+        "type": "null",
+        "properties": {}
+      },
+      "GUIDRequest": {
+        "type": "object",
+        "required": [
+          "guid"
+        ],
+        "properties": {
+          "guid": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          }
+        }
+      },
+      "PaginationRequest": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "enum": [
+              20,
+              50,
+              100
+            ]
+          }
+        }
+      },
+      "RevisionRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "PublicModelVisible": {
+        "type": "object",
+        "required": [
+          "model_key",
+          "display_name",
+          "provider",
+          "capabilities",
+          "context_window",
+          "price_visibility",
+          "release_version",
+          "pricing_type",
+          "endpoint_types",
+          "updated_at"
+        ],
+        "properties": {
+          "model_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z](?:[a-z0-9]|-[a-z0-9])*$"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "context_window": {
+            "type": "integer"
+          },
+          "input_price_usd_per_million_tokens": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,8})?$",
+            "minimum": "0",
+            "maximum": "999999999999.99999999"
+          },
+          "output_price_usd_per_million_tokens": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,8})?$",
+            "minimum": "0",
+            "maximum": "999999999999.99999999"
+          },
+          "price_visibility": {
+            "type": "string",
+            "enum": [
+              "visible"
+            ]
+          },
+          "release_version": {
+            "type": "integer"
+          },
+          "pricing_type": {
+            "type": "string",
+            "enum": [
+              "token"
+            ]
+          },
+          "public_display_group": {
+            "type": "string"
+          },
+          "endpoint_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "public_restrictions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "price_source": {
+            "type": "string"
+          },
+          "price_reviewer": {
+            "type": "string"
+          },
+          "effective_at": {
+            "type": "string",
+            "format": "date-time-rfc3339-utc"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time-rfc3339-utc"
+          }
+        }
+      },
+      "PublicModelRedacted": {
+        "type": "object",
+        "required": [
+          "model_key",
+          "display_name",
+          "provider",
+          "capabilities",
+          "context_window",
+          "price_visibility",
+          "release_version",
+          "pricing_type",
+          "endpoint_types",
+          "updated_at"
+        ],
+        "properties": {
+          "model_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z](?:[a-z0-9]|-[a-z0-9])*$"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "context_window": {
+            "type": "integer"
+          },
+          "price_visibility": {
+            "type": "string",
+            "enum": [
+              "authenticated_only"
+            ]
+          },
+          "release_version": {
+            "type": "integer"
+          },
+          "pricing_type": {
+            "type": "string",
+            "enum": [
+              "token"
+            ]
+          },
+          "public_display_group": {
+            "type": "string"
+          },
+          "endpoint_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "public_restrictions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "price_source": {
+            "type": "string"
+          },
+          "price_reviewer": {
+            "type": "string"
+          },
+          "effective_at": {
+            "type": "string",
+            "format": "date-time-rfc3339-utc"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time-rfc3339-utc"
+          }
+        }
+      },
+      "PublicModelAdmin": {
+        "type": "object",
+        "required": [
+          "guid",
+          "model_key",
+          "upstream_model_id",
+          "display_name",
+          "provider",
+          "capabilities",
+          "context_window",
+          "input_price_usd_per_million_tokens",
+          "output_price_usd_per_million_tokens",
+          "status",
+          "revision",
+          "last_upstream_check_at"
+        ],
+        "properties": {
+          "guid": {
+            "type": "string"
+          },
+          "model_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z](?:[a-z0-9]|-[a-z0-9])*$"
+          },
+          "upstream_model_id": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "context_window": {
+            "type": "integer"
+          },
+          "input_price_usd_per_million_tokens": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,8})?$",
+            "minimum": "0",
+            "maximum": "999999999999.99999999"
+          },
+          "output_price_usd_per_million_tokens": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,8})?$",
+            "minimum": "0",
+            "maximum": "999999999999.99999999"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "inactive"
+            ]
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "last_upstream_check_at": {
+            "type": "integer",
+            "nullable": true
+          },
+          "public_display_group": {
+            "type": "string"
+          },
+          "endpoint_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "public_restrictions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "price_source": {
+            "type": "string"
+          },
+          "price_reviewer": {
+            "type": "string"
+          },
+          "price_effective_at": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
+      "SiteReleaseResponse": {
+        "type": "object",
+        "required": [
+          "content_release_version",
+          "price_release_version",
+          "price_visibility"
+        ],
+        "properties": {
+          "content_release_version": {
+            "type": "integer"
+          },
+          "price_release_version": {
+            "type": "integer"
+          },
+          "price_visibility": {
+            "type": "string",
+            "enum": [
+              "visible",
+              "authenticated_only"
+            ]
+          }
+        }
+      },
+      "PublishedDocumentResponse": {
+        "type": "object",
+        "required": [
+          "document",
+          "release_version"
+        ],
+        "properties": {
+          "document": {
+            "type": "string"
+          },
+          "release_version": {
+            "type": "integer"
+          }
+        }
+      },
+      "PublicModelsListRequest": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "enum": [
+              20,
+              50,
+              100
+            ]
+          },
+          "endpoint_type": {
+            "type": "string"
+          },
+          "public_display_group": {
+            "type": "string"
+          },
+          "pricing_type": {
+            "type": "string",
+            "enum": [
+              "token"
+            ]
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "default",
+              "name",
+              "input_price",
+              "output_price"
+            ]
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          }
+        }
+      },
+      "PublicModelDetailRequest": {
+        "type": "object",
+        "required": [
+          "modelKey"
+        ],
+        "properties": {
+          "modelKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z](?:[a-z0-9]|-[a-z0-9])*$"
+          }
+        }
+      },
+      "PublicModelListResponse": {
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "release_version",
+          "facets"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "union",
+              "one_of": [
+                "PublicModelVisible",
+                "PublicModelRedacted"
+              ]
+            }
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "release_version": {
+            "type": "integer"
+          },
+          "facets": {
+            "type": "object",
+            "$ref": "PublicCatalogFacets"
+          }
+        }
+      },
+      "PublicModelDetailResponse": {
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "type": "union",
+            "one_of": [
+              "PublicModelVisible",
+              "PublicModelRedacted"
+            ]
+          }
+        }
+      },
+      "AdminModelListRequest": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "inactive"
+            ]
+          },
+          "upstream_state": {
+            "type": "string",
+            "enum": [
+              "present",
+              "missing"
+            ]
+          },
+          "completeness": {
+            "type": "string",
+            "enum": [
+              "complete",
+              "incomplete"
+            ]
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "enum": [
+              20,
+              50,
+              100
+            ]
+          }
+        }
+      },
+      "AdminModelListResponse": {
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "PublicModelAdmin"
+            }
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "CreatePublicModelRequest": {
+        "type": "object",
+        "required": [
+          "upstream_model_id",
+          "model_key",
+          "display_name",
+          "provider",
+          "capabilities",
+          "context_window"
+        ],
+        "properties": {
+          "upstream_model_id": {
+            "type": "string"
+          },
+          "model_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z](?:[a-z0-9]|-[a-z0-9])*$"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "context_window": {
+            "type": "integer"
+          },
+          "input_price_usd_per_million_tokens": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,8})?$",
+            "minimum": "0",
+            "maximum": "999999999999.99999999"
+          },
+          "output_price_usd_per_million_tokens": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,8})?$",
+            "minimum": "0",
+            "maximum": "999999999999.99999999"
+          },
+          "public_display_group": {
+            "type": "string"
+          },
+          "endpoint_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "public_restrictions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "price_source": {
+            "type": "string"
+          },
+          "price_reviewer": {
+            "type": "string"
+          },
+          "price_effective_at": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
+      "UpdatePublicModelRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "context_window": {
+            "type": "integer"
+          },
+          "input_price_usd_per_million_tokens": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,8})?$",
+            "minimum": "0",
+            "maximum": "999999999999.99999999"
+          },
+          "output_price_usd_per_million_tokens": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,8})?$",
+            "minimum": "0",
+            "maximum": "999999999999.99999999"
+          },
+          "public_display_group": {
+            "type": "string"
+          },
+          "endpoint_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "public_restrictions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "price_source": {
+            "type": "string"
+          },
+          "price_reviewer": {
+            "type": "string"
+          },
+          "price_effective_at": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
+      "DeactivationRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "reason"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "DeletePublicModelRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "reason"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "MissingModelsResponse": {
+        "type": "object",
+        "required": [
+          "observed_without_configuration",
+          "configured_missing_upstream"
+        ],
+        "properties": {
+          "observed_without_configuration": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "configured_missing_upstream": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "PublicModelAdmin"
+            }
+          }
+        }
+      },
+      "SyncAcceptedResponse": {
+        "type": "object",
+        "required": [
+          "accepted"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PriceDraft": {
+        "type": "object",
+        "required": [
+          "revision",
+          "models",
+          "currency",
+          "unit"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "PublicModelAdmin"
+            }
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "million_tokens"
+            ]
+          }
+        }
+      },
+      "PriceDraftSaveRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "models"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "PublicModelAdmin"
+            }
+          }
+        }
+      },
+      "ValidationIssue": {
+        "type": "object",
+        "required": [
+          "field",
+          "code"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        }
+      },
+      "ValidationResponse": {
+        "type": "object",
+        "required": [
+          "valid",
+          "issues"
+        ],
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "ValidationIssue"
+            }
+          }
+        }
+      },
+      "PublicationRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "Release": {
+        "type": "object",
+        "required": [
+          "guid",
+          "version",
+          "reason",
+          "source_revision",
+          "created_at"
+        ],
+        "properties": {
+          "guid": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "root_publish",
+              "upstream_safety",
+              "restore"
+            ]
+          },
+          "source_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time-rfc3339-utc"
+          }
+        }
+      },
+      "ReleaseListResponse": {
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "Release"
+            }
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "ImmutablePriceReleaseResponse": {
+        "type": "object",
+        "required": [
+          "release",
+          "items"
+        ],
+        "properties": {
+          "release": {
+            "type": "object",
+            "$ref": "Release"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "PublicModelVisible"
+            }
+          }
+        }
+      },
+      "Notification": {
+        "type": "object",
+        "required": [
+          "guid",
+          "type",
+          "state",
+          "read",
+          "acknowledged",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "guid": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "published_price_below_upstream",
+              "upstream_missing",
+              "automatic_inactivation",
+              "upstream_reappearance",
+              "catalog_sync_failure",
+              "price_not_comparable",
+              "renderer_failure"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "resolved"
+            ]
+          },
+          "read": {
+            "type": "boolean"
+          },
+          "acknowledged": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "integer"
+          },
+          "updated_at": {
+            "type": "integer"
+          }
+        }
+      },
+      "NotificationListRequest": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "resolved"
+            ]
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "enum": [
+              20,
+              50,
+              100
+            ]
+          }
+        }
+      },
+      "NotificationListResponse": {
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "$ref": "Notification"
+            }
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "UnreadCountResponse": {
+        "type": "object",
+        "required": [
+          "unread_count"
+        ],
+        "properties": {
+          "unread_count": {
+            "type": "integer"
+          }
+        }
+      },
+      "ContentDraft": {
+        "type": "object",
+        "required": [
+          "revision",
+          "home",
+          "about",
+          "terms",
+          "privacy",
+          "legal_reviewed"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer"
+          },
+          "home": {
+            "type": "string"
+          },
+          "about": {
+            "type": "string"
+          },
+          "terms": {
+            "type": "string"
+          },
+          "privacy": {
+            "type": "string"
+          },
+          "legal_reviewed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ContentDraftSaveRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "home",
+          "about",
+          "terms",
+          "privacy",
+          "legal_reviewed"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "home": {
+            "type": "string"
+          },
+          "about": {
+            "type": "string"
+          },
+          "terms": {
+            "type": "string"
+          },
+          "privacy": {
+            "type": "string"
+          },
+          "legal_reviewed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PreviewRequest": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer"
+          }
+        }
+      },
+      "PreviewResponse": {
+        "type": "object",
+        "required": [
+          "document",
+          "revision"
+        ],
+        "properties": {
+          "document": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        }
+      },
+      "ContentPublicationRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "price_release_guid"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "price_release_guid": {
+            "type": "string"
+          }
+        }
+      },
+      "ImmutableContentReleaseResponse": {
+        "type": "object",
+        "required": [
+          "release",
+          "content"
+        ],
+        "properties": {
+          "release": {
+            "type": "object",
+            "$ref": "Release"
+          },
+          "content": {
+            "type": "object",
+            "$ref": "ContentDraft"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "$ref": "Error"
+          }
+        }
+      },
+      "PublicCatalogFacets": {
+        "type": "object",
+        "required": [
+          "providers",
+          "capabilities",
+          "endpoint_types",
+          "public_display_groups"
+        ],
+        "properties": {
+          "providers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "endpoint_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "public_display_groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "null": {
+        "type": "null"
+      },
+      "rfc3339_utc": {
+        "type": "string",
+        "format": "date-time-rfc3339-utc"
+      },
+      "AnnouncementDraft": {
+        "type": "object",
+        "required": [
+          "guid",
+          "title",
+          "body_markdown",
+          "effective_at",
+          "is_visible",
+          "sort_order"
+        ],
+        "properties": {
+          "guid": {
+            "type": "string",
+            "format": "positive-int64"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "body_markdown": {
+            "type": "string",
+            "maxBytes": 16384
+          },
+          "effective_at": {
+            "one_of": [
+              "null",
+              "rfc3339_utc"
+            ]
+          },
+          "is_visible": {
+            "type": "boolean"
+          },
+          "sort_order": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        }
+      },
+      "FAQDraft": {
+        "type": "object",
+        "required": [
+          "guid",
+          "question",
+          "answer_markdown",
+          "is_visible",
+          "sort_order"
+        ],
+        "properties": {
+          "guid": {
+            "type": "string",
+            "format": "positive-int64"
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "answer_markdown": {
+            "type": "string",
+            "maxBytes": 16384
+          },
+          "is_visible": {
+            "type": "boolean"
+          },
+          "sort_order": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        }
+      },
+      "HomeDraftResponse": {
+        "type": "object",
+        "required": [
+          "revision",
+          "announcements",
+          "faqs",
+          "featured_model_keys"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "announcements": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "$ref": "AnnouncementDraft"
+            }
+          },
+          "faqs": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "$ref": "FAQDraft"
+            }
+          },
+          "featured_model_keys": {
+            "type": "array",
+            "maxItems": 12,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-z](?:[a-z0-9]|-[a-z0-9])*$"
+            }
+          }
+        }
+      },
+      "DocumentsDraftResponse": {
+        "type": "object",
+        "required": [
+          "revision",
+          "about",
+          "terms",
+          "privacy",
+          "legal_reviewed"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "about": {
+            "type": "string"
+          },
+          "terms": {
+            "type": "string"
+          },
+          "privacy": {
+            "type": "string"
+          },
+          "legal_reviewed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AnnouncementCreateRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "title",
+          "body_markdown",
+          "effective_at",
+          "is_visible",
+          "sort_order"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "body_markdown": {
+            "type": "string",
+            "maxBytes": 16384
+          },
+          "effective_at": {
+            "one_of": [
+              "null",
+              "rfc3339_utc"
+            ]
+          },
+          "is_visible": {
+            "type": "boolean"
+          },
+          "sort_order": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        }
+      },
+      "AnnouncementUpdateRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "body_markdown": {
+            "type": "string",
+            "maxBytes": 16384
+          },
+          "effective_at": {
+            "one_of": [
+              "null",
+              "rfc3339_utc"
+            ]
+          },
+          "is_visible": {
+            "type": "boolean"
+          },
+          "sort_order": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        }
+      },
+      "AnnouncementDeleteRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "FAQCreateRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "question",
+          "answer_markdown",
+          "is_visible",
+          "sort_order"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "answer_markdown": {
+            "type": "string",
+            "maxBytes": 16384
+          },
+          "is_visible": {
+            "type": "boolean"
+          },
+          "sort_order": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        }
+      },
+      "FAQUpdateRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "answer_markdown": {
+            "type": "string",
+            "maxBytes": 16384
+          },
+          "is_visible": {
+            "type": "boolean"
+          },
+          "sort_order": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        }
+      },
+      "FAQDeleteRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "FeaturedModelsSaveRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "featured_model_keys"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "featured_model_keys": {
+            "type": "array",
+            "maxItems": 12,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-z](?:[a-z0-9]|-[a-z0-9])*$"
+            }
+          }
+        }
+      },
+      "DocumentsDraftSaveRequest": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "about",
+          "terms",
+          "privacy",
+          "legal_reviewed"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "about": {
+            "type": "string"
+          },
+          "terms": {
+            "type": "string"
+          },
+          "privacy": {
+            "type": "string"
+          },
+          "legal_reviewed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "HomeConfigPublicAnnouncement": {
+        "type": "object",
+        "required": [
+          "guid",
+          "title",
+          "body_html",
+          "effective_at",
+          "sort_order"
+        ],
+        "properties": {
+          "guid": {
+            "type": "string",
+            "format": "positive-int64"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "body_html": {
+            "type": "string"
+          },
+          "effective_at": {
+            "one_of": [
+              "null",
+              "rfc3339_utc"
+            ]
+          },
+          "sort_order": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        }
+      },
+      "HomeConfigPublicFAQ": {
+        "type": "object",
+        "required": [
+          "guid",
+          "question",
+          "answer_html",
+          "sort_order"
+        ],
+        "properties": {
+          "guid": {
+            "type": "string",
+            "format": "positive-int64"
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "answer_html": {
+            "type": "string"
+          },
+          "sort_order": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        }
+      },
+      "HomeConfigPublicResponse": {
+        "type": "object",
+        "required": [
+          "announcements",
+          "faqs",
+          "featured_model_keys",
+          "content_release_version",
+          "price_release_version"
+        ],
+        "properties": {
+          "announcements": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "$ref": "HomeConfigPublicAnnouncement"
+            }
+          },
+          "faqs": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "$ref": "HomeConfigPublicFAQ"
+            }
+          },
+          "featured_model_keys": {
+            "type": "array",
+            "maxItems": 12,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-z](?:[a-z0-9]|-[a-z0-9])*$"
+            }
+          },
+          "content_release_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "price_release_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "routes": [
+      {
+        "method": "GET",
+        "path": "/api/v1/public/site",
+        "role": "anonymous",
+        "request_headers": "public_request_headers",
+        "response_headers": "public_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "SiteReleaseResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/public/home",
+        "role": "anonymous",
+        "request_headers": "public_request_headers",
+        "response_headers": "public_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "PublishedDocumentResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/public/models",
+        "role": "anonymous",
+        "request_headers": "public_request_headers",
+        "response_headers": "public_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "PublicModelsListRequest",
+        "body_schema": "NoBody",
+        "response_schema": "PublicModelListResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/public/models/{modelKey}",
+        "role": "anonymous",
+        "request_headers": "public_request_headers",
+        "response_headers": "public_response_headers",
+        "path_schema": "PublicModelDetailRequest",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "PublicModelDetailResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/public/pages/about",
+        "role": "anonymous",
+        "request_headers": "public_request_headers",
+        "response_headers": "public_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "PublishedDocumentResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/public/pages/terms",
+        "role": "anonymous",
+        "request_headers": "public_request_headers",
+        "response_headers": "public_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "PublishedDocumentResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/public/pages/privacy",
+        "role": "anonymous",
+        "request_headers": "public_request_headers",
+        "response_headers": "public_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "PublishedDocumentResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/public-models",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "AdminModelListRequest",
+        "body_schema": "NoBody",
+        "response_schema": "AdminModelListResponse",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/admin/v2/public-models",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "CreatePublicModelRequest",
+        "response_schema": "PublicModelAdmin",
+        "status": 201
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/public-models/{guid}",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "PublicModelAdmin",
+        "status": 200
+      },
+      {
+        "method": "PATCH",
+        "path": "/admin/v2/public-models/{guid}",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "UpdatePublicModelRequest",
+        "response_schema": "PublicModelAdmin",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/admin/v2/public-models/{guid}/activate",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "RevisionRequest",
+        "response_schema": "PublicModelAdmin",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/admin/v2/public-models/{guid}/deactivate",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "DeactivationRequest",
+        "response_schema": "PublicModelAdmin",
+        "status": 200
+      },
+      {
+        "method": "DELETE",
+        "path": "/admin/v2/public-models/{guid}",
+        "role": "root",
+        "request_headers": "admin_verified_action_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "DeletePublicModelRequest",
+        "response_schema": "NoBody",
+        "status": 204
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/public-models/missing",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "MissingModelsResponse",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/admin/v2/public-models/sync",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "SyncAcceptedResponse",
+        "status": 202
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/public-pricing/draft",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "PriceDraft",
+        "status": 200
+      },
+      {
+        "method": "PUT",
+        "path": "/admin/v2/public-pricing/draft",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "PriceDraftSaveRequest",
+        "response_schema": "PriceDraft",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/admin/v2/public-pricing/validate",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "RevisionRequest",
+        "response_schema": "ValidationResponse",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/admin/v2/public-pricing/publish",
+        "role": "root",
+        "request_headers": "admin_publish_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "PublicationRequest",
+        "response_schema": "Release",
+        "status": 201
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/public-pricing/releases",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "PaginationRequest",
+        "body_schema": "NoBody",
+        "response_schema": "ReleaseListResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/public-pricing/releases/{guid}",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "ImmutablePriceReleaseResponse",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/admin/v2/public-pricing/releases/{guid}/restore",
+        "role": "root",
+        "request_headers": "admin_publish_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "RevisionRequest",
+        "response_schema": "Release",
+        "status": 201
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/notifications",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NotificationListRequest",
+        "body_schema": "NoBody",
+        "response_schema": "NotificationListResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/notifications/unread-count",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "UnreadCountResponse",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/admin/v2/notifications/{guid}/read",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "Notification",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/admin/v2/notifications/{guid}/acknowledge",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "Notification",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/public-content/draft",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "ContentDraft",
+        "status": 200
+      },
+      {
+        "method": "PUT",
+        "path": "/admin/v2/public-content/draft",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "ContentDraftSaveRequest",
+        "response_schema": "ContentDraft",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/admin/v2/public-content/validate",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "RevisionRequest",
+        "response_schema": "ValidationResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/public-content/preview",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_preview_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "PreviewRequest",
+        "body_schema": "NoBody",
+        "response_schema": "PreviewResponse",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/admin/v2/public-content/publish",
+        "role": "root",
+        "request_headers": "admin_publish_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "ContentPublicationRequest",
+        "response_schema": "Release",
+        "status": 201
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/public-content/releases",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "PaginationRequest",
+        "body_schema": "NoBody",
+        "response_schema": "ReleaseListResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/public-content/releases/{guid}",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "ImmutableContentReleaseResponse",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/admin/v2/public-content/releases/{guid}/restore",
+        "role": "root",
+        "request_headers": "admin_publish_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "RevisionRequest",
+        "response_schema": "Release",
+        "status": 201
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/public/home-config",
+        "role": "anonymous",
+        "request_headers": "public_request_headers",
+        "response_headers": "public_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "HomeConfigPublicResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/public-content/home-draft",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "HomeDraftResponse",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/admin/v2/public-content/home-draft/announcements",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "AnnouncementCreateRequest",
+        "response_schema": "HomeDraftResponse",
+        "status": 201
+      },
+      {
+        "method": "PATCH",
+        "path": "/admin/v2/public-content/home-draft/announcements/{guid}",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "AnnouncementUpdateRequest",
+        "response_schema": "HomeDraftResponse",
+        "status": 200
+      },
+      {
+        "method": "DELETE",
+        "path": "/admin/v2/public-content/home-draft/announcements/{guid}",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_draft_delete_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "AnnouncementDeleteRequest",
+        "response_schema": "NoBody",
+        "status": 204
+      },
+      {
+        "method": "POST",
+        "path": "/admin/v2/public-content/home-draft/faqs",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "FAQCreateRequest",
+        "response_schema": "HomeDraftResponse",
+        "status": 201
+      },
+      {
+        "method": "PATCH",
+        "path": "/admin/v2/public-content/home-draft/faqs/{guid}",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "FAQUpdateRequest",
+        "response_schema": "HomeDraftResponse",
+        "status": 200
+      },
+      {
+        "method": "DELETE",
+        "path": "/admin/v2/public-content/home-draft/faqs/{guid}",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_draft_delete_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "FAQDeleteRequest",
+        "response_schema": "NoBody",
+        "status": 204
+      },
+      {
+        "method": "PUT",
+        "path": "/admin/v2/public-content/home-draft/featured-models",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "FeaturedModelsSaveRequest",
+        "response_schema": "HomeDraftResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/public-content/home-preview",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_preview_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "PreviewRequest",
+        "body_schema": "NoBody",
+        "response_schema": "HomeDraftResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/public-content/releases/{guid}/home-config",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "GUIDRequest",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "HomeConfigPublicResponse",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/admin/v2/public-content/documents-draft",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "NoBody",
+        "response_schema": "DocumentsDraftResponse",
+        "status": 200
+      },
+      {
+        "method": "PUT",
+        "path": "/admin/v2/public-content/documents-draft",
+        "role": "root",
+        "request_headers": "admin_request_headers",
+        "response_headers": "admin_response_headers",
+        "path_schema": "NoBody",
+        "query_schema": "NoBody",
+        "body_schema": "DocumentsDraftSaveRequest",
+        "response_schema": "DocumentsDraftResponse",
+        "status": 200
+      }
+    ],
+    "errors": {
+      "envelope_schema": "ErrorEnvelope",
+      "statuses": {
+        "400": "invalid_request_or_decimal_or_content",
+        "401": "authentication_required",
+        "403": "root_role_required",
+        "404": "unknown_or_never_published_public_model_or_missing_resource",
+        "409": "stale_expected_revision_or_idempotency_conflict",
+        "410": "previously_published_inactive_or_deleted_public_model",
+        "422": "publication_validation_failed",
+        "503": "dependency_or_publication_state_unavailable"
+      },
+      "prohibited_response_data": [
+        "raw_upstream_response",
+        "channel_address",
+        "draft_content_on_public_route"
+      ]
+    },
+    "deletion": {
+      "behavior": "non_recoverable_soft_delete",
+      "visibility": "omitted_from_management_search_detail_and_public_operational_routes",
+      "deleted_list_endpoint": "absent",
+      "identity_reservation": "model_key_and_upstream_model_id_remain_reserved"
+    },
+    "admin_draft_delete_response_headers": {
+      "Cache-Control": "no-store",
+      "X-Request-ID": "required_non_empty",
+      "X-Content-Draft-Revision": "required_positive_integer"
+    }
+  }
+}

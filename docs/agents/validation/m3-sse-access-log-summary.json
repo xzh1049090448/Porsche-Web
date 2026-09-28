@@ -1,0 +1,12 @@
+{
+  "window": "2026-09-03T04:30:45Z..04:31:10Z",
+  "source": "Read-only docker logs for ai-gateway-go via overseaCloud; filtered to method/path/status/duration, no raw log retained",
+  "matchingRequests": [
+    {
+      "status": 503,
+      "duration": "1.853502894s",
+      "method": "POST",
+      "path": "/api/v1/platform/chat/completions"
+    }
+  ]
+}

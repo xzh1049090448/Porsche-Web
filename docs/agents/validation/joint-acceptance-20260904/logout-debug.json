@@ -1,0 +1,59 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/self",
+      "failed": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/platform/models",
+      "failed": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users/me/usage",
+      "failed": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/self",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/platform/models",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users/me/usage",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/logout",
+      "status": 204
+    }
+  ],
+  "postLogoutPath": "/login",
+  "messages": [],
+  "cookieAttributes": [],
+  "apiKeysPath": "/api-keys",
+  "apiKeysIsLogin": false
+}

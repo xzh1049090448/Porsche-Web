@@ -91,8 +91,8 @@
   .conv-more,
   .conv-delete,
   .close-btn {
-    min-width: 44px;
-    min-height: 44px;
+    min-width: var(--control-min-size);
+    min-height: var(--control-min-size);
   }
 
   .el-input__inner,
@@ -107,7 +107,7 @@
 
   .el-menu-item {
     min-height: 48px;
-    font-size: 15px;
+    font-size: var(--font-size-body);
   }
 }
 

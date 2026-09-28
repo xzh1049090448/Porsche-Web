@@ -1,0 +1,20 @@
+{
+  "case": "valid-SSE-normal",
+  "status": "FAIL",
+  "usageBefore": {
+    "daily_call_limit": 100,
+    "daily_calls_used": 0,
+    "plan_type": "free",
+    "remaining_daily_calls": 100,
+    "total_tokens_used": 0
+  },
+  "httpStatus": 503,
+  "contentType": "application/json; charset=utf-8",
+  "stream": {
+    "events": []
+  },
+  "errorCode": "gateway_upstream_unavailable",
+  "failure": "valid SSE returned HTTP 503",
+  "cleanup": [],
+  "logout": 204
+}

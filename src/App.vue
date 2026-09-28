@@ -1,11 +1,7 @@
 <template>
-  <el-config-provider :locale="elementLocale">
-    <router-view />
-  </el-config-provider>
+  <RouteViewTransition key-mode="component" focus-target="#public-content" />
 </template>
 
 <script setup>
-import { useI18n } from '@/composables/useI18n'
-
-const { elementLocale } = useI18n()
+import RouteViewTransition from '@/components/shell/RouteViewTransition.vue'
 </script>

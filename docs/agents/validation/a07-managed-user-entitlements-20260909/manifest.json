@@ -1,0 +1,24 @@
+{
+  "slice": "A07 managed-user credentials and entitlements frontend",
+  "status": "PASS_LIMITED_SCOPE",
+  "code_under_test": {
+    "backend": "a600a0815b5eab5203333755a2466788fe67d61a",
+    "frontend": "41648181ab42fb46fe7d45663e746121956b50b8"
+  },
+  "contract_sha256": "9e1969b238911b6eee5b6aa85ed364e795a6854f0a026daac5d15e2ab78851be",
+  "verification": {
+    "full_with_explicit_contract_paths": "395/395 PASS / 0 SKIP",
+    "production_build": "PASS",
+    "visible_chrome_375_390": "PASS",
+    "first_escape_focus_and_dialog_ownership": "PASS",
+    "conflict_singleflight_and_late_owner": "PASS",
+    "pending_recovery_secret_cleanup": "PASS",
+    "independent_review": "FRONTEND_REVIEW_PASS"
+  },
+  "production": {
+    "deployment": "NOT_RUN",
+    "acceptance": "NOT_RUN",
+    "business_accounts": "NOT_USED"
+  },
+  "canonical_backend_report": "backend:docs/superpowers/reports/validation/2026-09-09-a07-managed-user-entitlements/manifest.json"
+}

@@ -1,3 +1,4 @@
+import { authSession } from '@/api/request'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getItem, setItem } from '@/utils/storage'
@@ -50,26 +51,40 @@ export const useSettingsStore = defineStore('settings', () => {
   const modelParams = ref({ ...initialPreset.params })
 
   let modelsLoadPromise = null
+  authSession.onInvalidate(() => {
+    models.value = []; modelsLoaded.value = false; catalogStale.value = false
+    modelLoadError.value = false; selectedModelId.value = ''; compareModelIds.value = []
+    compareMode.value = false; modelsLoadPromise = null
+  })
+
+  function normalizeModelSelection() {
+    selectedModelId.value = chooseAvailableModel(selectedModelId.value, models.value)
+    compareModelIds.value = chooseCompareModels(compareModelIds.value, models.value)
+    if (compareMode.value && (models.value.length < 2 || compareModelIds.value.length < 2)) compareMode.value = false
+    setItem('selectedModel', selectedModelId.value)
+    setItem('compareModelIds', compareModelIds.value)
+    setItem('compareMode', compareMode.value)
+  }
 
   async function loadModels() {
     if (modelsLoaded.value) return
     if (modelsLoadPromise) return modelsLoadPromise
+    const context = authSession.capture()
     modelsLoadPromise = (async () => {
       try {
         const catalog = await listModels()
+        authSession.assertCurrent(context)
         models.value = catalog.models
         catalogStale.value = catalog.catalogStale
         modelLoadError.value = false
-        selectedModelId.value = chooseAvailableModel(selectedModelId.value, models.value)
-        compareModelIds.value = chooseCompareModels(compareModelIds.value, models.value)
-        if (compareMode.value && compareModelIds.value.length === 0) compareMode.value = false
-        setItem('selectedModel', selectedModelId.value)
-        setItem('compareModelIds', compareModelIds.value)
+        normalizeModelSelection()
         modelsLoaded.value = true
       } catch {
+        if (authSession.capture().epoch !== context.epoch) return
         modelsLoaded.value = false
         modelLoadError.value = true
       } finally {
+        if (authSession.capture().epoch !== context.epoch) return
         modelsLoadPromise = null
       }
     })()
@@ -157,6 +172,7 @@ export const useSettingsStore = defineStore('settings', () => {
     selectedScenarioId,
     modelParams,
     loadModels,
+    normalizeModelSelection,
     loadModelDetail,
     setModel,
     setCompareMode,

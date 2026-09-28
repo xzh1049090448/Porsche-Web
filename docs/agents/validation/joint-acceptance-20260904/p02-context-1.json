@@ -1,0 +1,62 @@
+{
+  "generatedAt": "2026-09-04T04:32:22.988Z",
+  "runs": [
+    {
+      "origin": "127.0.0.1:15173",
+      "index": 1,
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/refresh",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/self",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/refresh",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/self",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/logout",
+          "status": 204
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/refresh",
+          "status": 401
+        }
+      ],
+      "authConfirmed": true,
+      "logout": {
+        "status": 204,
+        "setCookie": null,
+        "postLogoutCookies": []
+      },
+      "refreshAfterLogout": 401,
+      "apiKeys": {
+        "finalPath": "/api-keys",
+        "documentStatus": 404,
+        "refreshRequestsAfterGoto": [],
+        "loginRendered": false,
+        "mainRendered": false,
+        "apiKeysPrivateRendered": false
+      }
+    }
+  ],
+  "secretFree": true
+}

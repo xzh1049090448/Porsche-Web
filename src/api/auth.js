@@ -1,42 +1,32 @@
-import request, { USE_MOCK } from './request'
 import { mockApi } from './mock'
-import { getProfile } from './users'
-import { optionalGuid } from './guid'
+import request, { authSession, authTransport, USE_MOCK } from './request'
+import { sessionRows, validateLoginResponse } from './auth-session'
 
 const PREFIX = '/api/v1/auth'
+const headers = token => token ? { Authorization: `Bearer ${token}` } : {}
+const post = async (path, body, token) => (await authTransport.post(`${PREFIX}${path}`, body, { headers: headers(token) })).data
 
-export function sendSmsCode(phone) {
-  if (USE_MOCK) return mockApi.sendSms(phone)
-  return request.post(`${PREFIX}/send-code`, { phone })
-}
+/** Registration does not set a refresh cookie or establish a session. */
+export const register = payload => { authSession.requireAvailable(); return USE_MOCK ? Promise.resolve({ message: '注册成功，请登录' }) : post('/register', payload) }
+export const login = payload => authSession.cookieOperation('login', () => USE_MOCK ? mockApi.loginUsername(payload) : post('/login', payload), { identityChange: true })
+export const refreshSession = () => authSession.ensureSession()
+export const getSelf = () => request.get(`${PREFIX}/self`, { __authProjectionResponse: true })
 
-/** 验证码登录 */
-export function loginByCode({ phone, code }) {
-  if (USE_MOCK) return mockApi.loginSms({ phone, code })
-  return request.post(`${PREFIX}/login/code`, { phone, code })
+function expired(token) {
+  try { return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).exp * 1000 <= Date.now() }
+  catch { return !token }
 }
-
-/** 密码登录（后端仅支持手机号） */
-export function loginByPassword({ phone, password }) {
-  if (USE_MOCK) return mockApi.loginPassword({ account: phone, password })
-  return request.post(`${PREFIX}/login/password`, { phone, password })
-}
-
-export function register({ phone, code, password, nickname }) {
-  if (USE_MOCK) return mockApi.loginSms({ phone, code })
-  return request.post(`${PREFIX}/register`, { phone, code, password, nickname })
-}
-
-/** 登录后拉取用户信息 */
-export async function loginAndLoadProfile(loginFn, payload) {
-  const tokenRes = await loginFn(payload)
-  const { setItem } = await import('@/utils/storage')
-  setItem('token', tokenRes.access_token)
-  const profile = await getProfile()
-  return {
-    token: tokenRes.access_token,
-    user: profile,
-    userGuid: optionalGuid(tokenRes.user_guid),
-    planType: tokenRes.plan_type,
-  }
-}
+/** One explicit pre-logout refresh is allowed, inside the same cookie lock. Never replay logout. */
+export const logout = () => authSession.logout(async token => {
+  if (USE_MOCK) return
+  if (expired(token)) token = validateLoginResponse(await post('/refresh')).access_token
+  return post('/logout', undefined, token)
+})
+export async function listSessions() { if (USE_MOCK) return [{ guid: '903496573054181376', current: true, loginMethod: 'mock', userAgent: '本地演示' }]; return sessionRows((await request.get(`${PREFIX}/sessions`))?.data) }
+export const revokeSession = (guid, current = false) => authSession.cookieOperation('revoke-session',
+  async token => USE_MOCK ? undefined : (await authTransport.delete(`${PREFIX}/sessions/${encodeURIComponent(guid)}`, { headers: headers(token) })).data,
+  { identityChange: current, clear: current })
+export const revokeOtherSessions = () => authSession.cookieOperation('revoke-others', token => USE_MOCK ? undefined : post('/sessions/revoke-others', undefined, token))
+export const changePassword = data => authSession.cookieOperation('password', token => USE_MOCK ? undefined : post('/self/password', {
+  old_password: data.oldPassword, new_password: data.newPassword,
+}, token), { identityChange: true, clear: true })

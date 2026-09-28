@@ -1,0 +1,145 @@
+{
+  "generatedAt": "2026-09-04T04:31:10.255Z",
+  "runs": [
+    {
+      "origin": "127.0.0.1:15173",
+      "index": 1,
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/refresh",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/self",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/refresh",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/self",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/logout",
+          "status": 204
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/refresh",
+          "status": 401
+        }
+      ],
+      "authConfirmed": true,
+      "logout": {
+        "status": 204,
+        "setCookie": null,
+        "postLogoutCookies": []
+      },
+      "refreshAfterLogout": 401,
+      "apiKeys": {
+        "finalPath": "/api-keys",
+        "documentStatus": 404,
+        "refreshRequestsAfterGoto": [],
+        "loginRendered": false,
+        "mainRendered": false,
+        "apiKeysPrivateRendered": false
+      }
+    },
+    {
+      "origin": "localhost:15173",
+      "index": 2,
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/refresh",
+          "status": 403
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/self",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/refresh",
+          "status": 403
+        }
+      ],
+      "error": "page.waitForSelector: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.users-table tbody tr') to be visible\u001b[22m\n"
+    },
+    {
+      "origin": "127.0.0.1:15173",
+      "index": 3,
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/refresh",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/self",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/refresh",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/self",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/logout",
+          "status": 204
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/refresh",
+          "status": 401
+        }
+      ],
+      "authConfirmed": true,
+      "logout": {
+        "status": 204,
+        "setCookie": null,
+        "postLogoutCookies": []
+      },
+      "refreshAfterLogout": 401,
+      "apiKeys": {
+        "finalPath": "/api-keys",
+        "documentStatus": 404,
+        "refreshRequestsAfterGoto": [],
+        "loginRendered": false,
+        "mainRendered": false,
+        "apiKeysPrivateRendered": false
+      }
+    }
+  ],
+  "secretFree": true
+}

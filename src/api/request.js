@@ -1,50 +1,64 @@
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
-import { getItem } from '@/utils/storage'
-import { handleUnauthorized, isAuthRequestUrl } from '@/utils/auth-redirect'
+import { createSessionRecovery } from './auth-refresh.js'
+import { installAuthInterceptors } from './auth-request-policy.js'
+import { authenticatedFetch as runAuthenticatedFetch, createAuthSessionManager } from './auth-session.js'
+import { createBrowserAuthAdapter } from './auth-browser.js'
+import { authErrorMessage } from './auth-errors.js'
 
-/** 默认对接 ai-gateway；开发可用 Mock */
-export const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
-
-const request = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE ?? '',
-  timeout: 120000,
+const env = import.meta.env ?? {}
+export const USE_MOCK = env.VITE_USE_MOCK === 'true'
+const options = { baseURL: env.VITE_API_BASE ?? '', timeout: 120000, withCredentials: true }
+const handleUnauthorized = async () => (await import('../utils/auth-redirect.js')).handleUnauthorized()
+// Cookie operations use a separate transport with no session/retry interceptors.
+export const authTransport = axios.create(options)
+const sessionRecovery = createSessionRecovery({ useMock: USE_MOCK, transport: authTransport })
+export const authSession = createAuthSessionManager({
+  browser: createBrowserAuthAdapter(),
+  refresh: sessionRecovery.refresh,
+  recoverLogout: sessionRecovery.logout,
 })
-
-request.interceptors.request.use((config) => {
-  const token = getItem('token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
-})
-
-function formatError(err) {
-  const data = err.response?.data
-  const detail = data?.detail
-  if (typeof detail === 'string') return detail
-  if (Array.isArray(detail)) {
-    return detail.map((d) => d.msg || d.message || JSON.stringify(d)).join('; ')
-  }
-  return data?.message || err.message || '请求失败'
+function installBearerInterceptor(transport, auth) {
+  transport.interceptors.request.use(config => {
+    const context = auth.capture()
+    auth.assertCurrent(context)
+    const token = auth.accessToken()
+    if (token) config.headers.Authorization = `Bearer ${token}`
+    else delete config.headers.Authorization
+    return config
+  })
 }
-
-request.interceptors.response.use(
-  (res) => res.data,
-  (err) => {
-    const status = err.response?.status
-    const url = err.config?.url || ''
-    if (status === 401 && !isAuthRequestUrl(url)) {
-      handleUnauthorized(formatError(err))
-    } else if (status !== 401) {
-      ElMessage.error(formatError(err))
-    }
-    return Promise.reject(err)
-  }
-)
-
-export function getAuthToken() {
-  return getItem('token')
+export function createAdminActionRequest({ auth, baseURL = '', fetchImpl = fetch, axiosOptions = {}, onUnauthorized = handleUnauthorized }) {
+  // Sensitive action mutations acquire the current bearer but have no response
+  // interceptor, so a 401 or network ambiguity can never replay the mutation.
+  const transport = axios.create({ baseURL, timeout: 120000, withCredentials: true, ...axiosOptions })
+  installBearerInterceptor(transport, auth)
+  return Object.freeze({
+    transport,
+    async post(path, body, config) {
+      const response = await transport.post(path, body, config)
+      return { data: response.data, status: response.status, headers: response.headers }
+    },
+    async patch(path, body, config) {
+      const response = await transport.patch(path, body, config)
+      return { data: response.data, status: response.status, headers: response.headers }
+    },
+    async query(path, headers) {
+      const response = await runAuthenticatedFetch(auth, `${baseURL}${path}`, { method: 'GET', headers, credentials: 'include' }, { fetchImpl, onUnauthorized })
+      let data
+      try { data = await response.json() } catch { data = null }
+      if (!response.ok) throw { response: { status: response.status, data, headers: response.headers } }
+      return { data, status: response.status, headers: response.headers }
+    },
+  })
 }
-
+const adminActionRequest = createAdminActionRequest({ auth: authSession, baseURL: options.baseURL, axiosOptions: options })
+export const adminActionPost = adminActionRequest.post
+export const adminActionPatch = adminActionRequest.patch
+export const adminActionQuery = adminActionRequest.query
+const request = axios.create(options)
+installAuthInterceptors(request, authSession, { onUnauthorized: () => handleUnauthorized(), onError: error => { void import('element-plus').then(({ ElMessage }) => ElMessage.error(authErrorMessage(error))) } })
+export function getAuthToken() { return authSession.accessToken() }
+export function authenticatedFetch(input, init = {}) {
+  return runAuthenticatedFetch(authSession, input, { credentials: 'include', ...init }, { onUnauthorized: () => handleUnauthorized() })
+}
 export default request

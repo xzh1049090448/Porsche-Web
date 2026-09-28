@@ -1,0 +1,42 @@
+Fixed Home Structured Content Task13 cross-repository record — 2026-09-16
+frontend implementation HEAD: ab18718f89b55ea7106d0ac52ff9972576e4e9e4
+backend implementation HEAD: 77c4e003310f3194f3e7a90cdadb7d650cbd3ba1 (includes f6ed4e1 target locks and 8303a28 artifact renderer)
+cross-repo contract: interface-contract.json v1.0.0-p0 / agreed_for_implementation / 9bc9c70e70bb45b63185b3b619ae49e5e6a251ba3c4a30f64539774cb272a3ce
+backend subsystem contract: public-content-pricing-v1.json v2 / implemented_locally_pending_acceptance / 4db4380dcef26f0098443f591d9fe098f9faefd32a367f02ce2a14ba62d8309d
+overall: PASS_LIMITED_SCOPE
+
+PASS exit=0  backend planned normal scoped gate; migration/service/handler 3.860s/3.178s/0.519s; 0 unexpected skip
+PASS exit=0  backend planned race scoped gate; service/handler 7.051s/1.643s; 0 unexpected skip
+PASS exit=0  backend static full/vet/build/deploy test/gofmt/diff checks
+PASS  backend real service serial 171.312s and handler serial 17.009s
+PASS  artifact renderer stale-overwrite RED then flock GREEN; race count=3 and security/mode/manifest/fence/rollback coverage
+NON_BLOCKING_EXTRA_CHECK_FAIL exit=1  backend full real migration package; four named historical terminal/dependency assertions
+PASS  exact fixture and credential cleanup; names absent and ports 52179/54737 closed
+
+PASS exit=0  post-remediation public/platform contract tests: 14/14, 0 skip
+PASS exit=0  post-remediation npm test with six explicit backend contracts: 1138/1138, 0 fail/skip/cancel/todo, 48.734s
+PASS exit=0  VITE_USE_MOCK=false npm run build
+PASS exit=0  public chunk checker: 9 chunks, 171428 JS bytes, 20362 CSS bytes
+PASS exit=0  git diff --check
+
+SPEC_FAIL_INVALIDATED  snapshot 6cdec47f13716e4f546b19d69c56050f5bde5f159416d91c708f3b7ce2727d92: preview header and stable modelKey contract drift
+RED  backend contract missing stable modelKey shape; frontend focused 3 failures
+PASS  fixes backend=77c4e003310f3194f3e7a90cdadb7d650cbd3ba1 frontend=61c1ccb6512198539ae13b3d98e4043ef77a1dca
+PASS exit=0  frontend focused 61/61 and full 1138/1138, 0 fail/skip/cancel/todo, 48.734s
+PASS exit=0  backend focused/full and cross-repo public content contracts byte-equal
+PASS exit=0  production build and public chunk checker: 9 chunks, 171428 JS bytes, 20362 CSS bytes
+
+QUALITY_FAIL_INVALIDATED  snapshot ec31d2ef3279bee6d08a902fe264fc6289be7cd80cab1076b92ab3669a29daf4: preview retained unpublished content across identity changes; home GET bypassed authenticated read fencing
+RED  direct GET transport and mounted preview identity-change tests failed
+PASS  fix frontend=ab18718f89b55ea7106d0ac52ff9972576e4e9e4
+PASS exit=0  API/preview focused 22/22 and related auth/public focused 99/99
+PASS exit=0  full npm test 1140/1140, 0 fail/skip/cancel/todo, 47.689s
+PASS exit=0  production build and public chunk checker: 9 chunks, 171428 JS bytes, 20362 CSS bytes
+
+Task12 browser evidence remains synthetic page.route: 12/12 scenarios, 234/234 assertions, 32 sanitized requests, 0 unexpected console/page errors.
+NOT_RUN  authenticated Root real browser CRUD/RBAC/transaction flow
+NOT_RUN  external scheduler/systemd, production volume mount, frontend artifact reader
+NOT_RUN  production migration/deploy/content publication/public HTTPS acceptance
+BLOCKED_PRODUCT  P08 production content truth criteria
+PENDING  ordered Spec -> Quality review chain; external receipt /private/tmp/porsche-fixed-home-structured-content-review/frontend/final-review-receipt.json
+NO_ACTION  push/PR/merge/deploy

@@ -1,0 +1,230 @@
+import { mapPublicHomeConfig } from './publicContent.js'
+
+const GUID = /^[1-9]\d{0,18}$/
+const MAX_INT64 = '9223372036854775807'
+const MODEL_KEY = /^[a-z][a-z0-9-]{0,127}$/
+const RFC3339 = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)Z$/
+const UNSAFE = /[\p{Cc}\p{Cf}]/u
+const LONE_SURROGATE = /(?:[\uD800-\uDBFF](?![\uDC00-\uDFFF]))|(?:(?<![\uD800-\uDBFF])[\uDC00-\uDFFF])/
+const DOM_EXCEPTION_NAME = typeof globalThis.DOMException === 'function' ? Object.getOwnPropertyDescriptor(globalThis.DOMException.prototype, 'name')?.get : null
+const HEADERS_GET = typeof globalThis.Headers === 'function' ? globalThis.Headers.prototype.get : null
+const RESPONSE_STATUS = typeof globalThis.Response === 'function' ? Object.getOwnPropertyDescriptor(globalThis.Response.prototype, 'status')?.get : null
+const RESPONSE_OK = typeof globalThis.Response === 'function' ? Object.getOwnPropertyDescriptor(globalThis.Response.prototype, 'ok')?.get : null
+const RESPONSE_HEADERS = typeof globalThis.Response === 'function' ? Object.getOwnPropertyDescriptor(globalThis.Response.prototype, 'headers')?.get : null
+const RESPONSE_JSON = typeof globalThis.Response === 'function' ? globalThis.Response.prototype.json : null
+const isGenuineAbortError = error => {
+  if (typeof DOM_EXCEPTION_NAME !== 'function') return false
+  try { return DOM_EXCEPTION_NAME.call(error) === 'AbortError' } catch { return false }
+}
+const snapshotObject = (value, allowed, required = allowed) => {
+  try {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return null
+    const descriptors = Object.getOwnPropertyDescriptors(value)
+    const own = Reflect.ownKeys(descriptors)
+    if (own.some(key => typeof key !== 'string' || !allowed.includes(key)) || required.some(key => !Object.hasOwn(descriptors, key))) return null
+    const snapshot = {}
+    for (const key of own) {
+      const descriptor = descriptors[key]
+      if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null
+      snapshot[key] = descriptor.value
+    }
+    return snapshot
+  } catch { return null }
+}
+const snapshotArray = (value, maxLength) => {
+  try {
+    if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return null
+    const descriptors = Object.getOwnPropertyDescriptors(value)
+    const own = Reflect.ownKeys(descriptors)
+    const lengthDescriptor = descriptors.length
+    const length = lengthDescriptor?.value
+    if (!Object.hasOwn(lengthDescriptor || {}, 'value') || lengthDescriptor.enumerable || !Number.isSafeInteger(length) || length < 0 || length > maxLength || own.length !== length + 1) return null
+    const snapshot = []
+    for (let index = 0; index < length; index++) {
+      const descriptor = descriptors[String(index)]
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null
+      snapshot.push(descriptor.value)
+    }
+    return snapshot
+  } catch { return null }
+}
+const positive = value => Number.isSafeInteger(value) && value >= 1
+const validGuid = value => typeof value === 'string' && GUID.test(value) && (value.length < MAX_INT64.length || value <= MAX_INT64)
+const validModelKey = value => typeof value === 'string' && MODEL_KEY.test(value) && !value.endsWith('-') && !value.includes('--')
+const validScalars = value => !LONE_SURROGATE.test(value) && ![...value].some(character => { const code = character.codePointAt(0); return code === 0xfffd || code >= 0xfdd0 && code <= 0xfdef || (code & 0xffff) >= 0xfffe })
+const validText = (value, max, { empty = false, multiline = false, bytes = false } = {}) => typeof value === 'string' && (empty || value.trim().length > 0) && ![...value].some(character => multiline && ['\t', '\n', '\r'].includes(character) ? false : UNSAFE.test(character)) && validScalars(value) && (bytes ? new TextEncoder().encode(value).length : [...value].length) <= max
+const validTime = value => {
+  if (value === null) return true
+  const match = typeof value === 'string' ? RFC3339.exec(value) : null
+  if (!match) return false
+  const values = match.slice(1, 7).map(Number); const ms = Date.parse(value); if (!Number.isFinite(ms)) return false
+  const date = new Date(ms)
+  return date.getUTCFullYear() === values[0] && date.getUTCMonth() + 1 === values[1] && date.getUTCDate() === values[2] && date.getUTCHours() === values[3] && date.getUTCMinutes() === values[4] && date.getUTCSeconds() === values[5]
+}
+const validSort = value => Number.isSafeInteger(value) && value >= 0 && value <= 1000000
+const snapshotHeaders = (headers, names) => {
+  if (typeof HEADERS_GET === 'function') {
+    try { return Object.fromEntries(names.map(name => [name.toLowerCase(), HEADERS_GET.call(headers, name)])) } catch {}
+  }
+  try {
+    if (!headers || typeof headers !== 'object' || Array.isArray(headers) || Object.getPrototypeOf(headers) !== Object.prototype) return null
+    const descriptors = Object.getOwnPropertyDescriptors(headers)
+    const own = Reflect.ownKeys(descriptors)
+    const values = {}; const seen = new Set()
+    for (const key of own) {
+      if (typeof key !== 'string' || !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(key)) return null
+      const descriptor = descriptors[key]; const normalized = key.toLowerCase()
+      if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'string' || seen.has(normalized)) return null
+      seen.add(normalized); values[normalized] = descriptor.value
+    }
+    return Object.fromEntries(names.map(name => [name.toLowerCase(), values[name.toLowerCase()] ?? null]))
+  } catch { return null }
+}
+const snapshotFetchResponse = response => {
+  if ([RESPONSE_STATUS, RESPONSE_OK, RESPONSE_HEADERS, RESPONSE_JSON].every(item => typeof item === 'function')) {
+    try {
+      const status = RESPONSE_STATUS.call(response)
+      const ok = RESPONSE_OK.call(response)
+      const headers = RESPONSE_HEADERS.call(response)
+      return { status, ok, headers, json: () => RESPONSE_JSON.call(response) }
+    } catch {}
+  }
+  const value = snapshotObject(response, ['status', 'ok', 'headers', 'json'])
+  if (!value || !Number.isInteger(value.status) || value.status < 100 || value.status > 599 || typeof value.ok !== 'boolean' || value.ok !== (value.status >= 200 && value.status <= 299) || typeof value.json !== 'function') return null
+  return { status: value.status, ok: value.ok, headers: value.headers, json: () => value.json.call(response) }
+}
+const ownDataValue = (value, key) => {
+  try {
+    if (!value || (typeof value !== 'object' && typeof value !== 'function')) return null
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    return descriptor && Object.hasOwn(descriptor, 'value') ? { value: descriptor.value } : null
+  } catch { return null }
+}
+const isIdentityChangedError = error => ownDataValue(error, 'code')?.value === 'identity_changed'
+const freeze = value => Array.isArray(value) ? Object.freeze(value.map(freeze)) : value && typeof value === 'object' ? Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, freeze(item)]))) : value
+const compareGuid = (left, right) => left.length === right.length ? left < right ? -1 : left > right ? 1 : 0 : left.length - right.length
+const compareAnnouncement = (left, right) => left.sortOrder - right.sortOrder || (left.effectiveAt === right.effectiveAt ? 0 : left.effectiveAt === null ? -1 : right.effectiveAt === null ? 1 : left.effectiveAt < right.effectiveAt ? -1 : 1) || compareGuid(left.guid, right.guid)
+const compareFAQ = (left, right) => left.sortOrder - right.sortOrder || compareGuid(left.guid, right.guid)
+const canonicalOrder = (items, compare) => items.every((item, index) => index === 0 || compare(items[index - 1], item) <= 0)
+const invalidRequest = () => { throw new Error('invalid_public_home_content_admin_request') }
+class InvalidResponse extends Error { constructor() { super('invalid_public_home_content_admin_response') } }
+const invalid = () => { throw new InvalidResponse() }
+
+function mapAnnouncement(raw) {
+  const value = snapshotObject(raw, ['guid', 'title', 'body_markdown', 'effective_at', 'is_visible', 'sort_order'])
+  if (!value || !validGuid(value.guid) || !validText(value.title, 120) || !validText(value.body_markdown, 16384, { empty: true, multiline: true, bytes: true }) || !validTime(value.effective_at) || typeof value.is_visible !== 'boolean' || !validSort(value.sort_order)) invalid()
+  return freeze({ guid: value.guid, title: value.title, bodyMarkdown: value.body_markdown, effectiveAt: value.effective_at, isVisible: value.is_visible, sortOrder: value.sort_order })
+}
+function mapFAQ(raw) {
+  const value = snapshotObject(raw, ['guid', 'question', 'answer_markdown', 'is_visible', 'sort_order'])
+  if (!value || !validGuid(value.guid) || !validText(value.question, 200) || !validText(value.answer_markdown, 16384, { empty: true, multiline: true, bytes: true }) || typeof value.is_visible !== 'boolean' || !validSort(value.sort_order)) invalid()
+  return freeze({ guid: value.guid, question: value.question, answerMarkdown: value.answer_markdown, isVisible: value.is_visible, sortOrder: value.sort_order })
+}
+function mapHomeDraft(raw) {
+  const value = snapshotObject(raw, ['revision', 'announcements', 'faqs', 'featured_model_keys'])
+  const sourceAnnouncements = value && snapshotArray(value.announcements, 20)
+  const sourceFAQs = value && snapshotArray(value.faqs, 50)
+  const keys = value && snapshotArray(value.featured_model_keys, 12)
+  if (!value || !positive(value.revision) || !sourceAnnouncements || !sourceFAQs || !keys) invalid()
+  const announcements = sourceAnnouncements.map(mapAnnouncement), faqs = sourceFAQs.map(mapFAQ)
+  if (new Set(announcements.map(item => item.guid)).size !== announcements.length || new Set(faqs.map(item => item.guid)).size !== faqs.length || new Set(keys).size !== keys.length || !keys.every(validModelKey) || !canonicalOrder(announcements, compareAnnouncement) || !canonicalOrder(faqs, compareFAQ)) invalid()
+  return freeze({ revision: value.revision, announcements, faqs, featuredModelKeys: keys })
+}
+function mapDocuments(raw) {
+  const value = snapshotObject(raw, ['revision', 'about', 'terms', 'privacy', 'legal_reviewed'])
+  if (!value || !positive(value.revision) || ![value.about, value.terms, value.privacy].every(item => validText(item, 262144, { empty: true, multiline: true, bytes: true })) || typeof value.legal_reviewed !== 'boolean') invalid()
+  return freeze({ revision: value.revision, about: value.about, terms: value.terms, privacy: value.privacy, legalReviewed: value.legal_reviewed })
+}
+function metadata(result, status, { preview = false, deletion = false } = {}) {
+  const value = snapshotObject(result, ['data', 'status', 'headers'])
+  const names = ['Cache-Control', 'X-Request-ID', ...(preview ? ['X-Robots-Tag'] : []), ...(deletion ? ['X-Content-Draft-Revision'] : [])]
+  const headers = value && snapshotHeaders(value.headers, names)
+  if (!value || !headers || value.status !== status || headers['cache-control'] !== 'no-store' || !safeRequestId(headers['x-request-id']) || (preview && headers['x-robots-tag'] !== 'noindex, nofollow')) invalid()
+  if (deletion) {
+    if (value.data !== null && value.data !== undefined && value.data !== '') invalid()
+    const rawRevision = headers['x-content-draft-revision']; const revision = /^[1-9]\d*$/.test(rawRevision || '') ? Number(rawRevision) : NaN; if (!positive(revision)) invalid()
+    return revision
+  }
+  return value.data
+}
+const safeRequestId = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
+export class PublicHomeContentAdminError extends Error { constructor(code, status = null, requestId = null) { super(`public_home_content_admin_${code}`); this.name = 'PublicHomeContentAdminError'; Object.assign(this, { code, status, requestId }) } }
+function mapError(error) {
+  if (isGenuineAbortError(error)) return error
+  const responseProperty = ownDataValue(error, 'response')
+  const response = responseProperty && snapshotObject(responseProperty.value, ['data', 'status', 'headers'])
+  const status = Number.isInteger(response?.status) ? response.status : null, raw = response?.data
+  const headers = response && snapshotHeaders(response.headers, ['Cache-Control', 'X-Request-ID'])
+  const requestId = headers?.['x-request-id'] ?? null
+  const expected = ({ 400: 'invalid_request', 401: 'authentication_required', 403: 'root_role_required', 404: 'not_found', 409: 'conflict', 410: 'gone', 422: 'validation_failed', 503: 'unavailable' })[status]
+  const envelope = snapshotObject(raw, ['error'])
+  const errorBody = envelope && snapshotObject(envelope.error, ['code', 'message', 'request_id'])
+  const valid = expected && headers?.['cache-control'] === 'no-store' && safeRequestId(requestId) && errorBody && errorBody.code === expected && errorBody.request_id === requestId && typeof errorBody.message === 'string'
+  if (!valid) return new PublicHomeContentAdminError(status ? 'request_failed' : 'network_error', status)
+  return new PublicHomeContentAdminError(status === 403 ? 'root_required' : status === 409 ? 'revision_conflict' : expected, status, requestId)
+}
+
+export function createPublicHomeContentAdminProductionRequest({ fetchImpl = globalThis.fetch, authenticatedFetchImpl, captureAuth, assertAuthCurrent, baseURL = import.meta.env?.VITE_API_BASE ?? '', getAuthorization } = {}) {
+  return async input => {
+    const isRead = input.method === 'GET'
+    const headers = {}; const authorization = !isRead && getAuthorization?.(); if (authorization) headers.Authorization = authorization
+    if (input.method !== 'GET' && input.method !== 'DELETE' || input.body !== undefined) headers['Content-Type'] = 'application/json'
+    const authContext = isRead ? captureAuth?.() : null
+    let response
+    try {
+      if (isRead && typeof authenticatedFetchImpl !== 'function') throw new PublicHomeContentAdminError('request_failed')
+      const send = isRead ? authenticatedFetchImpl : fetchImpl
+      response = await send(`${baseURL}${input.path}`, { method: input.method, headers, credentials: 'include', signal: input.signal, ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }) })
+    } catch (error) { if (isGenuineAbortError(error) || isIdentityChangedError(error) || error instanceof PublicHomeContentAdminError) throw error; throw new PublicHomeContentAdminError('network_error') }
+    const responseView = snapshotFetchResponse(response)
+    if (!responseView) throw new PublicHomeContentAdminError('request_failed')
+    let data = null
+    if (responseView.status !== 204) { try { data = await responseView.json() } catch (error) { if (isGenuineAbortError(error) || isIdentityChangedError(error)) throw error; data = null } }
+    if (authContext && typeof assertAuthCurrent === 'function') assertAuthCurrent(authContext)
+    const result = { data, status: responseView.status, headers: responseView.headers }
+    if (!responseView.ok) throw { response: result }
+    return result
+  }
+}
+async function productionRequest(input) { const { authenticatedFetch, authSession, getAuthToken } = await import('./request.js'); return createPublicHomeContentAdminProductionRequest({ authenticatedFetchImpl: authenticatedFetch, captureAuth: () => authSession.capture(), assertAuthCurrent: context => authSession.assertCurrent(context), getAuthorization: () => { const token = getAuthToken(); return token ? `Bearer ${token}` : null } })(input) }
+
+function revision(value) { if (!positive(value)) invalidRequest(); return value }
+function guid(value) { if (!validGuid(value)) invalidRequest(); return encodeURIComponent(value) }
+function exactInput(value, keys) { const snapshot = snapshotObject(value, keys); if (!snapshot) invalidRequest(); return snapshot }
+function requestOptions(value, allowed = ['signal']) { const snapshot = snapshotObject(value, allowed, []); if (!snapshot) invalidRequest(); return snapshot }
+function announcementBody(value, update = false) {
+  const allowed = ['expectedRevision', 'title', 'bodyMarkdown', 'effectiveAt', 'isVisible', 'sortOrder']
+  const snapshot = snapshotObject(value, allowed, update ? ['expectedRevision'] : allowed)
+  if (!snapshot || !positive(snapshot.expectedRevision)) invalidRequest()
+  const body = { expected_revision: snapshot.expectedRevision }
+  for (const [source, target, validate] of [['title','title',v=>validText(v,120)],['bodyMarkdown','body_markdown',v=>validText(v,16384,{empty:true,multiline:true,bytes:true})],['effectiveAt','effective_at',validTime],['isVisible','is_visible',v=>typeof v==='boolean'],['sortOrder','sort_order',validSort]]) if (Object.hasOwn(snapshot, source)) { if (!validate(snapshot[source])) invalidRequest(); body[target] = snapshot[source] }
+  return body
+}
+function faqBody(value, update = false) {
+  const allowed = ['expectedRevision', 'question', 'answerMarkdown', 'isVisible', 'sortOrder']
+  const snapshot = snapshotObject(value, allowed, update ? ['expectedRevision'] : allowed)
+  if (!snapshot || !positive(snapshot.expectedRevision)) invalidRequest()
+  const body = { expected_revision: snapshot.expectedRevision }
+  for (const [source, target, validate] of [['question','question',v=>validText(v,200)],['answerMarkdown','answer_markdown',v=>validText(v,16384,{empty:true,multiline:true,bytes:true})],['isVisible','is_visible',v=>typeof v==='boolean'],['sortOrder','sort_order',validSort]]) if (Object.hasOwn(snapshot, source)) { if (!validate(snapshot[source])) invalidRequest(); body[target] = snapshot[source] }
+  return body
+}
+
+export function createPublicHomeContentAdminApi({ request = productionRequest } = {}) {
+  const run = async (input, status, mapper, options) => { try { return mapper(metadata(await request(input), status, options)) } catch (error) { if (error instanceof InvalidResponse || error instanceof PublicHomeContentAdminError) throw error; throw mapError(error) } }
+  const home = (input, status) => run(input, status, mapHomeDraft)
+  return Object.freeze({
+    getHomeDraft: (options = {}) => { options=requestOptions(options); return home({ method: 'GET', path: '/admin/v2/public-content/home-draft', signal: options.signal }, 200) },
+    createAnnouncement: (value, options = {}) => { const body=announcementBody(value); options=requestOptions(options); return home({ method: 'POST', path: '/admin/v2/public-content/home-draft/announcements', body, signal: options.signal }, 201) },
+    updateAnnouncement: (id, value, options = {}) => { const pathGuid=guid(id),body=announcementBody(value,true);options=requestOptions(options);return home({ method: 'PATCH', path: `/admin/v2/public-content/home-draft/announcements/${pathGuid}`, body, signal: options.signal }, 200) },
+    deleteAnnouncement: (id, expectedRevision, options = {}) => { const pathGuid=guid(id),rev=revision(expectedRevision);options=requestOptions(options);return run({ method: 'DELETE', path: `/admin/v2/public-content/home-draft/announcements/${pathGuid}`, body: { expected_revision: rev }, signal: options.signal }, 204, value => value, { deletion: true }) },
+    createFAQ: (value, options = {}) => { const body=faqBody(value);options=requestOptions(options);return home({ method: 'POST', path: '/admin/v2/public-content/home-draft/faqs', body, signal: options.signal }, 201) },
+    updateFAQ: (id, value, options = {}) => { const pathGuid=guid(id),body=faqBody(value,true);options=requestOptions(options);return home({ method: 'PATCH', path: `/admin/v2/public-content/home-draft/faqs/${pathGuid}`, body, signal: options.signal }, 200) },
+    deleteFAQ: (id, expectedRevision, options = {}) => { const pathGuid=guid(id),rev=revision(expectedRevision);options=requestOptions(options);return run({ method: 'DELETE', path: `/admin/v2/public-content/home-draft/faqs/${pathGuid}`, body: { expected_revision: rev }, signal: options.signal }, 204, value => value, { deletion: true }) },
+    saveFeaturedModels: (expectedRevision, featuredModelKeys, options = {}) => { const keys=snapshotArray(featuredModelKeys,12);if (!keys || new Set(keys).size !== keys.length || !keys.every(validModelKey)) invalidRequest(); const rev=revision(expectedRevision);options=requestOptions(options);return home({ method: 'PUT', path: '/admin/v2/public-content/home-draft/featured-models', body: { expected_revision: rev, featured_model_keys: keys }, signal: options.signal }, 200) },
+    previewHome: (draftRevision, options = {}) => { if (draftRevision !== undefined && !positive(draftRevision)) invalidRequest();options=requestOptions(options);return run({ method: 'GET', path: `/admin/v2/public-content/home-preview${draftRevision === undefined ? '' : `?revision=${draftRevision}`}`, signal: options.signal }, 200, mapHomeDraft, { preview: true }) },
+    getReleaseHomeConfig: (id, options = {}) => { const pathGuid=guid(id);options=requestOptions(options);return run({ method: 'GET', path: `/admin/v2/public-content/releases/${pathGuid}/home-config`, signal: options.signal }, 200, raw => { try { return mapPublicHomeConfig(raw) } catch { invalid() } }) },
+    getDocumentsDraft: (options = {}) => { options=requestOptions(options);return run({ method: 'GET', path: '/admin/v2/public-content/documents-draft', signal: options.signal }, 200, mapDocuments) },
+    saveDocumentsDraft: (value, options = {}) => { const snapshot=exactInput(value, ['expectedRevision','about','terms','privacy','legalReviewed']); if (![snapshot.about,snapshot.terms,snapshot.privacy].every(item=>validText(item,262144,{empty:true,multiline:true,bytes:true})) || typeof snapshot.legalReviewed !== 'boolean') invalidRequest(); const rev=revision(snapshot.expectedRevision);options=requestOptions(options);return run({ method: 'PUT', path: '/admin/v2/public-content/documents-draft', body: { expected_revision: rev, about:snapshot.about, terms:snapshot.terms, privacy:snapshot.privacy, legal_reviewed:snapshot.legalReviewed }, signal: options.signal }, 200, mapDocuments) },
+  })
+}
+export const publicHomeContentAdminApi = createPublicHomeContentAdminApi()

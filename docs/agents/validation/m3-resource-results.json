@@ -1,0 +1,26 @@
+[
+  {
+    "name": "create-owned-empty-conversation",
+    "status": "PASS",
+    "guid": "353741282104840192",
+    "code": 200
+  },
+  {
+    "name": "cross-account-history-export-delete-denied",
+    "status": "PASS",
+    "statuses": [
+      404,
+      404,
+      404
+    ]
+  },
+  {
+    "status": "FAIL",
+    "error": "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.conv-item').filter({ hasText: 'M3 isolated history fixture' }).first().locator('.conv-more')\u001b[22m\n\u001b[2m    - locator resolved to <i tabindex=\"0\" role=\"button\" data-v-fbd71181=\"\" id=\"el-id-8998-13\" aria-haspopup=\"menu\" aria-expanded=\"false\" aria-controls=\"el-id-8998-14\" class=\"el-icon conv-more el-tooltip__trigger el-tooltip__trigger\">…</i>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - element is outside of the viewport\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - element is outside of the viewport\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    58 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - element is outside of the viewport\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n"
+  },
+  {
+    "name": "fixture-cleanup",
+    "status": "PASS",
+    "deleteStatus": 200
+  }
+]

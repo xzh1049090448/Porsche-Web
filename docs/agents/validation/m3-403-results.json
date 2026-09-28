@@ -1,0 +1,9 @@
+{
+  "status": "PASS",
+  "case": "real-admin-403-forwarded-to-profile",
+  "backendDenied": 403,
+  "frontendPreservedIdentity": true,
+  "refreshes": 0,
+  "profileRetry": "PASS",
+  "cleanup": 204
+}

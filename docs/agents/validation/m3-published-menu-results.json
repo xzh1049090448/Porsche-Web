@@ -1,0 +1,28 @@
+[
+  {
+    "name": "create-owned-empty-conversation",
+    "status": "PASS",
+    "guid": "353757247232282624",
+    "code": 200
+  },
+  {
+    "name": "published-pointer-menu-1280",
+    "status": "PASS",
+    "entry": "index-i7ZWPv9J.js",
+    "box": {
+      "x": 180,
+      "y": 230,
+      "width": 18,
+      "height": 18
+    }
+  },
+  {
+    "status": "FAIL",
+    "error": "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('menuitem', { name: /Markdown/ }) to be hidden\u001b[22m\n\u001b[2m    63 × locator resolved to visible <li tabindex=\"-1\" role=\"menuitem\" aria-disabled=\"false\" data-el-collection-item=\"\" class=\"el-dropdown-menu__item\">…</li>\u001b[22m\n"
+  },
+  {
+    "name": "fixture-cleanup",
+    "status": "PASS",
+    "deleteStatus": 200
+  }
+]

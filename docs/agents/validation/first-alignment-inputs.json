@@ -1,0 +1,214 @@
+{
+  "alignmentId": "ALIGN-20260903-02",
+  "recordedAt": "2026-09-03T08:00:36.997519+00:00",
+  "scope": "Local read-only pre-edit snapshot; prior live evidence is not a fresh online check",
+  "frontendPackageVersion": "1.0.0",
+  "repositories": [
+    {
+      "root": "/Users/xuzhihao/code/Porsche-Web/.worktrees/auth-p0-harden",
+      "branch": "feature/auth-p0-harden",
+      "head": "83c87fbe791204a6915ec784bfa6371475312598",
+      "lastFiveCommits": [
+        "83c87fbe791204a6915ec784bfa6371475312598 docs: record M3 normal SSE pass and remaining acceptance gaps",
+        "181262c36198f9f4325b74de56b9b3fefa55dc1e docs: prepare bounded fourth M3 attempt for object diagnostics",
+        "dc8c1d6c21934eb45f936f5d635879fd5dd0d1a3 docs: extend M3 generation budget by one request",
+        "78cb65474f5cac70eb0a358241fdc93685688a1d docs: align object investigation and evidence requirements",
+        "e9d55212b47500142670d2427c3fa8ebdeb5bfd3 docs: record final M3 attempt and exhausted generation budget"
+      ],
+      "status": "?? package-lock.json",
+      "files": [
+        {
+          "path": "AGENTS.md",
+          "sha256": "f10030a511eebcc3861870d289fc63980639bae9520c8de1224b6bc4b87f1a14",
+          "bytes": 3282
+        },
+        {
+          "path": "docs/agents/domain.md",
+          "sha256": "e8f50e6f958799cbdb4eff20716130c47a221b164d223824e8a9bcb84c6ef4cb",
+          "bytes": 4149
+        },
+        {
+          "path": "feature_list.json",
+          "sha256": "926efe92f4d11d72002f114638d97fc3faae03ac982968e5c82a3cadaf265f28",
+          "bytes": 15832
+        },
+        {
+          "path": "progress.md",
+          "sha256": "a70f267f4e7b1e91c33227ad1d413cb86bb59a018d9f0fdb76009693a56e1b99",
+          "bytes": 24635
+        },
+        {
+          "path": "docs/conventions/database-standards.md",
+          "sha256": "902a103a48013f4a3898780c344582c1f9709af8fa64dd55c4474586e229b0a7",
+          "bytes": 2045
+        },
+        {
+          "path": "interface-contract.json",
+          "sha256": "eeb47685e7f8ab7f834728924e696a67a2a2f4cf7eb895e2e91866d835529d1d",
+          "bytes": 10720
+        },
+        {
+          "path": "docs/conventions/frontend-standards.md",
+          "sha256": "ed44fd1676ae6df934d1bf21994a50a0530aca93cb7863962c0cc5284adc06d1",
+          "bytes": 2106
+        },
+        {
+          "path": "docs/conventions/api-contract-standards.md",
+          "sha256": "d1318d24fbf4c1e2e9486cced839c2ed3b720097fce6d7b8ecb8b47057e7c5c3",
+          "bytes": 2281
+        },
+        {
+          "path": "package.json",
+          "sha256": "0ef54ff0c99a534ce1b389e2c8f7209ee36f11ae3057f3060b2dc5b19643ab30",
+          "bytes": 745
+        }
+      ],
+      "features": [
+        {
+          "id": "web-011",
+          "title": "Issue #4：一次性 API Key 安全复制兼容",
+          "priority": 0,
+          "status": "passing"
+        },
+        {
+          "id": "web-009",
+          "title": "P0 用户名认证与可撤销会话加固",
+          "priority": 0,
+          "status": "in_progress"
+        },
+        {
+          "id": "web-010",
+          "title": "Issue #3：首次进入加载选中对话历史",
+          "priority": 0,
+          "status": "passing"
+        },
+        {
+          "id": "web-001",
+          "title": "登录",
+          "priority": 1,
+          "status": "not_started"
+        },
+        {
+          "id": "web-002",
+          "title": "模型面板",
+          "priority": 2,
+          "status": "not_started"
+        },
+        {
+          "id": "web-004",
+          "title": "对话",
+          "priority": 4,
+          "status": "not_started"
+        },
+        {
+          "id": "web-005",
+          "title": "个人中心",
+          "priority": 5,
+          "status": "not_started"
+        },
+        {
+          "id": "web-006",
+          "title": "套餐计费",
+          "priority": 6,
+          "status": "not_started"
+        },
+        {
+          "id": "web-007",
+          "title": "GUID 标识切换与 RAG 移除",
+          "priority": 0,
+          "status": "passing"
+        },
+        {
+          "id": "web-008",
+          "title": "模型选择搜索",
+          "priority": 0,
+          "status": "passing"
+        }
+      ]
+    },
+    {
+      "root": "/Users/xuzhihao/code/Porsche/.worktrees/m3-sse-diagnostics",
+      "branch": "fix/m3-sse-diagnostics",
+      "head": "aec1619ee710c80cd71dbe529660e2d12b3fda7b",
+      "lastFiveCommits": [
+        "aec1619ee710c80cd71dbe529660e2d12b3fda7b docs: record ad3f5b4 release and successful bounded SSE retest",
+        "88d92b262db73b89237b056f4e7f4abced39f653 docs: verify object diagnostic candidate and exact release readiness",
+        "ad3f5b4416854353ebb2b3647ae4b2a809b4a05c feat: add bounded object shape diagnostics for SSE rejection",
+        "70f603704741a4d0c59e852d6d7f13348533272e docs: plan bounded object diagnostics for remaining M3 request",
+        "341a49835c5bdf04a2e3bf11a238b7109e1ceb19 docs: authorize one additional bounded M3 diagnostic request"
+      ],
+      "status": "",
+      "files": [
+        {
+          "path": "AGENTS.md",
+          "sha256": "53baed6f8059f47d071402cccf9ee0ce3f12377b8dc2376f07e6bf04112a23e4",
+          "bytes": 2068
+        },
+        {
+          "path": "docs/agents/domain.md",
+          "sha256": "486bb242643e1ad909483b470924c2796c19a7e376339663d5b652316bd153a3",
+          "bytes": 11035
+        },
+        {
+          "path": "feature_list.json",
+          "sha256": "124a490c59f690a4372bb7a78af255d51d032ff5536b627eafeb99da49385059",
+          "bytes": 23276
+        },
+        {
+          "path": "progress.md",
+          "sha256": "aa55b33877800fc92e7f9af3d42cf2a64562c32a8bf1f6738c1994c501961ca4",
+          "bytes": 41696
+        },
+        {
+          "path": "docs/conventions/database-standards.md",
+          "sha256": "7b5ca69f6fb38b91dd0de89b887b4e8a4a2c4fac008eaae8921e20bda99119ba",
+          "bytes": 7345
+        }
+      ],
+      "features": [
+        {
+          "id": "go-007",
+          "title": "修复真实 MySQL/Redis 测试基线",
+          "priority": 1,
+          "status": "passing"
+        },
+        {
+          "id": "go-004",
+          "title": "PRD-260820 JieKou AI 白牌上游接入",
+          "priority": 1,
+          "status": "blocked"
+        },
+        {
+          "id": "go-006",
+          "title": "PRD-260828 用户注册管理一期",
+          "priority": 1,
+          "status": "passing"
+        },
+        {
+          "id": "go-005",
+          "title": "前后端一键更新重启",
+          "priority": 5,
+          "status": "passing"
+        },
+        {
+          "id": "go-008",
+          "title": "M3单模型SSE脱敏阶段诊断",
+          "priority": 0,
+          "status": "passing"
+        },
+        {
+          "id": "go-009",
+          "title": "M3 SSE chunk固定校验原因细分",
+          "priority": 0,
+          "status": "passing"
+        },
+        {
+          "id": "go-010",
+          "title": "M3 object字段有限形态诊断",
+          "priority": 0,
+          "status": "passing"
+        }
+      ]
+    }
+  ]
+}

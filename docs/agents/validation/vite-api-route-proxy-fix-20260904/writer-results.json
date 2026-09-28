@@ -1,0 +1,34 @@
+{
+  "status": "PASS",
+  "apiKeysDocument": 200,
+  "apiKeysHardReload": "rendered",
+  "usersRegression": "hard-reload-rendered",
+  "profileRegression": "hard-reload-rendered",
+  "publicApiProxyProbe": 404,
+  "queryApiProxyProbe": 404,
+  "queryApiProxyProbeHtml": false,
+  "logout": 204,
+  "cookiesAfterLogout": 0,
+  "refreshAfterLogout": 401,
+  "postLogoutPath": "/login",
+  "privateDomAfterLogout": 0,
+  "postLogoutGuards": {
+    "apiKeys": {
+      "documentStatus": 200,
+      "finalPath": "/login",
+      "privateDom": 0
+    },
+    "users": {
+      "documentStatus": 200,
+      "finalPath": "/login",
+      "privateDom": 0
+    },
+    "profile": {
+      "documentStatus": 200,
+      "finalPath": "/login",
+      "privateDom": 0
+    }
+  },
+  "modelOrSseInvoked": false,
+  "blockedPlatformRequestCount": 8
+}

@@ -20,6 +20,9 @@ export function decodeMultiModelReplies(content) {
 }
 
 export function toApiMessageContent(msg) {
+  if (msg.multiModel && msg.contextReplies) {
+    return encodeMultiModelReplies(msg.contextReplies)
+  }
   if (msg.multiModel && msg.replies) {
     return encodeMultiModelReplies(msg.replies)
   }

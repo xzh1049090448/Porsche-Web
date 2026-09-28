@@ -18,12 +18,12 @@ test('GUID boundary only accepts nonblank strings and preserves Snowflake precis
 })
 
 test('platform adapters only send conversation_guid and never retired RAG fields', async () => {
-  const source = await api('platform.js')
+  const [source, transport] = await Promise.all([api('platform.js'), api('platform-generation.js')])
 
-  assert.match(source, /conversation_guid:\s*optionalGuid\(body\.conversationGuid\)/g)
-  assert.doesNotMatch(source, /conversation_id|dataset_enabled|dataset_ids/)
+  assert.match(transport, /payload\.conversation_guid = guid/)
+  assert.doesNotMatch(source + transport, /conversation_id|dataset_enabled|dataset_ids/)
   assert.match(source, /conversationGuid:\s*null/g)
-  assert.doesNotMatch(source, /conversationId/)
+  assert.doesNotMatch(source + transport, /conversationId/)
 })
 
 test('GUID resources are URL encoded and analytics use user_guid', async () => {
@@ -39,7 +39,8 @@ test('GUID resources are URL encoded and analytics use user_guid', async () => {
   assert.doesNotMatch(conversations, /dataset_enabled|dataset_ids/)
   assert.match(billing, /orders\/\$\{encodeURIComponent\(guid\)\}/)
   assert.match(tokens, /requiredGuid\(guid, 'token GUID'\)/)
-  assert.match(auth, /userGuid:\s*optionalGuid\(tokenRes\.user_guid\)/)
+  assert.match(auth, /authSession\.cookieOperation\('login'/)
+  assert.doesNotMatch(auth, /user_guid|user_id|\.id/)
   assert.match(analytics, /params\.user_guid/)
   assert.doesNotMatch(analytics, /params\.user_id/)
 })

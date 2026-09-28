@@ -1,0 +1,30 @@
+{
+  "/users": {
+    "finalPath": "/login",
+    "loginVisible": true,
+    "mainVisible": false,
+    "requests": [
+      {
+        "path": "/api/v1/auth/refresh",
+        "status": 401
+      }
+    ]
+  },
+  "/api-keys": {
+    "finalPath": "/api-keys",
+    "loginVisible": false,
+    "mainVisible": false,
+    "requests": []
+  },
+  "/profile": {
+    "finalPath": "/login",
+    "loginVisible": true,
+    "mainVisible": false,
+    "requests": [
+      {
+        "path": "/api/v1/auth/refresh",
+        "status": 401
+      }
+    ]
+  }
+}

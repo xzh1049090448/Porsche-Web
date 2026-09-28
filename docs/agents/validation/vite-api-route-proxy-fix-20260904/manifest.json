@@ -1,0 +1,85 @@
+{
+  "acceptance": {
+    "blocked_environment": 1,
+    "blocked_not_implemented": 16,
+    "blocked_product": 1,
+    "blocked_total": 18,
+    "fail_local_dev_route": 0,
+    "pass_limited_scope": 8,
+    "production_https": "NOT_RUN",
+    "promoted_items": [
+      "P02",
+      "R01"
+    ],
+    "web_012": "in_progress"
+  },
+  "artifact_sha256": {
+    "docs/agents/validation/joint-acceptance-20260904/acceptance-matrix.json": "6925173b045e77362b8fc096d68727d602cd261545b24e8f38d60e991f93a241",
+    "docs/agents/validation/prd-260903-confirmations.json": "31392600b2465eccb95d549076c747d8ea6efc8d4e4a81e210c62f5ab247e13f",
+    "docs/agents/validation/vite-api-route-proxy-fix-20260904/SECURITY_REPORT.md": "92003bf3246981fc86e88d992a0265e2dfc9d3aefcafc6ad37f60c1463db1d77",
+    "docs/agents/validation/vite-api-route-proxy-fix-20260904/pm-review.md": "36298fda1296e88ac6f6cea008209517ce392ea2700be12cb047993e94820d49",
+    "docs/agents/validation/vite-api-route-proxy-fix-20260904/remediation-report.md": "faa8422bf5626974a129db34aa264fb3d39d1860a0aeb6dcdf927f7655871f36",
+    "docs/agents/validation/vite-api-route-proxy-fix-20260904/writer-report.md": "184b20cf7c446c4fc11ae15a02fe8698d8b03296f77ad432b766255f95034b24",
+    "docs/agents/validation/vite-api-route-proxy-fix-20260904/writer-results.json": "2b0394077c775257a8e89fc72a94195e4d358dfe0514a6b72445f17522c5115c",
+    "docs/superpowers/plans/2026-09-04-vite-api-route-proxy-fix.md": "7492ddc227b120482546d5ab6d09e2326adb5989b784a92b70463e7a27d525af",
+    "docs/superpowers/specs/2026-09-04-vite-api-route-proxy-design.md": "b2941aed8cae86278d882ce480c7017bc03e61ad8953203503a44fd73564feac",
+    "feature_list.json": "ec251e474410d28ef5f7827e2559dee02ab54de4d76848bed37a0db45f3af812",
+    "progress.md": "21eeb06bc3608554c3bf1ba595897a98c26e4e26b964d6cf2fdd4d66577605cb",
+    "vite.config.js": "75938457922b5d5c76be7d1fd13790c2680816613234ea1e2db0da31535fd4f1",
+    "vite.config.test.js": "2f0a665190c88a18ce8b2c29d4c65fea3b7d052b8d7f1e322204a12b8c947553"
+  },
+  "cleanup": {
+    "evidence_sha256": {
+      "docs/agents/validation/vite-api-route-proxy-fix-20260904/cleanup-precheck.json": "225e27e797cd157dfa9539d9553955fcf0f74c31c8f23b02c4d1f24438919fae",
+      "docs/agents/validation/vite-api-route-proxy-fix-20260904/cleanup-verification.json": "58642e2c24cb1cbbe8305f76c26b9de1ebab54be357c791cbad59dc27e3d0dcf"
+    },
+    "exact_resource_residual_count": 0,
+    "status": "PASS",
+    "unrelated_inventory_unchanged": true
+  },
+  "commits": {
+    "approved_design": "342342ce0f99682f25fc3667a02b078d4f50a335",
+    "approved_plan": "917b661d4882107cc026d4172a9d163edaf2d2a2",
+    "backend_candidate": "aec1619ee710c80cd71dbe529660e2d12b3fda7b",
+    "final_proxy_implementation": "612897c58d362352e4ff2fcd45e80aac6cc14015",
+    "initial_proxy_fix": "717b278985ea3d142a454392d9ad6e5509846a7e",
+    "initial_red_test": "8cf9b9b54092432f14ebdaa59d9a963f15ed5f95",
+    "query_red_test": "5e1ee58f3477373db6ec414230264bb4ca7af060",
+    "runtime_candidate": "c788e78848a08c2fa3472812374448f388fb81aa",
+    "task6_pm_and_independent_qa": "37ae3845c6ae79b0fcb8a24c42f4730ae15a654d",
+    "task7_acceptance_state": "f03be8c65dffad64b903ec5e5f2deab21ef383be",
+    "writer_evidence": "20ea497ae19a90ca3db949a88bf65e4f369fdb09"
+  },
+  "excluded_operations": [
+    "production",
+    "deploy",
+    "push",
+    "model",
+    "chat",
+    "SSE",
+    "upstream"
+  ],
+  "generated_at_utc": "2026-09-04T07:42:19Z",
+  "implementation_gates": {
+    "build": "PASS",
+    "full_tests": {
+      "failed": 0,
+      "passed": 134,
+      "skipped": 0
+    },
+    "git_diff_check": "PASS",
+    "targeted_tests": {
+      "failed": 0,
+      "passed": 2
+    }
+  },
+  "manifest_self_hash": "EXCLUDED",
+  "reviews": {
+    "independent_cleanup_review": "PASS",
+    "independent_qa": "PASS",
+    "project_manager": "SPEC_PASS",
+    "writer": "PASS"
+  },
+  "scope": "local Vite API route boundary remediation and bounded P02/R01 re-acceptance",
+  "status": "PARTIAL_ACCEPTANCE_8_LIMITED_18_BLOCKED"
+}
