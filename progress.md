@@ -4,7 +4,7 @@
 
 - 根入口提交 `40c5b44` 在根 `index` 加载唯一固定 Tawk URL；未来 Vue Router 页面自动继承，遵守 standards 的独立 HTML 入口规则，不传用户身份或业务数据。源码/JSDOM 契约 4/4、规格与质量审查 PASS。production gate 提交 `02071d3`，checker tests 8/8 PASS；RED 重放 6 pass/2 fail，失败恰为缺失与重复脚本检测。
 - `VITE_USE_MOCK=false npm run build` exit 0，产物中 Tawk URL 恰好一次；保留既有大 chunk、PURE、import warnings。六份合同环境并允许 loopback/browser 后，完整 `npm test` 为 1217 pass/0 fail/0 skip。沙箱首轮 1214 pass/2 环境权限 fail/1 环境权限 skip，不作为最终失败。
-- 可见 Chromium 检查 `/`、`/login`、`/chat`，各页 `scriptCount=1`、`blockedDelta=1`，3/3 `embed.tawk.to` 请求均 abort；未建立真实客服会话。预览后端代理 `ECONNREFUSED` 不影响断言。
+- 可见 Chromium 检查 `/`、`/login`、`/chat`，各页 `scriptCount=1`、`blockedDelta=1`，3/3 `embed.tawk.to` 请求均 abort；未建立真实客服会话。预览后端代理 `ECONNREFUSED` 不影响断言。浏览器 JSON stdout 未单独持久化，证据来自本会话验证 Agent 输出与 `/private/tmp/playwright-test-tawk-live-chat.js`；因此仅支持脚本注入/请求拦截，不支持真实客服收发或生产验收。
 - 原样 `./init.sh` 因未设置 `VITE_USE_MOCK=false` 而 exit 1；`VITE_USE_MOCK=false ./init.sh` exit 0，`npm install`/build 通过并打印 `npm run dev`。这是既有初始化环境前置条件，原样失败保留为 concern。未部署生产 HTTPS，未验证 Tawk 后台真实收发。
 
 ## 2026-09-17：模型对比历史重新登录聚合修复（本地限定通过）
