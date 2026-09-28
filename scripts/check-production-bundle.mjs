@@ -15,9 +15,18 @@ async function files(root) {
   const nested = await Promise.all(entries.map(entry => entry.isDirectory() ? files(join(root, entry.name)) : [join(root, entry.name)]))
   return nested.flat()
 }
-for (const path of await files(join(process.cwd(), 'dist'))) {
+const distRoot = join(process.cwd(), 'dist')
+const tawkUrl = 'https://embed.tawk.to/6aba033429f257344364f946/1k3j9p1b0'
+const indexPath = join(distRoot, 'index.html')
+let indexHtmlExists = false
+let tawkWidgetCount = 0
+for (const path of await files(distRoot)) {
   const content = await readFile(path)
   const text = content.toString('utf8')
+  if (path === indexPath) {
+    indexHtmlExists = true
+    tawkWidgetCount = text.split(tawkUrl).length - 1
+  }
   for (const marker of forbidden) {
     if (text.includes(marker)) {
       process.stderr.write(`Production bundle contains mock fixture marker in ${path}.\n`)
@@ -31,4 +40,8 @@ for (const path of await files(join(process.cwd(), 'dist'))) {
       process.exit(1)
     }
   }
+}
+if (!indexHtmlExists || tawkWidgetCount !== 1) {
+  process.stderr.write(`Production bundle must contain exactly one Tawk widget in dist/index.html; found ${tawkWidgetCount}.\n`)
+  process.exit(1)
 }

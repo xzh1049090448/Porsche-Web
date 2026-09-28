@@ -6,10 +6,12 @@ import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
 const checker = resolve('scripts/check-production-bundle.mjs')
+const TAWK_URL = 'https://embed.tawk.to/6aba033429f257344364f946/1k3j9p1b0'
+const validIndex = `<html><script src="${TAWK_URL}"></script></html>`
 async function fixture(files) {
   const cwd = await mkdtemp(join(tmpdir(), 'production-bundle-check-'))
   await mkdir(join(cwd, 'dist', '.vite'), { recursive: true })
-  for (const [name, content] of Object.entries(files)) {
+  for (const [name, content] of Object.entries({ 'index.html': validIndex, ...files })) {
     const path = join(cwd, 'dist', name)
     await mkdir(resolve(path, '..'), { recursive: true })
     await writeFile(path, content)
@@ -38,4 +40,16 @@ for (const [name, marker] of Object.entries({ phone: '13800138000', password: 'P
 test('accepts a clean production bundle', async () => {
   const result = await fixture({ '.vite/manifest.json': JSON.stringify({ 'src/main.js': { file: 'assets/main.js' } }), 'assets/main.js': 'export{}' })
   assert.equal(result.status, 0, result.stderr)
+})
+
+test('rejects a production entry without the fixed Tawk widget URL', async () => {
+  const result = await fixture({ 'index.html': '<html></html>' })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /exactly one Tawk widget/i)
+})
+
+test('rejects a production entry with the fixed Tawk widget URL more than once', async () => {
+  const result = await fixture({ 'index.html': `<html><script src="${TAWK_URL}"></script><script src="${TAWK_URL}"></script></html>` })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /exactly one Tawk widget/i)
 })
