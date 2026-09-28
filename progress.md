@@ -1,5 +1,12 @@
 # 当前验证进度
 
+## 2026-09-28：Tawk.to 全站实时聊天入口（本地通过）
+
+- 根入口提交 `40c5b44` 在根 `index` 加载唯一固定 Tawk URL；未来 Vue Router 页面自动继承，遵守 standards 的独立 HTML 入口规则，不传用户身份或业务数据。源码/JSDOM 契约 4/4、规格与质量审查 PASS。production gate 提交 `02071d3`，checker tests 8/8 PASS；RED 重放 6 pass/2 fail，失败恰为缺失与重复脚本检测。
+- `VITE_USE_MOCK=false npm run build` exit 0，产物中 Tawk URL 恰好一次；保留既有大 chunk、PURE、import warnings。六份合同环境并允许 loopback/browser 后，完整 `npm test` 为 1217 pass/0 fail/0 skip。沙箱首轮 1214 pass/2 环境权限 fail/1 环境权限 skip，不作为最终失败。
+- 可见 Chromium 检查 `/`、`/login`、`/chat`，各页 `scriptCount=1`、`blockedDelta=1`，3/3 `embed.tawk.to` 请求均 abort；未建立真实客服会话。预览后端代理 `ECONNREFUSED` 不影响断言。
+- 原样 `./init.sh` 因未设置 `VITE_USE_MOCK=false` 而 exit 1；`VITE_USE_MOCK=false ./init.sh` exit 0，`npm install`/build 通过并打印 `npm run dev`。这是既有初始化环境前置条件，原样失败保留为 concern。未部署生产 HTTPS，未验证 Tawk 后台真实收发。
+
 ## 2026-09-17：模型对比历史重新登录聚合修复（本地限定通过）
 
 - 后端候选 `1f22cb878ed43ff97b61042919b71f2a096b0646` 在 conversation detail GET/PUT 响应中增加经用户与会话归属校验的 `generation_groups`；前端行为候选 `aa92e67c7f51053f44cd6234cd4332bee6b313c0` 按消息 GUID、模型和 Token 精确校验分组，将多个持久化 assistant 消息投影为一条多模型展示消息，并保留 `rawMessages` 供中断恢复。无有效分组、旧后端或旧 `__MULTI_MODEL__` 内容继续使用原有行为。
