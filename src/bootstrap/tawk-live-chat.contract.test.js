@@ -32,6 +32,7 @@ test('root HTML owns the sole fixed Tawk entry after the app module and excludes
   assert.equal(html.split(fixedScriptUrl).length - 1, 1, 'fixed Tawk URL appears exactly once')
   assert.notEqual(start, -1, 'official Tawk snippet start marker exists')
   assert.ok(end > start, 'official Tawk snippet end marker follows its start')
+  assert.notEqual(moduleEntry, -1, 'Vite /src/main.js module entry exists')
   assert.ok(start > moduleEntry, 'Tawk snippet follows the /src/main.js module entry')
   assert.ok(end < html.indexOf('</body>'), 'Tawk snippet precedes the body end')
 
