@@ -87,8 +87,8 @@ const compilePublicComponent = async ({ path, filename, id, sourceOverride, repl
 const publicComponentStubs = () => {
   const vueURL = new URL('../../../node_modules/vue/index.mjs', import.meta.url).href
   const router = dataModule(`import{h}from'${vueURL}';export const useRouter=()=>globalThis.__publicTest.router;export const RouterLink={props:['to'],setup(p,{attrs,slots}){return()=>h('a',{...attrs,href:p.to,'data-router-link':'true'},slots.default?.())}}`)
-  const brand = dataModule(`import{h}from'${vueURL}';export default{props:['title','subtitle'],setup(p){return()=>h('a',{class:'app-brand',href:'/'},[h('strong',p.title),h('small',p.subtitle)])}}`)
-  const i18n = dataModule(`import{ref}from'${vueURL}';export const usePublicI18n=()=>({locale:ref('zh'),t:key=>key,app:key=>({title:'中国大模型聚合平台',subtitle:'智谱 GLM / DeepSeek'})[key]||key,toggle(){}})`)
+  const brand = dataModule(`import{h}from'${vueURL}';export default{props:['title','subtitle'],setup(p){return()=>h('a',{class:'app-brand',href:'/'},[h('strong',p.title),p.subtitle?h('small',p.subtitle):null])}}`)
+  const i18n = dataModule(`import{ref}from'${vueURL}';export const usePublicI18n=()=>({locale:ref('zh'),t:key=>key,app:key=>({title:'AiPortCloud',subtitle:''})[key]??key,toggle(){}})`)
   return { router, brand, i18n }
 }
 const mountPublicComponent = async (component, props = {}) => {
@@ -2987,8 +2987,8 @@ test('fixed shell navigation ignores every published link including dangerous de
     for (const item of links) assert.equal(dom.window.document.body.textContent.includes(item.label), false, `${item.label} is ignored`)
     assert.equal([...dom.window.document.querySelectorAll('a')].some(anchor => /^(?:javascript|data):/i.test(anchor.getAttribute('href') || '')), false)
     const footerBrand = footerWrapper.container.querySelector('.public-footer__brand.app-brand')
-    assert.equal(footerBrand?.querySelector('strong')?.textContent, '中国大模型聚合平台')
-    assert.equal(footerBrand?.querySelector('small')?.textContent, '智谱 GLM / DeepSeek')
+    assert.equal(footerBrand?.querySelector('strong')?.textContent, 'AiPortCloud')
+    assert.equal(footerBrand?.querySelector('small'), null)
     assert.equal(footerBrand?.getAttribute('href'), '/')
     assert.equal(footerWrapper.container.textContent.includes('Porsche'), false)
   } finally { headerWrapper.unmount(); footerWrapper.unmount() }

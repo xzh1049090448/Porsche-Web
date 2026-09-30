@@ -66,9 +66,9 @@ test('public graph accepts exactly the shared AppBrand shell component', () => {
   ]) assert.throws(() => validatePublicGraph(fixture([moduleId])), /non-public module/)
 })
 
-test('public graph names and accepts only the exact root logo asset', () => {
-  const graph = fixture(['/logo.png'])
-  assert.ok(Object.values(graph.chunks).some(chunk => chunk.modules.includes('public:/logo.png')))
+test('public graph names and accepts only the exact root brand assets', () => {
+  const graph = fixture(['/nav_logo.png'])
+  assert.ok(Object.values(graph.chunks).some(chunk => chunk.modules.includes('public:/nav_logo.png')))
   assert.deepEqual(validatePublicGraph(graph), {
     chunkCount: 2,
     codeBytes: 15,
@@ -76,8 +76,9 @@ test('public graph names and accepts only the exact root logo asset', () => {
   })
   for (const moduleId of [
     '/other-logo.png',
+    '/logo.png',
     '/logo.svg',
-    '\0/logo.png',
+    '\0/nav_logo.png',
   ]) assert.throws(() => validatePublicGraph(fixture([moduleId])), /non-public module/)
 })
 

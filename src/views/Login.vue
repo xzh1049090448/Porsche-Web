@@ -7,7 +7,7 @@
     </div>
     <div class="auth-card login-card surface-card">
       <div class="auth-brand login-brand">
-        <img src="/logo.png" alt="" class="logo-icon" />
+        <img src="/logo_refined.jpg" alt="" class="logo-icon" />
         <h1>{{ t('app.title') }}</h1>
         <p>{{ t('app.tagline') }}</p>
       </div>
@@ -108,8 +108,8 @@ function handleRecovered(result) {
 }
 
 .logo-icon {
-  width: 48px;
-  height: 48px;
+  width: 132px;
+  height: 72px;
   object-fit: contain;
 }
 

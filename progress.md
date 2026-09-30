@@ -1,5 +1,19 @@
 # 当前验证进度
 
+## 2026-09-29：AiPortCloud 品牌替换（本地限定通过）
+
+- 按用户给定的素材映射把品牌从「中国大模型聚合平台 / China LLM Hub」替换为 `AiPortCloud`：导航栏改用新增变体的 `AppBrand`，`nav` 变体随 `data-theme` 在 `/nav_logo.png` 与 `/dark_nav_logo.png` 之间切换，用 `MutationObserver` 同时覆盖控制台 theme store 与控制台/公共页直接写 `data-theme` 两条路径；favicon 改为 `/favicon.png`；首页/品牌区（公共页脚、登录页、注册页）用 `/logo_refined.jpg`；控制台顶栏等小尺寸位置用方形 `/icon_only.jpg`。
+- 文案：`src/i18n/messages.js`、`src/i18n/public-messages.js` 的中英标题、根 `index.html` 的 `<title>` 与早期主题脚本、Mock 助手开场白统一为 `AiPortCloud`。按第二轮指示，副标题（原「智谱 GLM / DeepSeek」）清空，tagline 由「聚合国内主流大模型 / Aggregated leading Chinese LLMs」改为「聚合全球主流大模型 / Aggregated leading global LLMs」。`PublicFooter` 仍调用 `app('subtitle')`（该调用被 `public-pages.contract.test.js` 断言），组件管道保留、仅文案为空，`<small v-if="subtitle">` 因而不再渲染。
+- 素材先做像素边界框测量：`nav_logo`/`dark_nav_logo`/`logo_refined` 实际内容是约 4.3–4.5:1 的横向字标，`icon_only` 是 1:1 方形图标，且都带画布留白（内容占画布高 27%–59%）。因此 `.app-brand__icon` 由固定 `32×32` 改为只设 `height: 48px` 按素材固有比例自适应；字标变体由 `is-wordmark` 状态类隐藏重复的标题文字，方形图标变体保留标题。
+- 用户补充的透明 PNG（`nav_logo.png`/`dark_nav_logo.png`/`favicon.png`，均含 alpha）已替换对应 JPEG，深色页头色差问题消除。五个素材按实际显示尺寸约 3 倍重采样压缩（`sips -Z`，JPEG `formatOptions 82`），`public/` 由 1045KB 降至 76KB（-93%）：nav 173→17.9KB、dark_nav 279→19.2KB、favicon 200→14.0KB、logo_refined 179→10.7KB、icon_only 214→5.7KB。源品牌素材 kit 未改动。
+- 构建期资产白名单同步更新：`scripts/public-module-graph.mjs` 的 `KNOWN_PUBLIC_ROOT_ASSETS` 与 `scripts/check-public-route-chunks.mjs` 的 `PUBLIC_ASSET_MODULES` 由 `logo.png` 改为新素材集合。旧 `public/logo.png`（3.9MB）与从未被任何文件引用的 `public/favicon.svg` 已删除，产物中不再保留旧品牌资产、旧品牌文字或旧副标题。
+- 首轮实现把公共闭包 CSS 从 20806 涨到 21089 bytes，触发 `check-public-route-chunks` 的 21000 上限并 exit 1。未放宽预算，改为合并三种变体的尺寸规则并改用 `is-wordmark` 状态类，最终 `10 chunks / 172946 JS bytes / 20862 CSS bytes` 通过。
+- 验证：注入六份权威后端合同（`/Users/xuzhihao/code/Porsche/.worktrees/pi-ai-thinking-compat/docs/agents/contracts`）后全量 `npm test` 为 `1220 pass / 0 fail / 0 skip`；`VITE_USE_MOCK=false npm run build` exit 0；`node scripts/check-public-route-chunks.mjs dist` PASS；`git diff --check` PASS。新增 `src/components/shell/AppBrand.contract.test.js` 的真实挂载行为用例（隔离 jsdom + `createApp`，断言主题切换后的 `src`、三个变体的素材、`is-wordmark` 以及不再渲染副标题），全量用例数由 1217 增至 1220。
+- 过程中发现并修正测试桩自身缺陷：`public-pages` 与 `visual-shell` 的 i18n 桩使用 `{...}[key] || key`，副标题清空为 `''` 后按 falsy 回落成字符串 `'subtitle'`，使页脚渲染出 `<small>subtitle</small>` 并令 1 个用例失败；改为 `??` 后定向 29/29 通过。真实 `public-runtime.js` 使用 `== null` 判断，不存在该问题。
+- 未运行：可见 Chromium / production preview 视觉验收，真实浏览器深浅主题与 375/390/768/1280/1600 断点复核，独立规格复核与质量门禁。本结论仅为本地限定证据；未部署、未提交。
+- 未更新 `feature_list.json`：本项无法诚实标记为 `passing`（缺少独立复核与浏览器验收），而在 `single_active_feature` 规则下 `web-012` 仍是唯一进行中功能，故不新增第二条 `in_progress`。
+- `src/api/mock.js` 的演示开场白由点名上游改为泛化表述「当前由平台已接入的多个主流大模型提供对话能力」，品牌文案中不再出现任何具体上游模型名。
+
 ## 2026-09-28：Tawk.to 全站实时聊天入口（本地通过）
 
 - 根入口提交 `40c5b44` 在根 `index` 加载唯一固定 Tawk URL；未来 Vue Router 页面自动继承，遵守 standards 的独立 HTML 入口规则，不传用户身份或业务数据。源码/JSDOM 契约 4/4、规格与质量审查 PASS。production gate 提交 `02071d3`，checker tests 8/8 PASS；RED 重放 6 pass/2 fail，失败恰为缺失与重复脚本检测。
@@ -336,6 +350,22 @@
 - 2026-08-27：`git diff --check` 通过。
 
 未运行需后端认证的浏览器手动 smoke；`web-002` 更广泛的模型面板浏览器端到端验证仍未完成。
+
+## 2026-09-02：前端 Agent 体系搭建
+
+- 新增三角色定义及 Codex 发现副本、领域与工程/API/数据规范、草案接口合同、协同模板和启动说明。
+- 保留已有功能状态、业务代码、依赖与配置；feature_list.json 继续作为业务功能状态唯一事实来源。
+- 合同版本 v1.0.0，status=draft，尚未联合签收。当前阶段为首次需求对齐准备，不重置项目里程碑或既有验证记录。
+- 已知阻塞 AUTH-ALIGN-001：前端旧手机号登录及 localStorage Token 与后端用户名/可撤销会话协议存在差异。本轮仅记录，未修复或联调。
+- 本轮不运行 init.sh（包含 npm install 和生产构建），不执行部署。配置静态校验及文件保护证据见 docs/agents/verification.md。
+
+| 阶段 | 开始时间 | 完成时间 | 负责人 | 状态 | 备注 |
+| --- | --- | --- | --- | --- | --- |
+| 需求对齐 | 未开始 | 未完成 | 双方协调者 | 待启动 | 使用首次对齐指令 |
+| 技术方案 | 未开始 | 未完成 | 前端协调者 | 待确认 | 含 Explorer 阶段 |
+| 开发实现 | 未开始 | 未完成 | 前端开发者 | 未授权 | 本轮无业务改动 |
+| 联调验收 | 未开始 | 未完成 | 质量门禁/双方协调者 | 未运行 | 不以 Mock 替代 |
+| 上线发布 | 未开始 | 未完成 | 双方协调者 | 未授权 | 独立上线授权 |
 
 ## 2026-09-02：P0 M2 实施开始
 

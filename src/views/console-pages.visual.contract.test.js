@@ -41,7 +41,7 @@ test('visual composition retains security and behavior anchors', async () => {
   assert.match(login, /safeAuthRedirect/)
   assert.match(login, /<AuthStatus/)
   assert.match(register, /await register\(/)
-  assert.match(register, /<img src="\/logo\.png" alt="" class="logo-icon"/)
+  assert.match(register, /<img src="\/logo_refined\.jpg" alt="" class="logo-icon"/)
   assert.match(register, /t\('app\.title'\)/)
   assert.match(register, /t\('app\.tagline'\)/)
   assert.match(register, /<LocaleToggle/)

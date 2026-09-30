@@ -2,8 +2,8 @@
 export const publicMessages = {
   "zh": {
     "app": {
-      "title": "中国大模型聚合平台",
-      "subtitle": "智谱 GLM / DeepSeek"
+      "title": "AiPortCloud",
+      "subtitle": ""
     },
     "publicSite": {
       "home": "首页",
@@ -94,8 +94,8 @@ export const publicMessages = {
   },
   "en": {
     "app": {
-      "title": "China LLM Hub",
-      "subtitle": "Zhipu GLM / DeepSeek"
+      "title": "AiPortCloud",
+      "subtitle": ""
     },
     "publicSite": {
       "home": "Home",

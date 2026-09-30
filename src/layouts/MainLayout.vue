@@ -5,7 +5,7 @@
       <div class="header-left">
         <el-button v-if="isTablet" text class="mobile-menu-btn touch-target" :icon="Menu" :aria-label="t('nav.openMenu')" @click="showMobileMenu = true" />
         <el-button v-if="isTablet && route.path !== '/chat'" text class="header-back-btn touch-target" :icon="ArrowLeft" :aria-label="t('nav.back')" @click="goBack" />
-        <AppBrand :title="t('app.title')" :subtitle="t('app.subtitle')" />
+        <AppBrand variant="icon" :title="t('app.title')" :subtitle="t('app.subtitle')" />
       </div>
       <div class="header-right">
         <LocaleToggle /><ThemeToggle />

@@ -25,10 +25,10 @@ test('public runtime exposes every shell and state label in Chinese and English'
 })
 
 test('public runtime exposes shared app brand title and subtitle', () => {
-  assert.equal(publicRuntime.publicAppText('zh', 'title'), '中国大模型聚合平台')
-  assert.equal(publicRuntime.publicAppText('zh', 'subtitle'), '智谱 GLM / DeepSeek')
-  assert.equal(publicRuntime.publicAppText('en', 'title'), 'China LLM Hub')
-  assert.equal(publicRuntime.publicAppText('en', 'subtitle'), 'Zhipu GLM / DeepSeek')
+  assert.equal(publicRuntime.publicAppText('zh', 'title'), 'AiPortCloud')
+  assert.equal(publicRuntime.publicAppText('zh', 'subtitle'), '')
+  assert.equal(publicRuntime.publicAppText('en', 'title'), 'AiPortCloud')
+  assert.equal(publicRuntime.publicAppText('en', 'subtitle'), '')
 })
 
 test('public locale uses the shared JSON storage contract across public and authenticated reloads', () => {
@@ -39,10 +39,10 @@ test('public locale uses the shared JSON storage contract across public and auth
   assert.equal(values.get('llm_platform_uiLocale'), JSON.stringify('en'))
   assert.equal(publicRuntime.readPublicLocale(storage), 'en')
   assert.equal(target.documentElement.lang, 'en')
-  assert.equal(target.title, 'China LLM Hub')
+  assert.equal(target.title, 'AiPortCloud')
   publicRuntime.applyPublicLocale('zh', target)
   assert.equal(target.documentElement.lang, 'zh-CN')
-  assert.equal(target.title, '中国大模型聚合平台')
+  assert.equal(target.title, 'AiPortCloud')
 })
 
 test('public runtime loads and falls back without escaping a blocked localStorage getter', async () => {
@@ -58,7 +58,7 @@ test('public runtime loads and falls back without escaping a blocked localStorag
     const target = { documentElement: { lang: '' }, title: '' }
     assert.doesNotThrow(() => runtime.persistPublicLocale('en', undefined, target))
     assert.equal(target.documentElement.lang, 'en')
-    assert.equal(target.title, 'China LLM Hub')
+    assert.equal(target.title, 'AiPortCloud')
   } finally {
     if (original) Object.defineProperty(globalThis, 'localStorage', original)
     else delete globalThis.localStorage

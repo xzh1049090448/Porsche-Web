@@ -6,7 +6,12 @@ const KNOWN_VIRTUAL_IDS = new Set([
   'vite/modulepreload-polyfill.js',
   'vite/preload-helper.js',
 ])
-const KNOWN_PUBLIC_ROOT_ASSETS = new Set(['/logo.png'])
+const KNOWN_PUBLIC_ROOT_ASSETS = new Set([
+  '/nav_logo.png',
+  '/dark_nav_logo.png',
+  '/logo_refined.jpg',
+  '/icon_only.jpg',
+])
 
 function opaqueId(value) {
   return createHash('sha256').update(value).digest('hex').slice(0, 16)

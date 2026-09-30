@@ -6,7 +6,7 @@
     </div>
     <div class="auth-card register-card surface-card">
       <div class="auth-brand">
-        <img src="/logo.png" alt="" class="logo-icon" />
+        <img src="/logo_refined.jpg" alt="" class="logo-icon" />
         <h1>{{ t('app.title') }}</h1>
         <p>{{ t('app.tagline') }}</p>
       </div>
@@ -57,6 +57,6 @@ async function submit() {
 
 <style scoped lang="scss">
 .register-toolbar { position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 4px; }
-.logo-icon { width: 48px; height: 48px; object-fit: contain; }
+.logo-icon { width: 132px; height: 72px; object-fit: contain; }
 .submit-btn, .login-link { width: 100%; margin-top: 8px; }
 </style>

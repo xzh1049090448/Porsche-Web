@@ -23,7 +23,7 @@ const setMockUser = user => { mockUser = user }
 
 const MOCK_RESPONSES = {
   default:
-    '您好！我是中国大模型聚合平台的 AI 助手，当前由智谱 GLM 与 DeepSeek V4 Flash 提供对话能力。',
+    '您好！我是 AiPortCloud 的 AI 助手，当前由平台已接入的多个主流大模型提供对话能力。',
   compare: (modelName) => `【${modelName}】针对您的问题给出参考回答。（演示模式）`,
 }
 

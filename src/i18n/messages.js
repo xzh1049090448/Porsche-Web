@@ -2,9 +2,9 @@
 export const messages = {
   zh: {
     app: {
-      title: '中国大模型聚合平台',
-      subtitle: '智谱 GLM / DeepSeek',
-      tagline: '聚合国内主流大模型',
+      title: 'AiPortCloud',
+      subtitle: '',
+      tagline: '聚合全球主流大模型',
     },
     publicSite: {
       home: '首页', advantages: '产品优势', models: '支持模型', announcements: '公告', faq: '常见问题', cta: '开始使用', console: '进入控制台', pricing: '模型价格', about: '关于', terms: '服务协议', privacy: '隐私政策',
@@ -350,9 +350,9 @@ export const messages = {
   },
   en: {
     app: {
-      title: 'China LLM Hub',
-      subtitle: 'Zhipu GLM / DeepSeek',
-      tagline: 'Aggregated leading Chinese LLMs',
+      title: 'AiPortCloud',
+      subtitle: '',
+      tagline: 'Aggregated leading global LLMs',
     },
     publicSite: {
       home: 'Home', advantages: 'Advantages', models: 'Models', announcements: 'Announcements', faq: 'FAQ', cta: 'Get started', console: 'Open console', pricing: 'Model pricing', about: 'About', terms: 'Terms', privacy: 'Privacy',

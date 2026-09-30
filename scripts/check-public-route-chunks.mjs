@@ -34,7 +34,11 @@ const PUBLIC_VIRTUAL_MODULES = new Set([
   'virtual:vite/modulepreload-polyfill.js',
   'virtual:vite/preload-helper.js',
 ])
-const PUBLIC_ASSET_MODULES = new Set(['public:/logo.png'])
+const PUBLIC_ASSET_MODULES = new Set([
+  'public:/nav_logo.png',
+  'public:/dark_nav_logo.png',
+  'public:/logo_refined.jpg',
+])
 const MAX_PUBLIC_CODE_BYTES = 200_000
 const MAX_PUBLIC_CSS_BYTES = 21_000
 

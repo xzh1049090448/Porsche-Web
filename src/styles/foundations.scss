@@ -58,10 +58,15 @@ a:hover {
   text-decoration: none;
 }
 
+/* 只设高度、宽度按素材固有比例；三种变体共用同一尺寸以守住公共 CSS 预算。 */
 .app-brand__icon {
-  width: 32px;
-  height: 32px;
+  height: 48px;
   object-fit: contain;
+}
+
+/* 字标素材本身已含品牌名，隐藏重复的标题文字；副标题保留。 */
+.is-wordmark .app-brand__copy strong {
+  display: none;
 }
 
 .app-brand__copy {
