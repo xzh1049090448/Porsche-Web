@@ -9,8 +9,8 @@ const KNOWN_VIRTUAL_IDS = new Set([
 const KNOWN_PUBLIC_ROOT_ASSETS = new Set([
   '/nav_logo.png',
   '/dark_nav_logo.png',
-  '/logo_refined.jpg',
-  '/icon_only.jpg',
+  '/logo_refined.png',
+  '/icon_only.png',
 ])
 
 function opaqueId(value) {

@@ -7,7 +7,7 @@
     </div>
     <div class="auth-card login-card surface-card">
       <div class="auth-brand login-brand">
-        <img src="/logo_refined.jpg" alt="" class="logo-icon" />
+        <img :src="brandLogo" alt="" class="logo-icon" />
         <h1>{{ t('app.title') }}</h1>
         <p>{{ t('app.tagline') }}</p>
       </div>
@@ -52,11 +52,15 @@ import ThemeToggle from '@/components/ThemeToggle.vue'
 import LocaleToggle from '@/components/LocaleToggle.vue'
 import AuthStatus from '@/components/AuthStatus.vue'
 import { useI18n } from '@/composables/useI18n'
+import { useDocumentTheme } from '@/composables/useDocumentTheme.js'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const { t } = useI18n()
+// 深色主题的卡片背景是 #111827，深海军蓝的 logo_refined.png 对比度仅 1.10:1，故改用近白字标。
+const theme = useDocumentTheme()
+const brandLogo = computed(() => (theme.value === 'dark' ? '/dark_nav_logo.png' : '/logo_refined.png'))
 
 const loading = ref(false)
 const pwdFormRef = ref()

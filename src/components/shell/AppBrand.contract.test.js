@@ -5,6 +5,7 @@ import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import { JSDOM } from 'jsdom'
 
 const vueUrl = new URL('../../../node_modules/vue/index.mjs', import.meta.url).href
+const documentThemeUrl = new URL('../../composables/useDocumentTheme.js', import.meta.url).href
 const dataModule = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
 let moduleId = 0
 
@@ -17,7 +18,8 @@ test('authenticated console brand links to the public homepage', async () => {
 test('brand variants map to the AiPortCloud logo assets', async () => {
   const source = await readFile(new URL('./AppBrand.vue', import.meta.url), 'utf8')
   assert.match(source, /NAV_LOGOS = \{ light: '\/nav_logo\.png', dark: '\/dark_nav_logo\.png' \}/)
-  assert.match(source, /VARIANT_LOGOS = \{ brand: '\/logo_refined\.jpg', icon: '\/icon_only\.jpg' \}/)
+  // 页脚品牌区固定深色表面，故 brand 固定用近白字标；控制台图标暂用浅色版本。
+  assert.match(source, /VARIANT_LOGOS = \{ brand: '\/dark_nav_logo\.png', icon: '\/icon_only\.png' \}/)
 })
 
 async function compileAppBrand() {
@@ -32,9 +34,13 @@ async function compileAppBrand() {
     compilerOptions: { bindingMetadata: script.bindings },
   })
   assert.deepEqual(template.errors, [])
+  // 主题组合式函数用真实实现，主题切换行为才可验证；它自身导入的是裸 'vue'，
+  // 与 vueUrl 指向同一模块文件。
   const code = `${script.content}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
     .replaceAll("from 'vue'", `from '${vueUrl}'`)
     .replaceAll('from "vue"', `from '${vueUrl}'`)
+    .replaceAll("from '@/composables/useDocumentTheme.js'", `from '${documentThemeUrl}'`)
+    .replaceAll('from "@/composables/useDocumentTheme.js"', `from '${documentThemeUrl}'`)
   return (await import(`${dataModule(code)}#${id}`)).default
 }
 
@@ -103,21 +109,23 @@ test('navigation wordmark follows the document theme, including direct dataset w
   } finally { mounted.restore() }
 })
 
-test('brand and icon variants keep one fixed AiPortCloud asset', async () => {
+test('brand and icon variants ignore the theme and use their surface-specific asset', async () => {
+  // 页脚是硬编码深色表面，与主题无关：两种主题下都必须用近白字标。
   const brand = await mountAppBrand('brand', 'light')
   try {
-    assert.equal(brand.src(), '/logo_refined.jpg')
+    assert.equal(brand.src(), '/dark_nav_logo.png')
     assert.equal(brand.isWordmark(), true)
     await brand.setTheme('dark')
-    assert.equal(brand.src(), '/logo_refined.jpg')
+    assert.equal(brand.src(), '/dark_nav_logo.png')
   } finally { brand.restore() }
 
+  // 控制台顶栏：深色主题暂缺对应素材，两种主题都沿用浅色版本。
   const icon = await mountAppBrand('icon', 'dark')
   try {
-    assert.equal(icon.src(), '/icon_only.jpg')
+    assert.equal(icon.src(), '/icon_only.png')
     // 方形图标不含品牌名，保留标题文字。
     assert.equal(icon.isWordmark(), false)
     await icon.setTheme('light')
-    assert.equal(icon.src(), '/icon_only.jpg')
+    assert.equal(icon.src(), '/icon_only.png')
   } finally { icon.restore() }
 })

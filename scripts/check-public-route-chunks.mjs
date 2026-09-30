@@ -15,6 +15,7 @@ const PUBLIC_LOCAL_MODULES = new Set([
   'repo:src/components/shell/RouteViewTransition.vue',
   'repo:src/components/public/PublicHeader.vue',
   'repo:src/components/public/PublicFooter.vue',
+  'repo:src/composables/useDocumentTheme.js',
   'repo:src/i18n/public-runtime.js',
   'repo:src/i18n/public-messages.js',
   'repo:src/api/publicContent.js',
@@ -37,7 +38,7 @@ const PUBLIC_VIRTUAL_MODULES = new Set([
 const PUBLIC_ASSET_MODULES = new Set([
   'public:/nav_logo.png',
   'public:/dark_nav_logo.png',
-  'public:/logo_refined.jpg',
+  'public:/logo_refined.png',
 ])
 const MAX_PUBLIC_CODE_BYTES = 200_000
 const MAX_PUBLIC_CSS_BYTES = 21_000

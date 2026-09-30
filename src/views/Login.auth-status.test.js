@@ -197,6 +197,8 @@ async function mountLogin({ authIssue = 'auth_uncertain', recover, redirect = '/
     ['@/components/LocaleToggle.vue', componentStub],
     ['@/components/AuthStatus.vue', dataModule('export default globalThis.__authRecoveryFixture.AuthStatus')],
     ['@/composables/useI18n', i18nStub],
+    // 本用例不校验主题行为，用固定浅色值替代真实组合式函数。
+    ['@/composables/useDocumentTheme.js', dataModule("export const useDocumentTheme = () => ({ value: 'light' })")],
   ])
   const router = createRouter({
     history: createMemoryHistory(),
