@@ -61,6 +61,6 @@ async function submit() {
 
 <style scoped lang="scss">
 .register-toolbar { position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 4px; }
-.logo-icon { width: 132px; height: 72px; object-fit: contain; }
+.logo-icon { width: auto; height: 40px; object-fit: contain; }
 .submit-btn, .login-link { width: 100%; margin-top: 8px; }
 </style>

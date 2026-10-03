@@ -58,9 +58,10 @@ a:hover {
   text-decoration: none;
 }
 
-/* 只设高度、宽度按素材固有比例；三种变体共用同一尺寸以守住公共 CSS 预算。 */
+/* 素材已裁掉透明留白，高度即字标可见高度；导航与页脚字标共用此尺寸。
+   控制台图标变体的尺寸在 console-shell.scss 覆盖（不占公共闭包预算）。 */
 .app-brand__icon {
-  height: 48px;
+  height: 28px;
   object-fit: contain;
 }
 

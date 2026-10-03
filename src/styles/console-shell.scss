@@ -1,6 +1,8 @@
 @use './console-pages';
 
 .console-shell { height: calc(var(--vh, 1vh) * 100); min-height: 0; flex-direction: column; background: var(--surface-page); }
+/* 控制台顶栏用小尺寸方形图标，比导航/页脚字标更大；此文件不在公共闭包内。 */
+.app-brand--icon .app-brand__icon { height: 32px; }
 .console-topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: var(--header-height); padding: 0 24px; background: var(--surface-card); border-bottom: 1px solid var(--border-default); box-shadow: var(--shadow-sm); z-index: 10; }
 .header-left, .header-right, .user-trigger { display: flex; align-items: center; }
 .header-left { gap: 8px; min-width: 0; } .header-right { gap: 12px; flex-shrink: 0; }

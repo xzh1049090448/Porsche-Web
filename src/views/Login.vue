@@ -112,8 +112,8 @@ function handleRecovered(result) {
 }
 
 .logo-icon {
-  width: 132px;
-  height: 72px;
+  width: auto;
+  height: 40px;
   object-fit: contain;
 }
 
