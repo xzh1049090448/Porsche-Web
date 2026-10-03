@@ -60,7 +60,7 @@ const userStore = useUserStore()
 const { t } = useI18n()
 // 深色主题的卡片背景是 #111827，深海军蓝的 logo_refined.png 对比度仅 1.10:1，故改用近白字标。
 const theme = useDocumentTheme()
-const brandLogo = computed(() => (theme.value === 'dark' ? '/dark_nav_logo.png' : '/logo_refined.png'))
+const brandLogo = computed(() => (theme.value === 'dark' ? '/dark_logo.png' : '/logo_refined.png'))
 
 const loading = ref(false)
 const pwdFormRef = ref()

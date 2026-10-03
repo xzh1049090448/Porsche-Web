@@ -10,7 +10,9 @@ const KNOWN_PUBLIC_ROOT_ASSETS = new Set([
   '/nav_logo.png',
   '/dark_nav_logo.png',
   '/logo_refined.png',
+  '/dark_logo.png',
   '/icon_only.png',
+  '/dark_icon.png',
 ])
 
 function opaqueId(value) {

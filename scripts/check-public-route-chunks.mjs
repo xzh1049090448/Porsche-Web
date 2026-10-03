@@ -39,6 +39,7 @@ const PUBLIC_ASSET_MODULES = new Set([
   'public:/nav_logo.png',
   'public:/dark_nav_logo.png',
   'public:/logo_refined.png',
+  'public:/dark_logo.png',
 ])
 const MAX_PUBLIC_CODE_BYTES = 200_000
 const MAX_PUBLIC_CSS_BYTES = 21_000

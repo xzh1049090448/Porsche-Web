@@ -18,8 +18,8 @@ test('authenticated console brand links to the public homepage', async () => {
 test('brand variants map to the AiPortCloud logo assets', async () => {
   const source = await readFile(new URL('./AppBrand.vue', import.meta.url), 'utf8')
   assert.match(source, /NAV_LOGOS = \{ light: '\/nav_logo\.png', dark: '\/dark_nav_logo\.png' \}/)
-  // 页脚品牌区固定深色表面，故 brand 固定用近白字标；控制台图标暂用浅色版本。
-  assert.match(source, /VARIANT_LOGOS = \{ brand: '\/dark_nav_logo\.png', icon: '\/icon_only\.png' \}/)
+  // 页脚品牌区固定深色表面，故 brand 固定用近白字标；控制台图标随主题切换。
+  assert.match(source, /VARIANT_LOGOS = \{\s*brand: '\/dark_logo\.png',\s*icon: \{ light: '\/icon_only\.png', dark: '\/dark_icon\.png' \},\s*\}/)
 })
 
 async function compileAppBrand() {
@@ -109,22 +109,24 @@ test('navigation wordmark follows the document theme, including direct dataset w
   } finally { mounted.restore() }
 })
 
-test('brand and icon variants ignore the theme and use their surface-specific asset', async () => {
+test('brand uses its fixed surface asset while icon follows the theme', async () => {
   // 页脚是硬编码深色表面，与主题无关：两种主题下都必须用近白字标。
   const brand = await mountAppBrand('brand', 'light')
   try {
-    assert.equal(brand.src(), '/dark_nav_logo.png')
+    assert.equal(brand.src(), '/dark_logo.png')
     assert.equal(brand.isWordmark(), true)
     await brand.setTheme('dark')
-    assert.equal(brand.src(), '/dark_nav_logo.png')
+    assert.equal(brand.src(), '/dark_logo.png')
   } finally { brand.restore() }
 
-  // 控制台顶栏：深色主题暂缺对应素材，两种主题都沿用浅色版本。
-  const icon = await mountAppBrand('icon', 'dark')
+  // 控制台顶栏随主题切换：深色用深色素材。
+  const icon = await mountAppBrand('icon', 'light')
   try {
     assert.equal(icon.src(), '/icon_only.png')
     // 方形图标不含品牌名，保留标题文字。
     assert.equal(icon.isWordmark(), false)
+    await icon.setTheme('dark')
+    assert.equal(icon.src(), '/dark_icon.png')
     await icon.setTheme('light')
     assert.equal(icon.src(), '/icon_only.png')
   } finally { icon.restore() }
