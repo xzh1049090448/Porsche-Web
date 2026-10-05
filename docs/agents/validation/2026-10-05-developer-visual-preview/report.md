@@ -61,3 +61,7 @@
 - 最终影响回归58/58，0 fail/skip；final production build5.50秒PASS；diff-check PASS，见ui-polish-tests.log、ui-polish-build.log。上文1226项全量回归为前一共享样式阶段证据，未把它冒称为新增回归后的1227项全量结果。
 - 手机浅/深色截图更新到原Library文件版本1。模型空态截图aiportcloud-models-fallback-mobile.png：file_000000000a0481fb92a75c06be936bd6 / libfile_baf71fbbd5048191b0cb6b16162dcde1。
 - 真正待验是本地后端成功会话和独立审查；当前UI收尾不需要向用户请求其它输入或账号权限。
+
+## 登录与注册标题去重补充
+
+用户Mac浏览器实见现有logo已经包含品牌字标。保留logo，增加AiPortCloud可访问名称；独立h1分别改为本地化“登录”和“注册账号”。未改认证逻辑。相关25/25测试通过、生产构建6.37s通过；390手机注册页heading与alt已核对，无横向溢出。提交后新快照审查，旧候选审核不适用。后台成功登录仍NOT_RUN。

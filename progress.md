@@ -471,3 +471,5 @@
 - 无真实后端会话，控制台账单/密钥成功态端到端NOT_RUN；独立规格/质量角色PENDING，feature状态保持in_progress。未push/merge/deploy/pay。
 
 - 后续UI收尾：补稳定#models空态/导航焦点，手机仅隐藏Tawk装饰并保留真实入口，修复深色页脚前景。真实Vue五状态RED→GREEN；最终58/58、0skip，production build5.50s与diff-check PASS。Mac浏览器实际窗口展开/收起、导航标题可见、双主题按钮和无横向溢出通过。不需要用户输入或远端权限；第三方srcdoc会话内容为空，消息发送NOT_RUN。详见同一report补充。
+
+- 2026-10-05 登录/注册字标收尾：用户Mac浏览器实际确认logo包含AiPortCloud字标；h1改为本地化登录/注册账号，logo补品牌alt。保留认证脚本及表单规则。相关25/25通过，production build6.37s通过；手机390宽DOM无横向溢出。旧92d68ff审查包失效，新候选需独立CLI Spec后Quality再合并，未部署。

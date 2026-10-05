@@ -8,8 +8,8 @@
     <router-link class="auth-home-link" to="/">← {{ t('publicSite.home') }}</router-link>
     <div class="auth-card login-card surface-card">
       <div class="auth-brand login-brand">
-        <img :src="brandLogo" alt="" class="logo-icon" />
-        <h1>{{ t('app.title') }}</h1>
+        <img :src="brandLogo" :alt="t('app.title')" class="logo-icon" />
+        <h1>{{ t('login.submit') }}</h1>
         <p>{{ t('app.tagline') }}</p>
       </div>
 
