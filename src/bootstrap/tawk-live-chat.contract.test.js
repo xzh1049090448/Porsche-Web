@@ -86,3 +86,28 @@ test('JSDOM executes the inline bootstrap once and blocks external Tawk loading'
     dom.window.close()
   }
 })
+
+test('mobile decoration rules cover provider message previews while preserving launcher and conversation', async () => {
+  const { compileString } = await import('sass')
+  const css = compileString(await readFile(path.join(root, 'src/styles/foundations.scss'), 'utf8')).css
+  const dom = new JSDOM(`<style>${css}</style><div id="min-widget"><iframe title="Chat widget"></iframe></div><div id="max-widget"><iframe title="Chat widget"></iframe></div><div id="chat-bubble"><iframe title="Chat widget"></iframe></div><div id="message-preview"><iframe title="Chat widget"></iframe></div>`)
+  const hidden = (id, width) => {
+    const element = dom.window.document.getElementById(id)
+    const visit = rules => [...rules].some(rule => {
+      if (rule.media) {
+        const max = /max-width:\s*(\d+)px/.exec(rule.media.mediaText)
+        return (!max || width <= Number(max[1])) && visit(rule.cssRules)
+      }
+      return rule.selectorText && rule.style?.getPropertyValue('display') === 'none' && element.matches(rule.selectorText)
+    })
+    return visit(dom.window.document.styleSheets[0].cssRules)
+  }
+  try {
+    assert.equal(hidden('message-preview', 390), true, 'provider welcome/suggested-reply preview should not cover the mobile form')
+    assert.equal(hidden('chat-bubble', 390), true)
+    assert.equal(hidden('min-widget', 390), false)
+    assert.equal(hidden('max-widget', 390), false)
+    assert.equal(hidden('message-preview', 1280), false)
+    assert.equal(hidden('chat-bubble', 1280), false)
+  } finally { dom.window.close() }
+})

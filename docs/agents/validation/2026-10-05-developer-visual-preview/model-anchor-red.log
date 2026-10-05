@@ -1,0 +1,29 @@
+✖ model navigation has one focusable destination during loading, unavailable, empty and published states (77.412625ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 590.498667
+
+✖ failing tests:
+
+test at src/views/public/public-pages.contract.test.js:3277:1
+✖ model navigation has one focusable destination during loading, unavailable, empty and published states (77.412625ms)
+  AssertionError [ERR_ASSERTION]: loading must retain one model navigation target
+
+  0 !== 1
+
+      at file:///Users/xuzhihao/Documents/Codex/2026-10-05/task-2/porsche-web-preview/src/views/public/public-pages.contract.test.js:3306:14
+      at async withPublicDom (file:///Users/xuzhihao/Documents/Codex/2026-10-05/task-2/porsche-web-preview/src/views/public/public-pages.contract.test.js:2847:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

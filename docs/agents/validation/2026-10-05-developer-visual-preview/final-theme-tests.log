@@ -1,0 +1,35 @@
+✔ current public and authenticated layouts keep stable accessible landmarks (7.128292ms)
+✔ authenticated navigation keeps users.read and Root visibility semantics (4.103667ms)
+✔ users.read and Root permissions gate both desktop and mobile navigation (100.956ms)
+✔ navigation mount restores every JSDOM global descriptor (0.203458ms)
+✔ application startup preserves public/auth bootstrap and recovery boundaries (0.914125ms)
+✔ public and authenticated bootstraps share semantic tokens and accessible foundations (0.785917ms)
+✔ theme toggle keeps translated tooltip, accessible label, and button behavior (0.354125ms)
+✔ Task 4 builds an accessible responsive public shell from a dedicated stylesheet (0.883208ms)
+✔ public mobile navigation closes for route changes, Escape, and desktop breakpoints (15.358375ms)
+✔ public console CTA visibility exposes one responsive entry per viewport (28.562459ms)
+✔ public shell selectors and legacy public tokens have one stylesheet owner (2.750333ms)
+✔ Task 3 builds one viewport-stable console shell around desktop, mobile, and main landmarks (0.984542ms)
+✔ Task 3 exposes a single permission-filtered navigation model with grouped Root entries (0.284042ms)
+✔ Task 3 shared page primitives stay presentational and StatusBadge exposes text (0.377792ms)
+✔ stored light overrides a dark system (0.918083ms)
+✔ stored dark overrides a light system (0.08675ms)
+✔ missing storage follows a dark system (0.075208ms)
+✔ missing storage follows a light system (0.0635ms)
+✔ invalid storage follows the system (0.087375ms)
+✔ missing matchMedia falls back to light (0.072042ms)
+✔ applyTheme is safe without a DOM and applies a normalized theme when available (0.117792ms)
+✔ a throwing localStorage getter falls back to the system theme (0.108792ms)
+✔ dark Element Plus mappings win when its production CSS loads after compiled tokens (187.658666ms)
+✔ light Element Plus mappings win with complete semantic variants when its CSS loads last (116.984875ms)
+✔ a browser computes light and dark Element Plus values when its CSS loads last (1640.317291ms)
+✔ manual theme selection applies and persists ahead of the system preference (1.307125ms)
+✔ theme scenarios restore every browser global descriptor (0.064083ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2517.350875

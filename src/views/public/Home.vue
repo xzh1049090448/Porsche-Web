@@ -6,6 +6,7 @@ import PublicSection from '@/components/public/PublicSection.vue'
 import { usePublicI18n } from '@/i18n/public-runtime.js'
 import { publicHomeMessages } from '@/i18n/public-messages.js'
 import '@/styles/public-content.scss'
+import '@/styles/home-developer-preview.scss'
 
 const { homeContent, publication } = inject('public-home-publication')
 const { locale, t } = usePublicI18n()
@@ -16,7 +17,7 @@ const featuredModels = computed(() => publication.value?.featuredModels.value ??
 </script>
 
 <template>
-  <div class="public-home">
+  <div class="public-home developer-home">
     <section class="public-hero" data-section="hero" aria-labelledby="home-title">
       <div class="public-hero__decor" aria-hidden="true">
         <i class="public-hero__blob public-hero__blob--violet" />
@@ -32,6 +33,7 @@ const featuredModels = computed(() => publication.value?.featuredModels.value ??
             <RouterLink class="public-button" to="/chat">{{ t('console') }}<span aria-hidden="true">→</span></RouterLink>
             <RouterLink class="public-button public-button--secondary" to="/pricing">{{ fixed.pricingAction }}</RouterLink>
           </div>
+          <p class="developer-home__note">{{ fixed.accessNote }}</p>
         </div>
         <HeroPreview :label="t('demo')" />
       </div>
@@ -51,7 +53,21 @@ const featuredModels = computed(() => publication.value?.featuredModels.value ??
         <article class="public-card public-feature-card"><span class="public-feature-card__icon" aria-hidden="true" /><h3>{{ fixed.advantageThreeTitle }}</h3><p>{{ fixed.advantageThreeBody }}</p></article>
         <article class="public-card public-feature-card"><span class="public-feature-card__icon" aria-hidden="true" /><h3>{{ fixed.advantageFourTitle }}</h3><p>{{ fixed.advantageFourBody }}</p></article>
       </div>
+      <div class="developer-start" aria-labelledby="developer-start-title">
+        <div class="developer-start__heading"><p class="public-eyebrow">{{ fixed.startEyebrow }}</p><h2 id="developer-start-title">{{ fixed.startTitle }}</h2><p class="public-muted">{{ fixed.startIntro }}</p></div>
+        <ol class="developer-start__steps">
+          <li><span aria-hidden="true">01</span><div><h3>{{ fixed.stepOneTitle }}</h3><p>{{ fixed.stepOneBody }}</p><RouterLink to="/pricing">{{ fixed.pricingAction }} <span aria-hidden="true">↗</span></RouterLink></div></li>
+          <li><span aria-hidden="true">02</span><div><h3>{{ fixed.stepTwoTitle }}</h3><p>{{ fixed.stepTwoBody }}</p><RouterLink to="/api-keys">{{ fixed.keysAction }} <span aria-hidden="true">↗</span></RouterLink></div></li>
+          <li><span aria-hidden="true">03</span><div><h3>{{ fixed.stepThreeTitle }}</h3><p>{{ fixed.stepThreeBody }}</p><RouterLink to="/billing">{{ fixed.usageAction }} <span aria-hidden="true">↗</span></RouterLink></div></li>
+        </ol>
+      </div>
     </PublicSection>
+
+    <section v-if="!dynamicData || !featuredModels?.length" id="models" class="public-model-fallback" tabindex="-1" aria-labelledby="model-fallback-title">
+      <h2 id="model-fallback-title">{{ t('models') }}</h2>
+      <p role="status" aria-live="polite">{{ dynamicState.status === 'loading' ? fixed.modelsLoading : featuredModels?.length === 0 ? fixed.modelsEmpty : fixed.modelsUnavailable }}</p>
+      <RouterLink class="public-button public-button--secondary" to="/pricing">{{ fixed.pricingAction }} <span aria-hidden="true">↗</span></RouterLink>
+    </section>
 
     <HomeDynamicContent
       v-if="dynamicData"

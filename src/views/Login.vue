@@ -5,10 +5,11 @@
       <LocaleToggle />
       <ThemeToggle />
     </div>
+    <router-link class="auth-home-link" to="/">← {{ t('publicSite.home') }}</router-link>
     <div class="auth-card login-card surface-card">
       <div class="auth-brand login-brand">
-        <img :src="brandLogo" alt="" class="logo-icon" />
-        <h1>{{ t('app.title') }}</h1>
+        <img :src="brandLogo" :alt="t('app.title')" class="logo-icon" />
+        <h1>{{ t('login.submit') }}</h1>
         <p>{{ t('app.tagline') }}</p>
       </div>
 
@@ -17,6 +18,8 @@
           <el-input
             v-model="pwdForm.username"
             :placeholder="t('login.username')"
+            :aria-label="t('login.username')"
+            autocomplete="username"
             maxlength="20"
             :prefix-icon="User"
           />
@@ -26,6 +29,8 @@
             v-model="pwdForm.password"
             type="password"
             :placeholder="t('login.password')"
+            :aria-label="t('login.password')"
+            autocomplete="current-password"
             show-password
             :prefix-icon="Lock"
             @keyup.enter="submitPwd"
@@ -44,7 +49,7 @@
 import { ref, reactive, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { User, Lock } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index.mjs'
 import { authErrorMessage } from '@/api/auth-errors'
 import { useUserStore } from '@/stores/user'
 import { safeAuthRedirect } from '@/utils/auth-redirect'
@@ -120,7 +125,7 @@ function handleRecovered(result) {
 .submit-btn {
   width: 100%;
   margin-top: 8px;
-  height: 40px;
+  min-height: var(--control-min-size);
   border-radius: 8px;
 }
 

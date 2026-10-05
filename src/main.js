@@ -1,6 +1,6 @@
 import { createApp } from 'vue'
 import App from './App.vue'
-import { bootstrapApplication } from './bootstrap-app.js'
+import { bootstrapApplication, createAuthUiLoader, mountAfterRouterReady } from './bootstrap-app.js'
 import router, { bootstrapModeForPath, createLazyLoadFailureHandler, renderSafeLoadError } from './router'
 import './styles/tokens.scss'
 import './styles/foundations.scss'
@@ -12,21 +12,18 @@ const bootstrapMode = bootstrapModeForPath(router, window.location.pathname)
 async function loadAuthApp() {
   const [
     { createPinia },
-    { default: ElementPlus },
-    ElementPlusIconsVue,
+    { installGuestUi },
     { default: AuthApp },
     { initViewportHeight },
     theme,
     locale,
   ] = await Promise.all([
     import('pinia'),
-    import('element-plus'),
-    import('@element-plus/icons-vue'),
+    import('./bootstrap/guest-ui.js'),
     import('./bootstrap/AuthApp.vue'),
     import('./utils/viewport-height'),
     import('./stores/theme'),
     import('./stores/locale'),
-    import('element-plus/dist/index.css'),
     import('./styles/global.scss'),
     import('./styles/mobile.scss'),
     import('./styles/console-shell.scss'),
@@ -34,13 +31,27 @@ async function loadAuthApp() {
   theme.applyTheme(theme.readStoredTheme())
   locale.applyLocale(locale.readStoredLocale())
   initViewportHeight()
-  return () => {
+  return async () => {
     const app = createApp(AuthApp)
-    for (const [key, component] of Object.entries(ElementPlusIconsVue)) app.component(key, component)
     app.use(createPinia())
-    app.use(router)
-    app.use(ElementPlus)
-    app.mount('#app')
+    const ui = createAuthUiLoader({
+      app,
+      loadGuestUi: async () => installGuestUi,
+      loadConsoleUi: async () => {
+        const [{ default: ElementPlus }, icons] = await Promise.all([
+          import('element-plus'),
+          import('@element-plus/icons-vue'),
+          import('element-plus/dist/index.css'),
+        ])
+        return app => {
+          for (const [key, component] of Object.entries(icons)) app.component(key, component)
+          app.use(ElementPlus)
+        }
+      },
+    })
+    await ui.installGuest()
+    router.beforeResolve(ui.beforeResolve)
+    return mountAfterRouterReady(app, router)
   }
 }
 
@@ -57,7 +68,7 @@ void bootstrapApplication({
   loadAuthApp,
   mountPublicApp: async () => {
     const { createPinia } = await import('pinia')
-    return createApp(App).use(createPinia()).use(router).mount('#app')
+    return mountAfterRouterReady(createApp(App).use(createPinia()), router)
   },
   recover,
   fallback: () => renderSafeLoadError(),

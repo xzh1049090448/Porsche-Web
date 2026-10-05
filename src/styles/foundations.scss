@@ -139,3 +139,13 @@ html.route-handoff-leaving #app {
     transition-duration: 0.01ms;
   }
 }
+
+/* Primary actions share the same contrast pair in both themes. */
+.el-button--primary:not(.is-link):not(.is-text):not(.is-plain) { --el-button-text-color: var(--text-inverse); --el-button-hover-text-color: var(--text-inverse); --el-button-active-text-color: var(--text-inverse); }
+
+/* Tawk adds this separate decorative bubble outside the app. Keep its real
+   launcher and conversation frames intact; only suppress the mobile grabber. */
+@media (max-width: 767px) {
+  div#chat-bubble:has(> iframe[title='Chat widget']),
+  div#message-preview:has(> iframe[title='Chat widget']) { display: none; }
+}

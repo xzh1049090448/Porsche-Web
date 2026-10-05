@@ -90,7 +90,7 @@ test('public graph accepts only the structured home state needed by the public l
   })
 })
 
-test('early document theme uses valid storage first and otherwise follows the system', () => {
+test('early homepage theme preserves explicit preferences and defaults to light', () => {
   const html = readFileSync(new URL('../../index.html', import.meta.url), 'utf8')
   const parsed = new JSDOM(html)
   const earlyScript = parsed.window.document.querySelector('script:not([type])').textContent
@@ -98,12 +98,13 @@ test('early document theme uses valid storage first and otherwise follows the sy
 
   const scenarios = [
     { name: 'stored light', stored: JSON.stringify('light'), systemDark: true, expected: 'light' },
+    { name: 'explicit system', stored: JSON.stringify('system'), systemDark: true, expected: 'dark' },
     { name: 'stored dark', stored: JSON.stringify('dark'), systemDark: false, expected: 'dark' },
-    { name: 'missing storage with dark system', stored: null, systemDark: true, expected: 'dark' },
+    { name: 'missing storage with dark system', stored: null, systemDark: true, expected: 'light' },
     { name: 'missing storage with light system', stored: null, systemDark: false, expected: 'light' },
-    { name: 'invalid JSON with dark system', stored: '{bad', systemDark: true, expected: 'dark' },
-    { name: 'invalid value with dark system', stored: JSON.stringify('sepia'), systemDark: true, expected: 'dark' },
-    { name: 'storage read error with dark system', storageError: true, systemDark: true, expected: 'dark' },
+    { name: 'invalid JSON with dark system', stored: '{bad', systemDark: true, expected: 'light' },
+    { name: 'invalid value with dark system', stored: JSON.stringify('sepia'), systemDark: true, expected: 'light' },
+    { name: 'storage read error with dark system', storageError: true, systemDark: true, expected: 'light' },
     { name: 'missing matchMedia', stored: null, withMatchMedia: false, expected: 'light' },
   ]
 

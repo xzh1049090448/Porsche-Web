@@ -461,3 +461,23 @@
 - 六份后端合同显式注入的 `npm test` 1137/1137、0 fail/skip/cancel/todo，56.368 秒；`VITE_USE_MOCK=false npm run build` PASS；public chunk checker PASS（9 chunks、171480 JS bytes、20362 CSS bytes）。完整本地前端门禁为 `PASS_LIMITED_SCOPE`。
 - visible Chromium synthetic API 完整重跑：公共 ready/503 11/11、匿名 `/admin/public-content` 拒绝 1/1 PASS；逐场景固化 234 项断言、32 条脱敏请求与状态/版本/错误/geometry，0 unexpected console error、0 page error。覆盖 375/390/768/1280/1600、light/dark、中英文、reduced-motion、44px、focus/Escape、overflow、动态内容与价格版本。
 - 12/12 页面根在 computed opacity `1`、visibility `visible`、无 route enter/leave class 后连续两帧稳定；三张代表截图重拍并通过DOM/PNG像素检查，dark 1280标题为 `rgb(248, 250, 252)` 且标题框存在7623个匹配浅色像素。API 使用 Playwright `page.route`，没有启动真实后端 fixture；production preview、Chromium均清理且server detection为空。Root CRUD/preview/validate/publish/history/restore、真实 MySQL/RBAC/事务、生产部署与验收均 `NOT_RUN`；P08 真实性标准保持 `BLOCKED_PRODUCT`。`web-012` 继续 `in_progress`。详见 `docs/agents/validation/2026-09-16-fixed-home-structured-content/`。
+
+
+## 2026-10-05：开发者视觉预览与共享主题（DONE_WITH_CONCERNS）
+
+- 独立clone/分支design/home-developer-preview-20261005，基线44feb1d；原仓库和计费分支未写入。用户确认浅色白灰/近黑深色/绿色操作方向后扩展共享token至相关页面，业务脚本保留。
+- 全量1226/1226、0skip；最终theme/layout27/27；最终production build5.92s；diff-check通过。用户Mac内置浏览器1280桌面与390手机、zh/en、双主题、筛选/菜单Escape、错误重试、登录转向及注册空表单反馈有实际证据。
+- 预览http://127.0.0.1:5188/保留。截图已保存Library。详见docs/agents/validation/2026-10-05-developer-visual-preview/report.md。
+- 无真实后端会话，控制台账单/密钥成功态端到端NOT_RUN；独立规格/质量角色PENDING，feature状态保持in_progress。未push/merge/deploy/pay。
+
+- 后续UI收尾：补稳定#models空态/导航焦点，手机仅隐藏Tawk装饰并保留真实入口，修复深色页脚前景。真实Vue五状态RED→GREEN；最终58/58、0skip，production build5.50s与diff-check PASS。Mac浏览器实际窗口展开/收起、导航标题可见、双主题按钮和无横向溢出通过。不需要用户输入或远端权限；第三方srcdoc会话内容为空，消息发送NOT_RUN。详见同一report补充。
+
+- 2026-10-05 登录/注册字标收尾：用户Mac浏览器实际确认logo包含AiPortCloud字标；h1改为本地化登录/注册账号，logo补品牌alt。保留认证脚本及表单规则。相关25/25通过，production build6.37s通过；手机390宽DOM无横向溢出。旧92d68ff审查包失效，新候选需独立CLI Spec后Quality再合并，未部署。
+
+
+## 2026-10-05：用户授权的依赖及首屏资源窄修（性能 FAIL / 待独立审查）
+
+- 完整1245/1245、0fail/skip，production build5.57s/public graph/diff-check PASS；原始最终日志在外部审查包。axios/DOMPurify/brace-expansion最小安全版本修复，audit仍1 moderate ECharts，适用性见视觉report，不宣称零告警。
+- 按需guest组件/控制台组件及正确初次路由渲染、主题logo/guest静态依赖预加载，保留认证守卫及安全失败恢复。无后端/API语义/金额修改。
+- 约定网络/CPU/390手机三次独立冷profile：home1884.467ms、price错误态1814.555ms、login2671.333ms，登录<2秒 **FAIL**；菜单26.9/25.8ms PASS。auth refresh本地失败约161ms确在关键路径，不能独自解释剩余差距。性能门槛不擅自放宽。
+- 用户授权推送PR11，独立Spec/Quality通过后main合并；此新候选审查PENDING，登录性能阻止最终PASS/merge。原工作目录/计费分支保留，无部署/真实业务验收。

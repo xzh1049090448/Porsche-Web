@@ -224,7 +224,7 @@ test('public and authenticated bootstraps share semantic tokens and accessible f
     '--header-height',
     '--sidebar-width',
   ]) assert.match(tokens, new RegExp(token))
-  for (const value of ['#2563eb', '#1d4ed8', '#eff6ff', '#f8fafc', '#ffffff', '#e5e7eb', '#111827', '#4b5563', '#9ca3af', '#10b981', '#0f172a', '#273449', '#334155', '#f8fafc', '#94a3b8', '#3b82f6']) {
+  for (const value of ['#126b56', '#0d5745', '#e6f2ec', '#f7f9f8', '#ffffff', '#c7d2cb', '#182b25', '#53635c', '#627169', '#10b981', '#121b19', '#293831', '#3c4c43', '#f3f8f7', '#bacdca', '#89e6ca']) {
     assert.match(tokens.toLowerCase(), new RegExp(value))
   }
   assert.match(tokens, /--control-min-size:\s*44px/)

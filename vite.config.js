@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 import { publicModuleGraphPlugin } from './scripts/public-module-graph.mjs'
+import { guestStartupPreloadPlugin } from './scripts/guest-startup-preload.mjs'
 
 import { publicContentPreviewProtection } from './scripts/public-content-preview-headers.mjs'
 
@@ -20,7 +21,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-  plugins: [vue(), publicContentPreviewProtection(), publicModuleGraphPlugin()],
+  plugins: [vue(), publicContentPreviewProtection(), publicModuleGraphPlugin(), guestStartupPreloadPlugin()],
   build: { manifest: true },
   resolve: { alias: aliases },
   server: {

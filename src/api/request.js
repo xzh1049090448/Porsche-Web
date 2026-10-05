@@ -56,7 +56,7 @@ export const adminActionPost = adminActionRequest.post
 export const adminActionPatch = adminActionRequest.patch
 export const adminActionQuery = adminActionRequest.query
 const request = axios.create(options)
-installAuthInterceptors(request, authSession, { onUnauthorized: () => handleUnauthorized(), onError: error => { void import('element-plus').then(({ ElMessage }) => ElMessage.error(authErrorMessage(error))) } })
+installAuthInterceptors(request, authSession, { onUnauthorized: () => handleUnauthorized(), onError: error => { void import('element-plus/es/components/message/index.mjs').then(({ ElMessage }) => ElMessage.error(authErrorMessage(error))) } })
 export function getAuthToken() { return authSession.accessToken() }
 export function authenticatedFetch(input, init = {}) {
   return runAuthenticatedFetch(authSession, input, { credentials: 'include', ...init }, { onUnauthorized: () => handleUnauthorized() })
