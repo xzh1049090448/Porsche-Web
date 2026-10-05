@@ -1,6 +1,6 @@
 {
   "project": "Porsche-Web（大模型聚合平台用户端前端）",
-  "last_updated": "2026-09-28",
+  "last_updated": "2026-10-05",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -16,6 +16,26 @@
     "llm-platform": "Vue 3 + Vite + Element Plus + Pinia 大模型聚合平台用户端"
   },
   "features": [
+    {
+      "id": "web-visual-20261005",
+      "priority": 0,
+      "area": "llm-platform",
+      "title": "开发者首页预览与全站共享主题",
+      "user_visible_behavior": "白灰浅色、近黑深色和绿色操作保持一致；公开价格到密钥用量的路径清晰，登录注册字段有标签及自动填充。",
+      "status": "in_progress",
+      "verification": [
+        "npm test（六份后端合同）",
+        "最终theme/layout测试",
+        "VITE_USE_MOCK=false npm run build",
+        "用户Mac浏览器桌面/390手机/zh-en/主题/错误状态",
+        "git diff --check"
+      ],
+      "evidence": [
+        "2026-10-05：隔离clone内完整回归1226/1226、0skip；最终主题布局27/27、最终build5.92s PASS。",
+        "2026-10-05：用户Mac内置浏览器实际预览与交互证据，见docs/agents/validation/2026-10-05-developer-visual-preview/report.md。"
+      ],
+      "notes": "本地视觉交付DONE_WITH_CONCERNS，真实后台联调及独立规格/质量签收PENDING。保留原开发目录、未部署。"
+    },
     {
       "id": "web-011",
       "priority": 0,

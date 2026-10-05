@@ -5,6 +5,7 @@
       <LocaleToggle />
       <ThemeToggle />
     </div>
+    <router-link class="auth-home-link" to="/">← {{ t('publicSite.home') }}</router-link>
     <div class="auth-card login-card surface-card">
       <div class="auth-brand login-brand">
         <img :src="brandLogo" alt="" class="logo-icon" />
@@ -17,6 +18,8 @@
           <el-input
             v-model="pwdForm.username"
             :placeholder="t('login.username')"
+            :aria-label="t('login.username')"
+            autocomplete="username"
             maxlength="20"
             :prefix-icon="User"
           />
@@ -26,6 +29,8 @@
             v-model="pwdForm.password"
             type="password"
             :placeholder="t('login.password')"
+            :aria-label="t('login.password')"
+            autocomplete="current-password"
             show-password
             :prefix-icon="Lock"
             @keyup.enter="submitPwd"
@@ -120,7 +125,7 @@ function handleRecovered(result) {
 .submit-btn {
   width: 100%;
   margin-top: 8px;
-  height: 40px;
+  min-height: var(--control-min-size);
   border-radius: 8px;
 }
 

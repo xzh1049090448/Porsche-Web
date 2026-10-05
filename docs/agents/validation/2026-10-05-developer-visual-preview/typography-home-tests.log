@@ -1,0 +1,38 @@
+✔ build plugin emits a sanitized graph accepted for the small public bootstrap allowlist (1.294042ms)
+✔ public graph accepts only the dedicated public message catalog (0.521125ms)
+✔ public graph accepts the shared route transition used by the public bootstrap (0.122958ms)
+✔ public graph accepts exactly the shared AppBrand shell component (5.73725ms)
+✔ public graph names and accepts only the exact root brand assets (0.8435ms)
+✔ public graph accepts only the structured home state needed by the public layout (0.09475ms)
+✔ early homepage theme preserves explicit preferences and defaults to light (62.659166ms)
+✔ build-produced graph rejects a protected module injected into the public closure (0.190417ms)
+✔ public chunks reject synchronous Root content administration packages (0.179208ms)
+✔ build-produced graph rejects an unknown local module even without protected markers (0.135917ms)
+✔ build-produced graph accepts only the dedicated public shell stylesheet (0.088167ms)
+✔ public CSS budget admits the approved shell and rejects the next byte above its bound (0.113583ms)
+✔ build-produced graph rejects Element Plus, all-icons, auth modules, and non-foundation styles (0.193959ms)
+✔ module graph rejects every unknown dependency and provenance class (0.147666ms)
+✔ external absolute module IDs are collision-resistant and never disclose their source path (0.142417ms)
+✔ representative page families retain real template ancestry for the typography cascade (44.144375ms)
+✔ shared console, dialog, table and badge rules resolve to the compact semantic scale (56.512209ms)
+✔ remaining functional titles and mobile labels use semantic tokens (36.277458ms)
+✔ chat panel toggles retain the shared touch target size (8.724125ms)
+✔ chat welcome title resolves through the ordered desktop and mobile cascade (45.080792ms)
+✔ representative SFC and shared style declarations reject unscoped display type (250.638959ms)
+✔ each representative page family resolves real text targets through its final layout cascade (413.263ms)
+✔ Vue parent and child scope attributes follow component-root boundaries (75.670292ms)
+✔ display typography is limited to the approved hero and price exceptions (86.317584ms)
+✔ first homepage visit defaults to light even on a dark system (28.360333ms)
+✔ saved dark preference is preserved (5.011584ms)
+✔ saved light preference is preserved (3.243083ms)
+✔ explicit system preference follows dark OS (6.009709ms)
+✔ explicit system preference follows light OS (3.350208ms)
+✔ other pages keep their current system default (3.086125ms)
+ℹ tests 30
+ℹ suites 0
+ℹ pass 30
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1608.376875

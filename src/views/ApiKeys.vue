@@ -4,6 +4,11 @@
       <template #actions><el-button type="primary" @click="openCreate">{{ t('apiKeys.create') }}</el-button></template>
     </PageHeader>
 
+    <nav class="console-shortcuts" :aria-label="t('apiKeys.title')">
+      <router-link to="/pricing">{{ t('publicSite.pricing') }} ↗</router-link>
+      <router-link to="/billing">{{ t('nav.billing') }} →</router-link>
+    </nav>
+
     <el-row :gutter="16" class="summary-cards console-stat-grid">
       <el-col :xs="24" :sm="8"><el-card shadow="never"><el-statistic :title="t('apiKeys.active')" :value="summary.active" /></el-card></el-col>
       <el-col :xs="24" :sm="8"><el-card shadow="never"><el-statistic :title="t('apiKeys.revoked')" :value="summary.revoked" /></el-card></el-col>

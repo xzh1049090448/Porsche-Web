@@ -29,7 +29,7 @@
   place-items: center;
   padding: var(--space-6);
   background:
-    radial-gradient(circle at 16% 12%, rgba(var(--color-brand-rgb), 0.13), transparent 30rem),
+    radial-gradient(circle at 16% 12%, rgba(var(--color-brand-rgb), 0.04), transparent 30rem),
     var(--surface-page);
 }
 
@@ -69,3 +69,16 @@
   .console-page, .auth-page { padding: var(--space-4); }
   .auth-card.surface-card { padding: var(--space-6); }
 }
+
+.console-stat-grid .el-card { border-radius: var(--radius-lg); box-shadow: none; }
+.console-stat-grid .el-statistic__content { font-variant-numeric: tabular-nums; }
+.console-page .el-card__header { background: var(--surface-card); }
+.console-page .el-table { --el-table-header-bg-color: var(--surface-hover); }
+.auth-card.surface-card { box-shadow: var(--shadow-md); }
+
+.auth-home-link { position: absolute; top: var(--space-4); left: var(--space-4); display: inline-flex; min-height: var(--control-min-size); align-items: center; padding: 0 var(--space-3); border-radius: var(--radius-sm); color: var(--text-secondary); }
+.auth-home-link:hover { background: var(--surface-hover); color: var(--color-brand); }
+.console-shortcuts { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-5); }
+.console-shortcuts a { display: inline-flex; min-height: var(--control-min-size); align-items: center; gap: var(--space-2); padding: 0 var(--space-4); border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-card); color: var(--text-secondary); }
+.console-shortcuts a:hover { border-color: var(--color-brand); color: var(--color-brand); }
+@media (max-width: 767px) { .auth-page { padding-top: var(--space-16); } .console-shortcuts a { flex: 1; justify-content: center; } }

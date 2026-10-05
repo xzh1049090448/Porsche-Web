@@ -18,8 +18,12 @@
           var storedTheme = themeRaw ? JSON.parse(themeRaw) : null;
           if (storedTheme === 'light' || storedTheme === 'dark') {
             theme = storedTheme;
+          } else if (storedTheme !== 'system' && window.location.pathname === '/') {
+            // The homepage starts light; explicit choices, including system,
+            // remain authoritative. Other pages keep their existing defaults.
+            theme = 'light';
           }
-        } catch (e) {}
+        } catch (e) { if (window.location.pathname === '/') theme = 'light'; }
         document.documentElement.dataset.theme = theme;
         try {
           var localeRaw = localStorage.getItem('llm_platform_uiLocale');

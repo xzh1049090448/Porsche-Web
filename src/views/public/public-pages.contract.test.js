@@ -3039,7 +3039,8 @@ test('fixed homepage and shell never depend on published document navigation or 
   const header = source('../../components/public/PublicHeader.vue')
   const footer = source('../../components/public/PublicFooter.vue')
   const copy = source('../../i18n/public-messages.js')
-  assert.match(copy, /一个入口，连接已验证的模型能力/)
+  assert.equal(publicHomeMessages.zh.title, '连接模型，让想法成为应用。')
+  assert.equal(publicHomeMessages.en.title, 'Connect models. Build what’s next.')
   assert.match(layout, /createPublicHomeContentState/)
   assert.match(layout, /publicContentApi/)
   assert.doesNotMatch(layout, /loadCodec|public-document|getHome\s*\(/)
@@ -3240,7 +3241,23 @@ test('public content pages compose the approved safe landing system', () => {
   assert.match(publicStyleSources.join('\n'), /\.public-footer\s*\{[^}]*background:\s*#111827/s)
   assert.match(hero, /aria-hidden="true"/)
   assert.match(hero, /capability-preview/)
-  assert.doesNotMatch(hero, /v-html|api[_-]?key|token|user(?:name)?|chat/i)
+  // A static request-format illustration may name SDK fields. It must never
+  // bind credentials, account data, executable requests or untrusted HTML.
+  assert.doesNotMatch(hero, /v-html/)
+  const heroDescriptor = parseVue(hero)
+  assert.match(heroDescriptor.scriptSetup.content.trim(), /^defineProps\(\{ label: \{ type: String, required: true \} \}\)$/)
+  const inspectIllustrationBindings = node => {
+    if (node.type === 5) assert.equal(node.content.content, 'label')
+    for (const prop of node.props || []) if (prop.type === 7) {
+      assert.equal(prop.name, 'bind')
+      assert.equal(prop.arg.content, 'aria-label')
+      assert.equal(prop.exp.content, 'label')
+    }
+    for (const child of node.children || []) inspectIllustrationBindings(child)
+  }
+  inspectIllustrationBindings(templateAst(hero))
+  assert.match(hero, /YOUR_API_BASE/)
+  assert.match(hero, /YOUR_MODEL_ID/)
   assert.match(styles, /radial-gradient/)
   assert.match(styles, /repeat\(3,\s*minmax\(0,\s*1fr\)\)/)
   assert.match(styles, /prefers-reduced-motion:\s*reduce/)

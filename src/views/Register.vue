@@ -4,6 +4,7 @@
       <LocaleToggle />
       <ThemeToggle />
     </div>
+    <router-link class="auth-home-link" to="/">← {{ t('publicSite.home') }}</router-link>
     <div class="auth-card register-card surface-card">
       <div class="auth-brand">
         <img :src="brandLogo" alt="" class="logo-icon" />
@@ -11,10 +12,10 @@
         <p>{{ t('app.tagline') }}</p>
       </div>
       <el-form ref="formRef" :model="form" :rules="rules" @submit.prevent>
-        <el-form-item prop="username"><el-input v-model="form.username" :placeholder="t('login.username')" maxlength="20" /></el-form-item>
-        <el-form-item prop="nickname"><el-input v-model="form.nickname" :placeholder="t('profile.nickname')" maxlength="50" /></el-form-item>
-        <el-form-item prop="password"><el-input v-model="form.password" type="password" show-password :placeholder="t('login.password')" /></el-form-item>
-        <el-form-item prop="confirm"><el-input v-model="form.confirm" type="password" show-password :placeholder="t('profile.confirmPassword')" @keyup.enter="submit" /></el-form-item>
+        <el-form-item prop="username"><el-input v-model="form.username" :placeholder="t('login.username')" :aria-label="t('login.username')" autocomplete="username" maxlength="20" /></el-form-item>
+        <el-form-item prop="nickname"><el-input v-model="form.nickname" :placeholder="t('profile.nickname')" :aria-label="t('profile.nickname')" autocomplete="nickname" maxlength="50" /></el-form-item>
+        <el-form-item prop="password"><el-input v-model="form.password" type="password" show-password :placeholder="t('login.password')" :aria-label="t('login.password')" autocomplete="new-password" /></el-form-item>
+        <el-form-item prop="confirm"><el-input v-model="form.confirm" type="password" show-password :placeholder="t('profile.confirmPassword')" :aria-label="t('profile.confirmPassword')" autocomplete="new-password" @keyup.enter="submit" /></el-form-item>
         <el-button type="primary" class="submit-btn" :loading="loading" @click="submit">{{ t('login.register') }}</el-button>
         <el-button text class="login-link" @click="router.push('/login')">{{ t('login.backToLogin') }}</el-button>
       </el-form>
