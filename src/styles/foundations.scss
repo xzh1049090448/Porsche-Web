@@ -146,5 +146,6 @@ html.route-handoff-leaving #app {
 /* Tawk adds this separate decorative bubble outside the app. Keep its real
    launcher and conversation frames intact; only suppress the mobile grabber. */
 @media (max-width: 767px) {
-  div#chat-bubble:has(> iframe[title='Chat widget']) { display: none; }
+  div#chat-bubble:has(> iframe[title='Chat widget']),
+  div#message-preview:has(> iframe[title='Chat widget']) { display: none; }
 }

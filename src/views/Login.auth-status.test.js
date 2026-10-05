@@ -189,7 +189,7 @@ async function mountLogin({ authIssue = 'auth_uncertain', recover, redirect = '/
   const Login = await compileComponent('./Login.vue', [
     ['vue-router', vueRouterUrl],
     ['@element-plus/icons-vue', iconsStub],
-    ['element-plus', elementPlusStub],
+    ['element-plus/es/components/message/index.mjs', elementPlusStub],
     ['@/api/auth-errors', authErrorsStub],
     ['@/stores/user', storeStub],
     ['@/utils/auth-redirect', safeRedirectUrl],

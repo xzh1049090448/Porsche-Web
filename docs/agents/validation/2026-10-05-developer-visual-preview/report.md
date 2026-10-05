@@ -65,3 +65,36 @@
 ## 登录与注册标题去重补充
 
 用户Mac浏览器实见现有logo已经包含品牌字标。保留logo，增加AiPortCloud可访问名称；独立h1分别改为本地化“登录”和“注册账号”。未改认证逻辑。相关25/25测试通过、生产构建6.37s通过；390手机注册页heading与alt已核对，无横向溢出。提交后新快照审查，旧候选审核不适用。后台成功登录仍NOT_RUN。
+
+
+## 2026-10-05 最终资源加载与依赖窄修（独立审查待签，性能 FAIL）
+
+用户明确授权将包含登录页修复的提交推送到 PR #11，仅独立 Spec/Quality 均通过后合并 main，不部署；另授权最小兼容依赖安全修复与前端资源加载优化。原目录和计费工作树不写入。
+
+- axios 1.19.0→1.20.0、DOMPurify 3.4.14→3.4.16、间接 brace-expansion 2.1.4→2.1.7；未运行安装生命周期脚本。最终 npm audit 为 0 critical/high/low、1 moderate（ECharts 5.6.0），因此 audit exit 1，不能宣称零告警。
+- ECharts GHSA-fgmj-fm8m-jvvx 的已知触发组合是 `type: 'lines'`、tooltip、无自定义 formatter、未转义 data name。当前 analytics 只固定 line/bar/pie（line 不等于 lines），相关 formatter 转义已有测试；当前路径未匹配该组合。6.1.0 为主要版本，官方迁移指南说明主题/布局/轴等默认行为变化，本轮没有扩大为大版本迁移。剩余 moderate 提交独立质量审查判断，不抹去告警。
+- 登录/注册按需注册实际使用的 Element Plus 组件，控制台完整组件/图标/样式仅在既有认证守卫允许的 requiresAuth 路由 beforeResolve 阶段加载。guest 和 console 并发加载去重；错误传给既有恢复/安全错误页。没有改守卫决策、认证请求/票据/余额或支付。request.js 仅 ElMessage 的 UI 模块导入路径调整。
+- 首次 mount 等 router.isReady，避免初始路由 enter 透明过渡造成浏览器没有有效 LCP 候选；后续路由动画保留。按真实主题预加载对应 logo。构建期仅 /login 或 /register 的静态依赖生成 modulepreload/CSS preload，下载/编译不执行模块；公开/控制台其他路径不添加 guest 提示。
+- 手机同时隐藏实际 Tawk chat-bubble/message-preview 装饰 iframe 容器；真实 min-widget/max-widget 和桌面装饰保留。真实编译 Sass + DOM 回归验证选择器，不修改远端客服配置。
+
+### 最终检查与性能证据
+
+全量 npm test **1245/1245 PASS，0 fail/skip/cancel/todo，70.45 秒**，六份权威后端合同显式注入；最终 production build PASS（5.57 秒），public graph checker PASS。git diff --check PASS。无 lint/typecheck 命令，不宣称其通过。外部原始日志位于任务目录最终审查包中，不把新性能日志混入旧完整测试证据。
+
+生产 preview 127.0.0.1:5189，用户 Mac 已安装 Chrome、Lighthouse 13.5.0 的独立冷 profile，每 URL 三次有效样本；390×844/DPR1、CPU4倍、下行 **1.6Mbps=200000B/s**、上行 **750kbps=93750B/s**、延迟150ms。保留真实第三方加载。不是物理手机/线上站点测量。Vite preview 原本自动压缩资源，未改变 gzip 条件；此前“未压缩”的口头诊断已纠正。
+
+| 页面 | LCP 三次中位 | 约定 <2000ms | ready 后菜单中位 | <200ms |
+| --- | ---: | --- | ---: | --- |
+| 首页 / | 1884.467ms | PASS | 26.9ms | PASS |
+| 登录 /login | 2671.333ms | **FAIL** | N/A | N/A |
+| 价格 /pricing（真实本地错误态） | 1814.555ms | PASS | 25.8ms | PASS |
+
+菜单计时为 pointerdown→菜单可见后下一 RAF；同 profile 的第二次 ready 页面交互，可缓存资源，不能称 INP 或冷导航菜单性能。九次 LCP 样本均有效；更早 NO_FCP/NO_LCP 样本仅诊断记录，未选样冒称通过。有效上一轮登录中位3158.577ms→最终2671.333ms，改善约15.4%，仍未达门槛。
+
+login-2 原始 LHR：品牌图片920.295ms下载完成；既有 beforeEach await ensureSession 与初始 router.isReady 使认证恢复在渲染关键路径。/api/v1/auth/refresh 2169.562→2330.397ms 返回本地500，约160.835ms；Login CSS确认到2511.253ms，图片实际 LCP2668.093ms，element render delay1747.181ms。不可达后端等待确有贡献，但不足单独解释超出2秒的差距；不能承诺真实后端可自动达标。不继续扩大架构或自行放宽门槛。
+
+用户 Mac 内置浏览器最终 production 页面实看390手机：英文深色 Sign in、品牌alt、用户名/密码aria-label及autocomplete、宽度scrollWidth=clientWidth=390；注册空表单返回真实用户名/密码必填反馈；/api-keys 安全转向 /login?redirect=/api-keys，未决认证禁用提交；公共菜单展开/Escape返回按钮焦点。桌面与价格重试最终复核记录随外部审查包。真实后台成功态、真实账号/支付/密钥/客服消息及部署均 NOT_RUN。
+
+此候选尚须新快照 Spec 后 Quality；eec9c09 的旧审查不适用于新增代码。登录性能 FAIL 是明确合并门禁，用户没有放宽门槛前不签 PASS、不合并。允许保存及推送 PR 供审阅；禁止部署。
+
+最终 Mac production 桌面复核：1280×900，Sign in h1/品牌alt正常，auth-page opacity=1，scrollWidth=clientWidth=1280。价格 Retry 后仍返回真实本地错误提示；手机公共菜单 Escape 聚焦 Menu。新截图任务目录 aiportcloud-final-login-desktop.png 与 aiportcloud-final-login-mobile.png。

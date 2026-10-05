@@ -473,3 +473,11 @@
 - 后续UI收尾：补稳定#models空态/导航焦点，手机仅隐藏Tawk装饰并保留真实入口，修复深色页脚前景。真实Vue五状态RED→GREEN；最终58/58、0skip，production build5.50s与diff-check PASS。Mac浏览器实际窗口展开/收起、导航标题可见、双主题按钮和无横向溢出通过。不需要用户输入或远端权限；第三方srcdoc会话内容为空，消息发送NOT_RUN。详见同一report补充。
 
 - 2026-10-05 登录/注册字标收尾：用户Mac浏览器实际确认logo包含AiPortCloud字标；h1改为本地化登录/注册账号，logo补品牌alt。保留认证脚本及表单规则。相关25/25通过，production build6.37s通过；手机390宽DOM无横向溢出。旧92d68ff审查包失效，新候选需独立CLI Spec后Quality再合并，未部署。
+
+
+## 2026-10-05：用户授权的依赖及首屏资源窄修（性能 FAIL / 待独立审查）
+
+- 完整1245/1245、0fail/skip，production build5.57s/public graph/diff-check PASS；原始最终日志在外部审查包。axios/DOMPurify/brace-expansion最小安全版本修复，audit仍1 moderate ECharts，适用性见视觉report，不宣称零告警。
+- 按需guest组件/控制台组件及正确初次路由渲染、主题logo/guest静态依赖预加载，保留认证守卫及安全失败恢复。无后端/API语义/金额修改。
+- 约定网络/CPU/390手机三次独立冷profile：home1884.467ms、price错误态1814.555ms、login2671.333ms，登录<2秒 **FAIL**；菜单26.9/25.8ms PASS。auth refresh本地失败约161ms确在关键路径，不能独自解释剩余差距。性能门槛不擅自放宽。
+- 用户授权推送PR11，独立Spec/Quality通过后main合并；此新候选审查PENDING，登录性能阻止最终PASS/merge。原工作目录/计费分支保留，无部署/真实业务验收。

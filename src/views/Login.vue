@@ -49,7 +49,7 @@
 import { ref, reactive, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { User, Lock } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index.mjs'
 import { authErrorMessage } from '@/api/auth-errors'
 import { useUserStore } from '@/stores/user'
 import { safeAuthRedirect } from '@/utils/auth-redirect'

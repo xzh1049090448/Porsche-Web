@@ -26,6 +26,20 @@
         } catch (e) { if (window.location.pathname === '/') theme = 'light'; }
         document.documentElement.dataset.theme = theme;
         try {
+          var path = window.location.pathname;
+          var guest = path === '/login' || path === '/register';
+          if (guest || path === '/' || path.indexOf('/pricing') === 0) {
+            var brand = document.createElement('link');
+            brand.rel = 'preload';
+            brand.setAttribute('as', 'image');
+            brand.setAttribute('fetchpriority', 'high');
+            brand.href = guest
+              ? (theme === 'dark' ? '/dark_logo.png' : '/logo_refined.png')
+              : (theme === 'dark' ? '/dark_nav_logo.png' : '/nav_logo.png');
+            document.head.appendChild(brand);
+          }
+        } catch (e) {}
+        try {
           var localeRaw = localStorage.getItem('llm_platform_uiLocale');
           var locale = localeRaw ? JSON.parse(localeRaw) : 'zh';
           document.documentElement.lang = locale === 'en' ? 'en' : 'zh-CN';

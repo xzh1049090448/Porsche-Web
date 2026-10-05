@@ -25,7 +25,7 @@
 
 <script setup>
 import { computed, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index.mjs'
 import { authErrorMessage } from '@/api/auth-errors'
 import { useRouter } from 'vue-router'
 import { register } from '@/api/auth'

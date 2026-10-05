@@ -20,3 +20,17 @@ for (const [label, path, stored, systemDark, expected] of [
   assert.equal(dom.window.localStorage.getItem('llm_platform_uiTheme'), stored ? JSON.stringify(stored) : null)
   dom.window.close()
 })
+
+for (const [path, stored, expected] of [
+  ['/', null, '/nav_logo.png'], ['/', 'dark', '/dark_nav_logo.png'],
+  ['/login', 'light', '/logo_refined.png'], ['/register', 'dark', '/dark_logo.png'],
+]) test(`early brand preload matches the active theme at ${path} ${stored}`, () => {
+  const dom = new JSDOM('', { url: `https://local.test${path}`, runScripts: 'outside-only' })
+  dom.window.matchMedia = () => ({ matches: false })
+  if (stored) dom.window.localStorage.setItem('llm_platform_uiTheme', JSON.stringify(stored))
+  dom.window.eval(boot)
+  const preload = dom.window.document.querySelector('link[rel="preload"][as="image"]')
+  assert.ok(preload, 'brand asset should be discovered before client rendering')
+  assert.equal(preload.getAttribute('href'), expected)
+  dom.window.close()
+})
