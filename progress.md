@@ -469,3 +469,5 @@
 - 全量1226/1226、0skip；最终theme/layout27/27；最终production build5.92s；diff-check通过。用户Mac内置浏览器1280桌面与390手机、zh/en、双主题、筛选/菜单Escape、错误重试、登录转向及注册空表单反馈有实际证据。
 - 预览http://127.0.0.1:5188/保留。截图已保存Library。详见docs/agents/validation/2026-10-05-developer-visual-preview/report.md。
 - 无真实后端会话，控制台账单/密钥成功态端到端NOT_RUN；独立规格/质量角色PENDING，feature状态保持in_progress。未push/merge/deploy/pay。
+
+- 后续UI收尾：补稳定#models空态/导航焦点，手机仅隐藏Tawk装饰并保留真实入口，修复深色页脚前景。真实Vue五状态RED→GREEN；最终58/58、0skip，production build5.50s与diff-check PASS。Mac浏览器实际窗口展开/收起、导航标题可见、双主题按钮和无横向溢出通过。不需要用户输入或远端权限；第三方srcdoc会话内容为空，消息发送NOT_RUN。详见同一report补充。

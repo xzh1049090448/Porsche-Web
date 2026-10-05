@@ -63,6 +63,12 @@ const featuredModels = computed(() => publication.value?.featuredModels.value ??
       </div>
     </PublicSection>
 
+    <section v-if="!dynamicData || !featuredModels?.length" id="models" class="public-model-fallback" tabindex="-1" aria-labelledby="model-fallback-title">
+      <h2 id="model-fallback-title">{{ t('models') }}</h2>
+      <p role="status" aria-live="polite">{{ dynamicState.status === 'loading' ? fixed.modelsLoading : featuredModels?.length === 0 ? fixed.modelsEmpty : fixed.modelsUnavailable }}</p>
+      <RouterLink class="public-button public-button--secondary" to="/pricing">{{ fixed.pricingAction }} <span aria-hidden="true">↗</span></RouterLink>
+    </section>
+
     <HomeDynamicContent
       v-if="dynamicData"
       :announcements="dynamicData.announcements"

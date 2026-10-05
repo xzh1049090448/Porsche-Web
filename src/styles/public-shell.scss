@@ -16,7 +16,8 @@
 .public-header.is-scrolled { background: color-mix(in srgb, var(--public-card) 96%, transparent); box-shadow: 0 2px 8px rgb(15 23 42 / 7%); }
 .public-header__primary { display: flex; min-width: 0; align-items: center; gap: 34px; }
 .public-nav, .public-header__actions, .public-footer nav { display: flex; align-items: center; gap: 22px; }
-.public-nav a, .public-nav__blocked, .public-footer a, .public-footer__blocked { color: var(--public-muted); }
+.public-nav a, .public-nav__blocked { color: var(--public-muted); }
+.public-footer a, .public-footer__blocked { color: #cbd5e1; }
 .public-nav a:hover, .public-footer a:hover { color: var(--public-primary); }
 .public-header__actions { gap: 8px; }
 .public-locale, .public-theme, .public-nav-toggle { display: inline-flex; min-width: var(--control-min-size); min-height: var(--control-min-size); align-items: center; justify-content: center; border: 0; border-radius: 8px; color: var(--public-muted); background: transparent; cursor: pointer; }

@@ -3272,3 +3272,47 @@ test('public content pages compose the approved safe landing system', () => {
   for (const [pattern, label] of prototypePatterns) for (const copy of visibleCopy) assert.doesNotMatch(copy, pattern, label)
   for (const copy of visibleCopy) assert.deepEqual(positivePerRequestClaims(copy), [], 'positive per-request pricing claim')
 })
+
+
+test('model navigation has one focusable destination during loading, unavailable, empty and published states', async () => withPublicDom(async () => {
+  const { router, i18n } = publicComponentStubs()
+  const vueURL = new URL('../../../node_modules/vue/index.mjs', import.meta.url).href
+  const section = dataModule(`import{h}from'${vueURL}';export default{props:['id','title'],setup(p,{slots}){return()=>h('section',{id:p.id},[h('h2',p.title),slots.default?.()])}}`)
+  const hero = dataModule(`export default{render(){return null}}`)
+  const purify = new URL('../../../node_modules/dompurify/dist/purify.es.mjs', import.meta.url).href
+  const dynamic = await compilePublicComponent({
+    path: '../../components/public/HomeDynamicContent.vue', filename:'HomeDynamicContent.vue', id:'model-anchor-dynamic',
+    replacements:new Map([['vue-router',router],['@/i18n/public-runtime.js',i18n],['@/components/public/PublicSection.vue',section],['dompurify',purify]]),
+  })
+  const home = await compilePublicComponent({
+    path:'./Home.vue',filename:'Home.vue',id:'model-anchor-home',
+    sourceOverride:source('./Home.vue').replace(/import ['"]@\/styles\/[^'"\n]+['"]/g,'').replace('<script setup>',"<script setup>\nimport { RouterLink } from 'vue-router'"),
+    replacements:new Map([['vue-router',router],['@/components/public/HeroPreview.vue',hero],['@/components/public/HomeDynamicContent.vue',dynamic.url],['@/components/public/PublicSection.vue',section],['@/i18n/public-runtime.js',i18n],['@/i18n/public-messages.js',new URL('../../i18n/public-messages.js',import.meta.url).href]]),
+  })
+  const { h, provide, shallowRef } = await import('vue')
+  const data={announcements:[],faqs:[],featuredModelKeys:[]}
+  for (const scenario of [
+    {status:'loading',data:null,models:null,copy:'正在准备首页模型推荐'},
+    {status:'hidden',data:null,models:null,copy:'首页模型推荐暂未就绪'},
+    {status:'ready',data,models:[],copy:'暂无首页推荐模型'},
+    {status:'ready',data,models:null,copy:'首页模型推荐暂未就绪'},
+    {status:'ready',data,models:[{modelKey:'verified-model',displayName:'Published model',provider:'Published provider'}]},
+  ]) {
+    const fixture={homeContent:{value:shallowRef({status:scenario.status,data:scenario.data})},publication:shallowRef({featuredModels:shallowRef(scenario.models)})}
+    const root={setup(){provide('public-home-publication',fixture);return()=>h(home.module.default)}}
+    const mounted=await mountPublicComponent(root)
+    try {
+      const targets=mounted.container.querySelectorAll('#models')
+      assert.equal(targets.length,1,`${scenario.status} must retain one model navigation target`)
+      if(scenario.copy){
+        assert.equal(targets[0].getAttribute('tabindex'),'-1')
+        assert.match(targets[0].textContent,new RegExp(scenario.copy))
+        assert.equal(targets[0].querySelector('a').getAttribute('href'),'/pricing')
+      } else {
+        assert.match(targets[0].textContent,/Published model/)
+        assert.equal(targets[0].querySelector('a').getAttribute('href'),'/pricing/verified-model')
+        assert.equal(mounted.container.querySelector('.public-model-fallback'),null)
+      }
+    } finally {mounted.unmount()}
+  }
+}))

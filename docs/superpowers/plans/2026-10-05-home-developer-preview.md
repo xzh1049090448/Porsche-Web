@@ -17,3 +17,6 @@
 - [ ] 独立规格与质量签收。
 
 具体证据和风险见docs/agents/validation/2026-10-05-developer-visual-preview/report.md。
+
+- [x] 模型推荐不可用时稳定锚点/清晰空态及目录入口。
+- [x] 手机Tawk本地装饰遮挡修复，真实客服按钮和会话frame保留；无需远端权限。

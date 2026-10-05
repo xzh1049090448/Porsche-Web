@@ -210,6 +210,9 @@ export const publicHomeMessages = {
     advantageThreeTitle: '透明的参考报价', advantageThreeBody: '按输入和输出 Token 查看已发布的参考价格。',
     advantageFourTitle: '可控的访问管理', advantageFourBody: '在控制台管理账号、密钥及可用功能。',
     ctaTitle: '准备好开始了吗？', ctaBody: '进入控制台，查看当前账号可用的模型与功能。',
+    modelsLoading: '正在准备首页模型推荐，你也可以直接查看完整模型目录。',
+    modelsEmpty: '暂无首页推荐模型，请前往模型目录查看已发布内容。',
+    modelsUnavailable: '首页模型推荐暂未就绪，请前往模型目录查看当前发布状态。这不代表模型不可调用。',
     dynamicUnavailable: '附加公共内容当前不可用。',
   },
   en: {
@@ -235,6 +238,9 @@ export const publicHomeMessages = {
     advantageThreeTitle: 'Transparent references', advantageThreeBody: 'View published input and output token reference prices.',
     advantageFourTitle: 'Managed access', advantageFourBody: 'Manage accounts, API keys, and available features in the console.',
     ctaTitle: 'Ready to get started?', ctaBody: 'Open the console to see the models and features available to your account.',
+    modelsLoading: 'Preparing featured models. You can also browse the full model catalog.',
+    modelsEmpty: 'No featured models yet. Browse published models in the catalog.',
+    modelsUnavailable: 'Featured models are not ready. Visit the catalog for its current publication status. This does not mean models are unavailable for API calls.',
     dynamicUnavailable: 'Additional public content is currently unavailable.',
   },
 }

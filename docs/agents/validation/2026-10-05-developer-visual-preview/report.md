@@ -37,8 +37,8 @@
 | --- | --- | --- |
 | aiportcloud-home-light.png | file_000000009f9c81f59a102d379056a0ad | libfile_11b336e75fd48191bb565b2f33942a30 |
 | aiportcloud-home-dark.png | file_00000000605c81f5a88125c6e62c5743 | libfile_b42be7b71c28819198e837cbf0fa016f |
-| aiportcloud-home-mobile-light.png | file_00000000401481f5a06cca534ed5e33d | libfile_80f902cabbfc8191801d6487247c4704 |
-| aiportcloud-home-mobile-dark.png | file_000000005d3081f5893b41738b1c6b19 | libfile_711e733797f08191a9a7837e2a43a95a |
+| aiportcloud-home-mobile-light.png | file_00000000c91c81f5bfffd67d92ffcd6a | libfile_80f902cabbfc8191801d6487247c4704 |
+| aiportcloud-home-mobile-dark.png | file_0000000067f481f59c9398287729bf47 | libfile_711e733797f08191a9a7837e2a43a95a |
 
 其他局部证据同目录：aiportcloud-pricing-mobile-error.png、aiportcloud-login-mobile-error.png、aiportcloud-register-mobile-dark.png。旧aiportcloud-home-desktop.png为被替代版本，请勿作为最终效果。
 
@@ -46,6 +46,18 @@
 
 - 本地无已配置后端/账号会话。价格成功数据、登录成功、控制台真实列表/余额/充值、支付、用量端到端均NOT_RUN；单元/组件合同回归不替代这些验证。
 - 仓库要求独立规格和质量角色签收，本次未获得可追溯独立审查，保持PENDING，不标整个产品passing。
-- 预存在的Tawk第三方attention grabber在手机遮挡局部内容；未修改外部客服账号设置。首页发布模型模块不可用时，既有“支持模型”hash导航目标缺失，须跟真实内容发布联调。
+- 两项已知UI问题已在本地收尾，见下文；不需要用户输入或远端Tawk权限。
 - 生产构建仍有既有Billing/ElementPlus等大chunk警告；公共闭包检查通过，无性能数字承诺。
 - 未push、merge、deploy，未改真实计费数据、发起支付、增加外部权限或使用Harness测试脚本。
+
+
+## 用户授权的UI收尾
+
+- `#models` 在loading/hidden/ready-empty/推荐未就绪时有稳定说明区、可聚焦标题和完整目录链接；已发布模型存在时仍使用原模型墙，始终唯一ID。无API契约或发布内容变更。
+- 回归使用真实Vue挂载验证五种状态，先RED（loading目标数量0），后GREEN；未削弱既有固定首页、动态安全、内容发布隔离的断言。
+- 本地CSS仅在<=767px隐藏独立装饰`div#chat-bubble`（且要求直接包含Chat widget iframe）；真实min-widget按钮与max-widget会话frame、桌面装饰保留，Tawk embed和账户配置不变。官方customStyle仅提供zIndex，因此不假设其它配置项：[Tawk JavaScript API](https://developer.tawk.to/jsapi/)。样式依赖当前第三方容器结构，Tawk升级时需复验。
+- 用户Mac浏览器390px实际验证：grabber display:none，launcher display:block/64×60，展开会话frame display:block（290×520）、收起display:none。该Mac内置浏览器第三方srcdoc会话内容为空，因此只宣称窗口切换保留；消息发送及客服会话成功态NOT_RUN，未发送任何消息。
+- 模型导航后标题top80.89px高于header底部56px，focus=model-fallback-title；浅色按钮rgb255,255,255字/rgb18,107,86背景，深色rgb16,39,39字/rgb137,230,202背景。手机clientWidth=scrollWidth=375。顺带修复始终深色页脚中的链接前景为浅灰，避免浅色主题的灰字低对比。
+- 最终影响回归58/58，0 fail/skip；final production build5.50秒PASS；diff-check PASS，见ui-polish-tests.log、ui-polish-build.log。上文1226项全量回归为前一共享样式阶段证据，未把它冒称为新增回归后的1227项全量结果。
+- 手机浅/深色截图更新到原Library文件版本1。模型空态截图aiportcloud-models-fallback-mobile.png：file_000000000a0481fb92a75c06be936bd6 / libfile_baf71fbbd5048191b0cb6b16162dcde1。
+- 真正待验是本地后端成功会话和独立审查；当前UI收尾不需要向用户请求其它输入或账号权限。

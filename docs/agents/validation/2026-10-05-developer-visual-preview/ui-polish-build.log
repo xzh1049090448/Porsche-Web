@@ -1,0 +1,133 @@
+
+> llm-aggregation-platform@1.0.0 build
+> node ./scripts/check-production-env.mjs && vite build && node ./scripts/check-production-bundle.mjs
+
+vite v6.4.3 building for production...
+transforming...
+node_modules/@vueuse/core/dist/index.js (3362:0): A comment
+
+"/* #__PURE__ */"
+
+in "node_modules/@vueuse/core/dist/index.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.
+node_modules/@vueuse/core/dist/index.js (5780:22): A comment
+
+"/* #__PURE__ */"
+
+in "node_modules/@vueuse/core/dist/index.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.
+✓ 2439 modules transformed.
+rendering chunks...
+[plugin vite:reporter]
+(!) /Users/xuzhihao/Documents/Codex/2026-10-05/task-2/porsche-web-preview/src/router/index.js is dynamically imported by /Users/xuzhihao/Documents/Codex/2026-10-05/task-2/porsche-web-preview/src/utils/auth-redirect.js but also statically imported by /Users/xuzhihao/Documents/Codex/2026-10-05/task-2/porsche-web-preview/src/main.js, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter]
+(!) /Users/xuzhihao/Documents/Codex/2026-10-05/task-2/porsche-web-preview/src/utils/export.js is dynamically imported by /Users/xuzhihao/Documents/Codex/2026-10-05/task-2/porsche-web-preview/src/api/conversations.js but also statically imported by /Users/xuzhihao/Documents/Codex/2026-10-05/task-2/porsche-web-preview/src/components/chat/ChatSidebar.vue, dynamic import will not move module into another chunk.
+
+computing gzip size...
+dist/index.html                                        2.25 kB │ gzip:   0.98 kB
+dist/.vite/manifest.json                              31.34 kB │ gzip:   3.56 kB
+dist/public-module-graph.json                        147.90 kB │ gzip:  15.29 kB
+dist/assets/UserDemoteDialog-BK3u7PdG.css              0.03 kB │ gzip:   0.05 kB
+dist/assets/UserPermissionsDialog-CJ_5T_ON.css         0.03 kB │ gzip:   0.05 kB
+dist/assets/Profile-DIs63pmi.css                       0.15 kB │ gzip:   0.14 kB
+dist/assets/UserPromoteDialog-W065s6wC.css             0.16 kB │ gzip:   0.12 kB
+dist/assets/UserSoftDeleteDialog-C6Aw_FLv.css          0.17 kB │ gzip:   0.14 kB
+dist/assets/PublicModelForm-4VPnS4dc.css               0.22 kB │ gzip:   0.16 kB
+dist/assets/Register-Dk_6sURC.css                      0.27 kB │ gzip:   0.19 kB
+dist/assets/Login-CE5eZZZ7.css                         0.35 kB │ gzip:   0.22 kB
+dist/assets/LocaleToggle-DfMTfF6T.css                  0.39 kB │ gzip:   0.20 kB
+dist/assets/UserPermissionEditor-1_PsHNZk.css          0.77 kB │ gzip:   0.32 kB
+dist/assets/ApiKeys-C_g36wds.css                       0.88 kB │ gzip:   0.40 kB
+dist/assets/PublicContentAdmin-DLvnXRop.css            0.94 kB │ gzip:   0.42 kB
+dist/assets/PublicModelDetail-kynvXuYV.css             0.99 kB │ gzip:   0.44 kB
+dist/assets/PublicModelsAdmin-CAXT9DzO.css             1.21 kB │ gzip:   0.52 kB
+dist/assets/mobile-cSnM1SN6.css                        1.37 kB │ gzip:   0.61 kB
+dist/assets/UserDetail-PeuX4tDk.css                    1.46 kB │ gzip:   0.57 kB
+dist/assets/RootNotifications-CTUMsk-U.css             1.49 kB │ gzip:   0.53 kB
+dist/assets/useBreakpoint-BLrUmlB7.css                 1.80 kB │ gzip:   0.64 kB
+dist/assets/PublicPricingAdmin-7d4CcIGL.css            2.39 kB │ gzip:   0.74 kB
+dist/assets/Billing-BLhDjD8c.css                       2.49 kB │ gzip:   0.80 kB
+dist/assets/Users-CMuBnL4p.css                         2.81 kB │ gzip:   0.85 kB
+dist/assets/global-C-E5ll7Y.css                        3.66 kB │ gzip:   0.95 kB
+dist/assets/Pricing-DQXAToB0.css                       3.82 kB │ gzip:   1.03 kB
+dist/assets/public-pricing-QL0DG2_2.css                4.45 kB │ gzip:   1.31 kB
+dist/assets/console-shell-DeHcxnjY.css                 5.96 kB │ gzip:   1.62 kB
+dist/assets/Home-BPzL8wVn.css                         10.86 kB │ gzip:   2.41 kB
+dist/assets/public-content-DqYHW8mn.css               12.21 kB │ gzip:   2.93 kB
+dist/assets/index-DfAFdwFT.css                        21.25 kB │ gzip:   4.84 kB
+dist/assets/Chat-BB9VdF4t.css                         21.54 kB │ gzip:   4.20 kB
+dist/assets/index-BNGG5Plh.css                       357.67 kB │ gzip:  47.85 kB
+dist/assets/production-api-sentinel-O3dreIL8.js        0.03 kB │ gzip:   0.05 kB
+dist/assets/_plugin-vue_export-helper-DlAUqK2U.js      0.09 kB │ gzip:   0.10 kB
+dist/assets/guid-DJNAouHa.js                           0.19 kB │ gzip:   0.17 kB
+dist/assets/SurfaceCard-DClSA60Z.js                    0.26 kB │ gzip:   0.22 kB
+dist/assets/useI18n-CMxr6x6Q.js                        0.31 kB │ gzip:   0.20 kB
+dist/assets/storage-Xfplgx4z.js                        0.42 kB │ gzip:   0.26 kB
+dist/assets/StatusBadge-B-QCzbdY.js                    0.44 kB │ gzip:   0.31 kB
+dist/assets/viewport-height-BfaNrUD3.js                0.48 kB │ gzip:   0.26 kB
+dist/assets/useDocumentTheme-D17EY8ZW.js               0.56 kB │ gzip:   0.34 kB
+dist/assets/AuthApp-CB9BWjMP.js                        0.62 kB │ gzip:   0.42 kB
+dist/assets/PublicNotFound-BBGwCKZE.js                 0.64 kB │ gzip:   0.46 kB
+dist/assets/PageHeader-DedM7WcI.js                     0.66 kB │ gzip:   0.35 kB
+dist/assets/theme-Mag6U7_J.js                          0.89 kB │ gzip:   0.48 kB
+dist/assets/PublicContentState-BCir6yKD.js             0.92 kB │ gzip:   0.44 kB
+dist/assets/AppBrand-B7YR9da8.js                       0.98 kB │ gzip:   0.57 kB
+dist/assets/clipboard-Czlq9Uao.js                      1.36 kB │ gzip:   0.70 kB
+dist/assets/LocaleToggle-CZdMySPx.js                   1.36 kB │ gzip:   0.65 kB
+dist/assets/About-DbuUY6_M.js                          1.38 kB │ gzip:   0.76 kB
+dist/assets/auth-BBuaQonN.js                           1.42 kB │ gzip:   0.86 kB
+dist/assets/useBreakpoint-gS6XQp2i.js                  1.64 kB │ gzip:   0.90 kB
+dist/assets/AuthStatus-B6I2dA6r.js                     1.86 kB │ gzip:   1.14 kB
+dist/assets/public-pricing-B7JFv6vg.js                 2.16 kB │ gzip:   1.00 kB
+dist/assets/LegalPage-WSD6azk5.js                      2.16 kB │ gzip:   1.12 kB
+dist/assets/PublicFooter-1QFfD19e.js                   3.03 kB │ gzip:   1.39 kB
+dist/assets/Login-Dd6IPnfg.js                          3.32 kB │ gzip:   1.54 kB
+dist/assets/Register-ByDxfDDT.js                       3.69 kB │ gzip:   1.53 kB
+dist/assets/publicHomePublication-DXyvj7Kk.js          3.70 kB │ gzip:   1.49 kB
+dist/assets/RootNotifications-Ci72kap3.js              3.92 kB │ gzip:   1.59 kB
+dist/assets/publicModelAdmin-DVdyNAFM.js               4.48 kB │ gzip:   1.78 kB
+dist/assets/public-catalog-PqlB2Zp_.js                 4.55 kB │ gzip:   1.56 kB
+dist/assets/PublicContentPreview-C39tUwkL.js           5.04 kB │ gzip:   2.28 kB
+dist/assets/pinia-El_1iT3Q.js                          5.64 kB │ gzip:   2.56 kB
+dist/assets/ModelPricingDetail-DtHJ0wbf.js             5.65 kB │ gzip:   1.95 kB
+dist/assets/public-document-C9Mjdlfr.js                6.06 kB │ gzip:   2.63 kB
+dist/assets/UserPermissionEditor-BWyVNgLI.js           6.07 kB │ gzip:   2.54 kB
+dist/assets/UserDemoteDialog-CQLNHz_j.js               6.38 kB │ gzip:   2.97 kB
+dist/assets/UserPermissionsDialog-B0mjjRAO.js          7.29 kB │ gzip:   3.25 kB
+dist/assets/PublicLayout-DtryNLCW.js                   7.40 kB │ gzip:   2.97 kB
+dist/assets/PublicModelForm-CJEMjFGQ.js                7.49 kB │ gzip:   1.99 kB
+dist/assets/Profile-D-M1AjgA.js                        7.58 kB │ gzip:   2.49 kB
+dist/assets/UserPromoteDialog-BPyR5ltE.js              7.71 kB │ gzip:   3.48 kB
+dist/assets/rootNotifications-BNrT2eqo.js              9.45 kB │ gzip:   3.79 kB
+dist/assets/MainLayout-CW6F_9er.js                     9.75 kB │ gzip:   3.29 kB
+dist/assets/Home-CYTF9awP.js                          10.50 kB │ gzip:   3.16 kB
+dist/assets/public-runtime-BnGws3Fl.js                10.90 kB │ gzip:   4.55 kB
+dist/assets/PublicModelsAdmin-CGnnfBTc.js             11.06 kB │ gzip:   3.69 kB
+dist/assets/ApiKeys-4BiyfaUx.js                       11.70 kB │ gzip:   4.05 kB
+dist/assets/publicModelAdmin-BNQ0mzcz.js              13.30 kB │ gzip:   4.43 kB
+dist/assets/publicContent-v-Qs2g5l.js                 13.66 kB │ gzip:   4.68 kB
+dist/assets/Pricing-wDC2a0iu.js                       14.00 kB │ gzip:   4.35 kB
+dist/assets/PublicModelDetail-BrPALyXj.js             14.04 kB │ gzip:   4.04 kB
+dist/assets/publicPricingAdmin-BPOzDN4U.js            15.51 kB │ gzip:   5.20 kB
+dist/assets/PublicPricingAdmin-CxKbjMW6.js            15.77 kB │ gzip:   5.28 kB
+dist/assets/user-D_UsSsoz.js                          17.11 kB │ gzip:   6.02 kB
+dist/assets/settings-BFl_76M0.js                      23.01 kB │ gzip:   8.26 kB
+dist/assets/purify.es-5AjVNlXF.js                     28.92 kB │ gzip:  11.14 kB
+dist/assets/public-content-validation-BRoLsctV.js     35.68 kB │ gzip:  10.98 kB
+dist/assets/PublicContentAdmin-CQYN6qdS.js            36.35 kB │ gzip:  10.33 kB
+dist/assets/marked.esm-DKjyhwJX.js                    39.67 kB │ gzip:  12.19 kB
+dist/assets/UserSoftDeleteDialog-D6L2SH17.js          46.89 kB │ gzip:  13.53 kB
+dist/assets/Users-1-qqN5oY.js                         50.84 kB │ gzip:  15.81 kB
+dist/assets/locale-CKKt2WQH.js                        66.11 kB │ gzip:  20.89 kB
+dist/assets/request-BT8HuLNS.js                       68.01 kB │ gzip:  25.17 kB
+dist/assets/Chat-VqP9rvxX.js                          69.74 kB │ gzip:  21.95 kB
+dist/assets/UserDetail-CjGn3Ut1.js                   106.39 kB │ gzip:  26.57 kB
+dist/assets/index-wlPFGajC.js                        128.59 kB │ gzip:  49.43 kB
+dist/assets/index-Cgb1K4bi.js                        171.26 kB │ gzip:  43.92 kB
+dist/assets/index-mBtXSXqZ.js                        922.08 kB │ gzip: 299.39 kB
+dist/assets/Billing-CHuuirE3.js                    1,057.68 kB │ gzip: 350.53 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.50s

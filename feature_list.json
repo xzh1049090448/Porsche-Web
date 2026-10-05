@@ -32,7 +32,8 @@
       ],
       "evidence": [
         "2026-10-05：隔离clone内完整回归1226/1226、0skip；最终主题布局27/27、最终build5.92s PASS。",
-        "2026-10-05：用户Mac内置浏览器实际预览与交互证据，见docs/agents/validation/2026-10-05-developer-visual-preview/report.md。"
+        "2026-10-05：用户Mac内置浏览器实际预览与交互证据，见docs/agents/validation/2026-10-05-developer-visual-preview/report.md。",
+        "2026-10-05：UI收尾58/58、0skip，production build5.50s、稳定模型导航与手机客服入口Mac浏览器验证；无需用户输入/远端权限。"
       ],
       "notes": "本地视觉交付DONE_WITH_CONCERNS，真实后台联调及独立规格/质量签收PENDING。保留原开发目录、未部署。"
     },
